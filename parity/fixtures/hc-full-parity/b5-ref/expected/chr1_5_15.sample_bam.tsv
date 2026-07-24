@@ -1,0 +1,3 @@
+contig	start	end	is_active	extended_start	extended_end	ref_window_start	ref_window_end	ref_len
+chr1	5	15	false	1	32	1	32	32
+ref_bases	ACGTACGTACGTACGTACGTACGTACGTACGT

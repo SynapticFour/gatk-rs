@@ -1,0 +1,6 @@
+# case_id	bam_or_sam	expected_tsv
+mq_ok_20	parity/fixtures/hc-full-parity/pre-mq/mq_ok_20.sam	parity/fixtures/hc-full-parity/pre-mq/expected/mq_ok_20.tsv
+mq_fail_19	parity/fixtures/hc-full-parity/pre-mq/mq_fail_19.sam	parity/fixtures/hc-full-parity/pre-mq/expected/mq_fail_19.tsv
+mq_ok_60	parity/fixtures/hc-full-parity/pre-mq/mq_ok_60.sam	parity/fixtures/hc-full-parity/pre-mq/expected/mq_ok_60.tsv
+mq_ok_unavail	parity/fixtures/hc-full-parity/pre-mq/mq_ok_unavail.sam	parity/fixtures/hc-full-parity/pre-mq/expected/mq_ok_unavail.tsv
+mq_fail_0	parity/fixtures/hc-full-parity/pre-mq/mq_fail_0.sam	parity/fixtures/hc-full-parity/pre-mq/expected/mq_fail_0.tsv

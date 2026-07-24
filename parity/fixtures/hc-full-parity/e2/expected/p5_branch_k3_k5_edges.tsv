@@ -1,0 +1,3 @@
+kmer_size	from_kmer	to_kmer	support
+5	TATAT	ATATA	2
+5	TATAT	ATATG	3

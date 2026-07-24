@@ -1,0 +1,5 @@
+kmer_size	3
+is_low_quality_graph	true
+unique_kmer_count	2
+non_unique_kmer_count	4
+would_abort_assembly	true

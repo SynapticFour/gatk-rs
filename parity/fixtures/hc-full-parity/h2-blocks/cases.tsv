@@ -1,0 +1,2 @@
+# case_id	loci_fixture	expected_tsv
+p8_case_a	parity/fixtures/hc-full-parity/h2-blocks/p8_case_a_loci.tsv	parity/fixtures/hc-full-parity/h2-blocks/expected/p8_case_a_blocks.tsv

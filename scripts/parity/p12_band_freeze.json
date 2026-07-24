@@ -1,0 +1,230 @@
+{
+  "description": "N-7 freeze: inclusive widths of P12 START/END pairs in java_hc_site_semantics.rs. Widening fails the gate; shrinking requires intentional freeze update.",
+  "source": "gatk-haplotypecaller/src/compatibility/java_hc_site_semantics.rs",
+  "bands": [
+    {
+      "start_const": "CLUSTER_CORE_DOWNSTREAM_TAIL_START",
+      "end_const": "CLUSTER_CORE_DOWNSTREAM_TAIL_END",
+      "start": 92307404,
+      "end": 92307419,
+      "inclusive_width": 16
+    },
+    {
+      "start_const": "CLUSTER_CORE_POST_AC_HIGH_START",
+      "end_const": "CLUSTER_CORE_POST_AC_HIGH_END",
+      "start": 92307384,
+      "end": 92307402,
+      "inclusive_width": 19
+    },
+    {
+      "start_const": "CLUSTER_CORE_POST_CTC_START",
+      "end_const": "CLUSTER_CORE_POST_CTC_END",
+      "start": 92307361,
+      "end": 92307382,
+      "inclusive_width": 22
+    },
+    {
+      "start_const": "CLUSTER_CORE_PRE_TTC_TAIL_START",
+      "end_const": "CLUSTER_CORE_PRE_TTC_TAIL_END",
+      "start": 92307272,
+      "end": 92307323,
+      "inclusive_width": 52
+    },
+    {
+      "start_const": "CLUSTER_INTERIOR_BLOCK_START",
+      "end_const": "CLUSTER_INTERIOR_BLOCK_END",
+      "start": 92305671,
+      "end": 92305698,
+      "inclusive_width": 28
+    },
+    {
+      "start_const": "CLUSTER_POST_CORE_GRADATION_START",
+      "end_const": "CLUSTER_POST_CORE_GRADATION_END",
+      "start": 92307423,
+      "end": 92307574,
+      "inclusive_width": 152
+    },
+    {
+      "start_const": "CLUSTER_POST_SHADOW_BAND_START",
+      "end_const": "CLUSTER_POST_SHADOW_BAND_END",
+      "start": 92305755,
+      "end": 92305823,
+      "inclusive_width": 69
+    },
+    {
+      "start_const": "CLUSTER_TTC_PRE_ANCHOR_START",
+      "end_const": "CLUSTER_TTC_PRE_ANCHOR_END",
+      "start": 92307338,
+      "end": 92307358,
+      "inclusive_width": 21
+    },
+    {
+      "start_const": "CLUSTER_TTC_UPSTREAM_SHADOW_START",
+      "end_const": "CLUSTER_TTC_UPSTREAM_SHADOW_END",
+      "start": 92307328,
+      "end": 92307337,
+      "inclusive_width": 10
+    },
+    {
+      "start_const": "CLUSTER_UPSTREAM_INTERSTITIAL_START",
+      "end_const": "CLUSTER_UPSTREAM_INTERSTITIAL_END",
+      "start": 92305717,
+      "end": 92305727,
+      "inclusive_width": 11
+    },
+    {
+      "start_const": "CLUSTER_UPSTREAM_START",
+      "end_const": "CLUSTER_UPSTREAM_END",
+      "start": 92305716,
+      "end": 92305728,
+      "inclusive_width": 13
+    },
+    {
+      "start_const": "DOWNSTREAM_CLUSTER_GRADATION_START",
+      "end_const": "DOWNSTREAM_CLUSTER_GRADATION_END",
+      "start": 92324400,
+      "end": 92325268,
+      "inclusive_width": 869
+    },
+    {
+      "start_const": "DOWNSTREAM_CLUSTER_START",
+      "end_const": "DOWNSTREAM_CLUSTER_END",
+      "start": 92324463,
+      "end": 92325268,
+      "inclusive_width": 806
+    },
+    {
+      "start_const": "INTER_CLUSTER_GAP_GRADATION_START",
+      "end_const": "INTER_CLUSTER_GAP_GRADATION_END",
+      "start": 92319084,
+      "end": 92324399,
+      "inclusive_width": 5316
+    },
+    {
+      "start_const": "JAVA_HOM_REF_MEGA_ZERO_START",
+      "end_const": "JAVA_HOM_REF_MEGA_ZERO_END",
+      "start": 92307575,
+      "end": 92308895,
+      "inclusive_width": 1321
+    },
+    {
+      "start_const": "JAVA_SPARSE_HOM_REF_DESERT_START",
+      "end_const": "JAVA_SPARSE_HOM_REF_DESERT_END",
+      "start": 92305824,
+      "end": 92306867,
+      "inclusive_width": 1044
+    },
+    {
+      "start_const": "JAVA_WIDE_HOM_REF_DESERT_START",
+      "end_const": "JAVA_WIDE_HOM_REF_DESERT_END",
+      "start": 92309887,
+      "end": 92315251,
+      "inclusive_width": 5365
+    },
+    {
+      "start_const": "MID_A_JAVA_SPARSE_START",
+      "end_const": "MID_A_JAVA_SPARSE_END",
+      "start": 92316416,
+      "end": 92316458,
+      "inclusive_width": 43
+    },
+    {
+      "start_const": "MID_A_TRANSITION_GRADATION_START",
+      "end_const": "MID_A_TRANSITION_GRADATION_END",
+      "start": 92316296,
+      "end": 92317398,
+      "inclusive_width": 1103
+    },
+    {
+      "start_const": "MID_B_DENSE_CLUSTER_GRADATION_START",
+      "end_const": "MID_B_DENSE_CLUSTER_GRADATION_END",
+      "start": 92317399,
+      "end": 92319083,
+      "inclusive_width": 1685
+    },
+    {
+      "start_const": "MID_B_DENSE_CLUSTER_START",
+      "end_const": "MID_B_DENSE_CLUSTER_END",
+      "start": 92317399,
+      "end": 92319083,
+      "inclusive_width": 1685
+    },
+    {
+      "start_const": "PHASE_A_UPSTREAM_GRADATION_START",
+      "end_const": "PHASE_A_UPSTREAM_GRADATION_END",
+      "start": 92305000,
+      "end": 92305999,
+      "inclusive_width": 1000
+    },
+    {
+      "start_const": "POST_DESERT_INACTIVE_ZERO_START",
+      "end_const": "POST_DESERT_INACTIVE_ZERO_END",
+      "start": 92307106,
+      "end": 92307191,
+      "inclusive_width": 86
+    },
+    {
+      "start_const": "POST_DOWNSTREAM_TAIL_GRADATION_START",
+      "end_const": "POST_DOWNSTREAM_TAIL_GRADATION_END",
+      "start": 92325269,
+      "end": 92325999,
+      "inclusive_width": 731
+    },
+    {
+      "start_const": "POST_MEGA_ZERO_FRINGE_START",
+      "end_const": "POST_MEGA_ZERO_FRINGE_END",
+      "start": 92308896,
+      "end": 92308999,
+      "inclusive_width": 104
+    },
+    {
+      "start_const": "POST_MEGA_ZERO_GRADATION_START",
+      "end_const": "POST_MEGA_ZERO_GRADATION_END",
+      "start": 92308896,
+      "end": 92308999,
+      "inclusive_width": 104
+    },
+    {
+      "start_const": "PRE_MID_A_DESERT_ISLAND2_START",
+      "end_const": "PRE_MID_A_DESERT_ISLAND2_END",
+      "start": 92315968,
+      "end": 92316148,
+      "inclusive_width": 181
+    },
+    {
+      "start_const": "PRE_MID_A_DESERT_ISLAND_START",
+      "end_const": "PRE_MID_A_DESERT_ISLAND_END",
+      "start": 92315460,
+      "end": 92315732,
+      "inclusive_width": 273
+    },
+    {
+      "start_const": "PRE_MID_A_FRINGE_GRADATION_START",
+      "end_const": "PRE_MID_A_FRINGE_GRADATION_END",
+      "start": 92315252,
+      "end": 92316295,
+      "inclusive_width": 1044
+    },
+    {
+      "start_const": "PRE_MID_A_FRINGE_START",
+      "end_const": "PRE_MID_A_FRINGE_END",
+      "start": 92315252,
+      "end": 92316295,
+      "inclusive_width": 1044
+    },
+    {
+      "start_const": "PRE_WIDE_DESERT_GRADATION_START",
+      "end_const": "PRE_WIDE_DESERT_GRADATION_END",
+      "start": 92308999,
+      "end": 92309886,
+      "inclusive_width": 888
+    },
+    {
+      "start_const": "SPARSE_SOFTCLIP_PAIRHMM_START",
+      "end_const": "SPARSE_SOFTCLIP_PAIRHMM_END",
+      "start": 92318129,
+      "end": 92318386,
+      "inclusive_width": 258
+    }
+  ]
+}

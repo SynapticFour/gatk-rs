@@ -1,0 +1,4 @@
+# case_id	kind	ref	bam_or_contig	interval_or_pos	ref_allele	alt_allele	gl_csv	ad_csv	expected
+p5_snp_chrlive	call-region	parity/fixtures/p5_live_reference.fa	parity/fixtures/p5_live_case_snp.sam	chrLive:1-24	-	-	-	-	parity/fixtures/hc-full-parity/j2/expected/p5_snp_chrlive_vcf.tsv
+p11_java_positive_chrlive	call-region	parity/fixtures/p5_live_reference.fa	parity/fixtures/p11_java_positive.sam	chrLive:1-63	-	-	-	-	parity/fixtures/hc-full-parity/j2/expected/p11_java_positive_chrlive_vcf.tsv
+synthetic_het	synthetic	-	chrTest	100	A	C	-2.0,-0.1,-2.0	5,12	parity/fixtures/hc-full-parity/j2/expected/synthetic_het_vcf.tsv

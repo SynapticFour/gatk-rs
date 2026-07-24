@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>gatk-rs · Equivalence &amp; Performance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="style.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <p class="brand">gatk-rs</p>
+      <h1>Equivalence &amp; Performance</h1>
+      <p class="lede">
+        Live hap.py / RTG metrics and dedicated-host HaplotypeCaller timings versus
+        <strong>pinned Java GATK&nbsp;4.4</strong>. Scope and baseline configuration
+        are stated first — numbers without that context are marketing, not science.
+      </p>
+      <nav class="tabs" role="tablist" aria-label="Dashboard sections">
+        <button type="button" class="tab active" role="tab" aria-selected="true"
+                data-tab="equivalence" id="tab-eq">Equivalence</button>
+        <button type="button" class="tab" role="tab" aria-selected="false"
+                data-tab="performance" id="tab-perf">Performance</button>
+      </nav>
+    </header>
+
+    <!-- ===================== EQUIVALENCE ===================== -->
+    <div id="panel-equivalence" class="tab-panel" role="tabpanel">
+      <section class="scope" id="scope" aria-labelledby="scope-heading">
+        <h2 id="scope-heading">Validated scope (current)</h2>
+        <p class="empty" id="scope-empty">No published runs yet. History fills after the first successful
+          <code>nightly-equivalence</code> or <code>genomewide-validation</code> workflow.</p>
+        <dl id="scope-dl" hidden></dl>
+        <p class="honesty" id="scope-honesty" hidden></p>
+      </section>
+
+      <div class="controls">
+        <label>Metric
+          <select id="metric" aria-label="Metric">
+            <option value="f1" selected>F1</option>
+            <option value="precision">Precision</option>
+            <option value="recall">Recall</option>
+          </select>
+        </label>
+        <label>Variant class
+          <select id="vtype" aria-label="Variant class">
+            <option value="SNP" selected>SNP</option>
+            <option value="INDEL">INDEL</option>
+          </select>
+        </label>
+        <label>Engine
+          <select id="engine" aria-label="Engine">
+            <option value="rust" selected>Rust (gatk-rs)</option>
+            <option value="java">Java GATK 4.4</option>
+          </select>
+        </label>
+        <span class="pill" id="run-count">0 runs</span>
+      </div>
+
+      <div class="grid two">
+        <section class="card">
+          <h3>Trend over time</h3>
+          <div class="chart-box">
+            <canvas id="chart-trend" aria-label="Metric over time"></canvas>
+          </div>
+        </section>
+        <section class="card">
+          <h3>Latest run by region / sample</h3>
+          <div class="chart-box">
+            <canvas id="chart-bars" aria-label="Latest metrics by region"></canvas>
+          </div>
+        </section>
+      </div>
+
+      <section class="card" style="margin-top:1.25rem">
+        <h3>Latest metrics table</h3>
+        <div id="table-wrap"><p class="empty">Waiting for data…</p></div>
+      </section>
+    </div>
+
+    <!-- ===================== PERFORMANCE ===================== -->
+    <div id="panel-performance" class="tab-panel" role="tabpanel" hidden>
+      <section class="scope" aria-labelledby="perf-scope-heading">
+        <h2 id="perf-scope-heading">Fair comparison contract</h2>
+        <dl>
+          <dt>Host</dt>
+          <dd>Dedicated quiet runner <code>gatk-rs-benchmark</code> (not GitHub-hosted, not genomewide VM)</dd>
+          <dt>Primary Java baseline</dt>
+          <dd><strong>FASTEST_AVAILABLE</strong> (native AVX / GKL when loaded) — <em>not</em> LOGLESS_CACHING</dd>
+          <dt>Rust under test</dt>
+          <dd>gatk-rs <code>--pair-hmm AVX</code> (SIMD); scalar <code>LOGLESS_HMM</code> also measured</dd>
+          <dt>Statistics</dt>
+          <dd>≥5 repeats per cell → <strong>median ± sample stdev</strong> (not best-of-N)</dd>
+          <dt>Regions</dt>
+          <dd>small / medium / large nested GIAB windows (fixcost vs throughput)</dd>
+          <dt>Workflow</dt>
+          <dd><code>benchmark.yml</code> · raw: <code>docs/perf/FAIR_HC_COMPARISON.md</code></dd>
+        </dl>
+        <p class="honesty">
+          Comparing Rust SIMD only against Java <code>LOGLESS_CACHING</code> (the software fallback)
+          would inflate speedups and is shown only as a secondary series, never as the headline.
+        </p>
+      </section>
+
+      <p class="empty" id="perf-empty">No dedicated-host performance runs published yet.
+        Trigger <code>benchmark.yml</code> on the quiet host to populate this tab.</p>
+
+      <div class="controls" id="perf-controls" hidden>
+        <label>Region size
+          <select id="perf-region" aria-label="Region size">
+            <option value="all" selected>All sizes</option>
+            <option value="small">small</option>
+            <option value="medium">medium</option>
+            <option value="large">large</option>
+          </select>
+        </label>
+        <span class="pill" id="perf-run-count">0 runs</span>
+        <span class="pill baseline-pill">baseline: Java FASTEST_AVAILABLE</span>
+      </div>
+
+      <div class="grid two" id="perf-charts" hidden>
+        <section class="card">
+          <h3>Speedup over commits (vs Java FASTEST_AVAILABLE)</h3>
+          <div class="chart-box">
+            <canvas id="chart-speedup" aria-label="Speedup over commits"></canvas>
+          </div>
+        </section>
+        <section class="card">
+          <h3>Latest median wall time by config</h3>
+          <div class="chart-box">
+            <canvas id="chart-wall" aria-label="Wall time by config"></canvas>
+          </div>
+        </section>
+      </div>
+
+      <section class="card" style="margin-top:1.25rem" id="perf-table-card" hidden>
+        <h3>Latest fair-comparison cells</h3>
+        <div id="perf-table-wrap"></div>
+      </section>
+    </div>
+
+    <footer>
+      Independent community project — not affiliated with the Broad Institute.
+      Source: <a href="https://github.com/gatk-rs/gatk-rs">github.com/gatk-rs/gatk-rs</a>
+      · Claims: <a href="https://github.com/gatk-rs/gatk-rs/blob/main/docs/CLAIM_MATRIX.md">CLAIM_MATRIX.md</a>
+      · Equivalence data: <a href="data/history.json"><code>data/history.json</code></a>
+      · Performance data: <a href="data/perf_history.json"><code>data/perf_history.json</code></a>
+      <span id="updated"></span>
+    </footer>
+  </div>
+</body>
+</html>

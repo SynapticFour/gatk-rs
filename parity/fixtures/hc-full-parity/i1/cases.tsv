@@ -1,0 +1,4 @@
+# case_id	alt_allele_count	samples_tsv	expected
+biallelic_three	1	parity/fixtures/hc-full-parity/i1/samples/biallelic_three.tsv	parity/fixtures/hc-full-parity/i1/expected/biallelic_three.tsv
+hom_ref_only	1	parity/fixtures/hc-full-parity/i1/samples/hom_ref_only.tsv	parity/fixtures/hc-full-parity/i1/expected/hom_ref_only.tsv
+biallelic_two_alt	2	parity/fixtures/hc-full-parity/i1/samples/biallelic_two_alt.tsv	parity/fixtures/hc-full-parity/i1/expected/biallelic_two_alt.tsv

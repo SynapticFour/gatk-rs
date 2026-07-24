@@ -1,0 +1,7 @@
+metric	value
+node_count	0
+edge_count	0
+unique_kmer_count	0
+non_unique_kmer_count	2
+is_low_complexity	true
+max_kmer_multiplicity	0

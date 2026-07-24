@@ -1,0 +1,2 @@
+# case_id	hap_sums	is_ref	max_alleles	vc_fixture	expected
+trim_three	0,-0.5,-1.0,0.1	1,0,0,0	2	parity/fixtures/hc-full-parity/g-subset-vc/het_ac_sac_vc.tsv	parity/fixtures/hc-full-parity/g-subset-integration/expected/trim_three.tsv

@@ -1,0 +1,10 @@
+# case_id	ref	interval_cli	padding	expected_tsv
+chr1_5_15_default	parity/fixtures/reference.fa	chr1:5-15	100	parity/fixtures/hc-full-parity/b1/expected/chr1_5_15.default_pad.tsv
+chr1_singleton_10	parity/fixtures/reference.fa	chr1:10-10	5	parity/fixtures/hc-full-parity/b1/expected/chr1_singleton_10.tsv
+chr1_full_contig_pad0	parity/fixtures/reference.fa	chr1:1-32	0	parity/fixtures/hc-full-parity/b1/expected/chr1_full_contig_pad0.tsv
+chr1_three_intervals_pad2	parity/fixtures/reference.fa	chr1:2-4;chr1:10-11;chr1:28-30	2	parity/fixtures/hc-full-parity/b1/expected/chr1_three_intervals_pad2.tsv
+chr1_disjoint_pad5	parity/fixtures/reference.fa	chr1:1-5;chr1:20-25	5	parity/fixtures/hc-full-parity/b1/expected/chr1_disjoint_pad5.tsv
+p5_snp_chrlive_1_24	parity/fixtures/p5_live_reference.fa	chrLive:1-24	-	parity/fixtures/hc-full-parity/b1/expected/p5_snp_chrlive_1_24.tsv
+p11_java_positive_chrlive	parity/fixtures/p5_live_reference.fa	chrLive:1-63	-	parity/fixtures/hc-full-parity/b1/expected/p11_java_positive_chrlive.tsv
+p5_lowcomplex_chrlowc	parity/fixtures/p5_live_reference_lowcomplex.fa	chrLowC:1-30	-	parity/fixtures/hc-full-parity/b1/expected/p5_lowcomplex_chrlowc.tsv
+p5_repeat_chrrepeat	parity/fixtures/p5_live_reference_repeat.fa	chrRepeat:1-68	-	parity/fixtures/hc-full-parity/b1/expected/p5_repeat_chrrepeat.tsv

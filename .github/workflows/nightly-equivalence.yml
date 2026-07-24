@@ -1,0 +1,281 @@
+# Daily (and manual) GIAB Ashkenazi trio equivalence:
+# HC (GVCF) → CombineGVCFs → GenotypeGVCFs → VariantFiltration
+# on chr20 + chr21 + hard GIAB-stratification slices.
+#
+# Soft gate: never hard-fails on F1 regression; opens an issue instead.
+# Disk-safe: samtools view -L region slices only (no full WGS BAMs).
+name: Nightly trio equivalence
+
+on:
+  schedule:
+    # Daily 05:00 UTC (after nightly.yml 02:00, before weekly GIAB Sunday 04:00)
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+    inputs:
+      regression_threshold:
+        description: "F1 drop vs last green that opens an equivalence-regression issue"
+        required: true
+        default: "0.02"
+      hard_budget_bp:
+        description: "Max bases per hard-region BED"
+        required: true
+        default: "2000000"
+      skip_java:
+        description: "Skip Java path (1=yes, 0=no)"
+        required: true
+        default: "0"
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: nightly-equivalence
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: "2"
+  RAYON_NUM_THREADS: "2"
+  HAPPY_DOCKER_IMAGE: jmcdani20/hap.py:v0.3.12
+  GATK_DOCKER_IMAGE: us.gcr.io/broad-gatk/gatk:4.4.0.0
+  GATK_DOCKER_PLATFORM: linux/amd64
+
+jobs:
+  nightly-trio-equivalence:
+    name: Trio E2E equivalence
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    outputs:
+      run_dir: ${{ steps.paths.outputs.run_dir }}
+      has_regression: ${{ steps.publish.outputs.has_regression }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Free disk
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell || true
+          df -h
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            samtools curl time openjdk-17-jre-headless bcftools \
+            zlib1g-dev libbz2-dev liblzma-dev pkg-config build-essential
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: nightly-equiv-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            nightly-equiv-${{ runner.os }}-
+            ${{ runner.os }}-giab-
+
+      - name: Cache Docker images
+        id: docker-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/docker-image-cache
+          key: nightly-equiv-docker-${{ hashFiles('docs/GATK_PINNED.env') }}-${{ env.HAPPY_DOCKER_IMAGE }}
+          restore-keys: |
+            nightly-equiv-docker-
+
+      - name: Restore / pull Docker images
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/docker-image-cache
+          if [[ -f /tmp/docker-image-cache/gatk.tar ]]; then
+            docker load -i /tmp/docker-image-cache/gatk.tar || true
+          fi
+          if [[ -f /tmp/docker-image-cache/happy.tar ]]; then
+            docker load -i /tmp/docker-image-cache/happy.tar || true
+          fi
+          need_save=0
+          if ! docker image inspect "${GATK_DOCKER_IMAGE}" >/dev/null 2>&1; then
+            docker pull --platform "${GATK_DOCKER_PLATFORM}" "${GATK_DOCKER_IMAGE}"
+            need_save=1
+          fi
+          if ! docker image inspect "${HAPPY_DOCKER_IMAGE}" >/dev/null 2>&1; then
+            docker pull --platform linux/amd64 "${HAPPY_DOCKER_IMAGE}"
+            need_save=1
+          fi
+          if [[ "${need_save}" -eq 1 ]] || [[ ! -f /tmp/docker-image-cache/gatk.tar ]]; then
+            docker save "${GATK_DOCKER_IMAGE}" -o /tmp/docker-image-cache/gatk.tar
+            docker save "${HAPPY_DOCKER_IMAGE}" -o /tmp/docker-image-cache/happy.tar
+          fi
+
+      - name: Build gatk-rs (release)
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "false"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+        run: |
+          source scripts/parity/m4_disk_guard.sh
+          ./scripts/parity/build_gatk_rs_release.sh
+
+      - name: Fetch GIAB truth + stratifications
+        run: ./scripts/parity/giab/fetch_giab_truthsets.sh
+
+      - name: Stage reference (hs37d5.simple.fa)
+        run: |
+          if [[ ! -f parity/realworld/assets/hs37d5.simple.fa ]]; then
+            ./scripts/parity/realworld/03_stage_reference_and_truth.sh
+          fi
+
+      - name: Set run paths
+        id: paths
+        run: |
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          run_dir="${GITHUB_WORKSPACE}/parity/giab/runs/nightly_trio_${stamp}"
+          echo "run_dir=${run_dir}" >> "${GITHUB_OUTPUT}"
+          echo "NIGHTLY_OUT_ROOT=${run_dir}" >> "${GITHUB_ENV}"
+
+      - name: Run nightly trio equivalence
+        id: trio_run
+        continue-on-error: true
+        env:
+          NIGHTLY_HARD_BUDGET_BP: ${{ github.event.inputs.hard_budget_bp || '2000000' }}
+          NIGHTLY_SKIP_JAVA: ${{ github.event.inputs.skip_java || '0' }}
+          NIGHTLY_SKIP_DOCKER_PULL: "1"
+          GIAB_FETCH_TRUTH: "0"
+          GIAB_STAGE_REF: "0"
+          NIGHTLY_MIN_FREE_GB: "4"
+        run: ./scripts/parity/giab/run_nightly_trio_equivalence.sh
+
+      - name: Publish dashboard + regression flags
+        id: publish
+        if: always()
+        env:
+          REGRESSION_THRESHOLD: ${{ github.event.inputs.regression_threshold || '0.02' }}
+        run: |
+          set -euo pipefail
+          run_dir="${NIGHTLY_OUT_ROOT}"
+          if [[ ! -d "${run_dir}/regions" ]]; then
+            echo "No regions/ directory — publishing empty failure dashboard"
+            mkdir -p "${run_dir}/regions" "${run_dir}/flags"
+            echo '[]' > "${run_dir}/flags/regressions.json"
+            echo '0' > "${run_dir}/flags/is_green"
+          fi
+          python3 scripts/parity/giab/publish_nightly_equivalence.py \
+            --run-dir "${run_dir}" \
+            --baseline docs/equivalence/baseline.json \
+            --dashboard-md docs/EQUIVALENCE_DASHBOARD.md \
+            --pages-dir "${run_dir}/dashboard" \
+            --commit-sha "${GITHUB_SHA}" \
+            --regression-threshold "${REGRESSION_THRESHOLD}"
+          if [[ -f "${run_dir}/flags/regressions.json" ]] && \
+             [[ "$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "${run_dir}/flags/regressions.json")" != "0" ]]; then
+            echo "has_regression=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "has_regression=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Upload hap.py summary + run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-equivalence-${{ github.run_id }}
+          path: |
+            ${{ env.NIGHTLY_OUT_ROOT }}/**
+            docs/EQUIVALENCE_DASHBOARD.md
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Open equivalence-regression issue
+        if: always() && steps.publish.outputs.has_regression == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          body_file="${NIGHTLY_OUT_ROOT}/flags/issue_body.md"
+          title="[equivalence-regression] Nightly trio F1 drop (${GITHUB_SHA::12})"
+          # Reuse a single open tracking issue when present.
+          existing="$(gh issue list --label equivalence-regression --state open \
+            --json number,title --jq '.[0].number // empty')"
+          if [[ -n "${existing}" ]]; then
+            gh issue comment "${existing}" --body-file "${body_file}"
+            echo "Commented on existing issue #${existing}"
+          else
+            # Ensure label exists (ignore errors if it already does)
+            gh label create equivalence-regression --color B60205 \
+              --description "Nightly GIAB trio F1 regression vs last green" || true
+            gh issue create \
+              --title "${title}" \
+              --label equivalence-regression \
+              --body-file "${body_file}"
+          fi
+
+      - name: Update public parity-site history
+        id: parity_site
+        if: always() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+        env:
+          PARITY_SITE_SOURCE: nightly
+          PARITY_SITE_JSON: ${{ env.NIGHTLY_OUT_ROOT }}/happy_summary.json
+          PARITY_SITE_COMMIT: "0"
+          PARITY_SITE_PUSH: "0"
+        run: |
+          set -euo pipefail
+          if [[ ! -f "${PARITY_SITE_JSON}" ]]; then
+            echo "No happy_summary.json — skipping public site update"
+            echo "updated=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          chmod +x scripts/ci/publish_parity_site.sh
+          ./scripts/ci/publish_parity_site.sh
+          echo "updated=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Commit dashboard + baseline + parity-site data
+        if: always() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [[ -f "${NIGHTLY_OUT_ROOT}/flags/new_baseline.json" ]]; then
+            cp -f "${NIGHTLY_OUT_ROOT}/flags/new_baseline.json" docs/equivalence/baseline.json
+          fi
+          git add docs/EQUIVALENCE_DASHBOARD.md docs/equivalence/baseline.json \
+            docs/parity-site/data/history.json docs/parity-site/data/latest.json || true
+          if git diff --cached --quiet; then
+            echo "No dashboard/baseline/parity-site changes to commit"
+            exit 0
+          fi
+          git commit -m "docs: update equivalence dashboard + parity-site (${GITHUB_SHA::12})"
+          git push
+
+      # Customer-facing site at Pages root (Chart.js dashboard).
+      - name: Deploy public parity-site to GitHub Pages (root)
+        if: always() && steps.parity_site.outputs.updated == 'true'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: docs/parity-site
+          keep_files: true
+          allow_empty_commit: true
+          user_name: github-actions[bot]
+          user_email: 41898282+github-actions[bot]@users.noreply.github.com
+
+      # Legacy per-run HTML under /equivalence/
+      - name: Deploy nightly run HTML to GitHub Pages (equivalence/)
+        if: always() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ${{ env.NIGHTLY_OUT_ROOT }}/dashboard
+          destination_dir: equivalence
+          keep_files: true
+          allow_empty_commit: true
+          user_name: github-actions[bot]
+          user_email: 41898282+github-actions[bot]@users.noreply.github.com

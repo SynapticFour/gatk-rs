@@ -1,0 +1,72 @@
+name: P12 L6 Scale + Truth
+
+on:
+  schedule:
+    - cron: '0 4 * * 0'  # Weekly Sunday 04:00 UTC (after L4 sign-off)
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  P12_REFERENCE: parity/realworld/assets/hs37d5.simple.fa
+  P13_TRUTH_VCF: parity/realworld/assets/HG001_GRCh37_1_22_v4.2.1_benchmark.vcf.gz
+  P13_REGIONS_BED: parity/realworld/assets/HG001_GRCh37_1_22_v4.2.1_benchmark.bed
+  CARGO_TARGET_DIR: target
+  P12_CARGO_RELEASE: "1"
+  J6_STRICT: "1"
+
+jobs:
+  l6-gate:
+    name: L6 scale + GIAB truth (P12 interval)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Load pinned GATK upstream
+        run: |
+          set -a
+          # shellcheck disable=SC1091
+          source docs/GATK_PINNED.env
+          set +a
+          echo "GATK_DOCKER_IMAGE=${GATK_DOCKER_IMAGE}" >> "${GITHUB_ENV}"
+          echo "GATK_DOCKER_PLATFORM=${GATK_DOCKER_PLATFORM}" >> "${GITHUB_ENV}"
+
+      - name: Pull GATK Docker image
+        run: docker pull --platform "${GATK_DOCKER_PLATFORM}" "${GATK_DOCKER_IMAGE}"
+
+      - name: Install samtools
+        run: sudo apt-get update && sudo apt-get install -y samtools
+
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-p12-l6-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-p12-l6-
+
+      - name: Stage reference + GIAB truth
+        run: REALWORLD_STOP_AFTER_ASSETS=1 ./scripts/parity/realworld/03_stage_reference_and_truth.sh
+
+      - name: Build release gatk-rs
+        run: ./scripts/parity/build_gatk_rs_release.sh
+
+      - name: Run L6 gate
+        run: ./scripts/parity/run_hc_full_parity_j6_truth.sh
+
+      - name: Upload L6 reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: p12-l6-truth-reports
+          path: |
+            parity/reports/hc-full-parity-j6/
+            parity/reports/p12_realworld_na12878_20k.json
+            parity/reports/p13_realworld_truth_eval.json

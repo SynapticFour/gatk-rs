@@ -1,0 +1,5 @@
+# case_id	ref	bam	contig	pos1	cap	expected_tsv	[positional_mode: non-random|random]
+positional_cap2	-	parity/fixtures/hc-full-parity/d2/d2_positional_hotspot.sam	-	-	2	parity/fixtures/hc-full-parity/d2/expected/positional_cap2.tsv
+positional_cap2_random	-	parity/fixtures/hc-full-parity/d2/d2_positional_hotspot.sam	-	-	2	parity/fixtures/hc-full-parity/d2/expected/positional_cap2_random.tsv	random
+positional_unmapped_only	-	parity/fixtures/hc-full-parity/d2/d2_positional_unmapped_only.sam	-	-	2	parity/fixtures/hc-full-parity/d2/expected/positional_unmapped_only_cap2.tsv
+# allele-biased downsampling moved to Phase D.2.6 gate `d2c` (GATK AlleleBiasedDownsamplingUtils).

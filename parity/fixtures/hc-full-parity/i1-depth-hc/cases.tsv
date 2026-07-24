@@ -1,0 +1,2 @@
+# case_id	ad_csv	expected
+het_ad	10,5,5	parity/fixtures/hc-full-parity/i1-depth-hc/expected/het_ad.tsv

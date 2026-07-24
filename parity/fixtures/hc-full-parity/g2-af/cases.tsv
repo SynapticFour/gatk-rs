@@ -1,0 +1,3 @@
+# case_id	gl_csv	expected
+biallelic_het	-2.0,-0.1,-2.0	parity/fixtures/hc-full-parity/g2-af/expected/biallelic_het.tsv
+biallelic_hom_ref	-0.2,-1.5,-2.2	parity/fixtures/hc-full-parity/g2-af/expected/biallelic_hom_ref.tsv

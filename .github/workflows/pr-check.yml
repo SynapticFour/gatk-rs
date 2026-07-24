@@ -1,0 +1,241 @@
+# Fast PR / main gate on free ubuntu-latest.
+# Path-filtered: docs-only changes skip the full build/test/clippy cycle.
+name: PR Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: pr-check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_BUILD_JOBS: "2"
+  HAPPY_DOCKER_IMAGE: jmcdani20/hap.py:v0.3.12
+
+jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      docs: ${{ steps.filter.outputs.docs }}
+      workflows: ${{ steps.filter.outputs.workflows }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - '**/*.rs'
+              - '**/Cargo.toml'
+              - '**/Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'fuzz/**'
+              - 'parity/fixtures/**'
+              - 'scripts/parity/**'
+              - 'scripts/dev/count_unsafe_patterns.sh'
+              - 'scripts/dev/check_io_unwrap_policy.py'
+              - '.quality-gates/**'
+            docs:
+              - '**/*.md'
+              - 'docs/**'
+              - 'NOTICE.md'
+              - 'LICENSE'
+              - 'SECURITY.md'
+              - 'CODE_OF_CONDUCT.md'
+              - 'CONTRIBUTING.md'
+              - 'CHANGELOG.md'
+            workflows:
+              - '.github/workflows/**'
+
+  actionlint:
+    name: Workflow syntax (actionlint)
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run actionlint
+        run: |
+          set -euo pipefail
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
+
+  docs:
+    name: Doc link check
+    needs: changes
+    if: >
+      needs.changes.outputs.docs == 'true' &&
+      needs.changes.outputs.code != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Doc link integrity
+        run: python3 scripts/dev/check_doc_links.py
+
+  fmt-clippy:
+    name: Fmt · Clippy · Ratchets
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable + rustfmt + clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: pr-check
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        # Lint debt: warn-only, libs/bins only (integration tests need feature gates).
+        run: cargo clippy --workspace
+
+      - name: Doc link integrity
+        run: python3 scripts/dev/check_doc_links.py
+
+      - name: I/O unwrap policy
+        run: python3 scripts/dev/check_io_unwrap_policy.py
+
+      - name: Unsafe-pattern ratchets (unwrap + clone)
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${GITHUB_BASE_REF:-}" ]]; then
+            git fetch --no-tags --depth=1 origin "${GITHUB_BASE_REF}"
+            export UNSAFE_PATTERNS_BASE_REF="origin/${GITHUB_BASE_REF}"
+          fi
+          ./scripts/dev/count_unsafe_patterns.sh check
+
+  test:
+    name: Build · Test · Determinism
+    needs: [changes, fmt-clippy]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: pr-check
+
+      - name: Load pinned GATK upstream
+        run: |
+          set -a
+          # shellcheck disable=SC1091
+          source docs/GATK_PINNED.env
+          set +a
+          echo "GATK_PINNED_SHA=${GATK_PINNED_SHA}" >> "${GITHUB_ENV}"
+          echo "GATK_DOCKER_IMAGE=${GATK_DOCKER_IMAGE}" >> "${GITHUB_ENV}"
+          echo "GATK_DOCKER_PLATFORM=${GATK_DOCKER_PLATFORM}" >> "${GITHUB_ENV}"
+
+      - name: cargo build --workspace --all-features
+        run: cargo build --workspace --all-features
+
+      - name: cargo test --workspace --all-features
+        run: cargo test --workspace --all-features
+
+      - name: Determinism (Rayon multi-thread VCF identity)
+        env:
+          CARGO_BUILD_JOBS: "1"
+        run: cargo test -p gatk-cli --test rayon_thread_determinism_test -- --nocapture
+
+  happy-smoke:
+    name: hap.py equivalence smoke
+    needs: [changes, test]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: pr-check
+
+      - name: Load pinned GATK upstream
+        run: |
+          set -a
+          # shellcheck disable=SC1091
+          source docs/GATK_PINNED.env
+          set +a
+          echo "GATK_PINNED_SHA=${GATK_PINNED_SHA}" >> "${GITHUB_ENV}"
+          echo "GATK_DOCKER_IMAGE=${GATK_DOCKER_IMAGE}" >> "${GITHUB_ENV}"
+          echo "GATK_DOCKER_PLATFORM=${GATK_DOCKER_PLATFORM}" >> "${GITHUB_ENV}"
+
+      - name: Cache Docker images (GATK + hap.py)
+        id: docker-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/docker-image-cache
+          key: pr-check-docker-${{ hashFiles('docs/GATK_PINNED.env') }}-${{ env.HAPPY_DOCKER_IMAGE }}
+          restore-keys: |
+            pr-check-docker-${{ hashFiles('docs/GATK_PINNED.env') }}-
+            pr-check-docker-
+
+      - name: Prepare Docker images
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/docker-image-cache
+          if [[ -f /tmp/docker-image-cache/gatk.tar ]]; then
+            docker load -i /tmp/docker-image-cache/gatk.tar
+          fi
+          if [[ -f /tmp/docker-image-cache/happy.tar ]]; then
+            docker load -i /tmp/docker-image-cache/happy.tar
+          fi
+          need_save=0
+          if ! docker image inspect "${GATK_DOCKER_IMAGE}" >/dev/null 2>&1; then
+            docker pull --platform "${GATK_DOCKER_PLATFORM}" "${GATK_DOCKER_IMAGE}"
+            need_save=1
+          fi
+          if ! docker image inspect "${HAPPY_DOCKER_IMAGE}" >/dev/null 2>&1; then
+            docker pull --platform linux/amd64 "${HAPPY_DOCKER_IMAGE}"
+            need_save=1
+          fi
+          if [[ "${need_save}" -eq 1 ]] || [[ ! -f /tmp/docker-image-cache/gatk.tar ]] || [[ ! -f /tmp/docker-image-cache/happy.tar ]]; then
+            docker save "${GATK_DOCKER_IMAGE}" -o /tmp/docker-image-cache/gatk.tar
+            docker save "${HAPPY_DOCKER_IMAGE}" -o /tmp/docker-image-cache/happy.tar
+          fi
+
+      - name: cargo build (binaries for smoke)
+        run: cargo build -p gatk-cli -p gatk-rs-equiv
+
+      - name: hap.py equivalence smoke (parity/fixtures chr1:1-32)
+        env:
+          PR_HAPPY_SKIP_PULL: "1"
+          RUST_BINARY: ${{ github.workspace }}/target/debug/gatk-rs
+          EQUIV_BINARY: ${{ github.workspace }}/target/debug/gatk-rs-equiv
+          PR_HAPPY_OUT: ${{ github.workspace }}/parity/reports/pr-happy-smoke
+        run: ./scripts/parity/run_pr_happy_smoke.sh
+
+      - name: Upload hap.py smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-happy-smoke
+          path: parity/reports/pr-happy-smoke/
+          if-no-files-found: ignore

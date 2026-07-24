@@ -1,0 +1,2 @@
+# case_id	ref	bam	interval_cli	expected_tsv
+softclip_locus10_11	parity/fixtures/reference.fa	parity/fixtures/hc-full-parity/d3/d3_softclip_locus10.sam	chr1:10-11	parity/fixtures/hc-full-parity/d3/expected/softclip_locus10_11.tsv

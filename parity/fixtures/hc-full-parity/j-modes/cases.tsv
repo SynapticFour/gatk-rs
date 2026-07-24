@@ -1,0 +1,4 @@
+# case_id	mode	has_variant	locus_count	expected
+vcf_no_var	VCF	0	10	parity/fixtures/hc-full-parity/j-modes/expected/vcf_no_var.tsv
+gvcf_no_var	GVCF	0	10	parity/fixtures/hc-full-parity/j-modes/expected/gvcf_no_var.tsv
+vcf_var	VCF	1	10	parity/fixtures/hc-full-parity/j-modes/expected/vcf_var.tsv

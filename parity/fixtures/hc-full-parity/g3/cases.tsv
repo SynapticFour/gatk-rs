@@ -1,0 +1,2 @@
+# case_id	ploidy	max_genotype_count	expected
+diploid_1024	2	1024	parity/fixtures/hc-full-parity/g3/expected/diploid_1024.tsv

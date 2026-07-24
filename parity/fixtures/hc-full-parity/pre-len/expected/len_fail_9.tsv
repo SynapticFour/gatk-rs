@@ -1,0 +1,2 @@
+qname	cigar	read_length	unclipped_length	passes_len_filter
+fail_9	9M	9	9	false

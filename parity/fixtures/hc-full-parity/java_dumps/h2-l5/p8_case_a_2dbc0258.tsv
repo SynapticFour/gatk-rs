@@ -1,0 +1,7 @@
+contig	chr1
+record_count	4
+joint_compatible	true
+vcf_line_0	chr1	100	.	<NON_REF>	.	.	END=100	MIN_DP=12	MAX_DP=12	GQ_BAND=8	MIN_RGQ=8
+vcf_line_1	chr1	101	.	<NON_REF>	.	.	END=101	MIN_DP=10	MAX_DP=10	GQ_BAND=9	MIN_RGQ=9
+vcf_line_2	chr1	102	.	<NON_REF>	.	.	END=102	MIN_DP=9	MAX_DP=9	GQ_BAND=22	MIN_RGQ=22
+vcf_line_3	chr1	103	.	<NON_REF>	.	.	END=103	MIN_DP=15	MAX_DP=15	GQ_BAND=25	MIN_RGQ=25

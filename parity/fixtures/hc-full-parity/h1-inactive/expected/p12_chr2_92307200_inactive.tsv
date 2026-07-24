@@ -1,0 +1,45 @@
+region_contig	2
+region_start	92307200
+region_end	92307227
+is_active	false
+path	referenceModelForNoVariation
+emit_mode	GVCF
+locus_count	28
+reference_blocks_emitted	28
+reference_sites_emitted	0
+first_gq	3
+first_dp	1
+last_gq	3
+last_dp	1
+gvcf_block_count	1
+locus_header	pos	gq	dp
+locus	92307200	3	1
+locus	92307201	3	1
+locus	92307202	3	1
+locus	92307203	3	1
+locus	92307204	3	1
+locus	92307205	3	1
+locus	92307206	3	1
+locus	92307207	3	1
+locus	92307208	3	1
+locus	92307209	3	1
+locus	92307210	3	1
+locus	92307211	3	1
+locus	92307212	3	1
+locus	92307213	3	1
+locus	92307214	3	1
+locus	92307215	3	1
+locus	92307216	3	1
+locus	92307217	3	1
+locus	92307218	3	1
+locus	92307219	3	1
+locus	92307220	3	1
+locus	92307221	3	1
+locus	92307222	3	1
+locus	92307223	3	1
+locus	92307224	3	1
+locus	92307225	3	1
+locus	92307226	3	1
+locus	92307227	3	1
+block_header	start	end	min_dp	max_dp	gq_band	min_rgq
+block	92307200	92307227	1	1	4	3

@@ -1,0 +1,2 @@
+# case_id	reads_tsv	log_odds	expected_tsv
+pileup_rec_basic	parity/fixtures/hc-full-parity/e1-rec/reads.tsv	3.0	parity/fixtures/hc-full-parity/e1-rec/expected/pileup_rec_basic.tsv

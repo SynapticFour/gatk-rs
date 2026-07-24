@@ -1,0 +1,3 @@
+# case_id	pl_csv	ad_csv	expected
+trim_acg_to_ac	-20,0,-20,-30,-40,-60	14,7,1	parity/fixtures/hc-full-parity/g-subset-pl/expected/trim_acg_to_ac.tsv
+trim_acg_to_ag	-50,-30,-70,0,-30,-20	14,0,7	parity/fixtures/hc-full-parity/g-subset-pl/expected/trim_acg_to_ag.tsv

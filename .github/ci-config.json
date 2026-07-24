@@ -1,0 +1,6 @@
+{
+  "_comment": "CI policy for this repository.",
+  "code_scanning": {
+    "upload_sarif": true
+  }
+}

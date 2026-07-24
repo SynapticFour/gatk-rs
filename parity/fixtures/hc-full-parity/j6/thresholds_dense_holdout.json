@@ -1,0 +1,20 @@
+{
+  "label": "l8-truth-gate-b37-giab-dense-chr20-holdout-window",
+  "eval_interval_default": "20:15000000-15050000",
+  "parity_interval_default": "20:15000000-15050000",
+  "min_truth_variants": 1,
+  "rust_min_f1_fraction_of_java": 0.90,
+  "rust_java_f1_max_delta": 0.08,
+  "stratified": {
+    "snp": {
+      "rust_min_f1_fraction_of_java": 0.90,
+      "rust_java_f1_max_delta": 0.08
+    },
+    "indel": {
+      "rust_min_f1_fraction_of_java": 0.85,
+      "rust_java_f1_max_delta": 0.10
+    }
+  },
+  "p12_parity_required": false,
+  "notes": "L11: long INS 20:15001894 discovered via plug long-insertion path; fragment suppress narrowed near long alleles. Multi-allelic ALT expansion in p13_truth_eval."
+}

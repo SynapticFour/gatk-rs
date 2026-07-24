@@ -1,0 +1,2 @@
+# case_id	fixture_path	expected_tsv
+p7_smoke	parity/fixtures/p7_genotype_fields_smoke.tsv	parity/fixtures/hc-full-parity/g2-pl/expected/p7_smoke.tsv

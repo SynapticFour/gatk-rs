@@ -1,0 +1,3 @@
+# case_id	ref	bam	interval_cli	expected_tsv
+two_sample_joint_snp10	parity/fixtures/reference.fa	parity/fixtures/hc-full-parity/c5-multi/two_sample_joint_snp10.sam	chr1:10-10	parity/fixtures/hc-full-parity/c5-multi/expected/two_sample_joint_snp10.raw_activity.tsv
+two_sample_same_locus_reference	parity/fixtures/reference.fa	parity/fixtures/hc-full-parity/c5-multi/two_sample_same_locus_reference.sam	chr1:10-10	parity/fixtures/hc-full-parity/c5-multi/expected/two_sample_same_locus_reference.raw_activity.tsv

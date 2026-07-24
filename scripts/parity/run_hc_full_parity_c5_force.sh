@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Tier B C.5.3: force-calling alleles → per-locus activity 1.0 with a real features VCF.
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "${repo_root}"
+export CARGO_TARGET_DIR="${PARITY_CARGO_TARGET_DIR:-${repo_root}/target}"
+
+if [[ "${PARITY_SKIP_HC_FULL_C5_FORCE:-0}" == "1" ]]; then
+  echo "[hc-full-parity-c5-force] skipped (PARITY_SKIP_HC_FULL_C5_FORCE=1)"
+  exit 0
+fi
+
+cases_tsv="${repo_root}/parity/fixtures/hc-full-parity/c5-force/cases.tsv"
+report_dir="${repo_root}/parity/reports"
+tmp_dir="${report_dir}/hc-full-parity-c5-force-tmp"
+mkdir -p "${tmp_dir}"
+
+profile="${PARITY_RUST_PROFILE:-dev}"
+cargo_run=(cargo run -p gatk-haplotypecaller --features parity_harness --example hc_full_parity_gate_dump --)
+if [[ "${profile}" == "release" ]]; then
+  cargo_run=(cargo run --release -p gatk-haplotypecaller --features parity_harness --example hc_full_parity_gate_dump --)
+fi
+
+while IFS=$'\t' read -r case_id ref bam interval vcf expected; do
+  [[ -z "${case_id}" || "${case_id}" == \#* ]] && continue
+  actual="${tmp_dir}/${case_id}.actual.tsv"
+  set +e
+  "${cargo_run[@]}" raw-activity-force \
+    "${repo_root}/${ref}" "${repo_root}/${bam}" "${interval}" "${repo_root}/${vcf}" >"${actual}" \
+    2>"${tmp_dir}/${case_id}.stderr"
+  dump_ec=$?
+  set -e
+  if [[ "${dump_ec}" -ne 0 ]]; then
+    echo "[hc-full-parity-c5-force] dump failed (case=${case_id}, exit=${dump_ec}). stderr:" >&2
+    cat "${tmp_dir}/${case_id}.stderr" >&2
+    exit 1
+  fi
+  if ! cmp -s "${repo_root}/${expected}" "${actual}"; then
+    echo "[hc-full-parity-c5-force] mismatch case=${case_id}" >&2
+    echo "  expected: ${repo_root}/${expected}" >&2
+    echo "  actual:   ${actual}" >&2
+    diff -u "${repo_root}/${expected}" "${actual}" >&2 || true
+    exit 1
+  fi
+  echo "[hc-full-parity-c5-force] ok ${case_id}"
+done <"${cases_tsv}"
+
+echo "[hc-full-parity-c5-force] all cases match goldens."

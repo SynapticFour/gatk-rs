@@ -1,0 +1,2 @@
+qname	cigar	read_length	unclipped_length	passes_len_filter
+fail_h5	5H5M	5	5	false

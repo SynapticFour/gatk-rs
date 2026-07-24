@@ -1,0 +1,3 @@
+dragen_mode_active	false
+emit_mode_default	VCF
+read_shard_dragen_pipeline	false

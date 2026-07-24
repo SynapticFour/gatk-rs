@@ -1,0 +1,2 @@
+# case_id	vcf	contig	pos	force_call_filtered	expected
+force_chr1_10	parity/fixtures/hc-full-parity/c5-force/force_chr1_10.vcf	chr1	10	0	parity/fixtures/hc-full-parity/g4-force/expected/force_chr1_10.tsv

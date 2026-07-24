@@ -1,0 +1,7 @@
+contig	start	end	is_active	read_count
+chrLive	1	24	true	5
+read	r1	1	20
+read	r2	1	20
+read	r3	1	20
+read	r4	1	20
+read	r5	1	20

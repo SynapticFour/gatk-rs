@@ -1,0 +1,78 @@
+[package]
+name = "gatk-haplotypecaller"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "HaplotypeCaller implementation for GATK-RS"
+rust-version.workspace = true
+
+[features]
+default = []
+# Parity / debug TSV dump modules (*_dump.rs) + their pub re-exports.
+dev-dumps = []
+# Comparison bridges (`CallRegionArgs::parity_aligned`), harness env, FORMAT overlay,
+# and P12/compat public surface. Includes dumps; existing scripts use --features parity_harness.
+# Required for integration tests + gate_dump example:
+#   cargo test -p gatk-haplotypecaller --features parity_harness
+# Sprint L-4 / PUBLIC_API_AUDIT: not part of the default release surface.
+parity_harness = ["dev-dumps"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("dev-dumps", "parity_harness"))'] }
+
+[dependencies]
+# Workspace dependencies
+rust-htslib.workspace = true
+rayon.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ndarray.workspace = true
+statrs.workspace = true
+num-traits.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+indexmap.workspace = true
+itertools.workspace = true
+memmap2.workspace = true
+crossbeam.workspace = true
+tracing.workspace = true
+
+# Internal dependencies
+gatk-core = { path = "../gatk-core" }
+gatk-common = { path = "../gatk-common" }
+# External dependencies
+petgraph = "0.6"
+ordered-float = "4.2"
+
+[dev-dependencies]
+criterion.workspace = true
+proptest.workspace = true
+tempfile.workspace = true
+
+[[bench]]
+name = "activity_profile"
+harness = false
+
+[[bench]]
+name = "pairhmm"
+harness = false
+
+[[bench]]
+name = "smith_waterman"
+harness = false
+
+[[bench]]
+name = "shared_reference_arc"
+harness = false
+
+[[example]]
+name = "hc_full_parity_gate_dump"
+path = "examples/hc_full_parity_gate_dump.rs"
+required-features = ["parity_harness"]
+
+[[example]]
+name = "allocation_rss_probe"
+path = "examples/allocation_rss_probe.rs"

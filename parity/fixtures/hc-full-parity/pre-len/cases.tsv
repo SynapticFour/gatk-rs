@@ -1,0 +1,6 @@
+# case_id	bam_or_sam	expected_tsv
+len_ok_10	parity/fixtures/hc-full-parity/pre-len/len_ok_10.sam	parity/fixtures/hc-full-parity/pre-len/expected/len_ok_10.tsv
+len_fail_9	parity/fixtures/hc-full-parity/pre-len/len_fail_9.sam	parity/fixtures/hc-full-parity/pre-len/expected/len_fail_9.tsv
+len_fail_soft	parity/fixtures/hc-full-parity/pre-len/len_fail_soft.sam	parity/fixtures/hc-full-parity/pre-len/expected/len_fail_soft.tsv
+len_ok_border	parity/fixtures/hc-full-parity/pre-len/len_ok_border.sam	parity/fixtures/hc-full-parity/pre-len/expected/len_ok_border.tsv
+len_fail_hard_only	parity/fixtures/hc-full-parity/pre-len/len_fail_hard_only.sam	parity/fixtures/hc-full-parity/pre-len/expected/len_fail_hard_only.tsv

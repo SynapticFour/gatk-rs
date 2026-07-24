@@ -1,0 +1,3 @@
+# case_id	reference_fa	sam_fixture	interval
+live_snp_001	p5_live_reference.fa	p5_live_case_snp.sam	chrLive:1-40
+live_snp_002	p5_live_reference.fa	p5_live_case_snp.sam	chrLive:1-24

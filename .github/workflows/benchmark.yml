@@ -1,0 +1,300 @@
+# Fair HaplotypeCaller performance comparison on a quiet, non-burstable host.
+#
+# Separate from:
+#   - genomewide-validation.yml (gatk-rs-genomewide — correctness, not timing)
+#   - GitHub-hosted runners (noisy / shared CPUs)
+#
+# Measures (≥5 repeats each): gatk-rs scalar, gatk-rs SIMD, Java FASTEST_AVAILABLE,
+# Java LOGLESS_CACHING × small/medium/large regions → median ± stdev.
+# Primary speedup baseline: Java FASTEST_AVAILABLE (never LOGLESS_CACHING alone).
+#
+# Setup: docs/ci/PERF_BENCHMARK_HOST.md
+name: Performance benchmark (dedicated host)
+
+on:
+  schedule:
+    # Saturdays 10:00 UTC — away from Sunday genomewide (06:00)
+    - cron: "0 10 * * 6"
+  workflow_dispatch:
+    inputs:
+      skip_vm_control:
+        description: "Skip cloud start/stop (VM already running / manual ops)"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      repeats:
+        description: "Repeats per config×region (median ± stdev)"
+        required: true
+        default: "5"
+      threads:
+        description: "HC threads (fair comparison default 1)"
+        required: true
+        default: "1"
+      skip_memory:
+        description: "Skip optional tiny-fixture Peak-RSS profile"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      skip_pairhmm:
+        description: "Skip optional Criterion PairHMM microbench"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      skip_energy:
+        description: "Skip perf-stat RAPL energy (if unavailable)"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      cpu_list:
+        description: "taskset CPU list (empty = auto 0..(nproc/2-1))"
+        required: false
+        default: ""
+
+concurrency:
+  group: performance-benchmark
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: "4"
+  GATK_DOCKER_IMAGE: us.gcr.io/broad-gatk/gatk:4.4.0.0
+  GATK_DOCKER_PLATFORM: linux/amd64
+  PERF_RUNNER_LABEL: gatk-rs-benchmark
+
+jobs:
+  start-vm:
+    name: Start perf cloud VM
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: ${{ github.event.inputs.skip_vm_control != 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start VM + wait for runner
+        env:
+          CLOUD_PROVIDER: ${{ vars.CLOUD_PROVIDER_PERF || vars.CLOUD_PROVIDER }}
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          HCLOUD_SERVER_ID: ${{ secrets.HCLOUD_PERF_SERVER_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_INSTANCE_ID: ${{ secrets.AWS_PERF_INSTANCE_ID }}
+          GH_RUNNER_WAIT_TOKEN: ${{ secrets.GH_RUNNER_WAIT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUNNER_LABEL: gatk-rs-benchmark
+          RUNNER_WAIT_TIMEOUT_SEC: "600"
+          CLOUD_VM_BOOT_GRACE_SEC: "120"
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ci/cloud_vmctl.sh
+          if [[ -z "${CLOUD_PROVIDER:-}" ]]; then
+            echo "::error::Set CLOUD_PROVIDER_PERF=aws|hetzner. See docs/ci/PERF_BENCHMARK_HOST.md"
+            exit 1
+          fi
+          if [[ -z "${AWS_INSTANCE_ID:-}" && -z "${HCLOUD_SERVER_ID:-}" ]]; then
+            echo "::error::Set AWS_PERF_INSTANCE_ID or HCLOUD_PERF_SERVER_ID"
+            exit 1
+          fi
+          ./scripts/ci/cloud_vmctl.sh start
+
+  benchmark:
+    name: Fair HC comparison (5× × 3 regions)
+    needs: [start-vm]
+    if: ${{ always() && (needs.start-vm.result == 'success' || needs.start-vm.result == 'skipped') }}
+    runs-on: [self-hosted, gatk-rs-benchmark]
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Show host resources
+        run: |
+          set -euo pipefail
+          hostname
+          lscpu | head -40 || true
+          free -h || true
+          nproc
+          grep -m1 '^flags' /proc/cpuinfo || true
+
+      - name: Apply CPU tuning (governor / SMT)
+        run: |
+          set -euo pipefail
+          chmod +x scripts/perf/tune_host.sh
+          if command -v sudo >/dev/null 2>&1; then
+            sudo ./scripts/perf/tune_host.sh apply || ./scripts/perf/tune_host.sh status
+          else
+            ./scripts/perf/tune_host.sh status
+          fi
+
+      - name: Install / refresh system deps
+        run: |
+          set -euo pipefail
+          if command -v sudo >/dev/null 2>&1; then
+            sudo apt-get update -qq || true
+            sudo apt-get install -y --no-install-recommends \
+              samtools curl time openjdk-17-jre-headless \
+              zlib1g-dev libbz2-dev liblzma-dev pkg-config build-essential \
+              docker.io jq util-linux linux-tools-common linux-tools-generic \
+              || true
+          fi
+          command -v samtools
+          command -v docker
+          command -v taskset
+          # linux-tools package name often needs kernel-version suffix; ignore if missing
+          command -v perf || echo "perf not installed — energy metric will be n/a"
+
+      - name: Ensure Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run fair comparison suite
+        id: suite
+        env:
+          PERF_REPEATS: ${{ github.event_name == 'workflow_dispatch' && inputs.repeats || '5' }}
+          PERF_THREADS: ${{ github.event_name == 'workflow_dispatch' && inputs.threads || '1' }}
+          PERF_SKIP_MEMORY: ${{ (github.event_name == 'workflow_dispatch' && inputs.skip_memory == 'false') && '0' || '1' }}
+          PERF_SKIP_PAIRHMM: ${{ (github.event_name == 'workflow_dispatch' && inputs.skip_pairhmm == 'false') && '0' || '1' }}
+          PERF_SKIP_ENERGY: ${{ (github.event_name == 'workflow_dispatch' && inputs.skip_energy == 'true') && '1' || '0' }}
+          PERF_CPU_LIST: ${{ github.event_name == 'workflow_dispatch' && inputs.cpu_list || '' }}
+          PERF_STAGE_GIAB: "1"
+        run: |
+          set -euo pipefail
+          chmod +x scripts/perf/*.sh scripts/parity/realworld/*.sh || true
+          if [[ -z "${PERF_CPU_LIST}" ]]; then
+            n="$(nproc)"
+            half=$(( n / 2 ))
+            if (( half < 1 )); then half=1; fi
+            end=$(( half - 1 ))
+            export PERF_CPU_LIST="0-${end}"
+          fi
+          echo "::notice::Fair HC comparison — repeats=${PERF_REPEATS} threads=${PERF_THREADS} cpus=${PERF_CPU_LIST}"
+          echo "::notice::Primary Java baseline = FASTEST_AVAILABLE (native AVX verified before timing)"
+          if [[ -d /data/cargo-target ]]; then
+            export CARGO_TARGET_DIR=/data/cargo-target
+            echo "CARGO_TARGET_DIR=${CARGO_TARGET_DIR}" >> "$GITHUB_ENV"
+          fi
+          ./scripts/perf/run_dedicated_benchmark_suite.sh
+
+      - name: Upload suite artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dedicated-benchmark-${{ github.run_id }}
+          path: |
+            docs/perf/HOST_SPECS.md
+            docs/perf/host_specs_latest.json
+            docs/perf/DEDICATED_BENCH_LATEST.md
+            docs/perf/FAIR_HC_COMPARISON.md
+            docs/perf/fair_hc_comparison_latest.json
+            docs/perf/HC_MEMORY_PROFILE.md
+            docs/perf/hc_memory_profile_latest.json
+            docs/perf/PAIRHMM_SPEEDUP.md
+            docs/perf/pairhmm_speedup_latest.json
+            docs/perf/runs/dedicated_*/
+            docs/parity-site/data/perf_history.json
+            docs/parity-site/data/perf_latest.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Fail job if suite failed
+        if: steps.suite.outcome != 'success'
+        run: |
+          echo "Dedicated benchmark suite failed (see artifacts)"
+          exit 1
+
+  stop-vm:
+    name: Stop perf cloud VM
+    needs: [start-vm, benchmark]
+    if: ${{ always() && github.event.inputs.skip_vm_control != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Stop VM (preserve disks)
+        env:
+          CLOUD_PROVIDER: ${{ vars.CLOUD_PROVIDER_PERF || vars.CLOUD_PROVIDER }}
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          HCLOUD_SERVER_ID: ${{ secrets.HCLOUD_PERF_SERVER_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_INSTANCE_ID: ${{ secrets.AWS_PERF_INSTANCE_ID }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ci/cloud_vmctl.sh
+          ./scripts/ci/cloud_vmctl.sh stop
+          echo "::notice::Perf VM stopped — docs/ci/PERF_BENCHMARK_HOST.md#cost-model"
+
+  publish-perf-docs:
+    name: Commit reports + performance dashboard
+    needs: [benchmark]
+    if: always() && needs.benchmark.result == 'success' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Download suite artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dedicated-benchmark-${{ github.run_id }}
+          path: .
+
+      - name: Commit published perf docs + dashboard data
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            docs/perf/HOST_SPECS.md \
+            docs/perf/host_specs_latest.json \
+            docs/perf/DEDICATED_BENCH_LATEST.md \
+            docs/perf/FAIR_HC_COMPARISON.md \
+            docs/perf/fair_hc_comparison_latest.json \
+            docs/parity-site/data/perf_history.json \
+            docs/parity-site/data/perf_latest.json \
+            2>/dev/null || true
+          # Pointer READMEs under runs (lightweight)
+          git add docs/perf/runs/dedicated_*/README.md \
+            docs/perf/runs/dedicated_*/FAIR_HC_COMPARISON.md \
+            2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "docs(perf): fair HC comparison (${GITHUB_SHA::12})"
+            git push
+          else
+            echo "No perf doc changes to commit"
+          fi
+
+      - name: Deploy parity-site (incl. Performance tab) to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: docs/parity-site
+          keep_files: true
+          allow_empty_commit: true
+          user_name: github-actions[bot]
+          user_email: 41898282+github-actions[bot]@users.noreply.github.com

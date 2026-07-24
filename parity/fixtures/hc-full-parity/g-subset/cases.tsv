@@ -1,0 +1,2 @@
+# case_id	haplotype_log10_sums	is_reference	max_allele_count	expected
+trim_three	0,-0.5,-1.0,0.1	1,0,0,0	2	parity/fixtures/hc-full-parity/g-subset/expected/trim_three.tsv

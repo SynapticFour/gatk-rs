@@ -1,0 +1,3 @@
+# case_id	ref_tsv	reads_tsv	kmer	min_qual	recover_edges	max_haps	expected_tsv
+p5_jt_edges_on	parity/fixtures/hc-full-parity/e7-junction/p5_jt_snp_het_ref.tsv	parity/fixtures/hc-full-parity/e7-junction/p5_jt_snp_het_reads.tsv	5	10	1	5	parity/fixtures/hc-full-parity/e7-edges/expected/p5_jt_edges_on.tsv
+p5_jt_edges_off	parity/fixtures/hc-full-parity/e7-junction/p5_jt_snp_het_ref.tsv	parity/fixtures/hc-full-parity/e7-junction/p5_jt_snp_het_reads.tsv	5	10	0	5	parity/fixtures/hc-full-parity/e7-edges/expected/p5_jt_edges_off.tsv

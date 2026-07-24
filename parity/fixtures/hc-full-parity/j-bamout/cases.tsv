@@ -1,0 +1,2 @@
+# case_id	enabled	write_count	expected
+enabled_two	1	2	parity/fixtures/hc-full-parity/j-bamout/expected/enabled_two.tsv

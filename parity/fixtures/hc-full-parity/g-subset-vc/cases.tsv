@@ -1,0 +1,2 @@
+# case_id	pl_csv	ad_csv	sac_csv	expected
+het_ac_sac	-20,0,-20,-30,-40,-60	14,7,1	10,9,10,9,1,1	parity/fixtures/hc-full-parity/g-subset-vc/expected/het_ac_sac.tsv

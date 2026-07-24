@@ -1,0 +1,722 @@
+//! GATK `SeqGraph` conversion and cleanup (`BaseGraph.toSequenceGraph`, `SeqGraph.cleanup`).
+
+use crate::assembly::AssemblyGraph;
+use gatk_common::{GatkError, GatkResult};
+use std::collections::{HashMap, HashSet};
+
+/// Sequence-labeled vertex after k-mer graph → sequence graph conversion.
+/// # Invariants
+/// `id` is dense index into owning [`SeqGraph::vertices`].
+/// `sequence` holds vertex bases (full k-mer at source, suffix byte at non-source joins).
+/// # Ownership
+/// Owns base sequence bytes; graph owns vertex vector.
+/// # Mutation
+/// Graph cleanup may merge/replace vertex sequences in place.
+/// # Biological assumptions
+/// Vertex sequence is literal assembly graph bases on the reference/read path.
+/// # Java equivalence
+/// GATK `SeqVertex` in `SeqGraph` (`BaseGraph.toSequenceGraph`).
+#[derive(Debug, Clone)]
+pub struct SeqVertex {
+    pub id: usize,
+    pub sequence: Vec<u8>,
+}
+
+/// Directed edge in a sequence graph with support and reference-path flag.
+/// # Invariants
+/// `from` / `to` index valid vertices; `is_ref` marks reference-spine edges.
+/// # Ownership
+/// [`Copy`] edge record in [`SeqGraph::edges`].
+/// # Mutation
+/// Support may increase on merge; edges removed during cleanup passes.
+/// # Biological assumptions
+/// Edge support reflects read evidence multiplicity at the junction.
+/// # Java equivalence
+/// GATK `SeqEdge` / reference edge marking in `SeqGraph`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SeqEdge {
+    pub from: usize,
+    pub to: usize,
+    pub support: u32,
+    pub is_ref: bool,
+}
+
+/// Outcome of [`SeqGraph::cleanup_seq_graph`] — variation present or reference-only.
+/// # Invariants
+/// Mutually exclusive assembly outcomes for one cleanup pass.
+/// # Ownership
+/// [`Copy`] enum returned from cleanup.
+/// # Mutation
+/// Immutable status tag.
+/// # Biological assumptions
+/// `AssembledSomeVariation` means non-ref paths survived cleanup connected to ref endpoints.
+/// # Java equivalence
+/// GATK `SeqGraph` cleanup status (`ASSEMBLED_SOME_VARIATION`, `JUST_ASSEMBLED_REFERENCE`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeqGraphCleanupStatus {
+    AssembledSomeVariation,
+    JustAssembledReference,
+}
+
+/// Base sequence graph for k-best haplotype discovery after threading conversion.
+/// # Invariants
+/// Reference source/sink vertices exist after successful cleanup when variation is assembled.
+/// Vertex `id` values remain dense after prune/zip operations.
+/// # Ownership
+/// Owns vertices, edges, and adjacency indexes; built from [`AssemblyGraph`] without retaining reads.
+/// # Mutation
+/// Cleanup methods (`clean_non_ref_paths`, `zip_linear_chains`, `simplify_graph`, etc.) mutate in place.
+/// # Biological assumptions
+/// Graph encodes colinear sequence alternatives over the padded reference window.
+/// # Java equivalence
+/// GATK `SeqGraph` (`BaseGraph.toSequenceGraph`, `ReadThreadingAssembler.cleanupSeqGraph`).
+#[derive(Debug, Clone)]
+pub struct SeqGraph {
+    pub kmer_size: usize,
+    vertices: Vec<SeqVertex>,
+    edges: Vec<SeqEdge>,
+    outgoing: HashMap<usize, Vec<usize>>,
+    incoming: HashMap<usize, Vec<usize>>,
+}
+
+impl SeqGraph {
+    pub fn from_assembly_graph(graph: &AssemblyGraph) -> Self {
+        let kmer_size = graph.kmer_size;
+        let mut vertices = Vec::new();
+        let mut id_map = HashMap::new();
+        for (i, node) in graph.nodes().iter().enumerate() {
+            let is_source = graph.incoming_count(i) == 0;
+            let seq = additional_sequence(&node.kmer, is_source);
+            let id = vertices.len();
+            vertices.push(SeqVertex { id, sequence: seq });
+            id_map.insert(i, id);
+        }
+        let mut edges = Vec::new();
+        let mut outgoing: HashMap<usize, Vec<usize>> = HashMap::new();
+        let mut incoming: HashMap<usize, Vec<usize>> = HashMap::new();
+        for e in graph.edges_sorted() {
+            let from = *id_map.get(&e.from).expect("edge from");
+            let to = *id_map.get(&e.to).expect("edge to");
+            let is_ref = graph.edge_is_ref(e.from, e.to);
+            edges.push(SeqEdge {
+                from,
+                to,
+                support: e.support,
+                is_ref,
+            });
+            outgoing.entry(from).or_default().push(to);
+            incoming.entry(to).or_default().push(from);
+        }
+        Self {
+            kmer_size,
+            vertices,
+            edges,
+            outgoing,
+            incoming,
+        }
+    }
+
+    pub fn node_count(&self) -> usize {
+        self.vertices.len()
+    }
+
+    pub fn edge_count(&self) -> usize {
+        self.edges.len()
+    }
+
+    pub fn reference_source_vertex(&self) -> Option<usize> {
+        (0..self.vertices.len()).find(|&v| self.is_ref_source(v))
+    }
+
+    pub fn reference_sink_vertex(&self) -> Option<usize> {
+        (0..self.vertices.len()).find(|&v| self.is_ref_sink(v))
+    }
+
+    pub(crate) fn is_ref_source_vertex(&self, v: usize) -> bool {
+        self.is_ref_source(v)
+    }
+
+    fn is_ref_source(&self, v: usize) -> bool {
+        if self.vertices.len() == 1 {
+            return true;
+        }
+        if self
+            .incoming
+            .get(&v)
+            .into_iter()
+            .flatten()
+            .any(|&p| self.edge_is_ref(p, v))
+        {
+            return false;
+        }
+        self.outgoing
+            .get(&v)
+            .into_iter()
+            .flatten()
+            .any(|&t| self.edge_is_ref(v, t))
+    }
+
+    fn is_ref_sink(&self, v: usize) -> bool {
+        if self.vertices.len() == 1 {
+            return true;
+        }
+        if self
+            .outgoing
+            .get(&v)
+            .into_iter()
+            .flatten()
+            .any(|&t| self.edge_is_ref(v, t))
+        {
+            return false;
+        }
+        self.incoming
+            .get(&v)
+            .into_iter()
+            .flatten()
+            .any(|&p| self.edge_is_ref(p, v))
+    }
+
+    pub(crate) fn edge_is_ref(&self, from: usize, to: usize) -> bool {
+        self.edges
+            .iter()
+            .any(|e| e.from == from && e.to == to && e.is_ref)
+    }
+
+    pub(crate) fn edge_support(&self, from: usize, to: usize) -> Option<u32> {
+        self.edges
+            .iter()
+            .find(|e| e.from == from && e.to == to)
+            .map(|e| e.support)
+    }
+
+    pub(crate) fn outgoing_nodes(&self, from: usize) -> Vec<usize> {
+        self.outgoing_of(from).to_vec()
+    }
+
+    /// GATK `Path.getBases` on a sequence graph.
+    pub fn path_bases_bytes(&self, start: usize, edges: &[(usize, usize)]) -> Vec<u8> {
+        let first = if edges.is_empty() { start } else { edges[0].0 };
+        let mut bases = additional_sequence_bytes(&self.vertices[first].sequence, true);
+        for &(_, to) in edges {
+            bases.extend(additional_sequence_bytes(
+                &self.vertices[to].sequence,
+                false,
+            ));
+        }
+        bases
+    }
+
+    fn in_degree(&self, v: usize) -> usize {
+        self.incoming.get(&v).map(|v| v.len()).unwrap_or(0)
+    }
+
+    fn out_degree(&self, v: usize) -> usize {
+        self.outgoing.get(&v).map(|v| v.len()).unwrap_or(0)
+    }
+
+    pub(crate) fn outgoing_of(&self, from: usize) -> &[usize] {
+        self.outgoing
+            .get(&from)
+            .map(|s| s.as_slice())
+            .unwrap_or(&[])
+    }
+
+    fn incoming_of(&self, to: usize) -> &[usize] {
+        self.incoming.get(&to).map(|s| s.as_slice()).unwrap_or(&[])
+    }
+
+    pub fn reference_path_bytes(&self) -> Option<Vec<u8>> {
+        let source = self.reference_source_vertex()?;
+        let sink = self.reference_sink_vertex()?;
+        let mut path = self.vertices[source].sequence.clone();
+        let mut cur = source;
+        while cur != sink {
+            let outs = self.outgoing_of(cur);
+            let next = *outs
+                .iter()
+                .find(|&&t| self.edge_is_ref(cur, t))
+                .or_else(|| outs.first())?;
+            path.extend_from_slice(&self.vertices[next].sequence);
+            cur = next;
+        }
+        Some(path)
+    }
+
+    pub fn clean_non_ref_paths(&mut self) {
+        let Some(source) = self.reference_source_vertex() else {
+            return;
+        };
+        let Some(sink) = self.reference_sink_vertex() else {
+            return;
+        };
+        let mut to_remove: HashSet<(usize, usize)> = HashSet::new();
+        let mut check: Vec<(usize, usize)> = self
+            .edges
+            .iter()
+            .filter(|e| e.to == source && !e.is_ref)
+            .map(|e| (e.from, e.to))
+            .collect();
+        while let Some((from, to)) = check.pop() {
+            if !to_remove.insert((from, to)) {
+                continue;
+            }
+            for e in &self.edges {
+                if e.to == from && !e.is_ref {
+                    check.push((e.from, e.to));
+                }
+            }
+        }
+        check = self
+            .edges
+            .iter()
+            .filter(|e| e.from == sink && !e.is_ref)
+            .map(|e| (e.from, e.to))
+            .collect();
+        while let Some((from, to)) = check.pop() {
+            if !to_remove.insert((from, to)) {
+                continue;
+            }
+            for e in &self.edges {
+                if e.from == to && !e.is_ref {
+                    check.push((e.from, e.to));
+                }
+            }
+        }
+        self.edges.retain(|e| !to_remove.contains(&(e.from, e.to)));
+        self.rebuild_index();
+        self.remove_singleton_orphan_vertices();
+    }
+
+    pub fn zip_linear_chains(&mut self) -> bool {
+        let starts: Vec<usize> = (0..self.vertices.len())
+            .filter(|&s| self.is_linear_chain_start(s))
+            .collect();
+        if starts.is_empty() {
+            return false;
+        }
+        let mut merged = false;
+        for start in starts {
+            let chain = self.trace_linear_chain(start);
+            if chain.len() > 1 {
+                merged |= self.merge_linear_chain(&chain);
+            }
+        }
+        merged
+    }
+
+    fn is_linear_chain_start(&self, source: usize) -> bool {
+        if self.out_degree(source) != 1 {
+            return false;
+        }
+        let indeg = self.in_degree(source);
+        indeg != 1
+            || self
+                .incoming_of(source)
+                .first()
+                .map(|&p| self.out_degree(p) > 1)
+                .unwrap_or(false)
+    }
+
+    fn trace_linear_chain(&self, zip_start: usize) -> Vec<usize> {
+        let mut chain = vec![zip_start];
+        let mut last = zip_start;
+        loop {
+            if self.out_degree(last) != 1 {
+                break;
+            }
+            let target = self.outgoing_of(last)[0];
+            if self.in_degree(target) != 1 || last == target {
+                break;
+            }
+            let last_ref = self.is_reference_node(last);
+            let target_ref = self.is_reference_node(target);
+            if last_ref != target_ref {
+                break;
+            }
+            chain.push(target);
+            last = target;
+        }
+        chain
+    }
+
+    fn is_reference_node(&self, v: usize) -> bool {
+        self.outgoing_of(v).iter().any(|&t| self.edge_is_ref(v, t))
+            || self.incoming_of(v).iter().any(|&p| self.edge_is_ref(p, v))
+    }
+
+    fn merge_linear_chain(&mut self, chain: &[usize]) -> bool {
+        if chain.len() < 2 {
+            return false;
+        }
+        let keep = chain[0];
+        let remove: HashSet<usize> = chain[1..].iter().copied().collect();
+        let mut merged_seq = self.vertices[keep].sequence.clone();
+        for &v in &chain[1..] {
+            merged_seq.extend_from_slice(&self.vertices[v].sequence);
+        }
+
+        let kept: Vec<usize> = (0..self.vertices.len())
+            .filter(|i| !remove.contains(i))
+            .collect();
+        let old_to_new: HashMap<usize, usize> = kept
+            .iter()
+            .enumerate()
+            .map(|(new_id, &old_id)| (old_id, new_id))
+            .collect();
+
+        let mut new_vertices = Vec::with_capacity(kept.len());
+        for &old_id in &kept {
+            let mut v = self.vertices[old_id].clone();
+            if old_id == keep {
+                v.sequence = merged_seq.clone();
+            }
+            v.id = old_to_new[&old_id];
+            new_vertices.push(v);
+        }
+
+        let mut new_edges = Vec::new();
+        let mut seen: HashSet<(usize, usize, bool)> = HashSet::new();
+        for e in &self.edges {
+            let Some(&from) = old_to_new.get(&e.from) else {
+                continue;
+            };
+            let Some(&to) = old_to_new.get(&e.to) else {
+                continue;
+            };
+            if from == to {
+                continue;
+            }
+            if seen.insert((from, to, e.is_ref)) {
+                new_edges.push(SeqEdge {
+                    from,
+                    to,
+                    support: e.support,
+                    is_ref: e.is_ref,
+                });
+            }
+        }
+        self.vertices = new_vertices;
+        self.edges = new_edges;
+        self.rebuild_index();
+        true
+    }
+
+    fn rebuild_index(&mut self) {
+        let mut outgoing: HashMap<usize, Vec<usize>> = HashMap::new();
+        let mut incoming: HashMap<usize, Vec<usize>> = HashMap::new();
+        for (i, e) in self.edges.iter().enumerate() {
+            let _ = i;
+            outgoing.entry(e.from).or_default().push(e.to);
+            incoming.entry(e.to).or_default().push(e.from);
+        }
+        self.outgoing = outgoing;
+        self.incoming = incoming;
+    }
+
+    pub fn remove_singleton_orphan_vertices(&mut self) {
+        loop {
+            let orphans: HashSet<usize> = (0..self.vertices.len())
+                .filter(|&v| {
+                    self.in_degree(v) == 0 && self.out_degree(v) == 0 && !self.is_ref_source(v)
+                })
+                .collect();
+            if orphans.is_empty() {
+                break;
+            }
+            self.vertices.retain(|v| !orphans.contains(&v.id));
+            for (i, v) in self.vertices.iter_mut().enumerate() {
+                v.id = i;
+            }
+            self.edges
+                .retain(|e| !orphans.contains(&e.from) && !orphans.contains(&e.to));
+            self.rebuild_index();
+        }
+    }
+
+    /// GATK `BaseGraph.removeVerticesNotConnectedToRefRegardlessOfEdgeDirection`.
+    pub fn remove_vertices_not_connected_to_ref_regardless_of_direction(&mut self) {
+        let Some(source) = self.reference_source_vertex() else {
+            return;
+        };
+        let mut keep = HashSet::new();
+        let mut stack = vec![source];
+        keep.insert(source);
+        while let Some(v) = stack.pop() {
+            for &t in self.outgoing_of(v) {
+                if keep.insert(t) {
+                    stack.push(t);
+                }
+            }
+            for &p in self.incoming_of(v) {
+                if keep.insert(p) {
+                    stack.push(p);
+                }
+            }
+        }
+        let remove: HashSet<usize> = (0..self.vertices.len())
+            .filter(|v| !keep.contains(v))
+            .collect();
+        if remove.is_empty() {
+            return;
+        }
+        self.vertices.retain(|v| !remove.contains(&v.id));
+        for (i, v) in self.vertices.iter_mut().enumerate() {
+            v.id = i;
+        }
+        self.edges
+            .retain(|e| !remove.contains(&e.from) && !remove.contains(&e.to));
+        self.rebuild_index();
+    }
+
+    pub fn remove_paths_not_connected_to_ref(&mut self) -> GatkResult<()> {
+        let source = self
+            .reference_source_vertex()
+            .ok_or_else(|| GatkError::algorithm("seq graph: no ref source"))?;
+        let sink = self
+            .reference_sink_vertex()
+            .ok_or_else(|| GatkError::algorithm("seq graph: no ref sink"))?;
+        let mut from_source = HashSet::new();
+        let mut stack = vec![source];
+        from_source.insert(source);
+        while let Some(v) = stack.pop() {
+            for &t in self.outgoing_of(v) {
+                if from_source.insert(t) {
+                    stack.push(t);
+                }
+            }
+        }
+        let mut from_sink = HashSet::new();
+        let mut stack = vec![sink];
+        from_sink.insert(sink);
+        while let Some(v) = stack.pop() {
+            for &p in self.incoming_of(v) {
+                if from_sink.insert(p) {
+                    stack.push(p);
+                }
+            }
+        }
+        from_source.retain(|v| from_sink.contains(v));
+        let remove: HashSet<usize> = (0..self.vertices.len())
+            .filter(|v| !from_source.contains(v))
+            .collect();
+        self.vertices.retain(|v| !remove.contains(&v.id));
+        for (i, v) in self.vertices.iter_mut().enumerate() {
+            v.id = i;
+        }
+        self.edges
+            .retain(|e| !remove.contains(&e.from) && !remove.contains(&e.to));
+        self.rebuild_index();
+        Ok(())
+    }
+
+    pub fn simplify_graph(&mut self) {
+        crate::seq_graph_simplify::simplify_graph_full(self);
+    }
+
+    pub(crate) fn vertex_in_degree(&self, v: usize) -> usize {
+        self.in_degree(v)
+    }
+
+    pub(crate) fn vertex_out_degree(&self, v: usize) -> usize {
+        self.out_degree(v)
+    }
+
+    pub(crate) fn is_sink_vertex(&self, v: usize) -> bool {
+        self.out_degree(v) == 0
+    }
+
+    pub(crate) fn vertex_sequence(&self, v: usize) -> &[u8] {
+        &self.vertices[v].sequence
+    }
+
+    pub(crate) fn remove_vertices_by_id(&mut self, remove: &HashSet<usize>) {
+        if remove.is_empty() {
+            return;
+        }
+        self.vertices.retain(|v| !remove.contains(&v.id));
+        for (i, v) in self.vertices.iter_mut().enumerate() {
+            v.id = i;
+        }
+        self.edges
+            .retain(|e| !remove.contains(&e.from) && !remove.contains(&e.to));
+        self.rebuild_index();
+    }
+
+    pub(crate) fn add_seq_vertex(&mut self, sequence: Vec<u8>) -> usize {
+        let id = self.vertices.len();
+        self.vertices.push(SeqVertex { id, sequence });
+        id
+    }
+
+    pub(crate) fn find_edge(&self, from: usize, to: usize) -> Option<usize> {
+        self.edges.iter().position(|e| e.from == from && e.to == to)
+    }
+
+    pub(crate) fn edges_pub(&self) -> &[SeqEdge] {
+        &self.edges
+    }
+
+    pub(crate) fn add_or_update_edge(
+        &mut self,
+        from: usize,
+        to: usize,
+        support: u32,
+        is_ref: bool,
+    ) {
+        if let Some(idx) = self.find_edge(from, to) {
+            let e = &mut self.edges[idx];
+            e.support = e.support.saturating_add(support);
+            e.is_ref |= is_ref;
+        } else {
+            self.edges.push(SeqEdge {
+                from,
+                to,
+                support,
+                is_ref,
+            });
+        }
+        self.rebuild_index();
+    }
+
+    pub(crate) fn incoming_nodes(&self, v: usize) -> Vec<usize> {
+        self.incoming_of(v).to_vec()
+    }
+
+    pub(crate) fn remove_edge(&mut self, from: usize, to: usize) {
+        self.edges.retain(|e| !(e.from == from && e.to == to));
+        self.rebuild_index();
+    }
+
+    pub(crate) fn incoming_edge_support_is_ref(&self, v: usize) -> (u32, bool) {
+        let mut support = 0u32;
+        let mut is_ref = false;
+        for e in &self.edges {
+            if e.to == v {
+                support = support.saturating_add(e.support);
+                is_ref |= e.is_ref;
+            }
+        }
+        (support, is_ref)
+    }
+
+    pub(crate) fn outgoing_edge_support_is_ref(&self, v: usize) -> (u32, bool) {
+        let mut support = 0u32;
+        let mut is_ref = false;
+        for e in &self.edges {
+            if e.from == v {
+                support = support.saturating_add(e.support);
+                is_ref |= e.is_ref;
+            }
+        }
+        (support, is_ref)
+    }
+
+    pub fn cleanup_seq_graph(&mut self) -> SeqGraphCleanupStatus {
+        self.zip_linear_chains();
+        self.remove_singleton_orphan_vertices();
+        self.remove_vertices_not_connected_to_ref_regardless_of_direction();
+        self.simplify_graph();
+        if self.reference_source_vertex().is_none() || self.reference_sink_vertex().is_none() {
+            return SeqGraphCleanupStatus::JustAssembledReference;
+        }
+        // GATK `ReadThreadingAssembler.cleanupSeqGraph`: after removePaths + simplify, proceed to
+        // ASSEMBLED_SOME_VARIATION (dummy vertex if needed) — no second ref source/sink abort.
+        let _ = self.remove_paths_not_connected_to_ref();
+        self.simplify_graph();
+        if self.vertices.len() == 1 {
+            let complete = 0usize;
+            let dummy_id = self.vertices.len();
+            self.vertices.push(SeqVertex {
+                id: dummy_id,
+                sequence: Vec::new(),
+            });
+            self.edges.push(SeqEdge {
+                from: complete,
+                to: dummy_id,
+                support: 0,
+                is_ref: true,
+            });
+            self.rebuild_index();
+        }
+        SeqGraphCleanupStatus::AssembledSomeVariation
+    }
+}
+
+fn additional_sequence(kmer: &str, is_source: bool) -> Vec<u8> {
+    additional_sequence_bytes(kmer.as_bytes(), is_source)
+}
+
+fn additional_sequence_bytes(seq: &[u8], is_source: bool) -> Vec<u8> {
+    if is_source {
+        seq.to_vec()
+    } else {
+        seq.last().map(|&c| vec![c]).unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assembly::{AssemblyGraphParams, AssemblyRead};
+    use crate::assembly_graph_dump::{load_assembly_reads_tsv, load_assembly_ref_tsv};
+    use crate::read_threading_assembler::{
+        build_threading_graph_for_haplotype_dump, ReadThreadingAssemblerArgs,
+    };
+    use crate::read_threading_graph::assembly_graph_from_ref_and_reads_threading;
+    use std::path::Path;
+
+    fn read(seq: &str, q: u8) -> AssemblyRead {
+        AssemblyRead {
+            bases: seq.to_string(),
+            base_quals: vec![q; seq.len()],
+        }
+    }
+
+    #[test]
+    fn prepared_p5_seqgraph_dump_path_has_nodes() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let reference =
+            load_assembly_ref_tsv(&repo.join("parity/fixtures/hc-full-parity/e4/p5_case1_ref.tsv"))
+                .unwrap();
+        let reads = load_assembly_reads_tsv(
+            &repo.join("parity/fixtures/hc-full-parity/e4/p5_case1_reads.tsv"),
+        )
+        .unwrap();
+        let args = ReadThreadingAssemblerArgs {
+            kmer_sizes: vec![3],
+            min_base_quality: 10,
+            min_prune_factor: 2,
+            min_dangling_branch_length: 4,
+            recover_dangling_heads: true,
+            ..Default::default()
+        };
+        let graph =
+            build_threading_graph_for_haplotype_dump(&reference, &reads, 3, &args, true, false)
+                .unwrap()
+                .expect("graph");
+        assert!(graph.node_count() > 0, "rt graph");
+        let mut seq = SeqGraph::from_assembly_graph(&graph);
+        assert!(seq.node_count() > 0, "seq after from");
+        seq.clean_non_ref_paths();
+        let status = seq.cleanup_seq_graph();
+        assert!(seq.node_count() > 0, "after cleanup status={status:?}");
+        let path = seq.reference_path_bytes().unwrap();
+        assert_eq!(std::str::from_utf8(&path).unwrap(), reference.bases);
+    }
+
+    #[test]
+    fn seq_graph_from_p5_case1_has_ref_path() {
+        let reference = read("ACGTT", 30);
+        let reads = vec![read("ACGTT", 30), read("ACGTT", 30), read("ACGTA", 30)];
+        let params = AssemblyGraphParams {
+            kmer_size: crate::bio_ids::KmerSize::try_new(3).unwrap(),
+            min_base_quality: 10,
+            ..Default::default()
+        };
+        let graph =
+            assembly_graph_from_ref_and_reads_threading(&reference, &reads, &params).unwrap();
+        let seq = SeqGraph::from_assembly_graph(&graph);
+        assert!(seq.node_count() > 0);
+        assert!(seq.edge_count() > 0);
+    }
+}

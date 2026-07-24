@@ -1,0 +1,6 @@
+# case_id	ref_tsv	haplotypes_tsv	expected_tsv
+p5_sw_exact	parity/fixtures/hc-full-parity/e6/p5_sw_ref_acgttacgt.tsv	parity/fixtures/hc-full-parity/e6/p5_sw_hap_exact.tsv	parity/fixtures/hc-full-parity/e6/expected/p5_sw_exact_cigars.tsv
+p5_sw_snp	parity/fixtures/hc-full-parity/e6/p5_sw_ref_acgttacgt.tsv	parity/fixtures/hc-full-parity/e6/p5_sw_hap_snp.tsv	parity/fixtures/hc-full-parity/e6/expected/p5_sw_snp_cigars.tsv
+p5_sw_ins	parity/fixtures/hc-full-parity/e6/p5_sw_ref_acgtt.tsv	parity/fixtures/hc-full-parity/e6/p5_sw_hap_ins.tsv	parity/fixtures/hc-full-parity/e6/expected/p5_sw_ins_cigars.tsv
+p5_sw_del	parity/fixtures/hc-full-parity/e6/p5_sw_ref_acgtt.tsv	parity/fixtures/hc-full-parity/e6/p5_sw_hap_del.tsv	parity/fixtures/hc-full-parity/e6/expected/p5_sw_del_cigars.tsv
+p5_sw_terminal_snp	parity/fixtures/hc-full-parity/e6/p5_sw_ref_acgtt.tsv	parity/fixtures/hc-full-parity/e6/p5_sw_hap_terminal_snp.tsv	parity/fixtures/hc-full-parity/e6/expected/p5_sw_terminal_snp_cigars.tsv

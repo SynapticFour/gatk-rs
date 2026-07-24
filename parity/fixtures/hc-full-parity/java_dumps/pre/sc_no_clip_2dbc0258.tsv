@@ -1,0 +1,2 @@
+qname	flags	fragment_length	cigar_in	cigar_out	seq_len_in	seq_len_out	action	os	oe
+plain	0	0	10M	10M	10	10	hard_clip		

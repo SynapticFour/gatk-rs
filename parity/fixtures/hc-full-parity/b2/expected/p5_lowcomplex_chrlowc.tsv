@@ -1,0 +1,2 @@
+contig	start	end	is_active	extended_start	extended_end	extension
+chrLowC	1	30	true	1	68	100

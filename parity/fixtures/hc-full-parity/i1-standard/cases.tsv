@@ -1,0 +1,5 @@
+# case_id	ref_fw	ref_rv	alt_fw	alt_rv	qual	dp	ref_bqs	alt_bqs	ref_pos	alt_pos	ref_mq	alt_mq	expected
+strand_bias	10	2	2	10	60	20	30,31,32	28,29	10,20,30,40	15,25,35	50,55,60	45,48,52	parity/fixtures/hc-full-parity/i1-standard/expected/strand_bias.tsv
+readpos_skew	10	10	10	10	60	40	30,31,32	28,29	5,10,15,20	35,40,45,50	50,55,60	45,48,52	parity/fixtures/hc-full-parity/i1-standard/expected/readpos_skew.tsv
+mq_skew	10	10	10	10	60	40	30,31,32	28,29	10,20,30,40	15,25,35	60,62,64,66	20,22,24,26	parity/fixtures/hc-full-parity/i1-standard/expected/mq_skew.tsv
+sor_high	2	18	18	2	90	40	30,31,32	28,29	10,20,30,40	15,25,35	50,55,60	45,48,52	parity/fixtures/hc-full-parity/i1-standard/expected/sor_high.tsv

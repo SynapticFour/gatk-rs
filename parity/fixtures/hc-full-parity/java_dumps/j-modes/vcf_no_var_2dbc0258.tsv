@@ -1,0 +1,5 @@
+emit_mode	VCF
+has_variant	false
+locus_decision	Skip
+no_var_emit_blocks	0
+no_var_emit_sites	0

@@ -1,0 +1,2 @@
+# case_id	failure_bam	graph_dot	expected
+default_off	0	0	parity/fixtures/hc-full-parity/e-debug/expected/default_off.tsv

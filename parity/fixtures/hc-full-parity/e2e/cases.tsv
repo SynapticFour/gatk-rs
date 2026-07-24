@@ -1,0 +1,4 @@
+# case_id	ref	bam	interval	padding	target	l2_strict	expected_tsv
+p5_snp_chrlive	parity/fixtures/p5_live_reference.fa	parity/fixtures/p5_live_case_snp.sam	chrLive:1-24	-	active	yes	parity/fixtures/hc-full-parity/e2e/expected/p5_snp_chrlive.tsv
+p5_indel_chrindel	parity/fixtures/p5_live_reference_indel.fa	parity/fixtures/p5_live_case_indel.sam	chrIndel:1-40	-	active	yes	parity/fixtures/hc-full-parity/e2e/expected/p5_indel_chrindel.tsv
+chr1_no_reads_inactive	parity/fixtures/reference.fa	parity/fixtures/hc-full-parity/b2/b2_no_reads.sam	chr1:5-12	-	inactive	yes	parity/fixtures/hc-full-parity/e2e/expected/chr1_no_reads_inactive.tsv

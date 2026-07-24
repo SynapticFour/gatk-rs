@@ -1,0 +1,27 @@
+track_enabled	true
+contig	start	end	is_active	pileup_count
+chrLive	1	24	true	24
+pileup	chrLive	1	5
+pileup	chrLive	2	5
+pileup	chrLive	3	5
+pileup	chrLive	4	5
+pileup	chrLive	5	5
+pileup	chrLive	6	5
+pileup	chrLive	7	5
+pileup	chrLive	8	5
+pileup	chrLive	9	5
+pileup	chrLive	10	5
+pileup	chrLive	11	5
+pileup	chrLive	12	5
+pileup	chrLive	13	5
+pileup	chrLive	14	5
+pileup	chrLive	15	5
+pileup	chrLive	16	5
+pileup	chrLive	17	5
+pileup	chrLive	18	5
+pileup	chrLive	19	5
+pileup	chrLive	20	5
+pileup	chrLive	21	0
+pileup	chrLive	22	0
+pileup	chrLive	23	0
+pileup	chrLive	24	0

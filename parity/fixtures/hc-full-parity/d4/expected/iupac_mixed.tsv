@@ -1,0 +1,5 @@
+qname	flags	mapq	seq_raw	seq_after_pre	passes_hc_filter	seq_after_post
+r_mixed	0	60	AMKW	ANNN	true	ANNN
+r_atcg	0	60	ACGT	ACGT	true	ACGT
+r_lower	0	60	ACGT	ACGT	true	ACGT
+r_ry	0	60	RY	NN	true	NN

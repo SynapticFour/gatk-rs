@@ -1,0 +1,13 @@
+# case_id	read_bases	read_base_quals	read_mapq	haplotype	class
+p6_match_q32	ACGTACGTAC	32,32,32,32,32,32,32,32,32,32	60	ACGTACGTAC	match
+p6_single_snp_mid	ACGTACGTAC	32,32,32,32,32,32,32,32,32,32	60	ACGTTCGTAC	snp
+p6_single_snp_tail	ACGTACGTAC	32,32,32,32,32,32,32,32,32,32	60	ACGTACGTTC	snp
+p6_low_mapq_cap	ACGTACGTAC	32,32,32,32,32,32,32,32,32,32	8	ACGTACGTAC	mapq_cap
+p6_hpoly_match	AAAAAACAAA	30,30,30,30,30,30,30,30,30,30	60	AAAAAACAAA	hpoly
+p6_hpoly_snp	AAAAAACAAA	30,30,30,30,30,30,30,30,30,30	60	AAAATACAAA	hpoly
+p6_repeat_match	CACACACACA	28,28,28,28,28,28,28,28,28,28	50	CACACACACA	repeat
+p6_repeat_mismatch	CACACACACA	28,28,28,28,28,28,28,28,28,28	50	CACATACACA	repeat
+p6_clip_like_n_mix	ACGTNNGTAC	20,20,20,20,15,15,20,20,20,20	45	ACGTACGTAC	artifact
+p6_low_tail_qual	ACGTACGTAC	35,35,35,35,20,15,10,8,8,8	60	ACGTACGTAC	low_tail
+p6_indel_like_short_hap	ACGTACGTAC	30,30,30,30,30,30,30,30,30,30	60	ACGTACGTC	indel_like
+p6_indel_like_long_hap	ACGTACGTAC	30,30,30,30,30,30,30,30,30,30	60	ACGTTACGTAC	indel_like

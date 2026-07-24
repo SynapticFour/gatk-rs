@@ -1,0 +1,5 @@
+key	value
+primary_engine	Log10PairHMM
+stepwise_filtering	false
+dragstr_pair_hmm	false
+flow_based	false

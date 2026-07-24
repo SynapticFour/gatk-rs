@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# Versioned pre-commit hook for gatk-rs (enable via scripts/dev/install-hooks.sh).
+# Compatible with macOS Bash 3.2 (no mapfile / namerefs).
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+STAGED="$(git diff --cached --name-only --diff-filter=ACMR || true)"
+if [[ -z "${STAGED}" ]]; then
+  exit 0
+fi
+
+has_rs=0
+has_md=0
+has_doc_rs=0
+crates=""
+
+crate_for_path() {
+  case "$1" in
+    gatk-cli/*) echo gatk-cli ;;
+    gatk-common/*) echo gatk-common ;;
+    gatk-core/*) echo gatk-core ;;
+    gatk-haplotypecaller/*) echo gatk-haplotypecaller ;;
+    gatk-rs-equiv/*) echo gatk-rs-equiv ;;
+    *) echo "" ;;
+  esac
+}
+
+while IFS= read -r f; do
+  [[ -z "$f" ]] && continue
+  case "$f" in
+    *.rs)
+      has_rs=1
+      if git show ":$f" 2>/dev/null | grep -q '^[[:space:]]*///'; then
+        has_doc_rs=1
+      fi
+      c="$(crate_for_path "$f")"
+      if [[ -n "$c" ]] && ! echo " $crates " | grep -q " $c "; then
+        crates="${crates} ${c}"
+      fi
+      ;;
+    *.md) has_md=1 ;;
+  esac
+done <<EOF
+${STAGED}
+EOF
+
+# 1) fmt — only when Rust staged
+if [[ "$has_rs" -eq 1 ]]; then
+  echo "[pre-commit] cargo fmt --check"
+  cargo fmt --all -- --check
+fi
+
+# 2) clippy — scoped to affected crates when possible; else workspace.
+# Lint debt: do not use -D warnings here yet (hundreds of existing findings).
+# Still fails the commit on hard rustc/clippy errors.
+if [[ "$has_rs" -eq 1 ]]; then
+  clippy_args=""
+  for c in $crates; do
+    clippy_args="${clippy_args} -p ${c}"
+  done
+  # No --all-targets: several integration tests need feature-gated private modules.
+  if [[ -n "$clippy_args" ]]; then
+    echo "[pre-commit] cargo clippy${clippy_args}"
+    # shellcheck disable=SC2086
+    cargo clippy ${clippy_args}
+  else
+    echo "[pre-commit] cargo clippy --workspace"
+    cargo clippy --workspace
+  fi
+fi
+
+# 3) unwrap/clone ratchet — always (fast)
+if [[ -x scripts/dev/count_unsafe_patterns.sh ]]; then
+  echo "[pre-commit] unsafe-pattern ratchets"
+  ./scripts/dev/count_unsafe_patterns.sh check
+fi
+
+# 4) doc links — when .md or ///-bearing .rs staged
+if [[ "$has_md" -eq 1 || "$has_doc_rs" -eq 1 ]]; then
+  if [[ -f scripts/dev/check_doc_links.py ]]; then
+    echo "[pre-commit] doc link check"
+    python3 scripts/dev/check_doc_links.py
+  fi
+fi
+
+# 5) block staged files >1 MiB
+MAX=$((1024 * 1024))
+oversized=0
+while IFS= read -r f; do
+  [[ -z "$f" || ! -f "$f" ]] && continue
+  size=$(wc -c <"$f" | tr -d ' ')
+  if [[ "$size" -gt "$MAX" ]]; then
+    echo "[pre-commit] ERROR: staged file exceeds 1 MiB: $f ($size bytes)" >&2
+    oversized=1
+  fi
+done <<EOF
+${STAGED}
+EOF
+if [[ "$oversized" -eq 1 ]]; then
+  echo "[pre-commit] Refuse commit of files >1 MiB. Use --no-verify only if intentional." >&2
+  exit 1
+fi
+
+echo "[pre-commit] ok"
+exit 0

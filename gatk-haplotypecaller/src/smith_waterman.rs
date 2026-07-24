@@ -1,0 +1,456 @@
+//! GATK `SmithWatermanJavaAligner` parity (JAVA implementation path).
+//! Score / backtrack grids are flat row-major `Vec<i32>` (one allocation each) instead
+//! `Vec<Vec<i32>>` (one allocation per row).
+
+#![warn(clippy::unwrap_used, clippy::expect_used)]
+
+use crate::cigar::{Cigar, CigarElement, CigarOperator};
+use gatk_common::{GatkError, GatkResult};
+
+/// GATK `SmithWatermanAlignmentConstants.NEW_SW_PARAMETERS` (haplotype-to-reference).
+#[derive(Debug, Clone, Copy)]
+pub struct SwParameters {
+    pub match_value: i32,
+    pub mismatch_penalty: i32,
+    pub gap_open_penalty: i32,
+    pub gap_extend_penalty: i32,
+}
+
+impl SwParameters {
+    pub fn gatk_haplotype_to_reference() -> Self {
+        Self {
+            match_value: 200,
+            mismatch_penalty: -150,
+            gap_open_penalty: -260,
+            gap_extend_penalty: -11,
+        }
+    }
+
+    /// GATK `SmithWatermanAlignmentConstants.ALIGNMENT_TO_BEST_HAPLOTYPE_SW_PARAMETERS`.
+    pub fn gatk_read_to_best_haplotype() -> Self {
+        Self {
+            match_value: 10,
+            mismatch_penalty: -15,
+            gap_open_penalty: -30,
+            gap_extend_penalty: -5,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwOverhangStrategy {
+    SoftClip,
+    Ignore,
+    Indel,
+    LeadingIndel,
+}
+
+#[derive(Debug, Clone)]
+pub struct SmithWatermanAlignment {
+    pub cigar: Cigar,
+    pub alignment_offset: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SwState {
+    Match,
+    Insertion,
+    Deletion,
+    Clip,
+}
+
+#[inline]
+fn cell(i: usize, j: usize, ncol: usize) -> usize {
+    i * ncol + j
+}
+
+fn last_index_of(reference: &[u8], query: &[u8]) -> Option<usize> {
+    if query.is_empty() || reference.len() < query.len() {
+        return None;
+    }
+    let qlen = query.len();
+    for r in (0..=reference.len() - qlen).rev() {
+        if reference[r..r + qlen] == *query {
+            return Some(r);
+        }
+    }
+    None
+}
+
+/// Align `alternate` to `reference` (GATK argument order in `CigarUtils.calculateCigar` padded call).
+pub fn align(
+    reference: &[u8],
+    alternate: &[u8],
+    parameters: &SwParameters,
+    overhang_strategy: SwOverhangStrategy,
+) -> GatkResult<SmithWatermanAlignment> {
+    align_internal(reference, alternate, parameters, overhang_strategy, true)
+}
+
+/// GATK `createReadAlignedToRef` read→hap SW (`SmithWatermanJavaAligner` + `lastIndexOf` fast path).
+pub fn align_read_to_best_haplotype(
+    haplotype_bases: &[u8],
+    read_bases: &[u8],
+    parameters: &SwParameters,
+) -> GatkResult<SmithWatermanAlignment> {
+    align_internal(
+        haplotype_bases,
+        read_bases,
+        parameters,
+        SwOverhangStrategy::SoftClip,
+        true,
+    )
+}
+
+#[inline]
+fn already_ascii_uppercase(seq: &[u8]) -> bool {
+    !seq.iter().any(|b| b.is_ascii_lowercase())
+}
+
+fn align_internal(
+    reference: &[u8],
+    alternate: &[u8],
+    parameters: &SwParameters,
+    overhang_strategy: SwOverhangStrategy,
+    allow_substring_fast_path: bool,
+) -> GatkResult<SmithWatermanAlignment> {
+    if reference.is_empty() || alternate.is_empty() {
+        return Err(GatkError::algorithm(
+            "Non-null, non-empty sequences are required for Smith-Waterman",
+        ));
+    }
+
+    // Skip uppercase copies when inputs are already ASCII-upper (common in HC paths).
+    if already_ascii_uppercase(reference) && already_ascii_uppercase(alternate) {
+        return Ok(align_uppercase_ready(
+            reference,
+            alternate,
+            parameters,
+            overhang_strategy,
+            allow_substring_fast_path,
+        ));
+    }
+    let reference: Vec<u8> = reference.iter().map(|b| b.to_ascii_uppercase()).collect();
+    let alternate: Vec<u8> = alternate.iter().map(|b| b.to_ascii_uppercase()).collect();
+    Ok(align_uppercase_ready(
+        &reference,
+        &alternate,
+        parameters,
+        overhang_strategy,
+        allow_substring_fast_path,
+    ))
+}
+
+fn align_uppercase_ready(
+    reference: &[u8],
+    alternate: &[u8],
+    parameters: &SwParameters,
+    overhang_strategy: SwOverhangStrategy,
+    allow_substring_fast_path: bool,
+) -> SmithWatermanAlignment {
+    if allow_substring_fast_path
+        && matches!(
+            overhang_strategy,
+            SwOverhangStrategy::SoftClip | SwOverhangStrategy::Ignore
+        )
+    {
+        if let Some(match_index) = last_index_of(reference, alternate) {
+            return SmithWatermanAlignment {
+                cigar: {
+                    let mut c = Cigar::new();
+                    c.push(alternate.len(), CigarOperator::Match);
+                    c
+                },
+                alignment_offset: match_index as i32,
+            };
+        }
+    }
+
+    let nrow = reference.len() + 1;
+    let ncol = alternate.len() + 1;
+    let mut sw = vec![0i32; nrow * ncol];
+    let mut btrack = vec![0i32; nrow * ncol];
+    calculate_matrix(
+        reference,
+        alternate,
+        nrow,
+        ncol,
+        &mut sw,
+        &mut btrack,
+        overhang_strategy,
+        parameters,
+    );
+    calculate_cigar(&sw, &btrack, nrow, ncol, overhang_strategy)
+}
+
+fn calculate_matrix(
+    reference: &[u8],
+    alternate: &[u8],
+    nrow: usize,
+    ncol: usize,
+    sw: &mut [i32],
+    btrack: &mut [i32],
+    overhang_strategy: SwOverhangStrategy,
+    parameters: &SwParameters,
+) {
+    const MATRIX_MIN_CUTOFF: i32 = -100_000_000;
+    let low_init = i32::MIN / 4;
+    let mut best_gap_v = vec![low_init; ncol + 1];
+    let mut gap_size_v = vec![0i32; ncol + 1];
+    let mut best_gap_h = vec![low_init; nrow + 1];
+    let mut gap_size_h = vec![0i32; nrow + 1];
+
+    if matches!(
+        overhang_strategy,
+        SwOverhangStrategy::Indel | SwOverhangStrategy::LeadingIndel
+    ) {
+        sw[cell(0, 1, ncol)] = parameters.gap_open_penalty;
+        let mut cur = parameters.gap_open_penalty;
+        for j in 2..ncol {
+            cur += parameters.gap_extend_penalty;
+            sw[cell(0, j, ncol)] = cur;
+        }
+        sw[cell(1, 0, ncol)] = parameters.gap_open_penalty;
+        cur = parameters.gap_open_penalty;
+        for i in 2..nrow {
+            cur += parameters.gap_extend_penalty;
+            sw[cell(i, 0, ncol)] = cur;
+        }
+    }
+
+    let w_open = parameters.gap_open_penalty;
+    let w_extend = parameters.gap_extend_penalty;
+    let w_match = parameters.match_value;
+    let w_mismatch = parameters.mismatch_penalty;
+
+    for i in 1..nrow {
+        let a_base = reference[i - 1];
+        let prev_base = (i - 1) * ncol;
+        let cur_base = i * ncol;
+        for j in 1..ncol {
+            let b_base = alternate[j - 1];
+            let step_diag = sw[prev_base + j - 1]
+                + if a_base == b_base {
+                    w_match
+                } else {
+                    w_mismatch
+                };
+            let prev_gap = sw[prev_base + j] + w_open;
+            best_gap_v[j] += w_extend;
+            if prev_gap > best_gap_v[j] {
+                best_gap_v[j] = prev_gap;
+                gap_size_v[j] = 1;
+            } else {
+                gap_size_v[j] += 1;
+            }
+            let step_down = best_gap_v[j];
+            let kd = gap_size_v[j];
+            let prev_gap_h = sw[cur_base + j - 1] + w_open;
+            best_gap_h[i] += w_extend;
+            if prev_gap_h > best_gap_h[i] {
+                best_gap_h[i] = prev_gap_h;
+                gap_size_h[i] = 1;
+            } else {
+                gap_size_h[i] += 1;
+            }
+            let step_right = best_gap_h[i];
+            let ki = gap_size_h[i];
+            let cur_idx = cur_base + j;
+            if step_diag >= step_down && step_diag >= step_right {
+                sw[cur_idx] = step_diag.max(MATRIX_MIN_CUTOFF);
+                btrack[cur_idx] = 0;
+            } else if step_right >= step_down {
+                sw[cur_idx] = step_right.max(MATRIX_MIN_CUTOFF);
+                btrack[cur_idx] = -ki;
+            } else {
+                sw[cur_idx] = step_down.max(MATRIX_MIN_CUTOFF);
+                btrack[cur_idx] = kd;
+            }
+        }
+    }
+}
+
+fn make_element(state: SwState, length: usize) -> CigarElement {
+    let operator = match state {
+        SwState::Match => CigarOperator::Match,
+        SwState::Insertion => CigarOperator::Insertion,
+        SwState::Deletion => CigarOperator::Deletion,
+        SwState::Clip => CigarOperator::SoftClip,
+    };
+    CigarElement { length, operator }
+}
+
+fn calculate_cigar(
+    sw: &[i32],
+    btrack: &[i32],
+    nrow: usize,
+    ncol: usize,
+    overhang_strategy: SwOverhangStrategy,
+) -> SmithWatermanAlignment {
+    let ref_length = nrow - 1;
+    let alt_length = ncol - 1;
+    let mut p1 = 0usize;
+    let mut p2 = alt_length;
+    let mut maxscore = i32::MIN;
+    let mut segment_length = 0usize;
+    if overhang_strategy == SwOverhangStrategy::Indel {
+        p1 = ref_length;
+    } else {
+        for i in 1..=ref_length {
+            let cur = sw[cell(i, alt_length, ncol)];
+            if cur >= maxscore {
+                p1 = i;
+                maxscore = cur;
+            }
+        }
+        if overhang_strategy != SwOverhangStrategy::LeadingIndel {
+            let bottom = ref_length * ncol;
+            for j in 1..ncol {
+                let cur = sw[bottom + j];
+                if cur > maxscore
+                    || (cur == maxscore
+                        && (ref_length as i32 - j as i32).abs() < (p1 as i32 - p2 as i32).abs())
+                {
+                    p1 = ref_length;
+                    p2 = j;
+                    maxscore = cur;
+                    segment_length = alt_length - j;
+                }
+            }
+        }
+    }
+    let mut lce: Vec<CigarElement> = Vec::new();
+    if segment_length > 0 && overhang_strategy == SwOverhangStrategy::SoftClip {
+        lce.push(make_element(SwState::Clip, segment_length));
+        segment_length = 0;
+    }
+    let mut state = SwState::Match;
+    // GATK SmithWatermanJavaAligner#calculateCigar uses do-while (at least one backtrack step).
+    loop {
+        if p1 == 0 || p2 == 0 {
+            break;
+        }
+        let btr = btrack[cell(p1, p2, ncol)];
+        let (new_state, step_length) = if btr > 0 {
+            (SwState::Deletion, btr as usize)
+        } else if btr < 0 {
+            (SwState::Insertion, (-btr) as usize)
+        } else {
+            (SwState::Match, 1)
+        };
+        match new_state {
+            SwState::Match => {
+                p1 -= 1;
+                p2 -= 1;
+            }
+            SwState::Insertion => {
+                if step_length > p2 {
+                    break;
+                }
+                p2 -= step_length;
+            }
+            SwState::Deletion => {
+                if step_length > p1 {
+                    break;
+                }
+                p1 -= step_length;
+            }
+            SwState::Clip => unreachable!(),
+        }
+        if new_state == state {
+            segment_length += step_length;
+        } else {
+            if segment_length > 0 {
+                lce.push(make_element(state, segment_length));
+            }
+            segment_length = step_length;
+            state = new_state;
+        }
+        if p1 == 0 || p2 == 0 {
+            break;
+        }
+    }
+    let alignment_offset = match overhang_strategy {
+        SwOverhangStrategy::SoftClip => {
+            lce.push(make_element(state, segment_length));
+            if p2 > 0 {
+                lce.push(make_element(SwState::Clip, p2));
+            }
+            p1 as i32
+        }
+        SwOverhangStrategy::Ignore => {
+            lce.push(make_element(state, segment_length + p2));
+            (p1 as i32) - (p2 as i32)
+        }
+        SwOverhangStrategy::Indel | SwOverhangStrategy::LeadingIndel => {
+            lce.push(make_element(state, segment_length));
+            if p1 > 0 {
+                lce.push(make_element(SwState::Deletion, p1));
+            } else if p2 > 0 {
+                lce.push(make_element(SwState::Insertion, p2));
+            }
+            0
+        }
+    };
+    lce.reverse();
+    SmithWatermanAlignment {
+        cigar: Cigar { elements: lce },
+        alignment_offset,
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn substring_fast_path_soft_clip() {
+        let reference = b"ACGTACGTACGT";
+        let alternate = b"TACGTA";
+        let aln = align(
+            reference,
+            alternate,
+            &SwParameters::gatk_haplotype_to_reference(),
+            SwOverhangStrategy::SoftClip,
+        )
+        .expect("non-empty sequences");
+        assert_eq!(aln.alignment_offset, 3);
+        assert_eq!(aln.cigar.elements.len(), 1);
+        assert_eq!(aln.cigar.elements[0].operator, CigarOperator::Match);
+        assert_eq!(aln.cigar.elements[0].length, 6);
+    }
+
+    #[test]
+    fn indel_strategy_produces_alignment() {
+        let reference = b"ACGTACGTACGT";
+        let alternate = b"ACGTTTACGT";
+        let aln = align(
+            reference,
+            alternate,
+            &SwParameters::gatk_haplotype_to_reference(),
+            SwOverhangStrategy::Indel,
+        )
+        .expect("non-empty sequences");
+        assert!(!aln.cigar.elements.is_empty());
+        assert_eq!(aln.alignment_offset, 0);
+    }
+
+    #[test]
+    fn empty_sequences_return_err_not_panic() {
+        let err = align(
+            b"",
+            b"ACGT",
+            &SwParameters::gatk_haplotype_to_reference(),
+            SwOverhangStrategy::Indel,
+        );
+        assert!(err.is_err());
+        let err = align(
+            b"ACGT",
+            b"",
+            &SwParameters::gatk_haplotype_to_reference(),
+            SwOverhangStrategy::Indel,
+        );
+        assert!(err.is_err());
+    }
+}

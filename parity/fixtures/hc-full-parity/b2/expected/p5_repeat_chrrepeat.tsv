@@ -1,0 +1,3 @@
+contig	start	end	is_active	extended_start	extended_end	extension
+chrRepeat	1	60	true	1	68	100
+chrRepeat	61	68	false	1	68	100

@@ -1,0 +1,4 @@
+# case_id	read_bases	read_base_quals	read_mapq	haplotype
+pairhmm_case1	ACGTACGTAC	32,32,32,32,32,32,32,32,32,32	60	ACGTACGTAC
+pairhmm_case2	ACGTACGTAC	32,32,32,32,32,32,32,32,32,32	60	ACGTTCGTAC
+pairhmm_case3	ACGTACGTAC	32,32,32,32,32,32,32,32,32,32	60	ACGTACGTTC

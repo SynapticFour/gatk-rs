@@ -1,0 +1,2 @@
+contig	orig_start	orig_end	orig_ext_start	orig_ext_end	variation_present	variant_start	variant_end	trim_start	trim_end	trim_ext_start	trim_ext_end
+chr1	5	15	1	32	true	10	12	10	12	1	32

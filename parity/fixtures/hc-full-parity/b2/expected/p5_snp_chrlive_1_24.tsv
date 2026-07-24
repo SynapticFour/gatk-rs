@@ -1,0 +1,2 @@
+contig	start	end	is_active	extended_start	extended_end	extension
+chrLive	1	24	true	1	63	100

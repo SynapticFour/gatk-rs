@@ -1,0 +1,8 @@
+trim_acg_to_ag	allele_count_before	3
+trim_acg_to_ag	allele_count_after	2
+trim_acg_to_ag	pl_length	3
+trim_acg_to_ag	pl_0	500
+trim_acg_to_ag	pl_1	0
+trim_acg_to_ag	pl_2	200
+trim_acg_to_ag	ad	14,7
+trim_acg_to_ag	gq	200

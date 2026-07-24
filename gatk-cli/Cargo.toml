@@ -1,0 +1,44 @@
+[package]
+name = "gatk-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Command-line interface for GATK-RS"
+rust-version.workspace = true
+
+[[bin]]
+name = "gatk-rs"
+path = "src/main.rs"
+
+[dependencies]
+# Workspace dependencies
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rust-htslib.workspace = true
+
+# Internal dependencies
+gatk-core = { path = "../gatk-core" }
+gatk-common = { path = "../gatk-common" }
+gatk-haplotypecaller = { path = "../gatk-haplotypecaller", features = ["dev-dumps"] }
+
+# External dependencies
+colored = "2.1"
+console = "0.12"
+
+# Benchmarking dependencies
+chrono.workspace = true
+num_cpus.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+assert_cmd = "2.0"
+predicates = "3"

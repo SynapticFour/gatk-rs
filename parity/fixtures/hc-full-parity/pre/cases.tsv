@@ -1,0 +1,4 @@
+# case_id	bam_or_sam	expected_tsv
+sc_no_clip	parity/fixtures/hc-full-parity/pre/sc_no_clip.sam	parity/fixtures/hc-full-parity/pre/expected/sc_no_clip.tsv
+sc_hard_single	parity/fixtures/hc-full-parity/pre/sc_hard_single.sam	parity/fixtures/hc-full-parity/pre/expected/sc_hard_single.tsv
+sc_revert_paired	parity/fixtures/hc-full-parity/pre/sc_revert_paired.sam	parity/fixtures/hc-full-parity/pre/expected/sc_revert_paired.tsv

@@ -1,0 +1,2 @@
+chr1	0	1	end-marker	0.000000
+chr1	0	16	size=16	-1.000000

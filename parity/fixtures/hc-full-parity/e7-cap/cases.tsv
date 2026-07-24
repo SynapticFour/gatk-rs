@@ -1,0 +1,3 @@
+# case_id	ref_tsv	reads_tsv	kmer	min_qual	min_prune	min_dangling	recover_heads	max_haps	expected_tsv
+p5_case1_cap1	parity/fixtures/hc-full-parity/e4/p5_case1_ref.tsv	parity/fixtures/hc-full-parity/e4/p5_case1_reads.tsv	3	10	2	4	1	1	parity/fixtures/hc-full-parity/e7-cap/expected/p5_case1_cap1.tsv
+p5_case1_cap128	parity/fixtures/hc-full-parity/e4/p5_case1_ref.tsv	parity/fixtures/hc-full-parity/e4/p5_case1_reads.tsv	3	10	2	4	1	128	parity/fixtures/hc-full-parity/e7-cap/expected/p5_case1_cap128.tsv

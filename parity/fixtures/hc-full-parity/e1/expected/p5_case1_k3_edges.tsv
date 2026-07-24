@@ -1,0 +1,4 @@
+from_kmer	to_kmer	support
+ACG	CGT	5
+CGT	GTA	2
+CGT	GTT	3

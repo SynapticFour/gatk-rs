@@ -1,0 +1,110 @@
+{
+  "stamp_utc": "20260724T055240Z",
+  "host": "Darwin 25.5.0 arm64",
+  "git_sha": "ecb97e5",
+  "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)",
+  "cargo": "cargo 1.88.0 (873a06493 2025-05-10)",
+  "binary": "<release-bin>/gatk-rs",
+  "build": "cargo build -p gatk-cli --release --locked",
+  "bench": "cargo bench -p gatk-haplotypecaller --bench pairhmm -- pairhmm_logless_simd",
+  "host_features": [
+    "neon"
+  ],
+  "criterion_rows": [
+    {
+      "impl": "logless_scalar_haps",
+      "hap_count": 8,
+      "seconds": 0.0012545,
+      "raw": "logless_scalar_haps/8\nBenchmarking pairhmm_logless_simd/logless_scalar_haps/8: Warming up for 500.00 ms\nBenchmarking pai"
+    },
+    {
+      "impl": "simd_haps",
+      "hap_count": 8,
+      "seconds": 0.0023341,
+      "raw": "simd_haps/8\nBenchmarking pairhmm_logless_simd/simd_haps/8: Warming up for 500.00 ms\nBenchmarking pairhmm_logless_simd/si"
+    },
+    {
+      "impl": "log10_scalar_haps",
+      "hap_count": 8,
+      "seconds": 0.0090817,
+      "raw": "log10_scalar_haps/8\nBenchmarking pairhmm_logless_simd/log10_scalar_haps/8: Warming up for 500.00 ms\nBenchmarking pairhmm"
+    },
+    {
+      "impl": "logless_scalar_haps",
+      "hap_count": 32,
+      "seconds": 0.005069499999999999,
+      "raw": "logless_scalar_haps/32\nBenchmarking pairhmm_logless_simd/logless_scalar_haps/32: Warming up for 500.00 ms\nBenchmarking p"
+    },
+    {
+      "impl": "simd_haps",
+      "hap_count": 32,
+      "seconds": 0.0036249,
+      "raw": "simd_haps/32\nBenchmarking pairhmm_logless_simd/simd_haps/32: Warming up for 500.00 ms\nBenchmarking pairhmm_logless_simd/"
+    },
+    {
+      "impl": "simd_f32_haps",
+      "hap_count": 32,
+      "seconds": 0.0093582,
+      "raw": "simd_f32_haps/32\nBenchmarking pairhmm_logless_simd/simd_f32_haps/32: Warming up for 500.00 ms\nBenchmarking pairhmm_logle"
+    },
+    {
+      "impl": "log10_scalar_haps",
+      "hap_count": 32,
+      "seconds": 0.036382,
+      "raw": "log10_scalar_haps/32\nBenchmarking pairhmm_logless_simd/log10_scalar_haps/32: Warming up for 500.00 ms\n\nWarning: Unable t"
+    },
+    {
+      "impl": "logless_scalar_haps",
+      "hap_count": 64,
+      "seconds": 0.010164999999999999,
+      "raw": "logless_scalar_haps/64\nBenchmarking pairhmm_logless_simd/logless_scalar_haps/64: Warming up for 500.00 ms\nBenchmarking p"
+    },
+    {
+      "impl": "simd_haps",
+      "hap_count": 64,
+      "seconds": 0.0072192,
+      "raw": "simd_haps/64\nBenchmarking pairhmm_logless_simd/simd_haps/64: Warming up for 500.00 ms\nBenchmarking pairhmm_logless_simd/"
+    },
+    {
+      "impl": "simd_f32_haps",
+      "hap_count": 64,
+      "seconds": 0.018704000000000002,
+      "raw": "simd_f32_haps/64\nBenchmarking pairhmm_logless_simd/simd_f32_haps/64: Warming up for 500.00 ms\nBenchmarking pairhmm_logle"
+    },
+    {
+      "impl": "log10_scalar_haps",
+      "hap_count": 64,
+      "seconds": 0.073715,
+      "raw": "log10_scalar_haps/64\nBenchmarking pairhmm_logless_simd/log10_scalar_haps/64: Warming up for 500.00 ms\n\nWarning: Unable t"
+    }
+  ],
+  "speedups_scalar_over_simd": [
+    {
+      "hap_count": 8,
+      "scalar_s": 0.0012545,
+      "simd_s": 0.0023341,
+      "speedup": 0.5374662610856433
+    },
+    {
+      "hap_count": 32,
+      "scalar_s": 0.005069499999999999,
+      "simd_s": 0.0036249,
+      "speedup": 1.398521338519683
+    },
+    {
+      "hap_count": 64,
+      "scalar_s": 0.010164999999999999,
+      "simd_s": 0.0072192,
+      "speedup": 1.408050753546099
+    }
+  ],
+  "default_pair_hmm": "LOG10_PAIRHMM",
+  "default_note": "SIMD not promoted to default: GIAB/hap.py F1 gate not signed in this run; production remains Log10PairHMM.",
+  "hc_smoke": {
+    "interval": "chr1:1-32",
+    "fixture": "parity/fixtures",
+    "log10_time": "hc_log10.time",
+    "simd_time": "hc_simd.time"
+  },
+  "unit_tests": "cargo test -p gatk-haplotypecaller --test pairhmm_simd_vs_scalar_test"
+}

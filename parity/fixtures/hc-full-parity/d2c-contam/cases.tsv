@@ -1,0 +1,2 @@
+# case_id	ref	bam	interval_cli	contamination_fraction	expected_tsv
+locus10_contam01	parity/fixtures/reference.fa	parity/fixtures/hc-full-parity/d2/d2_allele_locus10.sam	chr1:10-10	0.1	parity/fixtures/hc-full-parity/d2c-contam/expected/locus10_contam01.tsv

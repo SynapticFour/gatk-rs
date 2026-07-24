@@ -1,0 +1,3 @@
+track_enabled	false
+contig	start	end	is_active	pileup_count
+chr1	5	15	false	0

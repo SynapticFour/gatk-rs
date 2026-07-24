@@ -1,0 +1,120 @@
+# Local GATK source checkout for parity porting (not vendored)
+.gatk-src/
+
+# Local backup of pre-public git history (never publish)
+.git.pre-public-backup/
+
+# ---------------------------------------------------------------------------
+# Rust build artifacts
+# ---------------------------------------------------------------------------
+/target/
+**/target/
+/target-agent/
+/target-foundation/
+/target-parity/
+/target-p10-release/
+/target-udeps/
+.docker-amd64-target/
+.rustup-local/
+.cargo-local/
+**/*.rs.bk
+
+# Cargo.lock decision:
+# gatk-cli ships a binary target (`gatk-rs`). Per Rust best practice for
+# applications/binaries, Cargo.lock MUST be committed for reproducible
+# builds (CI + end users). Do NOT add Cargo.lock to this ignore list.
+# (Verified: gatk-cli/Cargo.toml has [[bin]] name = "gatk-rs".)
+
+# ---------------------------------------------------------------------------
+# IDE / editor / OS
+# ---------------------------------------------------------------------------
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ---------------------------------------------------------------------------
+# Secrets / local env
+# ---------------------------------------------------------------------------
+.env
+.env.local
+*.pem
+*.key
+
+# ---------------------------------------------------------------------------
+# Logs / temp
+# ---------------------------------------------------------------------------
+*.log
+logs/
+tmp/
+temp/
+
+# ---------------------------------------------------------------------------
+# Large / generated genomic fixtures (fetch via scripts/parity/*)
+# Small checked-in smoke fixtures under parity/fixtures/ are allowlisted.
+# Verified pre-push: parity/realworld has multi-MB BAM/BAI and a ~3GB FASTA
+# (hs37d5.simple.fa) — regenerate locally; never commit.
+# ---------------------------------------------------------------------------
+test_data/
+*.bam
+!parity/fixtures/sample.bam
+*.bai
+*.sam
+!parity/fixtures/sample.sam
+*.vcf
+!parity/fixtures/sample.vcf
+*.vcf.gz
+*.fa
+!parity/fixtures/reference.fa
+*.fasta
+*.fq
+*.fastq
+*.fastq.gz
+*.bam.gz
+*.fa.gz
+*.bed
+
+# Large downloaded real-world assets
+parity/realworld/assets/*.fa
+parity/realworld/assets/*.fa.fai
+parity/realworld/assets/*.dict
+parity/realworld/assets/*.vcf.gz
+parity/realworld/assets/*.bed
+!parity/realworld/assets/.gitkeep
+# Staged GIAB window / NA12878 BAM slices (scripts/parity/realworld/)
+parity/realworld/na12878_giab_window_*/
+parity/realworld/na12878_20k_*/
+# GIAB multi-sample truth / runs
+parity/giab/truth/
+parity/giab/stratifications/
+parity/giab/runs/
+
+parity/build/
+parity/reports/
+parity/fixtures/hc-full-parity/java_dumps/**/*.stderr
+
+# ---------------------------------------------------------------------------
+# Perf: keep aggregated reports; ignore raw timestamped run folders
+# ---------------------------------------------------------------------------
+/docs/perf/runs/
+benchmark_results/
+criterion/
+
+# ---------------------------------------------------------------------------
+# Dev audit intermediate dumps (baselines live in .quality-gates/)
+# ---------------------------------------------------------------------------
+/scripts/dev/*_inventory.txt
+
+# ---------------------------------------------------------------------------
+# Coverage / docs build / backups
+# ---------------------------------------------------------------------------
+tarpaulin/
+coverage/
+book/
+docs/build/
+*.bak
+*.backup

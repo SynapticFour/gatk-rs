@@ -1,0 +1,2 @@
+# case_id	expected_tsv
+defaults	parity/fixtures/hc-full-parity/e0-config/expected/defaults.tsv

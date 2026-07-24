@@ -1,0 +1,45 @@
+[package]
+name = "gatk-rs-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# Keep out of the parent workspace (cargo-fuzz convention).
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[features]
+default = ["core-targets"]
+# allele_from_string / parse_cigar_str need gatk-core (htslib). Optional so
+# `hc_differential` can build without that heavy graph on constrained hosts.
+core-targets = ["dep:gatk-core"]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+gatk-core = { path = "../gatk-core", optional = true }
+
+[[bin]]
+name = "allele_from_string"
+path = "fuzz_targets/allele_from_string.rs"
+required-features = ["core-targets"]
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_cigar_str"
+path = "fuzz_targets/parse_cigar_str.rs"
+required-features = ["core-targets"]
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "hc_differential"
+path = "fuzz_targets/hc_differential.rs"
+test = false
+doc = false
+bench = false

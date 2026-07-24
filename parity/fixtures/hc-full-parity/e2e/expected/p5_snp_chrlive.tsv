@@ -1,0 +1,8 @@
+region_contig	chrLive
+region_start	1
+region_end	24
+is_active	true
+status	just_assembled_reference
+kmer_size	0
+rank	sequence	score	is_reference	cigar
+0	TGCATGACTGATCGTACGATTCGAGCTAGTCGATCGATGCTAGCTAGGCTAACGTTAGCTAGT	0	true	63M

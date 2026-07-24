@@ -1,0 +1,7 @@
+# case_id	pl	gq	ad	dp
+p7_biallelic_basic	0,13,20	13	12,5	17
+p7_multiallelic_basic	0,8,17,13,21,29	8	18,6,3	27
+p7_biallelic_gq_cap	0,101,102	99	30,0	30
+p7_triallelic_equal_gl	0,0,0,0,0,0	0	10,10,10	30
+p7_quadallelic_complex	0,13,20,17,28,26,39,37,48,58	13	25,8,8,8	49
+p7_biallelic_near_tie_pl	0,0,100	0	100,50	150

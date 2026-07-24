@@ -1,0 +1,3 @@
+# case_id	alleles	phasing_enabled	phase_set	expected
+het_phased	0,1	1	42	parity/fixtures/hc-full-parity/g4/expected/het_phased.tsv
+hom_unphased	0,0	1	42	parity/fixtures/hc-full-parity/g4/expected/hom_unphased.tsv

@@ -1,0 +1,3 @@
+# case_id	ref_tsv	reads_tsv	kmer	min_qual	expected_tsv
+p5_repeat_no_thread	-	parity/fixtures/hc-full-parity/e5/p5_repeat_reads.tsv	3	10	parity/fixtures/hc-full-parity/e5/expected/p5_repeat_no_thread_summary.tsv
+p5_ref_internal_repeat	parity/fixtures/hc-full-parity/e5/p5_ref_repeat_ref.tsv	parity/fixtures/hc-full-parity/e5/p5_ref_repeat_reads.tsv	3	10	parity/fixtures/hc-full-parity/e5/expected/p5_ref_internal_repeat_summary.tsv

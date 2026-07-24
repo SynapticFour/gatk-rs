@@ -1,0 +1,3 @@
+# case_id	sample_ploidy	expected_tsv
+p5_diploid_default	2	parity/fixtures/hc-full-parity/c5-ploidy/expected/p5_diploid_default.tsv
+p5_haploid_sample	1	parity/fixtures/hc-full-parity/c5-ploidy/expected/p5_haploid_sample.tsv

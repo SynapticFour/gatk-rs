@@ -1,0 +1,4 @@
+status	failed
+kmer_size	25
+rank	sequence	score	is_reference	cigar
+0	ACGTT	0	true	5M

@@ -1,0 +1,27 @@
+name: Dependency Review
+
+on:
+  pull_request:
+
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    # Requires Dependency graph (Settings → Code security). Non-fatal until enabled.
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v5
+        continue-on-error: true

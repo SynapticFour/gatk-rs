@@ -1,0 +1,12 @@
+# case_id	merge_case_id	expected_tsv
+merge_single_vc	merge_single_vc	parity/fixtures/hc-full-parity/h2-merge/expected/merge_single_vc.tsv
+merge_two_snps	merge_two_snps	parity/fixtures/hc-full-parity/h2-merge/expected/merge_two_snps.tsv
+merge_snp_indel	merge_snp_indel	parity/fixtures/hc-full-parity/h2-merge/expected/merge_snp_indel.tsv
+merge_snp_three_alleles	merge_snp_three_alleles	parity/fixtures/hc-full-parity/h2-merge/expected/merge_snp_three_alleles.tsv
+merge_snps_ref	merge_snps_ref	parity/fixtures/hc-full-parity/h2-merge/expected/merge_snps_ref.tsv
+merge_spanning_del	merge_spanning_del	parity/fixtures/hc-full-parity/h2-merge/expected/merge_spanning_del.tsv
+merge_all_combined	merge_all_combined	parity/fixtures/hc-full-parity/h2-merge/expected/merge_all_combined.tsv
+merge_spanning_ref_only	merge_spanning_ref_only	parity/fixtures/hc-full-parity/h2-merge/expected/merge_spanning_ref_only.tsv
+merge_ad_pl_mix	merge_ad_pl_mix	parity/fixtures/hc-full-parity/h2-merge/expected/merge_ad_pl_mix.tsv
+merge_ad_only_overlap	merge_ad_only_overlap	parity/fixtures/hc-full-parity/h2-merge/expected/merge_ad_only_overlap.tsv
+merge_ad_only_distinct	merge_ad_only_distinct	parity/fixtures/hc-full-parity/h2-merge/expected/merge_ad_only_distinct.tsv

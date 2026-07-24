@@ -1,0 +1,2 @@
+qname	mapq	mq_threshold	passes_mq_filter
+ok_mq255	255	20	true

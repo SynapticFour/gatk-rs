@@ -1,0 +1,7 @@
+# case_id	ref	bam	interval	padding	target	max_alleles	assembly_profile	expected_tsv
+p5_snp_chrlive	parity/fixtures/p5_live_reference.fa	parity/fixtures/p5_live_case_snp.sam	chrLive:1-24	-	active	2	-	parity/fixtures/hc-full-parity/g2-subset-live/expected/p5_snp_chrlive.tsv
+p11_java_positive_chrlive	parity/fixtures/p5_live_reference.fa	parity/fixtures/p11_java_positive.sam	chrLive:1-63	-	active	2	-	parity/fixtures/hc-full-parity/g2-subset-live/expected/p11_java_positive_chrlive.tsv
+p11_trim_to_one	parity/fixtures/p5_live_reference.fa	parity/fixtures/p11_java_positive.sam	chrLive:1-63	-	active	1	-	parity/fixtures/hc-full-parity/g2-subset-live/expected/p11_trim_to_one.tsv
+indel4_trim_two	parity/fixtures/g2_subset_live_indel4.fa	parity/fixtures/g2_subset_live_indel4.sam	chrIndel4:1-68	-	active	2	-	parity/fixtures/hc-full-parity/g2-subset-live/expected/indel4_trim_two.tsv
+quad4_trim_two	parity/fixtures/g2_subset_live_quad4.fa	parity/fixtures/g2_subset_live_quad4.sam	chrQuad4:1-86	-	active	2	sensitive	parity/fixtures/hc-full-parity/g2-subset-live/expected/quad4_trim_two.tsv
+indel4_trim_two_sensitive	parity/fixtures/g2_subset_live_indel4.fa	parity/fixtures/g2_subset_live_indel4.sam	chrIndel4:1-68	-	active	2	sensitive	parity/fixtures/hc-full-parity/g2-subset-live/expected/indel4_trim_two_sensitive.tsv

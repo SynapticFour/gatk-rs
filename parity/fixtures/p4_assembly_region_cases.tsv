@@ -1,0 +1,3 @@
+# case_id	interval	expected_normalized
+sample_chr1_1_16	chr1:1-16	parity/expected/p4_hc_assembly_regions_sample_chr1_1_16.normalized.txt
+sample_chr1_1_32	chr1:1-32	parity/expected/p4_hc_assembly_regions_sample_chr1_1_32.normalized.txt

@@ -1,0 +1,5 @@
+emit_mode	GVCF
+has_variant	false
+locus_decision	EmitReferenceBlock
+no_var_emit_blocks	10
+no_var_emit_sites	0

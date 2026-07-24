@@ -1,0 +1,9 @@
+metric	value
+node_count	3
+edge_count	2
+log10_max_edge_support	0.69897000
+log10_sum_edge_support	0.90308999
+pruning_lod_threshold_ln	2.30258509
+adaptive_pruning	false
+min_prune_factor	3
+edges_pruned	1

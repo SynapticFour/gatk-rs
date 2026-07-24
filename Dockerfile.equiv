@@ -1,0 +1,58 @@
+# Lean image for gatk-rs-equiv on disk-constrained hosts (e.g. M4 16GB / ~40GB free).
+# Does NOT bake conda/hap.py (multi-GB). Prefer host-installed hap.py or RTG,
+# or mount them at runtime. Only ships: gatk-rs, gatk-rs-equiv, GATK 4.4.0.0 jar.
+#
+#   docker build -f Dockerfile.equiv -t gatk-rs-equiv:local .
+#   docker run --rm -v "$PWD:/work" -w /work gatk-rs-equiv:local run ...
+
+FROM rust:1.75-bookworm AS rust-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential pkg-config libssl-dev zlib1g-dev libbz2-dev liblzma-dev \
+    cmake clang \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY gatk-core ./gatk-core
+COPY gatk-cli ./gatk-cli
+COPY gatk-common ./gatk-common
+COPY gatk-haplotypecaller ./gatk-haplotypecaller
+COPY gatk-rs-equiv ./gatk-rs-equiv
+COPY .cargo ./.cargo
+
+# Single-job build — mirrors M4 / .cargo/config.toml defaults.
+ENV CARGO_BUILD_JOBS=1 \
+    CARGO_PROFILE_RELEASE_LTO=false \
+    CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+
+RUN cargo build --release -p gatk-cli -p gatk-rs-equiv -j 1
+
+FROM us.gcr.io/broad-gatk/gatk:4.4.0.0 AS gatk
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    openjdk-17-jre-headless \
+    zlib1g \
+    libbz2-1.0 \
+    liblzma5 \
+    libcurl4 \
+    bash \
+    && rm -rf /var/lib/apt/lists/*
+
+# GATK jar only (not a full conda bio stack).
+COPY --from=gatk /gatk/gatk.jar /opt/gatk/gatk-package-4.4.0.0-local.jar
+COPY --from=rust-builder /src/target/release/gatk-rs /usr/local/bin/gatk-rs
+COPY --from=rust-builder /src/target/release/gatk-rs-equiv /usr/local/bin/gatk-rs-equiv
+
+ENV GATK_PINNED_REF=4.4.0.0 \
+    GATK_PINNED_SHA=2dbc025821bc5f686c423ff332a41e6cef892a77 \
+    JAVA_TOOL_OPTIONS="-Xmx4g -XX:+UseParallelGC" \
+    RAYON_NUM_THREADS=2 \
+    OMP_NUM_THREADS=2
+
+WORKDIR /work
+ENTRYPOINT ["gatk-rs-equiv"]
+CMD ["--help"]

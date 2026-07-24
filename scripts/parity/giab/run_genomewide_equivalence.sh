@@ -1,0 +1,289 @@
+#!/usr/bin/env bash
+# GIAB multi-sample HaplotypeCaller equivalence: Java GATK4 (pinned) vs gatk-rs,
+# evaluated with gatk-rs-equiv (hap.py / RTG) + /usr/bin/time resource capture.
+#
+# Modes (GIAB_MODE) — what “genome-wide” means here:
+#   smoke       small windows only (M4 / PR)
+#   ci-subset   FULL chr20+chr21 + 50kb probes on other autosomes  ← CI default
+#   chr20-21    full chr20+chr21 only
+#   autosomes   full chr1–22 (big iron only)
+#
+# Usage:
+#   GIAB_MODE=smoke GIAB_SAMPLES=HG001 ./scripts/parity/giab/run_genomewide_equivalence.sh
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "$0")/../../.." && pwd)"
+# shellcheck source=../m4_disk_guard.sh
+source "${repo_root}/scripts/parity/m4_disk_guard.sh"
+# shellcheck source=lib_giab.sh
+source "${repo_root}/scripts/parity/giab/lib_giab.sh"
+
+m4_require_free_gb "${GIAB_RUN_MIN_FREE_GB:-12}" || exit 1
+
+mode="${GIAB_MODE:-ci-subset}"
+samples_csv="${GIAB_SAMPLES:-HG001}"
+out_root="${GIAB_OUT_ROOT:-${repo_root}/parity/giab/runs/$(date -u +%Y%m%dT%H%M%SZ)_${mode}}"
+truth_root="${GIAB_TRUTH_ROOT:-${repo_root}/parity/giab/truth}"
+strat_root="${GIAB_STRAT_ROOT:-${repo_root}/parity/giab/stratifications/GRCh37}"
+ref="${GIAB_REFERENCE:-${repo_root}/parity/realworld/assets/hs37d5.simple.fa}"
+rust_bin="${GIAB_RUST_BIN:-${CARGO_TARGET_DIR}/release/gatk-rs}"
+equiv_bin="${GIAB_EQUIV_BIN:-${CARGO_TARGET_DIR}/release/gatk-rs-equiv}"
+f1_delta="${GIAB_F1_DELTA_THRESHOLD:-0.02}"
+threads="${GIAB_THREADS:-2}"
+fetch_truth="${GIAB_FETCH_TRUTH:-1}"
+stage_ref="${GIAB_STAGE_REF:-1}"
+java_jar="${GIAB_JAVA_GATK_JAR:-}"
+java_bin="${GIAB_JAVA_GATK_BIN:-}"
+skip_equiv_engine="${GIAB_SKIP_EQUIV_ENGINE:-0}"
+ftp_data="https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data"
+
+bam_url_for_sample() {
+  case "$1" in
+    HG001) echo "${GIAB_HG001_BAM_URL:-${ftp_data}/NA12878/NIST_NA12878_HG001_HiSeq_300x/RMNISTHS_30xdownsample.bam}" ;;
+    HG002) echo "${GIAB_HG002_BAM_URL:-${ftp_data}/AshkenazimTrio/HG002_NA24385_son/NIST_HiSeq_HG002_Homogeneity-10953946/NHGRI_Illumina300X_AJtrio_novoalign_bams/HG002.hs37d5.300x.bam}" ;;
+    HG005) echo "${GIAB_HG005_BAM_URL:-${ftp_data}/ChineseTrio/HG005_NA24631_son/HG005_NA24631_son_HiSeq_300x/NHGRI_Illumina300X_Chinesetrio_novoalign_bams/HG005.hs37d5.300x.bam}" ;;
+    *) return 1 ;;
+  esac
+}
+
+mkdir -p "${out_root}"
+echo "=== run_genomewide_equivalence ==="
+echo "mode=${mode}"
+echo "scope: $(giab_mode_description "${mode}")"
+echo "samples=${samples_csv}"
+echo "out_root=${out_root}"
+giab_mode_description "${mode}" > "${out_root}/SCOPE.txt"
+{
+  echo "GIAB_MODE=${mode}"
+  echo "GIAB_SAMPLES=${samples_csv}"
+  echo "created_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "description=$(giab_mode_description "${mode}")"
+} > "${out_root}/run.env"
+
+if [[ "${fetch_truth}" == "1" ]]; then
+  "${repo_root}/scripts/parity/giab/fetch_giab_truthsets.sh"
+fi
+
+if [[ "${stage_ref}" == "1" && ! -f "${ref}" ]]; then
+  echo "[giab] staging reference via realworld step 03…"
+  "${repo_root}/scripts/parity/realworld/03_stage_reference_and_truth.sh"
+  ref="${repo_root}/parity/realworld/assets/hs37d5.simple.fa"
+fi
+if [[ ! -f "${ref}" ]]; then
+  echo "[giab] missing reference: ${ref}" >&2
+  exit 2
+fi
+
+if [[ ! -x "${rust_bin}" ]]; then
+  echo "[giab] building gatk-rs release…"
+  "${repo_root}/scripts/parity/build_gatk_rs_release.sh"
+  rust_bin="${CARGO_TARGET_DIR}/release/gatk-rs"
+fi
+if [[ ! -x "${equiv_bin}" ]]; then
+  echo "[giab] building gatk-rs-equiv release…"
+  cargo build -p gatk-rs-equiv --release -j "${CARGO_BUILD_JOBS:-1}"
+  equiv_bin="${CARGO_TARGET_DIR}/release/gatk-rs-equiv"
+fi
+
+if ! command -v samtools >/dev/null 2>&1; then
+  echo "[giab] samtools required on PATH" >&2
+  exit 2
+fi
+
+giab_build_intervals "${mode}" > "${out_root}/intervals.txt"
+echo "[giab] intervals:"
+cat "${out_root}/intervals.txt"
+
+# Load intervals into a plain array (bash 3.2-safe)
+intervals=()
+while IFS= read -r line || [[ -n "${line}" ]]; do
+  [[ -z "${line}" ]] && continue
+  intervals+=("${line}")
+done < "${out_root}/intervals.txt"
+
+time_backend="$(giab_time_backend)"
+echo "[giab] time_backend=${time_backend}"
+
+overall_gate=0
+summary_jsonl="${out_root}/samples.jsonl"
+: > "${summary_jsonl}"
+
+stage_bam_for_intervals() {
+  local sample="$1" bam_url="$2" out_bam="$3"
+  local bai_local="${out_bam}.remote.bai"
+  local out_bai="${out_bam}.bai"
+  mkdir -p "$(dirname "${out_bam}")"
+  if [[ -f "${out_bam}" && -f "${out_bai}" ]]; then
+    echo "[giab] reuse BAM ${out_bam}"
+    return 0
+  fi
+  if [[ ! -f "${bai_local}" ]]; then
+    echo "[giab] download BAI for ${sample}…"
+    curl -fL --retry 3 -o "${bai_local}.partial" "${bam_url}.bai"
+    mv -f "${bai_local}.partial" "${bai_local}"
+  fi
+  echo "[giab] slicing remote BAM for ${sample} (${#intervals[@]} intervals)…"
+  samtools view -b -X "${bam_url}" "${bai_local}" "${intervals[@]}" > "${out_bam}.partial"
+  mv -f "${out_bam}.partial" "${out_bam}"
+  samtools index "${out_bam}" "${out_bai}"
+}
+
+run_timed() {
+  local label="$1" log="$2"
+  shift 2
+  echo "[giab] RUN ${label}: $*"
+  giab_run_timed "${time_backend}" "${log}" "$@"
+}
+
+OLD_IFS="${IFS}"
+IFS=','
+# shellcheck disable=SC2086
+set -- ${samples_csv}
+IFS="${OLD_IFS}"
+
+for sample in "$@"; do
+  sample="$(echo "${sample}" | tr -d '[:space:]')"
+  [[ -n "${sample}" ]] || continue
+  echo "======== sample ${sample} ========"
+  sdir="${out_root}/${sample}"
+  mkdir -p "${sdir}/hc" "${sdir}/equiv" "${sdir}/time"
+
+  truth_vcf="${truth_root}/${sample}_GRCh37_1_22_v4.2.1_benchmark.vcf.gz"
+  truth_bed="${truth_root}/${sample}_GRCh37_1_22_v4.2.1_benchmark.bed"
+  if [[ ! -f "${truth_vcf}" || ! -f "${truth_bed}" ]]; then
+    echo "[giab] missing truth for ${sample} under ${truth_root}" >&2
+    exit 2
+  fi
+
+  bam_url="$(bam_url_for_sample "${sample}")" || {
+    echo "[giab] no BAM URL for ${sample}" >&2
+    exit 2
+  }
+  bam="${sdir}/hc/${sample}.${mode}.bam"
+  stage_bam_for_intervals "${sample}" "${bam_url}" "${bam}"
+
+  java_vcf="${sdir}/hc/java.vcf"
+  rust_vcf="${sdir}/hc/rust.vcf"
+  java_time="${sdir}/time/java.time.txt"
+  rust_time="${sdir}/time/rust.time.txt"
+
+  l_args=()
+  for iv in "${intervals[@]}"; do
+    l_args+=(-L "${iv}")
+  done
+
+  if [[ ! -f "${java_vcf}" || "${GIAB_FORCE_HC:-0}" == "1" ]]; then
+    if [[ -n "${java_jar}" ]]; then
+      run_timed "java-hc-${sample}" "${java_time}" \
+        java -Xmx4g -jar "${java_jar}" HaplotypeCaller \
+          -R "${ref}" -I "${bam}" -O "${java_vcf}" --verbosity ERROR \
+          --native-pair-hmm-threads "${threads}" "${l_args[@]}"
+    elif [[ -n "${java_bin}" ]]; then
+      run_timed "java-hc-${sample}" "${java_time}" \
+        "${java_bin}" HaplotypeCaller \
+          -R "${ref}" -I "${bam}" -O "${java_vcf}" --verbosity ERROR \
+          --native-pair-hmm-threads "${threads}" "${l_args[@]}"
+    elif command -v gatk >/dev/null 2>&1; then
+      run_timed "java-hc-${sample}" "${java_time}" \
+        gatk HaplotypeCaller \
+          -R "${ref}" -I "${bam}" -O "${java_vcf}" --verbosity ERROR \
+          --native-pair-hmm-threads "${threads}" "${l_args[@]}"
+    else
+      # shellcheck source=../lib_pinned_gatk.sh
+      source "${repo_root}/scripts/parity/lib_pinned_gatk.sh"
+      img="${GATK_DOCKER_IMAGE:-us.gcr.io/broad-gatk/gatk:4.4.0.0}"
+      plat="${GATK_DOCKER_PLATFORM:-linux/amd64}"
+      run_timed "java-hc-${sample}" "${java_time}" \
+        docker run --rm --platform "${plat}" \
+          -v "${repo_root}:${repo_root}" -w "${repo_root}" \
+          "${img}" gatk HaplotypeCaller \
+          -R "${ref}" -I "${bam}" -O "${java_vcf}" --verbosity ERROR \
+          --native-pair-hmm-threads "${threads}" "${l_args[@]}"
+    fi
+  else
+    echo "[giab] reuse ${java_vcf}"
+    : > "${java_time}"
+  fi
+
+  if [[ ! -f "${rust_vcf}" || "${GIAB_FORCE_HC:-0}" == "1" ]]; then
+    run_timed "rust-hc-${sample}" "${rust_time}" \
+      env RAYON_NUM_THREADS="${threads}" \
+      "${rust_bin}" HaplotypeCaller \
+        -R "${ref}" -I "${bam}" -O "${rust_vcf}" "${l_args[@]}"
+  else
+    echo "[giab] reuse ${rust_vcf}"
+    : > "${rust_time}"
+  fi
+
+  java_perf="$(giab_parse_time_log "${java_time}" 2>/dev/null || echo '{}')"
+  rust_perf="$(giab_parse_time_log "${rust_time}" 2>/dev/null || echo '{}')"
+
+  equiv_rc=0
+  if [[ "${skip_equiv_engine}" != "1" ]]; then
+    mkdir -p "${sdir}/equiv"
+    cp -f "${java_vcf}" "${sdir}/equiv/java.vcf"
+    cp -f "${rust_vcf}" "${sdir}/equiv/rust.vcf"
+    strat_args=()
+    mkdir -p "${sdir}/equiv/strat"
+    for bedgz in \
+      "${strat_root}/GRCh37_AllTandemRepeatsandHomopolymers_slop5.bed.gz" \
+      "${strat_root}/GRCh37_segdups.bed.gz" \
+      "${strat_root}/GRCh37_alldifficultregions.bed.gz"
+    do
+      [[ -f "${bedgz}" ]] || continue
+      base="$(basename "${bedgz}" .bed.gz)"
+      gunzip -c "${bedgz}" > "${sdir}/equiv/strat/${base}.bed"
+      name="${base#GRCh37_}"
+      strat_args+=(--stratification-bed "${name}=${sdir}/equiv/strat/${base}.bed")
+    done
+
+    set +e
+    "${equiv_bin}" run \
+      --rust-binary "${rust_bin}" \
+      --reference "${ref}" \
+      --bam "${bam}" \
+      --truth-vcf "${truth_vcf}" \
+      --confident-regions "${truth_bed}" \
+      --out "${sdir}/equiv" \
+      --reuse-vcfs \
+      --threads "${threads}" \
+      --f1-delta-threshold "${f1_delta}" \
+      --min-free-gb "${GIAB_EQUIV_MIN_FREE_GB:-6}" \
+      "${strat_args[@]}"
+    equiv_rc=$?
+    set -e
+  else
+    echo "[giab] GIAB_SKIP_EQUIV_ENGINE=1 — skipping hap.py/RTG"
+  fi
+
+  if [[ "${equiv_rc}" -ne 0 ]]; then
+    overall_gate=1
+  fi
+
+  python3 - "${summary_jsonl}" "${sample}" "${mode}" "${equiv_rc}" "${java_perf}" "${rust_perf}" "${sdir}" <<'PY'
+import json, pathlib, sys
+path, sample, mode, rc, jp, rp, sdir = sys.argv[1:8]
+row = {
+    "sample": sample,
+    "mode": mode,
+    "equiv_exit": int(rc),
+    "gate_passed": int(rc) == 0,
+    "java_perf": json.loads(jp or "{}"),
+    "rust_perf": json.loads(rp or "{}"),
+    "dir": sdir,
+}
+results = pathlib.Path(sdir) / "equiv" / "results.json"
+if results.is_file():
+    row["equiv_results"] = json.loads(results.read_text(encoding="utf-8"))
+with open(path, "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(row) + "\n")
+PY
+done
+
+python3 "${repo_root}/scripts/parity/giab/build_dashboard.py" \
+  --run-dir "${out_root}" \
+  --out-dir "${out_root}/dashboard"
+
+echo "[giab] finished overall_gate=${overall_gate} out=${out_root}"
+echo "[giab] SCOPE: $(giab_mode_description "${mode}")"
+exit "${overall_gate}"

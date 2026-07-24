@@ -1,0 +1,25 @@
+[package]
+name = "gatk-common"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Shared utilities and error handling for GATK-RS"
+rust-version.workspace = true
+
+[dependencies]
+# Workspace dependencies
+tracing.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+
+# External dependencies
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "chrono"] }
+tracing-appender = "0.2"
+
+[dev-dependencies]
+tempfile.workspace = true

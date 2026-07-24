@@ -1,0 +1,4 @@
+# case_id	plugin	ref_fw	ref_rv	alt_fw	alt_rv	qual	dp	ref_bqs	alt_bqs	expected
+fs_case	FS	10	2	2	10	60	20	30,31,32	28,29	parity/fixtures/hc-full-parity/i1-plugins/expected/fs_case.tsv
+qd_case	QD	1	1	1	1	60	20	-	-	parity/fixtures/hc-full-parity/i1-plugins/expected/qd_case.tsv
+bqr_case	BaseQRankSum	1	1	1	1	60	20	30,31,32	28,29	parity/fixtures/hc-full-parity/i1-plugins/expected/bqr_case.tsv

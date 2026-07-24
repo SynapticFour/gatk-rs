@@ -1,0 +1,2 @@
+# case_id	ref	bam	interval	vcf	expected_rust_tsv
+force_chr1_10	parity/fixtures/reference.fa	parity/fixtures/hc-full-parity/c5-force/homref_chr1_10.bam	chr1:10-10	parity/fixtures/hc-full-parity/c5-force/force_chr1_10.vcf.gz	parity/fixtures/hc-full-parity/c5-force/expected/force_chr1_10.raw_activity.tsv

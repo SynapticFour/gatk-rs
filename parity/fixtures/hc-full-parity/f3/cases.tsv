@@ -1,0 +1,4 @@
+# subphase	case_id	cases_path	expected_tsv
+f3-bq	p6_bq_cap	parity/fixtures/hc-full-parity/f3/cases_bq_cap.tsv	parity/fixtures/hc-full-parity/f3/expected/p6_bq_cap.tsv
+f3-filter	p6_hap_filter	parity/fixtures/hc-full-parity/f3/cases_hap_filter.tsv	parity/fixtures/hc-full-parity/f3/expected/p6_hap_filter.tsv
+

@@ -1,0 +1,13 @@
+# case_id	reference_fa	sam_fixture	interval
+live_snp_001	p5_live_reference.fa	p5_live_case_snp.sam	chrLive:1-40
+live_snp_002	p5_live_reference.fa	p5_live_case_snp.sam	chrLive:1-24
+live_snp_003	p5_live_reference.fa	p5_live_case_snp.sam	chrLive:1-16
+live_snp_004	p5_live_reference.fa	p5_live_case_snp.sam	chrLive:9-24
+live_snp_005	p5_live_reference.fa	p5_live_case_snp.sam	chrLive:17-40
+live_snp_006	p5_live_reference.fa	p5_live_case_snp.sam	chrLive:33-40
+live_indel_001	p5_live_reference_indel.fa	p5_live_case_indel.sam	chrIndel:1-36
+live_indel_002	p5_live_reference_indel.fa	p5_live_case_indel.sam	chrIndel:5-28
+live_repeat_001	p5_live_reference_repeat.fa	p5_live_case_repeat.sam	chrRepeat:1-32
+live_repeat_002	p5_live_reference_repeat.fa	p5_live_case_repeat.sam	chrRepeat:9-40
+live_lowc_001	p5_live_reference_lowcomplex.fa	p5_live_case_lowcomplex.sam	chrLowC:1-32
+live_lowc_002	p5_live_reference_lowcomplex.fa	p5_live_case_lowcomplex.sam	chrLowC:17-48

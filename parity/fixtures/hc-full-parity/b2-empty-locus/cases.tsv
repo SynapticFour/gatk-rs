@@ -1,0 +1,4 @@
+# case_id	ref	bam	interval_cli	padding	expected_tsv
+# Phase B.2.2: emit every 1bp locus in -L with correct empty pileup (depth 0) vs Java LIBS.
+locus_prefix_trailing_zeros	parity/fixtures/reference.fa	parity/fixtures/hc-full-parity/b2/b2_read_prefix5.sam	chr1:8-14	-	parity/fixtures/hc-full-parity/b2-empty-locus/expected/locus_prefix_trailing_zeros.tsv
+locus_no_reads_bam	parity/fixtures/reference.fa	parity/fixtures/hc-full-parity/b2/b2_no_reads.sam	chr1:5-12	-	parity/fixtures/hc-full-parity/b2-empty-locus/expected/locus_no_reads_bam.tsv

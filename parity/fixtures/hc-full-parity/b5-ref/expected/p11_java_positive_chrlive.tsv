@@ -1,0 +1,5 @@
+contig	start	end	is_active	extended_start	extended_end	ref_window_start	ref_window_end	ref_len
+chrLive	1	52	true	1	63	1	63	63
+ref_bases	TGCATGACTGATCGTACGATTCGAGCTAGTCGATCGATGCTAGCTAGGCTAACGTTAGCTAGT
+chrLive	53	63	false	1	63	1	63	63
+ref_bases	TGCATGACTGATCGTACGATTCGAGCTAGTCGATCGATGCTAGCTAGGCTAACGTTAGCTAGT

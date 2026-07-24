@@ -1,0 +1,3 @@
+# case_id	allele_counts_csv	num_reads_to_remove	expected_tsv  OR  ref	bam	contig	pos1	contamination	expected_tsv
+target_hom_contam10	0,100,0,0	10	parity/fixtures/hc-full-parity/d2c/expected/target_hom_contam10.tsv
+allele_evidence_locus10	parity/fixtures/reference.fa	parity/fixtures/hc-full-parity/d2/d2_allele_locus10.sam	chr1	10	0.2	parity/fixtures/hc-full-parity/d2c/expected/allele_evidence_locus10.tsv

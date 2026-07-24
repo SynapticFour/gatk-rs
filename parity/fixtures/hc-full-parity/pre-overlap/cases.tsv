@@ -1,0 +1,5 @@
+# case_id	bam_or_sam	expected_tsv
+overlap_agree	parity/fixtures/hc-full-parity/pre-overlap/overlap_agree.sam	parity/fixtures/hc-full-parity/pre-overlap/expected/overlap_agree.tsv
+overlap_conflict	parity/fixtures/hc-full-parity/pre-overlap/overlap_conflict.sam	parity/fixtures/hc-full-parity/pre-overlap/expected/overlap_conflict.tsv
+no_overlap_pair	parity/fixtures/hc-full-parity/pre-overlap/no_overlap_pair.sam	parity/fixtures/hc-full-parity/pre-overlap/expected/no_overlap_pair.tsv
+unpaired_single	parity/fixtures/hc-full-parity/pre-overlap/unpaired_single.sam	parity/fixtures/hc-full-parity/pre-overlap/expected/unpaired_single.tsv

@@ -1,0 +1,3 @@
+# case_id	site_af	site_qual	expected
+biallelic_het	0.486540	60.0	parity/fixtures/hc-full-parity/i1-as/expected/biallelic_het.tsv
+low_af_alt	0.120000	45.0	parity/fixtures/hc-full-parity/i1-as/expected/low_af_alt.tsv

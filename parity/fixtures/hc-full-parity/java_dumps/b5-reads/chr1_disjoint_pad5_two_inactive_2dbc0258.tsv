@@ -1,0 +1,5 @@
+contig	start	end	is_active	read_count
+chr1	1	5	false	1
+read	r1	1	32
+chr1	20	25	false	1
+read	r1	1	32

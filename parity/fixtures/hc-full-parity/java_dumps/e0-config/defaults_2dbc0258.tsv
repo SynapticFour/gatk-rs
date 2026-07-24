@@ -1,0 +1,17 @@
+arg	value
+kmer_sizes	[10, 25]
+min_base_quality	10
+min_prune_factor	2
+use_adaptive_pruning	false
+prune_before_cycle_counting	true
+recover_dangling_branches	true
+recover_dangling_heads	true
+recover_all_dangling_branches	false
+min_dangling_branch_length	4
+allow_non_unique_kmers_in_ref	false
+dont_increase_kmer_sizes_for_cycles	false
+allow_low_complexity_graphs	false
+remove_paths_not_connected_to_ref	true
+use_seq_graph	true
+ensure_reference_in_result	true
+num_best_haplotypes_per_graph	128

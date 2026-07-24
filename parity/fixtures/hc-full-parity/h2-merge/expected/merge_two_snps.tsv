@@ -1,0 +1,14 @@
+case_id	merge_two_snps
+contig	20
+pos	10
+merged_null	false
+allele_count	3
+allele_0	A
+allele_1	C
+allele_2	G
+sample_count	2
+genotype_0_name	A_C
+genotype_0_pl	30,20,10,71,72,73
+genotype_1_name	A_G
+genotype_1_pl	30,71,73,20,72,10
+has_non_ref	false

@@ -1,0 +1,3 @@
+case_id	reference	java_input	rust_input	interval	activate_output	expect_variant
+synthetic_java_positive	parity/fixtures/p5_live_reference.fa	parity/fixtures/p11_java_positive.sam	parity/fixtures/p11_java_positive.sam	chrLive:1-63	1	1
+real_fixture_no_variant	parity/fixtures/reference.fa	parity/fixtures/sample.bam	parity/fixtures/sample.bam	chr1:1-32	0	0

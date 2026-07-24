@@ -1,0 +1,2 @@
+qname	cigar	read_length	unclipped_length	passes_len_filter
+ok_10	10M	10	10	true

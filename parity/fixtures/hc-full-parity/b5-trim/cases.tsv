@@ -1,0 +1,6 @@
+# case_id	ref	contig	start	end	ext_start	ext_end	variants_tsv	legacy	expected_tsv
+no_variants	parity/fixtures/reference.fa	chr1	5	15	1	32	-	0	parity/fixtures/hc-full-parity/b5-trim/expected/no_variants.tsv
+snp_at_10_modern	parity/fixtures/reference.fa	chr1	5	15	1	32	parity/fixtures/hc-full-parity/b5-trim/variants/snp_at_10.tsv	0	parity/fixtures/hc-full-parity/b5-trim/expected/snp_at_10_modern.tsv
+snp_at_10_legacy	parity/fixtures/reference.fa	chr1	5	15	1	32	parity/fixtures/hc-full-parity/b5-trim/variants/snp_at_10.tsv	1	parity/fixtures/hc-full-parity/b5-trim/expected/snp_at_10_legacy.tsv
+indel_at_10_modern	parity/fixtures/reference.fa	chr1	5	15	1	32	parity/fixtures/hc-full-parity/b5-trim/variants/indel_at_10.tsv	0	parity/fixtures/hc-full-parity/b5-trim/expected/indel_at_10_modern.tsv
+variant_outside_active	parity/fixtures/reference.fa	chr1	5	15	1	32	parity/fixtures/hc-full-parity/b5-trim/variants/outside_active.tsv	0	parity/fixtures/hc-full-parity/b5-trim/expected/variant_outside_active.tsv

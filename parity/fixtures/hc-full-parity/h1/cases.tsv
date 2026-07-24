@@ -1,0 +1,2 @@
+# case_id	ref	bam	interval	padding	expected_tsv
+chr1_5_15_sample	parity/fixtures/reference.fa	parity/fixtures/sample.bam	chr1:5-15	0	parity/fixtures/hc-full-parity/h1/expected/chr1_5_15_sample.tsv

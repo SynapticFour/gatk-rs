@@ -1,0 +1,3 @@
+# case_id	contig	pos	ref_allele	alt_allele	gl_csv	ad_csv	expected
+synthetic_het	chrTest	100	A	C	-2.0,-0.1,-2.0	5,12	parity/fixtures/hc-full-parity/j2/expected/synthetic_het_format.tsv
+p11_java_positive_chrlive	chrLive	15	T	A	-316.21247012188155,-107.40988272204983,-92.35910684090834	0,50	parity/fixtures/hc-full-parity/j2/expected/p11_java_positive_chrlive_format.tsv

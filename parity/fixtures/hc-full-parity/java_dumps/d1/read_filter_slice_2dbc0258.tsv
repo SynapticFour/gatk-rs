@@ -1,0 +1,23 @@
+qname	flags	mapq	passes_hc_filter
+pass1	0	60	true
+dup1	1024	60	false
+sec1	256	60	false
+supp1	2048	60	true
+lowmq1	0	10	false
+mq255	0	255	false
+vendor1	512	60	false
+badindel	0	60	false
+nskip	0	60	false
+norg	0	60	false
+unmap1	4	0	false
+---HC_READ_FILTER_COUNTS---
+filter	filtered_count
+MappingQualityReadFilter	2
+MappingQualityAvailableReadFilter	1
+MappedReadFilter	0
+NotSecondaryAlignmentReadFilter	1
+NotDuplicateReadFilter	1
+PassesVendorQualityCheckReadFilter	1
+NonZeroReferenceLengthAlignmentReadFilter	0
+GoodCigarReadFilter	1
+WellformedReadFilter	2

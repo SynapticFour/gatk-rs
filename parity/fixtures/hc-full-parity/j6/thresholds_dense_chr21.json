@@ -1,0 +1,20 @@
+{
+  "label": "l6-truth-gate-b37-giab-dense-chr21-window",
+  "eval_interval_default": "21:41200001-41250000",
+  "parity_interval_default": "21:41200001-41250000",
+  "min_truth_variants": 1,
+  "rust_min_f1_fraction_of_java": 0.95,
+  "rust_java_f1_max_delta": 0.05,
+  "stratified": {
+    "snp": {
+      "rust_min_f1_fraction_of_java": 0.95,
+      "rust_java_f1_max_delta": 0.05
+    },
+    "indel": {
+      "rust_min_f1_fraction_of_java": 0.90,
+      "rust_java_f1_max_delta": 0.08
+    }
+  },
+  "p12_parity_required": false,
+  "notes": "L7-A3 second non-chr2 dense GIAB slice (chr21; ~200 HC truth sites). Stage with J6_DENSE_INTERVAL + J6_DENSE_OUT_DIR; reports via J6_REPORT_DIR. chr22:16050000-16100000 was vacuous (<5 covered)."
+}

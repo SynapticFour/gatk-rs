@@ -1,0 +1,3 @@
+# case_id	input_quals	threshold	mapq
+low_to_min	5,5,5,5	18	60
+mixed_cap	40,40,40	18	25

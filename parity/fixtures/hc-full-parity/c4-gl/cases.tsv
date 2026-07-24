@@ -1,0 +1,3 @@
+# case_id	ref	bam	interval_cli	expected_tsv
+chr1_5_15_sample	parity/fixtures/reference.fa	parity/fixtures/sample.bam	chr1:5-15	parity/fixtures/hc-full-parity/c4-gl/expected/chr1_5_15.sample_bam.tsv
+p5_snp_chrlive_1_24	parity/fixtures/p5_live_reference.fa	parity/fixtures/p5_live_case_snp.sam	chrLive:1-24	parity/fixtures/hc-full-parity/c4-gl/expected/p5_snp_chrlive_1_24.tsv

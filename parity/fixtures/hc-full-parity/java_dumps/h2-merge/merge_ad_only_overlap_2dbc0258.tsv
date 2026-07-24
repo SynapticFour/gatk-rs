@@ -1,0 +1,14 @@
+case_id	merge_ad_only_overlap
+contig	20
+pos	10
+merged_null	false
+allele_count	3
+allele_0	A
+allele_1	C
+allele_2	G
+sample_count	2
+genotype_0_name	A_C_G
+genotype_0_ad	60,9,20
+genotype_1_name	A_C_G
+genotype_1_ad	60,9,20
+has_non_ref	false

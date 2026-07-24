@@ -1,0 +1,2 @@
+# case_id	pairhmm_cases_path	expected_tsv
+p6_case1_aggregate	parity/fixtures/p6_pairhmm_case1_reads.tsv	parity/fixtures/hc-full-parity/g1/expected/p6_case1_aggregate.tsv

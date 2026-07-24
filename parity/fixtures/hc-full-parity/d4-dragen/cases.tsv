@@ -1,0 +1,2 @@
+# case_id	bam	expected_tsv
+xq_tag_250	parity/fixtures/hc-full-parity/d4-dragen/d4_xq_250.sam	parity/fixtures/hc-full-parity/d4-dragen/expected/xq_tag_250.tsv

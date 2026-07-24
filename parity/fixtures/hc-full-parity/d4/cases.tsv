@@ -1,0 +1,3 @@
+# case_id	bam_or_sam	expected_tsv
+iupac_mixed	parity/fixtures/hc-full-parity/d4/d4_iupac_mixed.sam	parity/fixtures/hc-full-parity/d4/expected/iupac_mixed.tsv
+iupac_filter	parity/fixtures/hc-full-parity/d4/d4_iupac_filter.sam	parity/fixtures/hc-full-parity/d4/expected/iupac_filter.tsv

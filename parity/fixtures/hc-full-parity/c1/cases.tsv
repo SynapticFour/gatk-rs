@@ -1,0 +1,6 @@
+# case_id	ref	bam	interval_cli	expected_tsv
+chr1_5_15_sample	parity/fixtures/reference.fa	parity/fixtures/sample.bam	chr1:5-15	parity/fixtures/hc-full-parity/c1/expected/chr1_5_15.sample_bam.tsv
+p5_snp_chrlive_1_24	parity/fixtures/p5_live_reference.fa	parity/fixtures/p5_live_case_snp.sam	chrLive:1-24	parity/fixtures/hc-full-parity/c1/expected/p5_snp_chrlive_1_24.tsv
+p11_java_positive_chrlive	parity/fixtures/p5_live_reference.fa	parity/fixtures/p11_java_positive.sam	chrLive:1-63	parity/fixtures/hc-full-parity/c1/expected/p11_java_positive_chrlive.tsv
+p5_lowcomplex_chrlowc	parity/fixtures/p5_live_reference_lowcomplex.fa	parity/fixtures/p5_live_case_lowcomplex.sam	chrLowC:1-30	parity/fixtures/hc-full-parity/c1/expected/p5_lowcomplex_chrlowc.tsv
+p5_repeat_chrrepeat	parity/fixtures/p5_live_reference_repeat.fa	parity/fixtures/p5_live_case_repeat.sam	chrRepeat:1-68	parity/fixtures/hc-full-parity/c1/expected/p5_repeat_chrrepeat.tsv

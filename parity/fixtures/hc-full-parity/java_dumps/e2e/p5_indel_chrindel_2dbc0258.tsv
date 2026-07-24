@@ -1,0 +1,9 @@
+region_contig	chrIndel
+region_start	1
+region_end	40
+is_active	true
+status	just_assembled_reference
+kmer_size	0
+rank	sequence	score	is_reference	cigar
+0	TGCATGACTGATCGTACGATTCGAGCTAGTCGATCGATGCTAGCTAGGCTAACGTTAGCTAGTAACTG	0	true	68M
+1	TGCATGACTGATCGATACGATTCGAGCTAGTCGATCGATGCTAGCTAGGCTAACGTTAGCTAGTAACTG	0	false	14M1I54M

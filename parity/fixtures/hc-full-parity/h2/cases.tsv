@@ -1,0 +1,2 @@
+# case_id	contig	contig_length	expected_tsv
+gvcf_header_chr1	chr1	248956422	parity/fixtures/hc-full-parity/h2/expected/gvcf_header_chr1.tsv

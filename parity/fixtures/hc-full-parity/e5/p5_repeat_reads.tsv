@@ -1,0 +1,4 @@
+# sequence	mean_qual — repeat-only; all kmers non-unique within each read
+ATATATG	30
+ATATATG	30
+ATATATA	30

@@ -1,0 +1,12 @@
+region_contig	chrLive
+region_start	1
+region_end	24
+is_active	true
+read_count	5
+haplotype_count	1
+read_index	haplotype_index	log10_likelihood
+0	0	-1.8473255160502980
+1	0	-6.0243600149318990
+2	0	-6.0243600149318990
+3	0	-1.8473255160502980
+4	0	-6.0243600149318990

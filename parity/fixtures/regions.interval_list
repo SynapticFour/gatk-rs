@@ -1,0 +1,4 @@
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:chr1	LN:32
+chr1	1	16	+	region_1
+chr1	17	32	+	region_2

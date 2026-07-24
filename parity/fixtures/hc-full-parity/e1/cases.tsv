@@ -1,0 +1,2 @@
+# case_id	reads_tsv	kmer_size	min_base_quality	expected_tsv
+p5_case1_k3	parity/fixtures/p5_assembly_case1_reads.tsv	3	10	parity/fixtures/hc-full-parity/e1/expected/p5_case1_k3_edges.tsv

@@ -1,0 +1,276 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-quality-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-quality-
+
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+
+    - name: Run clippy
+      # Lint debt: warn-only, libs/bins only (integration tests need feature gates).
+      run: cargo clippy --workspace
+
+    - name: I/O unwrap policy (guarded modules)
+      run: python3 scripts/dev/check_io_unwrap_policy.py
+
+    - name: Unsafe-pattern ratchets (unwrap + clone)
+      env:
+        GITHUB_BASE_REF: ${{ github.base_ref }}
+      run: |
+        set -euo pipefail
+        if [[ -n "${GITHUB_BASE_REF:-}" ]]; then
+          git fetch --no-tags --depth=1 origin "${GITHUB_BASE_REF}"
+          export UNSAFE_PATTERNS_BASE_REF="origin/${GITHUB_BASE_REF}"
+        fi
+        ./scripts/dev/count_unsafe_patterns.sh check
+
+    - name: Check documentation
+      run: cargo doc --workspace --all-features --no-deps --document-private-items
+
+    - name: Excellence quality gates (Sprint N)
+      run: python3 scripts/parity/excellence_gates_audit.py
+
+
+    - name: Malformed-input no-panic tests
+      run: cargo test -p gatk-haplotypecaller --test malformed_input_no_panic_test -- --nocapture
+
+  # Required: same BAM/ref → byte-identical VCF across Rayon thread counts (1/2/4/8/16).
+  rayon-determinism:
+    name: HC Rayon thread determinism
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-rayon-det-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-rayon-det-
+          ${{ runner.os }}-cargo-
+
+    - name: Install samtools (BAM index if needed)
+      run: sudo apt-get update && sudo apt-get install -y samtools
+
+    - name: Rayon thread determinism gate
+      env:
+        CARGO_BUILD_JOBS: "1"
+      run: cargo test -p gatk-cli --test rayon_thread_determinism_test -- --nocapture
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Dependency Review
+      uses: actions/dependency-review-action@v3
+
+  license-check:
+    name: License Check
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install cargo-deny
+      run: cargo install cargo-deny
+
+    - name: Run license check
+      run: cargo deny check licenses
+
+  complexity-analysis:
+    name: Complexity Analysis
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install cargo-cyclonedx
+      run: cargo install cargo-cyclonedx
+
+    - name: Generate SBOM
+      run: cargo cyclonedx -o json -f sbom.json
+
+    - name: Upload SBOM
+      uses: actions/upload-artifact@v4
+      with:
+        name: sbom
+        path: sbom.json
+
+  test-coverage:
+    name: Test Coverage
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: llvm-tools-preview
+
+    - name: Install cargo-llvm-cov
+      run: cargo install cargo-llvm-cov
+
+    - name: Coverage baseline
+      run: ./scripts/coverage.sh report
+
+    - name: Coverage minimum gate
+      run: ./scripts/coverage.sh gate-minimum
+
+    - name: Generate LCOV report
+      run: cargo llvm-cov --package gatk-core --tests --lcov --output-path coverage/lcov.info
+
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: coverage/
+
+  performance-regression:
+    name: Performance Regression
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-perf-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-perf-
+
+    - name: Build release
+      run: cargo build --workspace --release
+
+    - name: Run benchmarks
+      run: cargo bench --workspace -- --output-format json > benchmark-results.json
+
+    - name: Compare with baseline
+      run: |
+        # Download baseline from main branch
+        git checkout origin/main
+        cargo build --workspace --release
+        cargo bench --workspace -- --output-format json > baseline.json
+        
+        # Switch back to PR branch
+        git checkout ${{ github.sha }}
+        
+        # Compare results (simplified check)
+        echo "Performance comparison completed"
+        cat benchmark-results.json
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+
+    - name: Run security audit
+      run: cargo audit
+
+    - name: Install cargo-deny
+      run: cargo install cargo-deny
+
+    - name: Run cargo-deny
+      run: cargo deny check
+
+  documentation-quality:
+    name: Documentation Quality
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Check documentation coverage
+      run: |
+        # Generate documentation
+        cargo doc --workspace --all-features --no-deps
+        
+        # Check for undocumented items
+        cargo doc --workspace --all-features --no-deps 2>&1 | grep "warning:" > doc-warnings.txt || true
+        
+        if [ -s doc-warnings.txt ]; then
+          echo "Documentation warnings found:"
+          cat doc-warnings.txt
+          exit 1
+        fi
+
+    - name: Check README links
+      run: |
+        # Check if README has all necessary sections
+        if ! grep -q "## Getting Started" README.md; then
+          echo "README missing Getting Started section"
+          exit 1
+        fi
+        
+        if ! grep -q "## Usage" README.md; then
+          echo "README missing Usage section"
+          exit 1
+        fi
+
+    - name: Validate examples
+      run: |
+        # Check if examples in documentation compile
+        cargo test --workspace --doc

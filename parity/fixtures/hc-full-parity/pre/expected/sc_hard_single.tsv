@@ -1,0 +1,2 @@
+qname	flags	fragment_length	cigar_in	cigar_out	seq_len_in	seq_len_out	action	os	oe
+unpaired_sc	0	0	3S7M	3H7M	10	7	hard_clip		

@@ -1,0 +1,24 @@
+Allocation audit Peak-RSS probe — 2026-07-24T04:38Z
+Fixture: synthetic 3×80 pileups × 50000 loci (activity multi-sample path)
+
+=== BEFORE (clone nonempty strata each locus) (mode=clone) ===
+allocation_rss_probe mode=clone
+loci=50000
+approx_clone_bytes_per_locus=2880
+approx_clone_bytes_total=144000000
+clone_path_ms=165.115
+sink=50000
+1086:             6651904  maximum resident set size
+1102:             2343296  peak memory footprint
+
+=== AFTER (borrow strata / production API) (mode=borrow) ===
+allocation_rss_probe mode=borrow
+loci=50000
+approx_clone_bytes_per_locus=2880
+approx_clone_bytes_total=144000000
+borrow_path_ms=156.563
+sink=50000
+799:             6602752  maximum resident set size
+815:             2294144  peak memory footprint
+
+Delta note: compare maximum resident set size (macOS bytes) or Maximum resident set size (Linux kbytes).

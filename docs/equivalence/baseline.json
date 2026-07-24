@@ -1,0 +1,7 @@
+{
+  "generated_utc": null,
+  "commit_sha": null,
+  "regression_threshold": 0.02,
+  "regions": [],
+  "notes": "Empty baseline — first successful nightly green run will populate this file."
+}

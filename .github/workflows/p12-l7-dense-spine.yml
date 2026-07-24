@@ -1,0 +1,104 @@
+name: P12 L7 Dense + Spine Truth
+
+on:
+  schedule:
+    - cron: '0 5 * * 0'  # Weekly Sunday 05:00 UTC (after L6 spine job)
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'gatk-haplotypecaller/**'
+      - 'gatk-cli/**'
+      - 'scripts/parity/run_hc_full_parity_j6_truth.sh'
+      - 'scripts/parity/run_hc_full_parity_j6_dense_chr21.sh'
+      - 'parity/fixtures/hc-full-parity/j6/**'
+      - '.github/workflows/p12-l7-dense-spine.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+  P12_REFERENCE: parity/realworld/assets/hs37d5.simple.fa
+  P13_TRUTH_VCF: parity/realworld/assets/HG001_GRCh37_1_22_v4.2.1_benchmark.vcf.gz
+  P13_REGIONS_BED: parity/realworld/assets/HG001_GRCh37_1_22_v4.2.1_benchmark.bed
+  CARGO_TARGET_DIR: target
+  P12_CARGO_RELEASE: "1"
+  J6_STRICT: "1"
+
+jobs:
+  spine:
+    name: L6/L7 spine (chr2)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Load pinned GATK upstream
+        run: |
+          set -a
+          # shellcheck disable=SC1091
+          source docs/GATK_PINNED.env
+          set +a
+          echo "GATK_DOCKER_IMAGE=${GATK_DOCKER_IMAGE}" >> "${GITHUB_ENV}"
+          echo "GATK_DOCKER_PLATFORM=${GATK_DOCKER_PLATFORM}" >> "${GITHUB_ENV}"
+      - name: Pull GATK Docker image
+        run: docker pull --platform "${GATK_DOCKER_PLATFORM}" "${GATK_DOCKER_IMAGE}"
+      - name: Install samtools
+        run: sudo apt-get update && sudo apt-get install -y samtools
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-p12-l7-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-p12-l7-
+      - name: Stage reference + GIAB truth
+        run: REALWORLD_STOP_AFTER_ASSETS=1 ./scripts/parity/realworld/03_stage_reference_and_truth.sh
+      - name: Build release gatk-rs
+        run: ./scripts/parity/build_gatk_rs_release.sh
+      - name: Run spine j6 gate
+        run: ./scripts/parity/run_hc_full_parity_j6_truth.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: p12-l7-spine-reports
+          path: parity/reports/hc-full-parity-j6/
+
+  dense-chr20:
+    name: L7 dense GIAB (chr20)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Load pinned GATK upstream
+        run: |
+          set -a
+          # shellcheck disable=SC1091
+          source docs/GATK_PINNED.env
+          set +a
+          echo "GATK_DOCKER_IMAGE=${GATK_DOCKER_IMAGE}" >> "${GITHUB_ENV}"
+          echo "GATK_DOCKER_PLATFORM=${GATK_DOCKER_PLATFORM}" >> "${GITHUB_ENV}"
+      - name: Pull GATK Docker image
+        run: docker pull --platform "${GATK_DOCKER_PLATFORM}" "${GATK_DOCKER_IMAGE}"
+      - name: Install samtools
+        run: sudo apt-get update && sudo apt-get install -y samtools
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-p12-l7-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-p12-l7-
+      - name: Stage reference + GIAB truth
+        run: REALWORLD_STOP_AFTER_ASSETS=1 ./scripts/parity/realworld/03_stage_reference_and_truth.sh
+      - name: Build release gatk-rs
+        run: ./scripts/parity/build_gatk_rs_release.sh
+      - name: Run dense chr20 j6 gate
+        run: J6_DENSE=1 ./scripts/parity/run_hc_full_parity_j6_truth.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: p12-l7-dense-chr20-reports
+          path: parity/reports/hc-full-parity-j6-dense/

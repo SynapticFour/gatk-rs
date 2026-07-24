@@ -1,0 +1,3 @@
+# case_id	ref	bam	interval_cli	padding	expected_tsv
+chr1_5_15_force_active	parity/fixtures/reference.fa	parity/fixtures/sample.bam	chr1:5-15	-	parity/fixtures/hc-full-parity/b5-force/expected/chr1_5_15_force_active.tsv
+p11_force_active	parity/fixtures/p5_live_reference.fa	parity/fixtures/p11_java_positive.sam	chrLive:1-63	-	parity/fixtures/hc-full-parity/b5-force/expected/p11_force_active.tsv

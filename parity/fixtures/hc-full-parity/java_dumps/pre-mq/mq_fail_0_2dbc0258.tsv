@@ -1,0 +1,2 @@
+qname	mapq	mq_threshold	passes_mq_filter
+fail_mq0	0	20	false

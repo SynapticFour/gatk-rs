@@ -1,0 +1,3 @@
+# case_id	ref	bam	interval	padding	expected_tsv
+chr1_disjoint_pad5_two_inactive	parity/fixtures/reference.fa	parity/fixtures/sample.bam	chr1:1-5;chr1:20-25	5	parity/fixtures/hc-full-parity/h1-inactive/expected/chr1_disjoint_pad5_two_inactive.tsv
+p12_chr2_92307200_inactive	parity/realworld/assets/hs37d5.simple.fa	parity/realworld/na12878_20k_b37/NA12878_20k.b37.bam	2:92307200-92307227	100	parity/fixtures/hc-full-parity/h1-inactive/expected/p12_chr2_92307200_inactive.tsv

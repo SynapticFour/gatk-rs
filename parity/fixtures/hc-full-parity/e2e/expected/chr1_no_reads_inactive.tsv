@@ -1,0 +1,6 @@
+region_contig	chr1
+region_start	5
+region_end	12
+is_active	false
+status	inactive_skip
+kmer_size	0

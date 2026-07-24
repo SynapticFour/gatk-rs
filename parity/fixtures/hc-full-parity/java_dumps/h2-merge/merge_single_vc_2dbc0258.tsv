@@ -1,0 +1,11 @@
+case_id	merge_single_vc
+contig	20
+pos	10
+merged_null	false
+allele_count	2
+allele_0	A
+allele_1	C
+sample_count	1
+genotype_0_name	A_C
+genotype_0_pl	30,20,10
+has_non_ref	false

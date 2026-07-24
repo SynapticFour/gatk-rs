@@ -1,0 +1,2 @@
+# case_id	bam_or_sam	expected_tsv
+read_filter_slice	parity/fixtures/read_filter_slice.sam	parity/fixtures/hc-full-parity/d1/expected/read_filter_slice.tsv

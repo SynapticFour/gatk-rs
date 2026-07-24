@@ -1,0 +1,74 @@
+Allocation audit (2026-07-24) — gatk-haplotypecaller/src + gatk-core/src
+========================================================================
+
+Inventory: scripts/dev/allocation_clone_inventory.txt
+  ~486 `.clone()` sites (excl. `/tests/` paths)
+  Categories (post-fix heuristic): mostly (a) documented / (b) deferred / (c) cleared
+
+Category legend
+  a) NEEDED — multi-owner / HashMap key / cheap Arc|Copy → `// CLONE: needed because …`
+  b) AVOIDABLE — borrow / take / Arc share would suffice (deferred when API-wide)
+  c) HOT PATH — per-read / per-haplotype / per-locus loops (fixed first)
+
+Fixes this iteration (c then high-value b)
+------------------------------------------
+1. activity_scoring + hc_joint_is_active
+   - No per-locus clone of nonempty sample pileups; borrow `&[&[PileupObservation]]`.
+2. read_threading_graph::create_vertex / into_assembly_graph
+   - Move kmers/maps; clone HashMap key only when unique.
+3. assembly::remove_nodes + DFS haplotypes
+   - Move surviving nodes; DFS uses push/pop on `&mut String` (clone only at leaf emit).
+4. genotype_limits + allele_subsetting
+   - Top-2 without sort-clone; no `Vec<Vec<f64>>` of singleton rows.
+5. genotype_gvcfs
+   - `mem::take` remapped PL/AD.
+6. read_downsample
+   - Own records via `Option` slots — no BAM `Record` clones on keep/reservoir paths.
+7. parity_spine / motif_cluster_discovery / locus_iterator / ref_confidence
+   - Borrow event lists; avoid HashSet lookup key allocs; entry API; move terminal pileups.
+
+Documentation
+-------------
+~150+ sites annotated with `// CLONE: needed because …` where ownership into
+collections / fallbacks / Arc contig bumps is algorithmically required.
+
+Vec<Vec< status
+--------------
+- smith_waterman: already flat row-major
+- allele_subsetting / activity multi-sample: no longer build nested Vecs for the hot path
+- Remaining intentional (not PairHMM matrices):
+  - gatk-core memory pool `DashMap<…, Vec<Vec<u8>>>`
+  - parallel chunk/sequence helpers
+  - genotype_gvcfs `sample_gls`, hc_joint per-sample PL rows
+  - locus_iterator stratified piles return type
+  - mann_whitney permutations (rare)
+
+Peak-RSS (same synthetic fixture, before vs after pattern)
+---------------------------------------------------------
+Probe: `scripts/dev/run_allocation_rss_probe.sh`
+  → writes `scripts/dev/allocation_audit_rss.txt`
+Example: `gatk-haplotypecaller/examples/allocation_rss_probe.rs`
+
+Fixture: 3 samples × 80 obs × 50_000 loci (activity multi-sample path)
+
+Measured (macOS `/usr/bin/time -l`, release, 2026-07-24):
+  BEFORE clone-strata-each-locus:
+    max RSS 6_651_904 B · peak footprint 2_343_296 B · 165.1 ms
+  AFTER borrow (production API):
+    max RSS 6_602_752 B · peak footprint 2_294_144 B · 156.6 ms
+  Δ max RSS ≈ −49 KiB · Δ footprint ≈ −49 KiB
+  Approx. avoided temporary clone traffic: ~144 MiB (2880 B/locus × 50k)
+    (freed each locus → small Peak-RSS delta; large allocator churn reduction)
+
+PR/Commit blurb
+---------------
+Allocation audit: drop per-locus pileup clones and BAM downsample clones; move
+threading/assembly ownership; document needed clones. Peak-RSS on activity probe
+−49 KiB max RSS with ~144 MiB/locus-run less temporary clone traffic.
+
+Follow-ups
+----------
+- `Arc<bam::Record>` (or index-only regions) for assembly_region_iterator
+- `try_genotype_variation_event(&VariationEvent)` end-to-end (removes assign clones)
+- Allele-string interning for read_event_discovery HashMap keys
+- Remaining (b) engine snapshot clones when Arc/Cow fits

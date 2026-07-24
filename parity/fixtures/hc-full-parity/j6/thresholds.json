@@ -1,0 +1,20 @@
+{
+  "label": "l6-truth-gate-b37-giab-window",
+  "eval_interval_default": "2:92000000-92400000",
+  "parity_interval_default": "2:92300000-92350000",
+  "min_truth_variants": 1,
+  "rust_min_f1_fraction_of_java": 0.95,
+  "rust_java_f1_max_delta": 0.05,
+  "stratified": {
+    "snp": {
+      "rust_min_f1_fraction_of_java": 0.95,
+      "rust_java_f1_max_delta": 0.05
+    },
+    "indel": {
+      "rust_min_f1_fraction_of_java": 0.90,
+      "rust_java_f1_max_delta": 0.08
+    }
+  },
+  "p12_parity_required": true,
+  "notes": "HC+truth eval on 2:92000000-92400000 (GIAB sites in scope). Variant-set parity is required on P12 spine 2:92300000-92350000 only — Rust production emit outside the spine may lag Java. Rust F1 must track Java vs truth within delta bounds (may be vacuous F1=0 on this sparse 20k BAM)."
+}

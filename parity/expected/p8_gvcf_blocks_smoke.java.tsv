@@ -1,0 +1,22 @@
+# case_id	start_1based	end_info	gq_band_upper	min_rgq	min_dp	max_dp
+p8_case_a	100	101	9	8	10	12
+p8_case_a	102	103	29	22	9	15
+p8_case_b	200	200	9	5	7	7
+p8_case_b	202	202	9	6	8	8
+p8_case_c	300	302	19	10	5	20
+p8_case_d	400	400	99	35	11	11
+p8_case_d	401	402	99	44	9	14
+p8_case_e	500	500	99	130	30	30
+p8_case_e	501	502	99	95	28	31
+p8_case_f	600	600	9	9	8	8
+p8_case_f	601	602	19	10	6	7
+p8_case_g	700	709	9	5	2	100
+p8_case_h	800	800	9	8	10	10
+p8_case_h	801	801	29	25	11	11
+p8_case_h	802	802	19	17	12	12
+p8_case_h	803	803	29	26	13	13
+p8_case_h	804	804	99	99	14	14
+p8_case_i	900	900	19	18	20	20
+p8_case_i	901	901	29	29	21	21
+p8_case_j	910	910	19	12	30	30
+p8_case_j	912	912	19	13	31	31

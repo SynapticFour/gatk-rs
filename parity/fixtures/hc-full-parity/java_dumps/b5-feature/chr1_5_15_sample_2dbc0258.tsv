@@ -1,0 +1,2 @@
+contig	start	end	is_active	extended_start	extended_end	feat_has_backing	feat_count
+chr1	5	15	false	1	32	false	0

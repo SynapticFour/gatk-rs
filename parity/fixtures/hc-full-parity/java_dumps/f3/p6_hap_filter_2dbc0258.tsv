@@ -1,0 +1,5 @@
+case_id	haplotype_index	kept	max_log10_likelihood
+match_ref	0	true	-0.64898105561195900
+match_ref	1	true	-0.64898105561195900
+mismatch_hap	0	true	-0.64898105561195900
+mismatch_hap	1	true	-4.2582310380902340

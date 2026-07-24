@@ -1,0 +1,16 @@
+case_id	merge_ad_only_distinct
+contig	20
+pos	10
+merged_null	false
+allele_count	5
+allele_0	A
+allele_1	C
+allele_2	G
+allele_3	ATC
+allele_4	AA
+sample_count	2
+genotype_0_name	A_C_G
+genotype_0_ad	60,9,20,0,0
+genotype_1_name	A_ATC_AA
+genotype_1_ad	30,0,0,8,40
+has_non_ref	false

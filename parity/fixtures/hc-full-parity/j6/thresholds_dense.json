@@ -1,0 +1,20 @@
+{
+  "label": "l6-truth-gate-b37-giab-dense-window",
+  "eval_interval_default": "20:10000000-10050000",
+  "parity_interval_default": "20:10000000-10050000",
+  "min_truth_variants": 1,
+  "rust_min_f1_fraction_of_java": 0.95,
+  "rust_java_f1_max_delta": 0.05,
+  "stratified": {
+    "snp": {
+      "rust_min_f1_fraction_of_java": 0.95,
+      "rust_java_f1_max_delta": 0.05
+    },
+    "indel": {
+      "rust_min_f1_fraction_of_java": 0.90,
+      "rust_java_f1_max_delta": 0.08
+    }
+  },
+  "p12_parity_required": false,
+  "notes": "R3 dense GIAB window on NIST 30× downsample slice. Variant-set spine lock (P12 chr2) is not required; require non-vacuous truth coverage via j6_truth_vacuity_probe.py and rust F1 tracking java."
+}

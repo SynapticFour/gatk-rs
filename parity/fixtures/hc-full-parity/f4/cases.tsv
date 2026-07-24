@@ -1,0 +1,4 @@
+# subphase	case_id	cases_path	expected_tsv
+f4-config	engine_config	-	parity/fixtures/hc-full-parity/f4/expected/engine_config.tsv
+f4-pcr	p6_homopolymer_pcr	parity/fixtures/hc-full-parity/f4/cases_pcr_read.tsv	parity/fixtures/hc-full-parity/f4/expected/p6_homopolymer_pcr.tsv
+f4-pcr-table	pcr_error_model	-	parity/fixtures/hc-full-parity/f4/expected/pcr_error_model.tsv

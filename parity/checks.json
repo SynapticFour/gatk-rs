@@ -1,0 +1,598 @@
+{
+  "required": [
+    {
+      "id": "pinned-gatk-upstream",
+      "acceptance_class": "governance",
+      "timeout_s": 300,
+      "command": "./scripts/parity/verify_pinned_gatk.sh",
+      "description": "Java GATK Docker/JAR version matches docs/GATK_PINNED.env (Phase A P0)",
+      "owner": "parity"
+    },
+    {
+      "id": "hc-full-parity-l2-strict",
+      "acceptance_class": "hc-full-parity-l2",
+      "timeout_s": 3600,
+      "command": "./scripts/parity/run_hc_full_parity_l2.sh",
+      "description": "Rust HcFullParity gate dumps must match frozen parity/fixtures/hc-full-parity/java_dumps (default strict; PARITY_HC_FULL_L2_STRICT=0 only for local triage)",
+      "owner": "parity"
+    },
+    {
+      "id": "parity-smoke",
+      "acceptance_class": "normalized-equivalent",
+      "timeout_s": 900,
+      "command": "./scripts/parity/run_parity_smoke.sh",
+      "description": "Differential smoke harness (Java vs Rust wrappers, VCF/BAM/SAM checks; profile via PARITY_SMOKE_PROFILE=smoke|extended)",
+      "owner": "parity"
+    },
+    {
+      "id": "gatk-core-lib",
+      "acceptance_class": "unit-integration",
+      "timeout_s": 600,
+      "command": "cargo test -p gatk-core --lib --locked",
+      "description": "Reference, dictionary, interval, cache, and helper unit contracts",
+      "owner": "core"
+    },
+    {
+      "id": "phase2-haplotypecaller-lib",
+      "acceptance_class": "phase2-foundation-tests",
+      "timeout_s": 600,
+      "command": "cargo test -p gatk-haplotypecaller --lib --locked",
+      "description": "Phase 2 module contracts (read model / projection / traversal scaffolds)",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase2-read-group-program-sample-contract",
+      "acceptance_class": "phase2-header-semantics",
+      "timeout_s": 600,
+      "command": "cargo test -p gatk-haplotypecaller --test read_header_semantics_contract_test --locked",
+      "description": "Step 25 contract: RG/PG/SM header-link semantics and validation behavior",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase2-read-header-runtime-diff",
+      "acceptance_class": "phase2-java-runtime-diff",
+      "timeout_s": 900,
+      "command": "./scripts/parity/run_read_header_semantics_diff.sh",
+      "description": "Step 25 runtime differential harness (Java ValidateSamFile vs Rust Validate) for RG/PG/SM-linked behavior",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase2-read-filter-runtime-diff",
+      "acceptance_class": "phase2-java-runtime-diff",
+      "timeout_s": 900,
+      "command": "./scripts/parity/run_read_filter_diff.sh",
+      "description": "Steps 33-34 runtime differential harness (Java PrintReads filters vs Rust FilterReads) on SAM and BAM slice fixtures",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase2-read-filter-synthetic-diff",
+      "acceptance_class": "phase2-java-diff-target",
+      "timeout_s": 600,
+      "command": "cargo test -p gatk-haplotypecaller --test read_filter_synthetic_diff_test --locked",
+      "description": "Step 33 synthetic parity matrix frozen against Java outcomes",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase2-ingress-order-contract",
+      "acceptance_class": "phase2-determinism",
+      "timeout_s": 600,
+      "command": "cargo test -p gatk-haplotypecaller --test read_ingress_determinism_test --locked",
+      "description": "Step 35 deterministic ingress order contract across thread-count env settings",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase3-io-conformance",
+      "acceptance_class": "phase3-io-roundtrip",
+      "timeout_s": 900,
+      "command": "cargo test -p gatk-core --test p3_io_conformance_tests --locked",
+      "description": "Phase 3 starter gate: BAM/SAM roundtrip optional-tag retention + indexed region query contracts",
+      "owner": "core"
+    },
+    {
+      "id": "phase3-region-query-runtime-diff",
+      "acceptance_class": "phase3-java-runtime-diff",
+      "timeout_s": 900,
+      "command": "./scripts/parity/run_p3_region_query_diff.sh",
+      "description": "Phase 3 Step-40 differential hook: Java CountReads vs Rust CountReadsInRegion on indexed fixture regions",
+      "owner": "core"
+    },
+    {
+      "id": "phase3-malformed-corpus-diff",
+      "acceptance_class": "phase3-malformed-parity",
+      "timeout_s": 900,
+      "command": "./scripts/parity/run_p3_malformed_corpus_diff.sh",
+      "description": "Phase 3 malformed corpus matrix: Java ValidateSamFile/ValidateVariants vs Rust Validate across valid and malformed fixtures",
+      "owner": "core"
+    },
+    {
+      "id": "phase3-region-records-runtime-diff",
+      "acceptance_class": "phase3-java-runtime-diff",
+      "timeout_s": 900,
+      "command": "./scripts/parity/run_p3_region_records_diff.sh",
+      "description": "Phase 3 Step-41 differential hook: Java PrintReads -L record set vs Rust ListReadsInRegion",
+      "owner": "core"
+    },
+    {
+      "id": "phase3-indexed-edge-query-runtime-diff",
+      "acceptance_class": "phase3-java-runtime-diff",
+      "timeout_s": 900,
+      "command": "./scripts/parity/run_p3_indexed_edge_query_diff.sh",
+      "description": "Phase 3 Step-45 candidate: Java CountReads vs Rust CountReadsInRegion on indexed edge intervals (full contig, empty tail, single base, overlap, last base)",
+      "owner": "core"
+    },
+    {
+      "id": "phase3-unmapped-supplementary-runtime-diff",
+      "acceptance_class": "phase3-java-runtime-diff",
+      "timeout_s": 900,
+      "command": "./scripts/parity/run_p3_unmapped_supplementary_diff.sh",
+      "description": "Phase 3 Step-46 candidate: Java CountReads vs Rust CountReadsInRegion on primary/supplementary split + fully unmapped control",
+      "owner": "core"
+    },
+    {
+      "id": "phase3-truncation-corruption-runtime-diff",
+      "acceptance_class": "phase3-malformed-parity",
+      "timeout_s": 900,
+      "command": "./scripts/parity/run_p3_truncation_corruption_diff.sh",
+      "description": "Phase 3 Step-47 candidate: Java ValidateSamFile/ValidateVariants vs Rust Validate on truncation+corruption matrix",
+      "owner": "core"
+    },
+    {
+      "id": "phase3-cram-roundtrip-contract",
+      "acceptance_class": "phase3-io-roundtrip",
+      "timeout_s": 900,
+      "command": "cargo test -p gatk-core --test p3_io_conformance_tests --locked cram_roundtrip_with_reference_preserves_optional_tags_contract",
+      "description": "Phase 3 Step-42 candidate: CRAM roundtrip contract with explicit reference and optional-tag retention",
+      "owner": "core"
+    },
+    {
+      "id": "phase3-header-canonicalization-contract",
+      "acceptance_class": "phase3-io-roundtrip",
+      "timeout_s": 900,
+      "command": "cargo test -p gatk-core --test p3_io_conformance_tests --locked header_canonical_hd_sq_rg_stable_across_htslib_roundtrip_contract",
+      "description": "Phase 3 Step-43 candidate: canonical @HD/@SQ/@RG header parity stable across HTSlib SAM<->BAM roundtrip",
+      "owner": "core"
+    },
+    {
+      "id": "phase3-freeze-matrix",
+      "acceptance_class": "phase3-io-roundtrip",
+      "timeout_s": 3600,
+      "command": "./scripts/parity/run_p3_freeze_matrix.sh",
+      "description": "Phase 3 Step-50 freeze gate: smoke profile matrix + required P3 IO/runtime contracts in one deterministic bundle",
+      "owner": "core"
+    },
+    {
+      "id": "phase4-activity-region-creation-contract",
+      "acceptance_class": "phase4-active-region",
+      "timeout_s": 600,
+      "command": "cargo test -p gatk-haplotypecaller --test activity_region_creation_contract_test --locked",
+      "description": "Phase 4 Steps 55-57: deterministic activity-region boundary / downsampling contracts",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase4-activity-profile-property-tests",
+      "acceptance_class": "phase4-active-region",
+      "timeout_s": 900,
+      "command": "cargo test -p gatk-haplotypecaller --test activity_profile_property_tests --locked",
+      "description": "Phase 4 Step 60: property tests for contiguous walks, HQ soft-clip bounds, empty profile, and invalid region sizes",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase4-activity-repro-concurrency-contract",
+      "acceptance_class": "phase4-active-region",
+      "timeout_s": 600,
+      "command": "cargo test -p gatk-haplotypecaller --test p4_activity_repro_contract_test --locked",
+      "description": "Phase 4 Step 61: concurrent identical runs of the downsampling + activity pipeline yield identical intervals",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase4-hc-assembly-region-interval-diff",
+      "acceptance_class": "phase4-java-runtime-diff",
+      "timeout_s": 900,
+      "command": "./scripts/parity/run_p4_active_region_interval_diff.sh",
+      "description": "Phase 4 Step 58: Java HaplotypeCaller --assembly-region-out normalized IGV vs frozen expected (sample.bam chr1:1-32, GATK 4.4.x)",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase4-activity-profile-bench-smoke",
+      "acceptance_class": "phase4-active-region",
+      "timeout_s": 1200,
+      "command": "cargo bench -p gatk-haplotypecaller --bench activity_profile --locked -- --quick",
+      "description": "Phase 4 Step 59: Criterion quick smoke for Gaussian kernel + add/pop-ready hot path",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase4-freeze-matrix",
+      "acceptance_class": "phase4-active-region",
+      "timeout_s": 3600,
+      "command": "./scripts/parity/run_p4_freeze_matrix.sh",
+      "description": "Phase 4 Step-62 freeze gate: smoke profiles + P4 contracts + Java assembly-region harness + bench smoke",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "hc-full-parity-c5-multisample-raw-activity",
+      "acceptance_class": "hc-full-parity-l1",
+      "timeout_s": 600,
+      "command": "./scripts/parity/run_hc_full_parity_c5_multi.sh",
+      "description": "Phase C.5 L1: multisample joint raw-activity TSV vs goldens; L2 vs java_dumps/c5-multi/* (refresh with run_hc_full_parity_java_refresh.sh)",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "hc-full-parity-c5-force-alleles-raw-activity",
+      "acceptance_class": "hc-full-parity-l1",
+      "timeout_s": 600,
+      "command": "./scripts/parity/run_hc_full_parity_c5_force.sh",
+      "description": "Tier B C.5.3 L1: raw-activity-force vs goldens; L2 vs java_dumps/c5-force/*",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase5-runtime-candidate-diff",
+      "acceptance_class": "phase5-assembly",
+      "timeout_s": 1200,
+      "command": "./scripts/parity/run_p5_runtime_candidate_diff.sh",
+      "description": "Phase 5 P0 runtime candidate diff harness + per-class summary/drift artifacts",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase5-live-java-rust-diff",
+      "acceptance_class": "phase5-assembly",
+      "timeout_s": 1200,
+      "command": "./scripts/parity/run_p5_live_java_rust_diff.sh",
+      "description": "Phase 5 live profile: execute Java HC on synthetic runtime regions and enforce Rust candidate overlap against Java EventMap hap signatures",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase5-determinism-matrix",
+      "acceptance_class": "phase5-assembly",
+      "timeout_s": 1200,
+      "command": "./scripts/parity/run_p5_determinism_matrix.sh",
+      "description": "Phase 5 P0 determinism matrix across thread counts {1,2,4,8} and repeated runs",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase5-haplotype-candidate-diff",
+      "acceptance_class": "phase5-assembly",
+      "timeout_s": 900,
+      "command": "./scripts/parity/run_p5_haplotype_candidate_diff.sh",
+      "description": "Phase 5 Step-70: frozen Java-export candidate set parity for local assembly graph",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase5-assembly-regression-suite",
+      "acceptance_class": "phase5-assembly",
+      "timeout_s": 900,
+      "command": "cargo test -p gatk-haplotypecaller --test p5_assembly_regression_test --locked",
+      "description": "Phase 5 Step-74: regression corpus for previously brittle graph motifs",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase5-assembly-stability-contract",
+      "acceptance_class": "phase5-assembly",
+      "timeout_s": 1200,
+      "command": "./scripts/parity/run_p5_assembly_stability_contract.sh",
+      "description": "Phase 5 Step-75: repeated-run deterministic assembly outputs across thread-count settings",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase5-mismatch-triage-check",
+      "acceptance_class": "phase5-assembly",
+      "timeout_s": 300,
+      "command": "./scripts/parity/run_p5_mismatch_triage_check.sh",
+      "description": "Phase 5 P1 triage schema and unresolved high-severity mismatch guard",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase5-assembly-bench-smoke",
+      "acceptance_class": "phase5-assembly",
+      "timeout_s": 1200,
+      "command": "cargo bench -p gatk-haplotypecaller --bench assembly_graph --locked -- --quick",
+      "description": "Phase 5 Step-73: assembly graph benchmark smoke (medium/high depth synthetic corpora)",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase5-freeze-matrix",
+      "acceptance_class": "phase5-assembly",
+      "timeout_s": 3600,
+      "command": "./scripts/parity/run_p5_freeze_matrix.sh",
+      "description": "Phase 5 Step-76 freeze gate: assembly contracts + parity diff + regression/stability + bench smoke",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase6-pairhmm-contracts",
+      "acceptance_class": "phase6-pairhmm",
+      "timeout_s": 1200,
+      "command": "./scripts/parity/run_p6_pairhmm_contracts.sh",
+      "description": "Phase 6 Wave-A (steps 77-79): PairHMM state machine, quality integration, and numeric-stability contracts",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase6-scalar-vector-equivalence",
+      "acceptance_class": "phase6-pairhmm",
+      "timeout_s": 1200,
+      "command": "cargo test -p gatk-haplotypecaller --test p6_scalar_vector_equivalence_test --locked",
+      "description": "Phase 6 Step-81: scalar vs vectorized PairHMM equivalence contract",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase6-likelihood-vector-diff",
+      "acceptance_class": "phase6-pairhmm",
+      "timeout_s": 1200,
+      "command": "./scripts/parity/run_p6_likelihood_vector_diff.sh",
+      "description": "Phase 6 Step-82: frozen likelihood-vector diff fixture against Java dump baseline",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase6-boundary-artifact-contracts",
+      "acceptance_class": "phase6-pairhmm",
+      "timeout_s": 1200,
+      "command": "cargo test -p gatk-haplotypecaller --test p6_boundary_artifact_contract_test --locked",
+      "description": "Phase 6 Steps 83-84: boundary and artifact corpus contracts (long indels, low-quality tails, clipping/N-base-like reads)",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase6-pairhmm-bench-smoke",
+      "acceptance_class": "phase6-pairhmm",
+      "timeout_s": 1200,
+      "command": "cargo bench -p gatk-haplotypecaller --bench pairhmm --locked -- --quick",
+      "description": "Phase 6 Step-85: PairHMM benchmark smoke for batched/vectorized hot path",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase6-fp-policy-contract",
+      "acceptance_class": "phase6-pairhmm",
+      "timeout_s": 1200,
+      "command": "cargo test -p gatk-haplotypecaller --test p6_fp_policy_contract_test --locked",
+      "description": "Phase 6 Step-86: deterministic floating-point abs/rel epsilon comparison policy contract",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase6-failure-mode-contracts",
+      "acceptance_class": "phase6-pairhmm",
+      "timeout_s": 1200,
+      "command": "cargo test -p gatk-haplotypecaller --test p6_failure_mode_contract_test --locked",
+      "description": "Phase 6 Step-87: overflow/underflow and malformed-input resilience contracts",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase6-determinism-matrix",
+      "acceptance_class": "phase6-pairhmm",
+      "timeout_s": 1200,
+      "command": "./scripts/parity/run_p6_determinism_matrix.sh",
+      "description": "Phase 6 determinism matrix across thread counts {1,2,4,8} and repeated runs",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase6-mismatch-triage-check",
+      "acceptance_class": "phase6-pairhmm",
+      "timeout_s": 300,
+      "command": "./scripts/parity/run_p6_mismatch_triage_check.sh",
+      "description": "Phase 6 mismatch triage schema + unresolved high-severity guard",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase6-freeze-matrix",
+      "acceptance_class": "phase6-pairhmm",
+      "timeout_s": 3600,
+      "command": "./scripts/parity/run_p6_freeze_matrix.sh",
+      "description": "Phase 6 Step-88 freeze gate: PairHMM contracts + equivalence diff + determinism + triage + bench smoke",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase7-genotyping-contracts",
+      "acceptance_class": "phase7-genotyping",
+      "timeout_s": 1200,
+      "command": "./scripts/parity/run_p7_genotyping_contracts.sh",
+      "description": "Phase 7 steps 89-95 + 97-99: genotyping/annotation contract suite (aggregation, priors/posteriors, PL/GQ/AD/DP, normalization, phasing, annotations, ordering)",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase7-genotype-field-diff",
+      "acceptance_class": "phase7-genotyping",
+      "timeout_s": 1200,
+      "command": "cargo test -p gatk-haplotypecaller --test p7_genotype_field_diff_test --locked",
+      "description": "Phase 7 Step-96: frozen Java smoke differential for emitted genotype fields (PL/GQ/AD/DP)",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase7-mismatch-triage-check",
+      "acceptance_class": "phase7-genotyping",
+      "timeout_s": 300,
+      "command": "./scripts/parity/run_p7_mismatch_triage_check.sh",
+      "description": "Phase 7 mismatch triage schema + unresolved high-severity guard",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase7-freeze-matrix",
+      "acceptance_class": "phase7-genotyping",
+      "timeout_s": 2400,
+      "command": "./scripts/parity/run_p7_freeze_matrix.sh",
+      "description": "Phase 7 Step-100 freeze gate: genotyping contracts + frozen Java smoke differential + mismatch triage + summary artifact",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase8-gvcf-contracts",
+      "acceptance_class": "phase8-gvcf",
+      "timeout_s": 1200,
+      "command": "./scripts/parity/run_p8_gvcf_contracts.sh",
+      "description": "Phase 8 steps 101-103 + 105-107: gVCF block/reference-confidence/mode/no-variation/joint-compat contract suite",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase8-gvcf-block-diff",
+      "acceptance_class": "phase8-gvcf",
+      "timeout_s": 1200,
+      "command": "cargo test -p gatk-haplotypecaller --test p8_gvcf_block_diff_test --locked",
+      "description": "Phase 8 Step-104: frozen Java smoke differential for gVCF block output (POS/END + block metrics)",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase8-mismatch-triage-check",
+      "acceptance_class": "phase8-gvcf",
+      "timeout_s": 300,
+      "command": "./scripts/parity/run_p8_mismatch_triage_check.sh",
+      "description": "Phase 8 mismatch triage schema + unresolved high-severity guard",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase8-freeze-matrix",
+      "acceptance_class": "phase8-gvcf",
+      "timeout_s": 2400,
+      "command": "./scripts/parity/run_p8_freeze_matrix.sh",
+      "description": "Phase 8 Step-108 freeze gate: gVCF contracts + frozen Java smoke differential + mismatch triage + summary artifact",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase9-cli-contracts",
+      "acceptance_class": "phase9-cli",
+      "timeout_s": 1200,
+      "command": "./scripts/parity/run_p9_cli_contracts.sh",
+      "description": "Phase 9 Steps 109-112: HaplotypeCaller CLI integration tests + scaffold warmup + exit-code mapping unit tests",
+      "owner": "cli"
+    },
+    {
+      "id": "phase9-hc-scaffold-diff",
+      "acceptance_class": "phase9-cli",
+      "timeout_s": 900,
+      "command": "./scripts/parity/run_p9_hc_scaffold_diff.sh",
+      "description": "Phase 9 Step-113: Rust HaplotypeCaller scaffold VCF must match frozen golden (deterministic CLI output contract)",
+      "owner": "cli"
+    },
+    {
+      "id": "phase9-java-hc-smoke",
+      "acceptance_class": "phase9-cli",
+      "timeout_s": 1800,
+      "command": "./scripts/parity/run_p9_java_hc_smoke.sh",
+      "description": "Phase 9 Step-113: Docker Java GATK HaplotypeCaller smoke on parity fixtures (parsable VCF)",
+      "owner": "cli"
+    },
+    {
+      "id": "phase9-mismatch-triage-check",
+      "acceptance_class": "phase9-cli",
+      "timeout_s": 300,
+      "command": "./scripts/parity/run_p9_mismatch_triage_check.sh",
+      "description": "Phase 9 mismatch triage schema + unresolved high-severity guard",
+      "owner": "cli"
+    },
+    {
+      "id": "phase9-freeze-matrix",
+      "acceptance_class": "phase9-cli",
+      "timeout_s": 3600,
+      "command": "./scripts/parity/run_p9_freeze_matrix.sh",
+      "description": "Phase 9 Step-114 freeze gate: CLI contracts + scaffold golden diff + Java HC smoke + triage + summary",
+      "owner": "cli"
+    },
+    {
+      "id": "phase10-release-readiness",
+      "acceptance_class": "phase10-release",
+      "timeout_s": 1200,
+      "command": "./scripts/parity/run_p10_release_readiness.sh",
+      "description": "Phase 10 Steps 115-120: release-readiness blocker (coverage minimum + P7/P8/P9 triage sanity + consolidated readiness summary)",
+      "owner": "release"
+    },
+    {
+      "id": "phase11-hc-output-field-diff-smoke",
+      "acceptance_class": "phase11-output-parity",
+      "timeout_s": 1800,
+      "command": "./scripts/parity/run_p11_hc_output_field_diff_smoke.sh",
+      "description": "Phase 11 strict smoke differential: Java-vs-Rust HC core output field parity on Java-positive synthetic corpus",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase11-hc-output-field-diff-corpus",
+      "acceptance_class": "phase11-output-parity",
+      "timeout_s": 2400,
+      "command": "./scripts/parity/run_p11_hc_output_field_diff_corpus.sh",
+      "description": "Phase 11 Step-124: expanded strict Java-vs-Rust HC corpus differential (synthetic positive + real no-variant fixture)",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase11-mismatch-triage-check",
+      "acceptance_class": "phase11-output-parity",
+      "timeout_s": 300,
+      "command": "./scripts/parity/run_p11_mismatch_triage_check.sh",
+      "description": "Phase 11 Step-125 triage schema + unresolved high-severity mismatch guard",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase11-freeze-matrix",
+      "acceptance_class": "phase11-output-parity",
+      "timeout_s": 2400,
+      "command": "./scripts/parity/run_p11_freeze_matrix.sh",
+      "description": "Phase 11 freeze bundle: output activation contracts + strict field diff smoke + summary artifact",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "excellence-gates-audit",
+      "acceptance_class": "pre-l6-excellence",
+      "timeout_s": 120,
+      "command": "python3 scripts/parity/excellence_gates_audit.py",
+      "description": "Sprint N: coordinate/env/size/trailing-bool/unwrap/doc-claim excellence gates",
+      "owner": "parity"
+    }
+  ],
+  "advisory": [
+    {
+      "id": "phase0-1-coverage",
+      "acceptance_class": "coverage-baseline",
+      "timeout_s": 600,
+      "command": "./scripts/coverage.sh gate-minimum",
+      "description": "Coverage baseline gate for foundational modules",
+      "owner": "core"
+    },
+    {
+      "id": "workspace-clippy",
+      "acceptance_class": "static-analysis",
+      "timeout_s": 1200,
+      "command": "cargo clippy --workspace --all-targets --all-features -- -D warnings",
+      "description": "Strict lint pass (broad quality signal, not yet hard-gated in foundation script)",
+      "owner": "workspace"
+    },
+    {
+      "id": "phase11-hc-output-activation-contracts",
+      "acceptance_class": "phase11-output-parity",
+      "timeout_s": 1200,
+      "command": "./scripts/parity/run_p11_hc_output_activation_contracts.sh",
+      "description": "Phase 11 activation signal: detect transition from empty/scaffold HC output to non-empty variant records on smoke fixture",
+      "owner": "haplotypecaller"
+    },
+    {
+      "id": "phase12-realworld-na12878-20k",
+      "acceptance_class": "phase12-realworld",
+      "timeout_s": 3600,
+      "command": "./scripts/parity/run_p12_realworld_na12878_20k.sh",
+      "description": "Phase 12 real-world harness: NA12878 20k public dataset download + Java/Rust HC differential run when reference is configured",
+      "owner": "parity"
+    },
+    {
+      "id": "phase13-realworld-truth-eval",
+      "acceptance_class": "phase13-truth-eval",
+      "timeout_s": 1200,
+      "command": "./scripts/parity/run_p13_realworld_truth_eval.sh",
+      "description": "Phase 13 external truth evaluation harness (GIAB-style truth VCF) for Java/Rust callset precision/recall/F1 comparison",
+      "owner": "parity"
+    },
+    {
+      "id": "deferred-features-audit",
+      "acceptance_class": "deferred-product-governance",
+      "timeout_s": 60,
+      "command": "python3 scripts/parity/deferred_features_audit.py",
+      "description": "ADR 0001 scope boundary + ADR 0002 gatk-tools removed + CLAIM_MATRIX deferred registry",
+      "owner": "parity"
+    },
+    {
+      "id": "hc-full-parity-j6-truth",
+      "acceptance_class": "hc-full-parity-l6",
+      "timeout_s": 7200,
+      "command": "./scripts/parity/run_hc_full_parity_j6_truth.sh",
+      "description": "L6 gate: NA12878 P12 interval scale + GIAB stratified F1 (run_hc_full_parity_j6_truth.sh)",
+      "owner": "parity"
+    },
+    {
+      "id": "phase14-multidataset-equivalence",
+      "acceptance_class": "phase14-multidataset",
+      "timeout_s": 7200,
+      "command": "./scripts/parity/run_p14_multidataset_equivalence.sh",
+      "description": "Phase 14 multi-dataset equivalence suite (NA12878+GIAB mandatory path, Syndip and precisionFDA-ready optional paths) with consolidated parity status artifact",
+      "owner": "parity"
+    }
+  ]
+}

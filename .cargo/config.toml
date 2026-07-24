@@ -1,0 +1,4 @@
+# Defaults for constrained hosts (Apple Silicon M4 16GB / limited free disk).
+# Override locally with CARGO_BUILD_JOBS / cargo -j when you have headroom.
+[build]
+jobs = 1

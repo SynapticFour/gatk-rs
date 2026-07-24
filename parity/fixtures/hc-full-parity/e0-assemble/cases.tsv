@@ -1,0 +1,2 @@
+# case_id	ref_tsv	reads_tsv	expected_tsv
+p5_case1_assemble	parity/fixtures/hc-full-parity/e4/p5_case1_ref.tsv	parity/fixtures/hc-full-parity/e4/p5_case1_reads.tsv	parity/fixtures/hc-full-parity/e0-assemble/expected/p5_case1_assemble.tsv

@@ -1,0 +1,3 @@
+# case_id	ref	het	hom	expected
+balanced	0	5	5	parity/fixtures/hc-full-parity/i1-excess-het/expected/balanced.tsv
+excess_hets	2	8	0	parity/fixtures/hc-full-parity/i1-excess-het/expected/excess_hets.tsv

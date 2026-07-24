@@ -1,0 +1,5 @@
+# case_id	ref	bam	interval_cli	padding	expected_tsv
+chr1_5_15_sample	parity/fixtures/reference.fa	parity/fixtures/sample.bam	chr1:5-15	-	parity/fixtures/hc-full-parity/b5-reads/expected/chr1_5_15.sample_bam.tsv
+chr1_disjoint_pad5_two_inactive	parity/fixtures/reference.fa	parity/fixtures/sample.bam	chr1:1-5;chr1:20-25	5	parity/fixtures/hc-full-parity/b5-reads/expected/chr1_disjoint_pad5_two_inactive.tsv
+p5_snp_chrlive_1_24	parity/fixtures/p5_live_reference.fa	parity/fixtures/p5_live_case_snp.sam	chrLive:1-24	-	parity/fixtures/hc-full-parity/b5-reads/expected/p5_snp_chrlive_1_24.tsv
+p11_java_positive_chrlive	parity/fixtures/p5_live_reference.fa	parity/fixtures/p11_java_positive.sam	chrLive:1-63	-	parity/fixtures/hc-full-parity/b5-reads/expected/p11_java_positive_chrlive.tsv

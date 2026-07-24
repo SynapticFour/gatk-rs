@@ -1,0 +1,4 @@
+# case_id	reads_tsv	kmer_size	min_qual	min_prune	adaptive	expected_tsv
+p5_case1_prune3	parity/fixtures/p5_assembly_case1_reads.tsv	3	10	3	0	parity/fixtures/hc-full-parity/e3/expected/p5_case1_prune3_summary.tsv
+p5_branch_prune4	parity/fixtures/hc-full-parity/e2/p5_branch_reads.tsv	3	10	4	0	parity/fixtures/hc-full-parity/e3/expected/p5_branch_prune4_summary.tsv
+p5_branch_adaptive5	parity/fixtures/hc-full-parity/e2/p5_branch_reads.tsv	3	10	5	1	parity/fixtures/hc-full-parity/e3/expected/p5_branch_adaptive5_summary.tsv
