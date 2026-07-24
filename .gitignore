@@ -63,10 +63,12 @@ test_data/
 *.bam
 !parity/fixtures/sample.bam
 *.bai
+!parity/fixtures/sample.bam.bai
 *.sam
 !parity/fixtures/sample.sam
 *.vcf
 !parity/fixtures/sample.vcf
+!parity/expected/p9_hc_scaffold_golden.vcf
 *.vcf.gz
 *.fa
 !parity/fixtures/reference.fa
