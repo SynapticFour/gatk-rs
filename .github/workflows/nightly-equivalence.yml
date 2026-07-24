@@ -51,7 +51,7 @@ jobs:
       has_regression: ${{ steps.publish.outputs.has_regression }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
