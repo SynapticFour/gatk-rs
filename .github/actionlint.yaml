@@ -1,0 +1,4 @@
+self-hosted-runner:
+  labels:
+    - gatk-rs-benchmark
+    - gatk-rs-genomewide

@@ -42,7 +42,7 @@ jobs:
         run: docker pull --platform "${GATK_DOCKER_PLATFORM}" "${GATK_DOCKER_IMAGE}"
       - name: Install samtools
         run: sudo apt-get update && sudo apt-get install -y samtools
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -82,7 +82,7 @@ jobs:
         run: docker pull --platform "${GATK_DOCKER_PLATFORM}" "${GATK_DOCKER_IMAGE}"
       - name: Install samtools
         run: sudo apt-get update && sudo apt-get install -y samtools
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry

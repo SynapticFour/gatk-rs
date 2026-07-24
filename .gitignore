@@ -118,3 +118,4 @@ book/
 docs/build/
 *.bak
 *.backup
+actionlint

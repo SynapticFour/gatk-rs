@@ -38,7 +38,7 @@ jobs:
         components: rustfmt, clippy
 
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -80,7 +80,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -124,7 +124,7 @@ jobs:
       run: cargo llvm-cov --package gatk-core --tests --lcov --output-path coverage/lcov.info
 
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v5
       with:
         files: coverage/lcov.info
         fail_ci_if_error: false
@@ -147,7 +147,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -203,7 +203,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -242,7 +242,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -270,7 +270,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -430,7 +430,7 @@ jobs:
         targets: ${{ matrix.target }}
 
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
