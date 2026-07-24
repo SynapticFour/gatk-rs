@@ -59,7 +59,7 @@ rust-htslib = "0.46"
 hts-sys = "=2.1.4"
 
 # Testing
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 proptest = "1.4"
 tempfile = "3.8"
 

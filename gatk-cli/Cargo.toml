@@ -31,7 +31,7 @@ gatk-haplotypecaller = { path = "../gatk-haplotypecaller", features = ["dev-dump
 
 # External dependencies
 colored = "2.1"
-console = "0.12"
+console = "0.16"
 
 # Benchmarking dependencies
 chrono.workspace = true
