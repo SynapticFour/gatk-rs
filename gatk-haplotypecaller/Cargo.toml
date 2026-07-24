@@ -45,7 +45,7 @@ gatk-core = { path = "../gatk-core" }
 gatk-common = { path = "../gatk-common" }
 # External dependencies
 petgraph = "0.6"
-ordered-float = "4.2"
+ordered-float = "5.3"
 
 [dev-dependencies]
 criterion.workspace = true
