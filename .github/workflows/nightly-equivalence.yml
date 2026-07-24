@@ -188,8 +188,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: nightly-equivalence-${{ github.run_id }}
+          # Use concrete dirs — empty NIGHTLY_OUT_ROOT would expand to /** and scan the runner FS.
           path: |
-            ${{ env.NIGHTLY_OUT_ROOT }}/**
+            parity/giab/runs/nightly/**
             docs/EQUIVALENCE_DASHBOARD.md
           if-no-files-found: warn
           retention-days: 30
@@ -270,6 +271,7 @@ jobs:
       # Legacy per-run HTML under /equivalence/
       - name: Deploy nightly run HTML to GitHub Pages (equivalence/)
         if: always() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+        continue-on-error: true
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

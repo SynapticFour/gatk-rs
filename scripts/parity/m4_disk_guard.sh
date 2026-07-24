@@ -9,7 +9,17 @@
 set -euo pipefail
 
 m4_avail_gb() {
-  df -g / | awk 'NR==2{print $4}'
+  # macOS: df -g reports GiB in column 4. GNU/Linux: df -Bg (or -BG) reports "123G".
+  if df -g / >/dev/null 2>&1; then
+    df -g / | awk 'NR==2{print int($4)}'
+    return 0
+  fi
+  if df -Bg / >/dev/null 2>&1; then
+    df -Bg / | awk 'NR==2{gsub(/[^0-9].*/, "", $4); print int($4)}'
+    return 0
+  fi
+  # Fallback: 1K-blocks → GiB
+  df -k / | awk 'NR==2{print int($4 / 1024 / 1024)}'
 }
 
 m4_require_free_gb() {

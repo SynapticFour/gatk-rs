@@ -21,8 +21,9 @@ on:
         required: true
         default: "0.02"
 
+# contents:write — peaceiris pushes gh-pages; matches nightly-equivalence.yml.
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: giab-genomewide
@@ -56,8 +57,18 @@ jobs:
         run: |
           set -euo pipefail
           ver="3.12.1"
-          curl -fsSL -o /tmp/rtg.zip \
-            "https://github.com/RealTimeGenomics/rtg-tools/releases/download/${ver}/rtg-tools-${ver}-http.zip"
+          # Release assets are linux-x64 / nojre / windows — there is no *-http.zip.
+          url="https://github.com/RealTimeGenomics/rtg-tools/releases/download/${ver}/rtg-tools-${ver}-linux-x64.zip"
+          for attempt in 1 2 3; do
+            if curl -fsSL --retry 3 --retry-delay 5 -o /tmp/rtg.zip "${url}"; then
+              break
+            fi
+            if [[ "${attempt}" -eq 3 ]]; then
+              echo "RTG download failed after ${attempt} attempts: ${url}" >&2
+              exit 1
+            fi
+            sleep $((attempt * 5))
+          done
           sudo unzip -q /tmp/rtg.zip -d /opt
           # RTG wants a license acknowledgement file on first run
           printf 'y\n' | /opt/rtg-tools-${ver}/rtg version >/dev/null || true
