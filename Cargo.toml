@@ -37,7 +37,7 @@ parking_lot = "0.12"
 memmap2 = "0.9"
 crossbeam = "0.8"
 dashmap = "5.5"
-lru = "0.18"
+lru = "0.12"
 bytes = "1.5"
 
 # Error handling
@@ -54,12 +54,12 @@ statrs = "0.16"
 num-traits = "0.2"
 
 # Bioinformatics I/O
-rust-htslib = "0.48"
+rust-htslib = "0.46"
 # rust-htslib 0.46 casts lengths as u64; hts-sys ≥2.2 uses usize in bindings.
 hts-sys = "=2.1.4"
 
 # Testing
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 proptest = "1.4"
 tempfile = "3.8"
 
