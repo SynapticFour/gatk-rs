@@ -163,11 +163,25 @@ jobs:
         run: |
           set -euo pipefail
           # parity/build/ is gitignored; integration tests expect samtools-built caches.
+          # Only stage SAMs known to be well-formed (some fixtures are intentionally malformed).
           mkdir -p parity/build/sam-indexed-bam
-          shopt -s nullglob
-          for sam in parity/fixtures/*.sam; do
-            base="$(basename "${sam}" .sam)"
+          for base in \
+            p5_live_case_indel \
+            p5_live_case_snp \
+            p5_live_case_ref \
+            p5_live_case_repeat \
+            p5_live_case_lowcomplex \
+            p11_java_positive \
+            p11_field_diff_case \
+            read_filter_slice \
+            read_order
+          do
+            sam="parity/fixtures/${base}.sam"
             out="parity/build/sam-indexed-bam/${base}.bam"
+            if [[ ! -f "${sam}" ]]; then
+              echo "missing ${sam}; skip"
+              continue
+            fi
             if [[ -f "${out}" && "${out}" -nt "${sam}" ]]; then
               continue
             fi
@@ -175,7 +189,7 @@ jobs:
             samtools view -bS "${sam}" | samtools sort -o "${out}"
             samtools index "${out}"
           done
-          ls -la parity/build/sam-indexed-bam | head -40
+          ls -la parity/build/sam-indexed-bam
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
