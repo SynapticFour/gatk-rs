@@ -181,12 +181,16 @@ pub fn reference_confidence_locus_from_pileup(
 /// True when any read's aligned reference span intersects `[start, end]` (1-based inclusive).
 pub fn reads_overlap_closed_span(reads: &[bam::Record], start: u64, end: u64) -> bool {
     reads.iter().any(|r| {
-        if r.is_unmapped() {
+        if r.is_unmapped() || r.tid() < 0 {
             return false;
         }
-        let r0 = r.pos().max(0) as u64;
-        let r1 = r.cigar().end_pos().max(0) as u64;
-        r0 <= end && r1.saturating_sub(1) >= start
+        // BAM alignment coords are 0-based; `start`/`end` are closed 1-based.
+        let r_start_1 = (r.pos().max(0) as u64).saturating_add(1);
+        let r_end_1 = r.cigar().end_pos().max(0) as u64; // exclusive 0-based end == inclusive 1-based end
+        if r_end_1 < r_start_1 {
+            return false;
+        }
+        r_start_1 <= end && r_end_1 >= start
     })
 }
 
@@ -1223,6 +1227,9 @@ mod tests {
             rust_htslib::bam::record::Cigar::Match(10),
         ]);
         rec.set(b"r1", Some(&cigar), b"ACGTACGTAC", &vec![30; 10]);
+        rec.set_flags(0); // clear default UNMAPPED on bare records
+        rec.set_tid(0);
+        // BAM pos is 0-based; region coords below are 1-based closed.
         rec.set_pos(i64::try_from(P12_CLUSTER_INTERIOR_BLOCK_START.saturating_sub(1)).unwrap_or(0));
         assert!(!prefer_region_reads_when_gt_misaligned(
             std::slice::from_ref(&rec),

@@ -132,7 +132,7 @@ set +e
   --happy-bin "${happy_wrap}" \
   --f1-delta-threshold "${f1_delta}" \
   --threads 1 \
-  --skip-disk-check true
+  --skip-disk-check
 rc=$?
 set -e
 

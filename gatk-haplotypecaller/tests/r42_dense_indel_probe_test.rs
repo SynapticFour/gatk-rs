@@ -17,7 +17,10 @@ fn dense_giab_insertion_reaches_event_map_and_call() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let ref_fa = repo.join("parity/realworld/assets/hs37d5.simple.fa");
     let bam = repo.join("parity/realworld/na12878_giab_window_b37/NA12878_giab_window.b37.bam");
-    assert!(ref_fa.is_file() && bam.is_file());
+    // Realworld assets are gitignored / fetched locally — skip on bare CI checkouts.
+    if !ref_fa.is_file() || !bam.is_file() {
+        return;
+    }
     let dict = SequenceDictionary::from_fasta_path(&ref_fa).expect("dict");
     let specs = parse_intervals_cli_string(&dict, "20:10001400-10001500").expect("interval");
     let filters = ReadFilterParams::gatk_standard_hc();

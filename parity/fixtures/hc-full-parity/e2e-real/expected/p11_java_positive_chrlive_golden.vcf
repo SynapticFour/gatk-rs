@@ -1,0 +1,8 @@
+##fileformat=VCFv4.2
+##source=gatk-rs HaplotypeCaller assembly-region-v1
+##reference=parity/fixtures/p5_live_reference.fa
+##contig=<ID=chrLive,length=63>
+##GATK_RS_HC_PIPELINE=assembly-region-v1
+##GATK_RS_HC_OUTPUT_MODE=VCF
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SAMPLE
+chrLive	15	.	T	A	2225.06	.	AC=2;AF=1;AN=2;DP=50;ExcessHet=0;FS=0;MLEAC=2;MLEAF=1;MQ=60;QD=30;SOR=7.864035659072451	GT:GQ:DP:AD:PL	1/1:99:50:0,50:2239,151,0

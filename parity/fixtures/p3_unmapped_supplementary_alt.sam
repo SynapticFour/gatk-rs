@@ -1,0 +1,7 @@
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:chr1	LN:1000
+@RG	ID:rg1	SM:sample	PL:ILLUMINA
+@CO	Alternative unmapped/supplementary corpus for Step-48 hardening.
+r2	0	chr1	400	60	20M	*	0	0	NNNNNNNNNNNNNNNNNNNN	FFFFFFFFFFFFFFFFFFFF	SA:Z:chr1,700,+,15M,60,0;	NM:i:0	RG:Z:rg1
+r2	2048	chr1	700	60	15M	*	0	0	NNNNNNNNNNNNNNN	FFFFFFFFFFFFFFF	SA:Z:chr1,400,+,20M,60,0;	NM:i:0	RG:Z:rg1
+r2_unmap	4	*	0	0	*	*	0	0	*	*	RG:Z:rg1

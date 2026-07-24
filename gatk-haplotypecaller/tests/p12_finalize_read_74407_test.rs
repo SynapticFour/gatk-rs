@@ -18,14 +18,18 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
 }
 
-fn load_reverse_74407() -> bam::Record {
+fn load_reverse_74407() -> Option<bam::Record> {
     let bam = repo_root().join("parity/realworld/na12878_20k_b37/NA12878_20k.b37.bam");
+    // Realworld BAM is gitignored / fetched locally — skip on bare CI checkouts.
+    if !bam.is_file() {
+        return None;
+    }
     let mut r = bam::Reader::from_path(&bam).expect("bam");
     let mut rec = bam::Record::new();
     while let Some(res) = r.read(&mut rec) {
         res.expect("read record");
         if std::str::from_utf8(rec.qname()).unwrap().contains("74407") && rec.flags() & 16 != 0 {
-            return rec;
+            return Some(rec);
         }
     }
     panic!("reverse 74407 not found");
@@ -67,7 +71,9 @@ fn format_cigar(rec: &bam::Record) -> String {
 
 #[test]
 fn p12_74407_reverse_finalize_matches_java_cigar() {
-    let original = load_reverse_74407();
+    let Some(original) = load_reverse_74407() else {
+        return;
+    };
     let policy = HcSoftclipPolicy::haplotype_caller_defaults();
     let min_tail = gatk_min_tail_quality_for_assembly(10);
 

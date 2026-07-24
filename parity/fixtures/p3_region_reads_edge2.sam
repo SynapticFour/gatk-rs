@@ -1,0 +1,7 @@
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:chr1	LN:32
+@RG	ID:rg1	SM:sample	PL:ILLUMINA
+rE1	0	chr1	1	60	1M	*	0	0	A	I	RG:Z:rg1
+rE2	0	chr1	8	60	4M	*	0	0	ACGT	IIII	RG:Z:rg1
+rE3	0	chr1	16	60	8M	*	0	0	ACGTACGT	IIIIIIII	RG:Z:rg1
+rE4	0	chr1	31	60	2M	*	0	0	AC	II	RG:Z:rg1

@@ -65,7 +65,9 @@ jobs:
         run: |
           set -euo pipefail
           bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
-          ./actionlint -color
+          # Config lives under .github/; actionlint only auto-loads ./actionlint.yaml at CWD.
+          # -shellcheck= disables nested shellcheck (style noise); YAML/expression rules remain.
+          ./actionlint -color -shellcheck= -config-file .github/actionlint.yaml
 
   docs:
     name: Doc link check
@@ -127,17 +129,74 @@ jobs:
     needs: [changes, fmt-clippy]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Full HC integration-test link set is large; keep headroom for serialized lld.
+    timeout-minutes: 45
+    env:
+      # Shrink debuginfo so ~90 HC integration binaries fit on ubuntu-latest.
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_BUILD_JOBS: "1"
     steps:
       - uses: actions/checkout@v7
 
+      - name: Free disk space
+        run: |
+          set -euo pipefail
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/share/powershell /usr/share/swift /opt/hostedtoolcache/CodeQL \
+            /usr/local/.ghcup || true
+          sudo apt-get clean || true
+          df -h
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install samtools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends samtools
+          command -v samtools
+
+      - name: Stage indexed BAMs from fixture SAMs
+        run: |
+          set -euo pipefail
+          # parity/build/ is gitignored; integration tests expect samtools-built caches.
+          # Only stage SAMs known to be well-formed (some fixtures are intentionally malformed).
+          mkdir -p parity/build/sam-indexed-bam
+          for base in \
+            p5_live_case_indel \
+            p5_live_case_snp \
+            p5_live_case_ref \
+            p5_live_case_repeat \
+            p5_live_case_lowcomplex \
+            p11_java_positive \
+            p11_field_diff_case \
+            read_filter_slice \
+            read_order
+          do
+            sam="parity/fixtures/${base}.sam"
+            out="parity/build/sam-indexed-bam/${base}.bam"
+            if [[ ! -f "${sam}" ]]; then
+              echo "missing ${sam}; skip"
+              continue
+            fi
+            if [[ -f "${out}" && "${out}" -nt "${sam}" ]]; then
+              continue
+            fi
+            echo "sam->bam ${base}"
+            samtools view -bS "${sam}" | samtools sort -o "${out}"
+            samtools index "${out}"
+          done
+          ls -la parity/build/sam-indexed-bam
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: pr-check
+          # Restoring a fat target/ plus rebuilding tests exhausts the runner disk.
+          cache-targets: false
 
       - name: Load pinned GATK upstream
         run: |
@@ -149,15 +208,11 @@ jobs:
           echo "GATK_DOCKER_IMAGE=${GATK_DOCKER_IMAGE}" >> "${GITHUB_ENV}"
           echo "GATK_DOCKER_PLATFORM=${GATK_DOCKER_PLATFORM}" >> "${GITHUB_ENV}"
 
-      - name: cargo build --workspace --all-features
-        run: cargo build --workspace --all-features
-
+      # Single cargo invocation: a prior `cargo build` left too little room for test binaries.
       - name: cargo test --workspace --all-features
         run: cargo test --workspace --all-features
 
       - name: Determinism (Rayon multi-thread VCF identity)
-        env:
-          CARGO_BUILD_JOBS: "1"
         run: cargo test -p gatk-cli --test rayon_thread_determinism_test -- --nocapture
 
   happy-smoke:

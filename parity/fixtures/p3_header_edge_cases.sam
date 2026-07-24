@@ -1,0 +1,10 @@
+@HD	GO:query	SO:coordinate	VN:1.6	SS:coordinate:queryname
+@SQ	LN:32	SN:chr1	M5:11111111111111111111111111111111	AS:asmA	SP:human
+@SQ	SN:chr2	LN:20	AS:asmA	SP:human
+@RG	SM:sampleZ	PU:unit1	PL:ILLUMINA	ID:rgZ	LB:libZ
+@RG	ID:rgY	PL:PACBIO	LB:libY	SM:sampleY	PU:unitY	DS:descY
+@PG	PN:prep	VN:0.0.1	ID:pgPrep	CL:prep --x 1
+@PG	ID:pgCall	PN:caller	PP:pgPrep	VN:3.2.1	CL:caller --flag
+@CO	header-edge-cases-fixture
+r_edge_1	0	chr1	2	60	16M	*	0	0	ACGTACGTACGTACGT	IIIIIIIIIIIIIIII	RG:Z:rgZ	PG:Z:pgCall	NM:i:0
+r_edge_2	0	chr2	3	60	10M	*	0	0	ACGTACGTAC	IIIIIIIIII	RG:Z:rgY	PG:Z:pgCall	NM:i:0

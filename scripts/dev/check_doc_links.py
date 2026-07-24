@@ -68,6 +68,22 @@ def clean_href(href: str) -> str:
     return href
 
 
+GENERATED_PREFIXES = (
+    "docs/perf/runs/",
+    "parity/reports/",
+    "parity/build/",
+    "parity/giab/runs/",
+    "parity/giab/truth/",
+)
+
+
+def is_generated_href(href: str) -> bool:
+    h = clean_href(href).lstrip("./")
+    while h.startswith("../"):
+        h = h[3:]
+    return any(h.startswith(prefix) for prefix in GENERATED_PREFIXES)
+
+
 def looks_complete(href: str) -> bool:
     if not href or href in {".", ".."}:
         return False
@@ -141,6 +157,8 @@ def main() -> int:
         rel_src = source.relative_to(ROOT).as_posix()
         for lineno, line in enumerate(text.splitlines(), start=1):
             for raw in collect_raw_refs(line):
+                if is_generated_href(raw):
+                    continue
                 candidates = candidate_paths(source, raw)
                 if not candidates:
                     continue

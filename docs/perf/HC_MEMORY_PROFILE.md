@@ -35,12 +35,11 @@ cargo build -p gatk-cli --release --locked
 <release-bin>/gatk-rs HaplotypeCaller \
   -R <repo>/parity/fixtures/reference.fa \
   -I <repo>/parity/fixtures/sample.bam \
-  -O docs/perf/runs/20260724T051610Z/rust.hc.vcf \
+  -O /tmp/rust.hc.vcf \
   -L chr1:1-32
 ```
 
-Time capture (this host): see `docs/perf/runs/20260724T051610Z/rust.time.txt`
-(macOS `/usr/bin/time -l` or GNU `/usr/bin/time -v`).
+Time capture (this host): local `time` log under gitignored `docs/perf/runs/<timestamp>/` (macOS `/usr/bin/time -l` or GNU `/usr/bin/time -v`).
 
 ### Java GATK 4.4
 
@@ -51,10 +50,10 @@ Time capture (this host): see `docs/perf/runs/20260724T051610Z/rust.time.txt`
 ```bash
 # Re-run via the harness (preferred):
 ./scripts/perf/run_hc_memory_profile.sh
-# Or see docs/perf/runs/20260724T051610Z/java.cmdline.txt for the exact docker/java line used.
+# Exact docker/java cmdline is written under gitignored docs/perf/runs/<timestamp>/ by the harness.
 ```
 
-Time capture: `docs/perf/runs/20260724T051610Z/java.time.txt`  
+Time capture: gitignored `docs/perf/runs/<timestamp>/java.time.txt` written by the harness.  
 When Docker is used, Peak-RSS is sampled from `/proc/*/status` **VmHWM**
 for `java`/`gatk` **inside** the Linux container (the Broad 4.4 image has no
 GNU `/usr/bin/time`). Host `time docker …` is never used for RSS.

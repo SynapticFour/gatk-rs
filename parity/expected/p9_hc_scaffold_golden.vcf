@@ -1,0 +1,6 @@
+##fileformat=VCFv4.2
+##source=gatk-rs HaplotypeCaller scaffold-v1
+##reference=parity/fixtures/reference.fa
+##contig=<ID=chr1,length=32>
+##GATK_RS_HC_PIPELINE=scaffold-v1
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO

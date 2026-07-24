@@ -1,0 +1,4 @@
+##fileformat=VCFv4.2
+##source=JavaLike
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+chr1	10	.	C	T	60	PASS	.

@@ -32,9 +32,11 @@ fn motif_ins_discovers_atg_after_anchor_a() {
     ref_bases[6] = b'A';
     ref_bases[7] = b'T';
     let mut rec = bam::Record::new();
-    rec.set_pos((pad + 5) as i64);
     let cigar = CigarString(vec![Cigar::Match(6)]);
     rec.set(b"r1", Some(&cigar), b"ATGTAA", b"??????");
+    rec.set_flags(0); // clear default UNMAPPED on bare records
+    rec.set_tid(0);
+    rec.set_pos((pad + 5) as i64);
     let events = discover_motif_insertion_events_from_reads(
         std::slice::from_ref(&rec),
         &ref_bases,
@@ -58,9 +60,11 @@ fn cigar_ins_discovers_atg_after_anchor_a() {
     ref_bases[6] = b'A';
     ref_bases[7] = b'T';
     let mut rec = bam::Record::new();
-    rec.set_pos((pad + 5) as i64); // 1M aligns ref[6]=A, then 2I before ref[7]=T
     let cigar = CigarString(vec![Cigar::Match(1), Cigar::Ins(2), Cigar::Match(1)]);
     rec.set(b"r1", Some(&cigar), b"ATGT", b"????");
+    rec.set_flags(0); // clear default UNMAPPED on bare records
+    rec.set_tid(0);
+    rec.set_pos((pad + 5) as i64); // 1M aligns ref[6]=A, then 2I before ref[7]=T
     let events = discover_indel_events_from_reads(
         std::slice::from_ref(&rec),
         &ref_bases,
@@ -280,6 +284,10 @@ fn dense_giab_insertion_ad_and_discover() {
         env!("CARGO_MANIFEST_DIR"),
         "/../parity/realworld/na12878_giab_window_b37/NA12878_giab_window.b37.bam"
     );
+    // Realworld BAM is gitignored / fetched locally — skip on bare CI checkouts.
+    if !std::path::Path::new(bam_path).is_file() {
+        return;
+    }
     let mut reader = bam::Reader::from_path(bam_path).expect("bam");
     let mut reads = Vec::new();
     for r in reader.records() {

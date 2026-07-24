@@ -8,8 +8,7 @@ Frozen **per-variant FORMAT + site QUAL + INFO AF** from the Phase E Java baseli
 | [`sites/`](./sites/) | Per-site TSV (`<pos>_<ref>_<alt>.tsv`) for targeted tests |
 | [`cluster_sites.tsv`](./cluster_sites.tsv) | Subset: `92307324`, `92307327`, `92307359` |
 
-**Source VCF:** [`parity/reports/p12_realworld_na12878_20k.java.vcf`](../../reports/p12_realworld_na12878_20k.java.vcf)  
-**Site list:** [`parity/reports/p12_diff/p12_java_only.tsv`](../../reports/p12_diff/p12_java_only.tsv)
+**Source VCF / site list:** generated under gitignored `parity/reports/` by `./scripts/parity/run_p12_realworld_na12878_20k.sh` (not checked into git).
 
 ## Regenerate
 

@@ -1,0 +1,13 @@
+self-hosted-runner:
+  labels:
+    - gatk-rs-benchmark
+    - gatk-rs-genomewide
+
+# Shellcheck style/info findings (SC2129, SC2086, …) are not workflow syntax
+# errors; keep actionlint focused on real Actions YAML/expression issues.
+shellcheck:
+  ignore:
+    - SC2015
+    - SC2046
+    - SC2086
+    - SC2129

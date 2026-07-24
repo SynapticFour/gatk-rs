@@ -11,10 +11,12 @@ use std::cell::RefCell;
 use std::sync::OnceLock;
 
 const MAX_QUAL: usize = 127;
-/// `2^1020` — GATK `LoglessPairHMM.INITIAL_CONDITION`.
-pub const INITIAL_CONDITION: f64 = 1.0715086071862673e307; // 2f64.powi(1020)
-/// `log10(2^1020)`.
-pub const INITIAL_CONDITION_LOG10: f64 = 307.6526555685887; // 1020.0 * f64::log10(2.0)
+/// `2^1020` — GATK `LoglessPairHMM.INITIAL_CONDITION` (IEEE bits of `ldexp(1, 1020)`).
+/// Do not replace with a rounded decimal literal — a prior `1.07…e307` was ~4.6% low.
+pub const INITIAL_CONDITION: f64 = f64::from_bits(0x7fb0_0000_0000_0000);
+/// `log10(2^1020) = 1020 · log10(2)`. A prior literal `307.652…` was high by `log10(4)`
+/// and shifted every logless score by ≈ −0.602 vs Log10PairHMM.
+pub const INITIAL_CONDITION_LOG10: f64 = 1020.0 * std::f64::consts::LOG10_2;
 
 const MATCH_TO_MATCH: usize = 0;
 const INDEL_TO_MATCH: usize = 1;

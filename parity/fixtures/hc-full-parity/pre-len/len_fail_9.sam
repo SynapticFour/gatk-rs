@@ -1,0 +1,4 @@
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:chr1	LN:1000
+@RG	ID:rg1	SM:s1
+fail_9	0	chr1	50	60	9M	*	0	0	AAAAAAAAA	IIIIIIIII	RG:Z:rg1

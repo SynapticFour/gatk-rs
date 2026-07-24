@@ -1,0 +1,4 @@
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:chr1	LN:32
+@RG	ID:rg1	SM:sample1
+clipped	0	chr1	1	60	2S3M	*	0	0	NNAAA	IIIII	RG:Z:rg1

@@ -50,8 +50,7 @@ Run the smoke parity suite:
 
 This generates:
 
-- `parity/reports/parity-smoke.json`
-- `parity/reports/parity-smoke.md`
+- JSON + Markdown summary under the gitignored `parity/reports/` output directory
 
 ## Current scope
 

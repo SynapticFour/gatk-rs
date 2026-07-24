@@ -59,17 +59,14 @@ temp/
 # Verified pre-push: parity/realworld has multi-MB BAM/BAI and a ~3GB FASTA
 # (hs37d5.simple.fa) — regenerate locally; never commit.
 # ---------------------------------------------------------------------------
-test_data/
+# Root-level dumps only — crate unit-test fixtures live under src/tests/test_data/.
+/test_data/
 *.bam
-!parity/fixtures/sample.bam
 *.bai
 *.sam
-!parity/fixtures/sample.sam
 *.vcf
-!parity/fixtures/sample.vcf
 *.vcf.gz
 *.fa
-!parity/fixtures/reference.fa
 *.fasta
 *.fq
 *.fastq
@@ -77,6 +74,12 @@ test_data/
 *.bam.gz
 *.fa.gz
 *.bed
+
+# Small checked-in smoke / unit fixtures (realworld assets stay ignored below).
+!parity/fixtures/**
+!parity/expected/**
+!gatk-core/src/tests/test_data/
+!gatk-core/src/tests/test_data/**
 
 # Large downloaded real-world assets
 parity/realworld/assets/*.fa
@@ -118,3 +121,4 @@ book/
 docs/build/
 *.bak
 *.backup
+actionlint

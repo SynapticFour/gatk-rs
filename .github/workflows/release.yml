@@ -45,15 +45,15 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_name: gatk-rs
-            asset_name: gatk-rs-${{ steps.version.outputs.VERSION }}-x86_64-unknown-linux-gnu
+            asset_name: gatk-rs-${{ needs.create-release.outputs.version }}-x86_64-unknown-linux-gnu
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: gatk-rs
-            asset_name: gatk-rs-${{ steps.version.outputs.VERSION }}-x86_64-apple-darwin
+            asset_name: gatk-rs-${{ needs.create-release.outputs.version }}-x86_64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: gatk-rs.exe
-            asset_name: gatk-rs-${{ steps.version.outputs.VERSION }}-x86_64-pc-windows-msvc.exe
+            asset_name: gatk-rs-${{ needs.create-release.outputs.version }}-x86_64-pc-windows-msvc.exe
 
     steps:
     - name: Checkout repository
@@ -69,7 +69,7 @@ jobs:
         targets: ${{ matrix.target }}
 
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -107,7 +107,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -166,7 +166,7 @@ jobs:
         push: true
         tags: |
           gatkr/gatk-rs:latest
-          gatkr/gatk-rs:${{ steps.version.outputs.VERSION }}
+          gatkr/gatk-rs:${{ needs.create-release.outputs.version }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
@@ -193,7 +193,7 @@ jobs:
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: target/doc
-        destination_dir: ${{ steps.version.outputs.VERSION }}
+        destination_dir: ${{ needs.create-release.outputs.version }}
 
   performance-report:
     name: Performance Report
@@ -207,7 +207,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -226,12 +226,12 @@ jobs:
     - name: Upload benchmark results
       uses: actions/upload-artifact@v7
       with:
-        name: benchmark-results-${{ steps.version.outputs.VERSION }}
+        name: benchmark-results-${{ needs.create-release.outputs.version }}
         path: benchmark-results.json
 
     - name: Generate performance report
       run: |
-        echo "# Performance Report for GATK-RS ${{ steps.version.outputs.VERSION }}" > performance-report.md
+        echo "# Performance Report for GATK-RS ${{ needs.create-release.outputs.version }}" > performance-report.md
         echo "" >> performance-report.md
         echo "## Benchmark Results" >> performance-report.md
         echo '```json' >> performance-report.md
@@ -243,5 +243,5 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         gh release upload "${GITHUB_REF#refs/tags/}" \
-          "performance-report.md#performance-report-${{ steps.version.outputs.VERSION }}.md" \
+          "performance-report.md#performance-report-${{ needs.create-release.outputs.version }}.md" \
           --clobber

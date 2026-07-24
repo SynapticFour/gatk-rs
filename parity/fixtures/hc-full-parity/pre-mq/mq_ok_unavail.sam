@@ -1,0 +1,4 @@
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:chr1	LN:1000
+@RG	ID:rg1	SM:s1
+ok_mq255	0	chr1	50	255	10M	*	0	0	AAAAAAAAAA	IIIIIIIIII	RG:Z:rg1

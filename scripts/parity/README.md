@@ -75,7 +75,7 @@
 | `run_p9_java_hc_smoke.sh` | Phase 9 Step 113: Docker `gatk HaplotypeCaller` on parity fixtures (parsable VCF header; transient outputs removed). |
 | `run_p9_mismatch_triage_check.sh` | Phase 9 triage schema + high-severity guard (`parity/reports/p9_mismatch_triage.jsonl`). |
 | `run_p9_freeze_matrix.sh` | Phase 9 Step 114 freeze bundle (contracts + diff + Java smoke + triage + summary). |
-| `build_p9_equivalence_summary.py` | Builds `parity/reports/p9_equivalence_summary.md` from Phase-9 artifacts. |
+| `build_p9_equivalence_summary.py` | Builds Phase-9 equivalence summary Markdown under gitignored `parity/reports/`. |
 | `run_p10_release_readiness.sh` | Phase 10 Steps 115-120 release gate (coverage minimum + triage blocker checks + consolidated readiness summary). |
 | `build_p10_release_readiness.py` | Builds `parity/reports/p10_release_readiness.{json,md}` from smoke + P7/P8/P9 summaries/triage artifacts. |
 | `run_p11_hc_output_activation_contracts.sh` | Phase 11 scaffold: checks whether Rust HC output transitions from header-only scaffold to non-empty variant records on smoke fixture. |
