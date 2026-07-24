@@ -1,36 +1,109 @@
 {
-  "stamp_utc": "20260724T051610Z",
+  "stamp_utc": "20260724T181512Z",
   "host": "Darwin 25.5.0 arm64",
+  "git_sha": "b5702ba",
+  "rustc": "rustc 1.95.0 (59807616e 2026-04-14) (Homebrew)",
+  "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21) (Homebrew)",
+  "binary": "<release-bin>/gatk-rs",
+  "build": "cargo build -p gatk-cli --release --locked",
+  "java_options": "-Xms1g -Xmx4g",
+  "gatk_docker_image": "us.gcr.io/broad-gatk/gatk:4.4.0.0",
+  "gatk_sha": "2dbc025821bc5f686c423ff332a41e6cef892a77",
+  "dedicated_benchmark_host": false,
+  "public_memory_claim_allowed": false,
+  "profiles": [
+    {
+      "profile_id": "smoke",
+      "label": "Trivial smoke (reproducibility only)",
+      "marketing_claim_ok": false,
+      "fixture": {
+        "reference": "<repo>/parity/fixtures/reference.fa",
+        "bam": "<repo>/parity/fixtures/sample.bam",
+        "interval": "chr1:1-32",
+        "note": "Checked-in p4 smoke fixture (chr1 32bp). Peak RSS is dominated by process/runtime overhead; never use for public memory claims."
+      },
+      "rust": {
+        "binary": "<release-bin>/gatk-rs",
+        "wall_sec": null,
+        "max_rss_kb": 9744,
+        "max_rss_mib": 9.515625,
+        "threads": 1,
+        "cmdline": "<repo>/target/release/gatk-rs HaplotypeCaller -R <repo>/parity/fixtures/reference.fa -I <repo>/parity/fixtures/sample.bam -O <run>/smoke/rust.hc.vcf -L chr1:1-32 --threads 1"
+      },
+      "java": {
+        "gatk_version_pin": "4.4.0.0",
+        "gatk_sha": "2dbc025821bc5f686c423ff332a41e6cef892a77",
+        "docker_image": "us.gcr.io/broad-gatk/gatk:4.4.0.0",
+        "java_options": "-Xms1g -Xmx4g",
+        "native_pair_hmm_threads": 1,
+        "wall_sec": 4.4,
+        "max_rss_kb": 447988,
+        "max_rss_mib": 437.48828125,
+        "note": "Peak RSS = max /proc VmHWM (kB) of java|gatk inside Docker when the image lacks GNU time; else GNU time -v on the JVM process."
+      },
+      "ratio": {
+        "java_over_rust_peak_rss": 45.975779967159276,
+        "rust_fraction_of_java_peak_rss": 0.021750582604891204,
+        "delta_kb": 438244
+      }
+    },
+    {
+      "profile_id": "realistic",
+      "label": "Realistic GIAB-dense multi-Mb window",
+      "marketing_claim_ok": true,
+      "status": "failed",
+      "error": "engine exited non-zero (see docs/perf/runs/20260724T181512Z/realistic/)",
+      "fixture": {
+        "reference": "<repo>/parity/realworld/assets/hs37d5.simple.fa",
+        "bam": "<repo>/parity/realworld/na12878_giab_window_mem_2mb_b37/NA12878_giab_window.b37.bam",
+        "interval": "20:10000000-12000000",
+        "note": "NA12878 GIAB-dense window (default 20:10000000-12000000, 2 Mb). Measurement failed on this host (often OOM on laptops); re-run on dedicated gatk-rs-benchmark."
+      },
+      "rust": {
+        "wall_sec": null,
+        "max_rss_kb": null,
+        "max_rss_mib": null
+      },
+      "java": {
+        "wall_sec": null,
+        "max_rss_kb": null,
+        "max_rss_mib": null,
+        "gatk_version_pin": "4.4.0.0"
+      }
+    }
+  ],
   "fixture": {
     "reference": "<repo>/parity/fixtures/reference.fa",
     "bam": "<repo>/parity/fixtures/sample.bam",
     "interval": "chr1:1-32",
-    "note": "Checked-in p4 smoke fixture (chr1 32bp). Peak RSS on this tiny region is dominated by process/runtime overhead; do not market as genome-wide memory savings."
+    "note": "Checked-in p4 smoke fixture (chr1 32bp). Peak RSS is dominated by process/runtime overhead; never use for public memory claims."
   },
   "rust": {
     "binary": "<release-bin>/gatk-rs",
-    "git_sha": "ecb97e5",
+    "wall_sec": null,
+    "max_rss_kb": 9744,
+    "max_rss_mib": 9.515625,
+    "threads": 1,
+    "cmdline": "<repo>/target/release/gatk-rs HaplotypeCaller -R <repo>/parity/fixtures/reference.fa -I <repo>/parity/fixtures/sample.bam -O <run>/smoke/rust.hc.vcf -L chr1:1-32 --threads 1",
+    "git_sha": "b5702ba",
     "build": "cargo build -p gatk-cli --release --locked",
-    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)",
-    "cargo": "cargo 1.88.0 (873a06493 2025-05-10)",
-    "wall_sec": 0.29,
-    "max_rss_kb": 9488,
-    "max_rss_mib": 9.265625,
-    "cmdline": "<release-bin>/gatk-rs HaplotypeCaller -R <repo>/parity/fixtures/reference.fa -I <repo>/parity/fixtures/sample.bam -O <run>/rust.hc.vcf -L chr1:1-32"
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14) (Homebrew)",
+    "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21) (Homebrew)"
   },
   "java": {
     "gatk_version_pin": "4.4.0.0",
     "gatk_sha": "2dbc025821bc5f686c423ff332a41e6cef892a77",
     "docker_image": "us.gcr.io/broad-gatk/gatk:4.4.0.0",
     "java_options": "-Xms1g -Xmx4g",
-    "wall_sec": 2.644,
-    "max_rss_kb": 462764,
-    "max_rss_mib": 451.91796875,
+    "native_pair_hmm_threads": 1,
+    "wall_sec": 4.4,
+    "max_rss_kb": 447988,
+    "max_rss_mib": 437.48828125,
     "note": "Peak RSS = max /proc VmHWM (kB) of java|gatk inside Docker when the image lacks GNU time; else GNU time -v on the JVM process."
   },
   "ratio": {
-    "java_over_rust_peak_rss": 48.77360876897133,
-    "rust_fraction_of_java_peak_rss": 0.02050289132257479,
-    "delta_kb": 453276
+    "java_over_rust_peak_rss": 45.975779967159276,
+    "rust_fraction_of_java_peak_rss": 0.021750582604891204,
+    "delta_kb": 438244
   }
 }

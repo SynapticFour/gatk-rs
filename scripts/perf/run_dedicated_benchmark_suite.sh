@@ -34,7 +34,10 @@ else
 fi
 
 if [[ "${PERF_SKIP_MEMORY:-0}" != "1" ]]; then
-  echo "[dedicated-bench] optional Peak-RSS micro-profile (tiny fixture)…"
+  echo "[dedicated-bench] Peak-RSS profiles (smoke + realistic GIAB multi-Mb)…"
+  # On the dedicated host, HOST_SPECS.md is captured first so the realistic
+  # profile can unlock public memory claims (see run_hc_memory_profile.sh).
+  export HC_MEM_PROFILES="${HC_MEM_PROFILES:-smoke,realistic}"
   if [[ -n "${PERF_CPU_LIST:-}" ]] && command -v taskset >/dev/null 2>&1; then
     taskset -c "${PERF_CPU_LIST}" "${script_dir}/run_hc_memory_profile.sh" \
       | tee "${run_dir}/memory_profile.stdout"

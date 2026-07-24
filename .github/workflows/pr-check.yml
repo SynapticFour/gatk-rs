@@ -39,6 +39,7 @@ jobs:
               - 'fuzz/**'
               - 'parity/fixtures/**'
               - 'scripts/parity/**'
+              - 'scripts/ci/**'
               - 'scripts/dev/count_unsafe_patterns.sh'
               - 'scripts/dev/check_io_unwrap_policy.py'
               - '.quality-gates/**'
@@ -214,6 +215,14 @@ jobs:
 
       - name: Determinism (Rayon multi-thread VCF identity)
         run: cargo test -p gatk-cli --test rayon_thread_determinism_test -- --nocapture
+
+      - name: HaplotypeCaller Peak-RSS regression (fai dict + kbest + bomb window)
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ci/check_hc_rss_regression.sh
+          # Always: .fai dict path, k-best bounds, SW contig-scale refusal, tiny dict RSS.
+          # Optional: 1 kb NA12878 bomb window (20:10098500-10099500) when REALISTIC assets staged.
+          ./scripts/ci/check_hc_rss_regression.sh
 
   happy-smoke:
     name: hap.py equivalence smoke

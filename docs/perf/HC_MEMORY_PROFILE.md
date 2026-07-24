@@ -1,75 +1,113 @@
 # HaplotypeCaller memory profile (reproducible)
 
-**Generated (UTC):** `20260724T051610Z`  
-**Host:** `Darwin 25.5.0 arm64`  
+**Generated (UTC):** `20260724T181512Z` (failure) + engineering follow-up `20260724T213000Z`  
+**Host:** `Darwin 25.5.0 arm64` (16 GiB MacBook Air — do **not** re-run the 2 Mb window here)  
 **Runner script:** [`scripts/perf/run_hc_memory_profile.sh`](../../scripts/perf/run_hc_memory_profile.sh)  
-**Raw run directory:** `docs/perf/runs/20260724T051610Z/`
+**Raw run directory (original failure):** `docs/perf/runs/20260724T181512Z/`
 
-> **Scope warning:** This profile uses the checked-in p4 smoke fixture
-> (`parity/fixtures/sample.bam` + `reference.fa`, interval `chr1:1-32`).
-> Absolute Peak-RSS is dominated by runtime/JVM fixed costs on such a tiny
-> window. **Do not** advertise these numbers as genome-wide “X% less memory”
-> without re-measuring on a realistic GIAB shard.
+**Public memory claim status:** **not allowed** until realistic profile is re-run on dedicated `gatk-rs-benchmark` host after the k-best fix below.
 
-## Peak-RSS (side by side)
+Profiles measured: `smoke, realistic` (realistic originally **failed**).
+
+## Root cause (engineering, 2026-07-24)
+
+The ~60 GiB “peak memory footprint” on `20:10000000-12000000` was **not** a measurement artifact.
+
+| Finding | Evidence |
+|--------|----------|
+| Abrupt / locus-triggered | 10–50 kb OK (~90–114 MiB); ≥100 kb exploded |
+| Minimal bomb window | `20:10098500-10099500` and especially active region `20:10098169-10098441` |
+| Mechanism | Unbounded **k-best haplotype frontier** on bushy/cyclic assembly graphs: `BinaryHeap<PathState>` + per-push `path_bases()` / edge-list growth; cyclic graphs previously skipped cycle stripping |
+| Secondary | Dead `span_records` BAM clone in the assembly iterator; SW/PairHMM lacked contig-scale refusal (chr20 × ~read → ~60 GiB matrices) |
+
+### Fixes landed
+
+1. **k-best** (`kbest_haplotype.rs` / `seq_kbest_haplotype.rs`): heap cap, path-edge cap, expansion cap; prefer cycle stripping before preserving topology.
+2. **SW / PairHMM**: refuse oversized DP before allocate/scan.
+3. **Iterator**: remove unused `span_records` full-span BAM clone.
+4. **PR gate**: [`scripts/ci/check_hc_rss_regression.sh`](../../scripts/ci/check_hc_rss_regression.sh) — always unit bounds + optional HC on the 1 kb bomb window (≤256 MiB).
+
+### Post-fix spot checks (this host, RSS watchdog)
+
+| Window | Mode | Peak-RSS | Result |
+|--------|------|----------|--------|
+| `20:10098500-10099500` (1 kb bomb) | full HC | **~38 MiB** | OK, 12 variants |
+| `20:10000000-10050000` (50 kb) | full HC | ~114 MiB (pre-kbest ladder) | OK |
+| `20:10000000-12000000` (2 Mb) | full HC | — | **Not re-run on 16 GiB laptop**; use benchmark host |
+
+## A. Trivial smoke — reproducibility reference only
+
+**Label:** Trivial smoke (reproducibility only)  
+**Interval:** `chr1:1-32`  
+**BAM / ref:** checked-in `parity/fixtures/`  
+
+> **Not for marketing.** Peak-RSS here is dominated by JVM/runtime fixed cost
+> on a 32 bp window. Do **not** derive “X% less memory” from this table.
 
 | Engine | Peak RSS | Wall time |
 |--------|----------|-----------|
-| **gatk-rs** (Rust release) | **9.27 MiB (9488 KiB)** | 0.29 s |
-| **Java GATK 4.4.0.0** | **451.92 MiB (462764 KiB)** | 2.644 s |
+| **gatk-rs** (Rust release) | **9.52 MiB (9744 KiB)** | n/a |
+| **Java GATK 4.4.0.0** | **437.49 MiB (447988 KiB)** | 4.4 s |
 
-| Java / Rust Peak-RSS | 48.77× |
-| Rust as fraction of Java Peak-RSS | 2.1% |
-| Absolute delta (Java − Rust) | 442.65 MiB |
+| Java / Rust Peak-RSS | 45.98× |
+| Rust as fraction of Java Peak-RSS | 2.2% |
+| Absolute delta (Java − Rust) | 427.97 MiB |
 
+## B. Realistic GIAB-dense window — public-claim basis
+
+**Label:** Realistic GIAB-dense multi-Mb window  
+**Interval:** `20:10000000-12000000` (multi-Mb; default 2 Mb on chr20 dense locus)  
+**BAM:** staged NA12878 NIST 30× slice (`parity/realworld/na12878_giab_window_mem_2mb_b37/`)  
+
+> This realistic profile was **not** measured on the dedicated `gatk-rs-benchmark` host (see [`HOST_SPECS.md`](HOST_SPECS.md) / [`docs/ci/PERF_BENCHMARK_HOST.md`](../ci/PERF_BENCHMARK_HOST.md)). Numbers below are engineering evidence only — **do not** use them for a public “X% less memory” claim until re-run on that host.
+
+**Status (original `20260724T181512Z`):** measurement **failed** — Rust Peak-RSS ~2.9 GiB, peak memory footprint ~60 GiB, process died (`20001 traversal tile(s)`).
+
+**Status after k-best fix:** 1 kb bomb window recovers (~38 MiB). **Re-run the full 2 Mb realistic profile on `gatk-rs-benchmark`** (or any host with ≥32 GiB RAM) before updating public claims:
+
+```bash
+export CARGO_TARGET_DIR="$PWD/target"   # avoid stale sandbox binaries
+HC_MEM_PROFILES=realistic ./scripts/perf/run_hc_memory_profile.sh
+```
 
 ## Exact commands
 
-### Rust
+### Rust (build once)
 
 ```bash
 cargo build -p gatk-cli --release --locked
-# rustc: rustc 1.88.0 (6b00bc388 2025-06-23)
-# cargo: cargo 1.88.0 (873a06493 2025-05-10)
-# git: ecb97e5
-<release-bin>/gatk-rs HaplotypeCaller \
-  -R <repo>/parity/fixtures/reference.fa \
-  -I <repo>/parity/fixtures/sample.bam \
-  -O /tmp/rust.hc.vcf \
-  -L chr1:1-32
 ```
 
-Time capture (this host): local `time` log under gitignored `docs/perf/runs/<timestamp>/` (macOS `/usr/bin/time -l` or GNU `/usr/bin/time -v`).
+### Memory regression (PR Check)
+
+```bash
+./scripts/ci/check_hc_rss_regression.sh
+# optional override when assets staged:
+#   HC_RSS_INTERVAL=20:10098500-10099500 HC_RSS_MAX_MIB=256 ./scripts/ci/check_hc_rss_regression.sh
+```
 
 ### Java GATK 4.4
 
 - Pin: `GATK_PINNED_SHA=2dbc025821bc5f686c423ff332a41e6cef892a77` (`docs/GATK_PINNED.env`)
-- Image: `us.gcr.io/broad-gatk/gatk:4.4.0.0`
+- Image: `us.gcr.io/broadinstitute/gatk:4.4.0.0` (or Broad `us.gcr.io/broad-gatk/gatk:4.4.0.0`)
 - JVM options (pipeline-realistic): `-Xms1g -Xmx4g`
 
 ```bash
-# Re-run via the harness (preferred):
 ./scripts/perf/run_hc_memory_profile.sh
-# Exact docker/java cmdline is written under gitignored docs/perf/runs/<timestamp>/ by the harness.
+# smoke only:
+#   HC_MEM_PROFILES=smoke ./scripts/perf/run_hc_memory_profile.sh
+# realistic only (stages 2 Mb GIAB window if needed):
+#   HC_MEM_PROFILES=realistic ./scripts/perf/run_hc_memory_profile.sh
 ```
-
-Time capture: gitignored `docs/perf/runs/<timestamp>/java.time.txt` written by the harness.  
-When Docker is used, Peak-RSS is sampled from `/proc/*/status` **VmHWM**
-for `java`/`gatk` **inside** the Linux container (the Broad 4.4 image has no
-GNU `/usr/bin/time`). Host `time docker …` is never used for RSS.
-
-## Optional deeper profiling
-
-- **macOS Instruments:**  
-  `xcrun xctrace record --template 'Allocations' --output /tmp/rust.allocations.trace --launch -- <release-bin>/gatk-rs HaplotypeCaller -R <repo>/parity/fixtures/reference.fa -I <repo>/parity/fixtures/sample.bam -O /tmp/rust.hc.vcf -L chr1:1-32`
-- **Linux heaptrack (Docker):**  
-  mount the release binary and fixture into a heaptrack image; keep Peak-RSS
-  from this script as the primary comparable number.
 
 ## Re-run
 
 ```bash
 ./scripts/perf/run_hc_memory_profile.sh
-# optional overrides:
-#   JAVA_XMX=4g JAVA_XMS=1g HC_MEM_INTERVAL=chr1:1-32 ./scripts/perf/run_hc_memory_profile.sh
+# overrides:
+#   HC_MEM_PROFILES=smoke,realistic
+#   HC_MEM_REALISTIC_INTERVAL=20:10000000-12000000
+#   JAVA_XMX=4g JAVA_XMS=1g
+# Dedicated host (published claims):
+#   see docs/ci/PERF_BENCHMARK_HOST.md + Actions workflow benchmark.yml
 ```

@@ -24,6 +24,7 @@
 | GIAB multi-sample equivalence **harness** | Infrastructure only — does **not** by itself assert callset equivalence | [`scripts/parity/giab/`](../scripts/parity/giab/README.md), `.github/workflows/giab-genomewide.yml` |
 | CombineGVCFs mini REF/ALT/PL parity (incl. different ALT sets → diploid PL remap) | Synthetic 2-sample mini cohort; site `chr1:10` ALT `T,G,<NON_REF>`; SAMPLE1 PL `100,100,100,0,…` / SAMPLE2 PL `90,0,90,…` | `parity/reports/combine_gvcfs_20260724T072518Z.log` (`OK sites=5`); unit gates `ref_confidence_merger::pl_remap_tests` + `combine_gvcfs::tests::t04` |
 | GenotypeGVCFs mini alleles/GT/QUAL parity | Same mini cohort after CombineGVCFs; QUAL ±20.0 | `parity/reports/genotype_gvcfs_20260724T072526Z.log` (`OK sites=1`) |
+| CombineGVCFs → GenotypeGVCFs **cohort scale** (synthetic ladder) | Synthetic N∈{2,10,25,50,100} on chr1 10 kb / 400 SNPs (HG002–4 names + SYN###); wall/RSS + Java↔Rust GT compare (allele-identity); **recommended ≤ 100 samples** on this gate. Wall ≈ linear (log-log ~0.91); Peak-RSS ~linear with N (~11→79 MiB for N=2→100; in-memory `read_all_records`). Above 100 **untested / not claimed**. No GenomicsDBImport. hap.py optional (Java=truth) when on PATH. | `parity/reports/joint_cohort_scale_20260724T184447Z/`; `scripts/parity/run_joint_cohort_scale.sh`; dashboard `scope.kind=cohort_joint_scale` (`cohort_size` axis) |
 | VariantFiltration boundary FILTER parity | Synthetic SNP hard-filter boundary sites | `parity/reports/variant_filtration_20260724T072535Z.log` (`OK sites=16` identical FILTER) |
 
 ---
@@ -58,6 +59,7 @@
 | Genome-wide (full autosomes) GATK 4.4 HaplotypeCaller equivalence | **No** — signed evidence remains P12 + L2 + dense/holdout windows |
 | GIAB `ci-subset` / multi-sample truth equivalence as a product claim | **No (not signed yet)** |
 | Multi-sample joint HC (Java merges `-I` reads) | **No** — each BAM traversed independently |
+| CombineGVCFs / GenotypeGVCFs for **large cohorts** (WGS × N≫100, GenomicsDB-class) | **No** — gatk-rs Combine loads full gVCFs in memory and has no GenomicsDBImport path. Signed synthetic scale gate (20260724T184447Z): **recommended ≤ 100 samples** on 10 kb/400-SNP ladder; N>100 and any WGS×large-N **untested**. Wall ~linear on that ladder, but Peak-RSS already tracks N — same class of reason Java steers large cohorts to GenomicsDBImport. Prefer sharding / external merge for production-scale cohorts. |
 | Bitwise-identical QUAL/FORMAT genome-wide | **No** — L4 is P12 66-site lock |
 | Full product feature parity (bamout, DRAGSTR, DRAGEN, `AS_*`, `--assembly-region-out`) | **No** — deferred / scaffold only |
 | VQSR (VariantRecalibrator / ApplyVQSR) | **No** — use `VariantFiltration` hard filters; not an algorithmic VQSR substitute (GATK-aligned small-cohort fallback) |

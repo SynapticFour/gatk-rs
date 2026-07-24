@@ -49,11 +49,12 @@ if m:
 #   "             9715712  maximum resident set size"  (bytes, number BEFORE label)
 # Older docs sometimes show "real 1.23" / "maximum resident set size  12345678".
 if wall is None:
-    m = re.search(r"(\d+\.\d+)\s+real\b", text) or re.search(
-        r"^\s*real\s+(\d+\.\d+)", text, re.M
+    # Darwin may use a locale decimal comma ("0,01 real").
+    m = re.search(r"(\d+[.,]\d+)\s+real\b", text) or re.search(
+        r"^\s*real\s+(\d+[.,]\d+)", text, re.M
     )
     if m:
-        wall = float(m.group(1))
+        wall = float(m.group(1).replace(",", "."))
 if rss_kb is None:
     m = re.search(r"(\d+)\s+maximum resident set size\b", text) or re.search(
         r"maximum resident set size\s+(\d+)", text

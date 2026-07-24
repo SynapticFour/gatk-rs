@@ -112,6 +112,11 @@ impl LoglessScratch {
         let rows = rn + 1;
         let cols = hn + 1;
         let cells = rows * cols;
+        // Contig-scale dimensions previously ballooned Peak-RSS / footprint to tens of GiB.
+        debug_assert!(
+            rn <= 100_000 && hn <= 100_000 && cells <= 50_000_000,
+            "Logless PairHMM scratch ensure called with contig-scale dims rn={rn} hn={hn}"
+        );
         if self.transition.len() < rows {
             self.transition.resize(rows, [0.0; 6]);
         }
@@ -149,6 +154,15 @@ pub fn logless_pairhmm_likelihood(
     let hn = haplotype_bases.len();
     if rn == 0 {
         return Ok(0.0);
+    }
+    const MAX_PAIRHMM_DIM: usize = 100_000;
+    const MAX_PAIRHMM_CELLS: usize = 50_000_000;
+    let cells = (rn + 1).saturating_mul(hn + 1);
+    if rn > MAX_PAIRHMM_DIM || hn > MAX_PAIRHMM_DIM || cells > MAX_PAIRHMM_CELLS {
+        return Err(GatkError::algorithm(format!(
+            "PairHMM Logless refused oversized DP (read_len={rn}, hap_len={hn}, cells={cells}); \
+             inputs must be assembly-region scale, not contig scale"
+        )));
     }
     LOGLESS_SCRATCH.with(|cell| {
         let mut scratch = cell.borrow_mut();

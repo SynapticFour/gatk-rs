@@ -437,7 +437,6 @@ pub struct AssemblyRegionIterator {
     span_start: u64,
     span_end: u64,
     ref_bytes: Vec<u8>,
-    span_records: Vec<bam::Record>,
     all_records: Vec<bam::Record>,
     header: bam::HeaderView,
     header_semantics: ReadHeaderSemantics,
@@ -518,7 +517,6 @@ impl AssemblyRegionIterator {
             span_start: 0,
             span_end: 0,
             ref_bytes: Vec::new(),
-            span_records: Vec::new(),
             all_records: filtered_records,
             header,
             header_semantics,
@@ -563,21 +561,8 @@ impl AssemblyRegionIterator {
             .get_interval_bytes(&self.dict, &self.contig, s, e)
             .map_err(|e| GatkError::generic(e.to_string()))?
             .to_vec();
-        self.span_records = self
-            .all_records
-            .iter()
-            .filter(|r| {
-                record_overlaps_closed_interval_1based(
-                    r,
-                    &self.header,
-                    &self.contig,
-                    s,
-                    e,
-                    &self.read_filters,
-                )
-            })
-            .cloned()
-            .collect();
+        // Note: do not clone shard reads into a span-local vec — `all_records` already
+        // holds them; a prior `span_records` field was written and never read (pure Peak-RSS tax).
         self.profile = BandPassActivityProfile::new(
             self.contig.as_str(),
             self.contig_len,

@@ -31,6 +31,17 @@ impl KBestPath {
     }
 }
 
+/// Cap on in-flight k-best frontier paths. Bushy/cyclic local graphs (NA12878
+/// `20:10098169-10098441`) otherwise fill this heap with long `PathState`s and reach
+/// multi-GiB Peak-RSS — the realistic-window failure mode.
+///
+/// Keep well below `haplotype_budget × max_path_edges × 16B` ≈ tens of MiB.
+const MAX_KBEST_HEAP_PATHS: usize = 1_024;
+
+/// Cap on edges in a single in-flight path. Cyclic graphs otherwise let `edges` grow
+/// without bound → GiB-scale PathStates. Assembly regions are hundreds of bp.
+const MAX_KBEST_PATH_EDGES: usize = 256;
+
 #[derive(Debug, Clone)]
 struct PathState {
     start: usize,
@@ -38,16 +49,19 @@ struct PathState {
     last: usize,
     score: f64,
     is_reference: bool,
+    /// Cached `path_bases(..).len()` — avoid rebuilding the haplotype string on every heap push.
+    bases_len: usize,
 }
 
 impl PathState {
-    fn new(start: usize) -> Self {
+    fn new(graph: &AssemblyGraph, start: usize) -> Self {
         Self {
             start,
             edges: Vec::new(),
             last: start,
             score: 0.0,
             is_reference: false,
+            bases_len: graph.nodes()[start].kmer.len(),
         }
     }
 
@@ -58,15 +72,20 @@ impl PathState {
         edge_support: u32,
         total_outgoing: u32,
     ) -> Self {
-        let mut edges = self.edges.clone();
+        // Avoid `Vec::clone` on the hot k-best frontier (OOM amplifier on bushy/cyclic graphs).
+        let mut edges = Vec::with_capacity(self.edges.len() + 1);
+        edges.extend_from_slice(&self.edges);
         edges.push((self.last, to));
         let penalty = log_penalty(edge_support, total_outgoing);
+        // Each edge appends the last base of the destination kmer (`AssemblyGraph::path_bases`).
+        let add = usize::from(graph.nodes()[to].kmer.chars().last().is_some());
         Self {
             start: self.start,
             edges,
             last: to,
             score: self.score + penalty,
             is_reference: self.is_reference && graph.edge_is_ref(self.last, to),
+            bases_len: self.bases_len + add,
         }
     }
 }
@@ -202,15 +221,20 @@ pub fn find_best_haplotypes_preserving_cycles(
     find_best_haplotypes_inner(graph, max_number_of_haplotypes, false)
 }
 
-/// Production assembly: strip cycles only when the graph is acyclic (P12 cyclic regions keep topology).
+/// Production assembly k-best: prefer an acyclic graph. Cyclic graphs previously kept
+/// full topology (P12) and could grow the k-best frontier without bound on bushy
+/// loci (e.g. NA12878 `20:10098169`); try cycle removal first, then fall back to the
+/// capped preserving search.
 pub fn find_best_haplotypes_for_assembly(
     graph: &AssemblyGraph,
     max_number_of_haplotypes: usize,
 ) -> GatkResult<Vec<KBestPath>> {
-    if graph.has_cycle() {
-        find_best_haplotypes_preserving_cycles(graph, max_number_of_haplotypes)
-    } else {
-        find_best_haplotypes(graph, max_number_of_haplotypes)
+    if !graph.has_cycle() {
+        return find_best_haplotypes_inner(graph, max_number_of_haplotypes, false);
+    }
+    match graph_for_kbest(graph.clone()) {
+        Ok(acyclic) => find_best_haplotypes_inner(&acyclic, max_number_of_haplotypes, false),
+        Err(_) => find_best_haplotypes_preserving_cycles(graph, max_number_of_haplotypes),
     }
 }
 
@@ -239,16 +263,20 @@ fn find_best_haplotypes_inner(
     let mut result = Vec::new();
     let mut heap: BinaryHeap<HeapItem> = BinaryHeap::new();
     for &s in &sources {
-        let path = PathState::new(s);
+        let path = PathState::new(&graph, s);
         heap.push(HeapItem {
             score_bits: path.score.to_bits(),
-            tie: 0,
+            tie: path.bases_len,
             path,
         });
     }
     let mut vertex_counts: HashMap<usize, usize> =
         graph.nodes().iter().map(|n| (n.id, 0)).collect();
 
+    // Bound total expansions: at the heap cap, a bushy/cyclic graph otherwise spins
+    // forever in pop/extend/push, fragmenting the allocator into multi-GiB Peak-RSS.
+    const MAX_KBEST_EXPANSIONS: usize = 50_000;
+    let mut expansions = 0usize;
     while !heap.is_empty() && result.len() < max_number_of_haplotypes {
         let item = heap.pop().expect("non-empty");
         let path = item.path;
@@ -259,25 +287,35 @@ fn find_best_haplotypes_inner(
                 score: path.score,
                 is_reference: path.is_reference,
             });
-        } else {
-            let count = vertex_counts.get_mut(&path.last).expect("vertex");
-            if *count < max_number_of_haplotypes {
-                *count += 1;
-                let outs = graph.outgoing_nodes(path.last);
-                let total: u32 = outs
-                    .iter()
-                    .filter_map(|&t| graph.edge_support(path.last, t))
-                    .sum();
-                for to in outs {
-                    if let Some(support) = graph.edge_support(path.last, to) {
-                        let extended = path.extend(&graph, to, support, total);
-                        let tie = graph.path_bases(extended.start, &extended.edges).len();
-                        heap.push(HeapItem {
-                            score_bits: extended.score.to_bits(),
-                            tie,
-                            path: extended,
-                        });
+            continue;
+        }
+        if path.edges.len() >= MAX_KBEST_PATH_EDGES || expansions >= MAX_KBEST_EXPANSIONS {
+            continue;
+        }
+        // If the frontier is already saturated, only accept sinks (above); do not expand.
+        if heap.len() >= MAX_KBEST_HEAP_PATHS {
+            continue;
+        }
+        let count = vertex_counts.get_mut(&path.last).expect("vertex");
+        if *count < max_number_of_haplotypes {
+            *count += 1;
+            expansions += 1;
+            let outs = graph.outgoing_nodes(path.last);
+            let total: u32 = outs
+                .iter()
+                .filter_map(|&t| graph.edge_support(path.last, t))
+                .sum();
+            for to in outs {
+                if let Some(support) = graph.edge_support(path.last, to) {
+                    if heap.len() >= MAX_KBEST_HEAP_PATHS {
+                        break;
                     }
+                    let extended = path.extend(&graph, to, support, total);
+                    heap.push(HeapItem {
+                        score_bits: extended.score.to_bits(),
+                        tie: extended.bases_len,
+                        path: extended,
+                    });
                 }
             }
         }
@@ -330,5 +368,16 @@ mod tests {
         assert!(!paths.is_empty());
         let seqs: HashSet<_> = paths.iter().map(|p| p.bases(&graph)).collect();
         assert!(seqs.contains("ACGTT"));
+    }
+
+    #[test]
+    fn kbest_bounds_are_finite_and_tight() {
+        assert!(MAX_KBEST_HEAP_PATHS <= 4_096);
+        assert!(MAX_KBEST_PATH_EDGES <= 1_024);
+        // Worst-case edge storage alone stays well under 100 MiB.
+        let worst_edge_bytes = MAX_KBEST_HEAP_PATHS
+            .saturating_mul(MAX_KBEST_PATH_EDGES)
+            .saturating_mul(std::mem::size_of::<(usize, usize)>());
+        assert!(worst_edge_bytes < 32 * 1024 * 1024);
     }
 }

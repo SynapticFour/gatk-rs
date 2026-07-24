@@ -1,10 +1,169 @@
 {
-  "id": null,
-  "workflow": null,
-  "generated_utc": null,
-  "commit_sha": null,
+  "id": "cohort-joint-20260724T184447Z",
+  "workflow": "joint-cohort-scale",
+  "generated_utc": "2026-07-24T18:53:16Z",
+  "commit_sha": "b5702baff0294245c58746f724fb3141192e8fbc",
+  "workflow_run_url": null,
   "scope": {
-    "honesty": "No runs published yet."
+    "kind": "cohort_joint_scale",
+    "pipeline": "CombineGVCFs\u2192GenotypeGVCFs",
+    "samples": [
+      "N=2",
+      "N=10",
+      "N=25",
+      "N=50",
+      "N=100"
+    ],
+    "cohort_sizes": [
+      2,
+      10,
+      25,
+      50,
+      100
+    ],
+    "recommended_max_samples": 100,
+    "regions": [
+      "chr1:1-160 (synthetic)"
+    ],
+    "assembly": "synthetic-mini",
+    "truth": "Java GATK 4.4 genotype VCF (paircompare); not GIAB",
+    "eval_engine": "compare_genotype_gvcfs.py",
+    "java_gatk_version": "4.4.0.0",
+    "java_gatk_sha": "2dbc025821bc5f686c423ff332a41e6cef892a77",
+    "java_gatk_docker": "us.gcr.io/broad-gatk/gatk:4.4.0.0",
+    "honesty": "Synthetic cohort scale ladder for joint genotyping \u2014 not genome-wide clinical equivalence. The primary axis is cohort_size.",
+    "scaling": {
+      "rust_combine_wall": {
+        "slope_sec_per_sample": 0.003686810366948935,
+        "intercept_sec": -0.0018867077238901853,
+        "r2": 0.9980263390888144,
+        "loglog_exponent": 0.9140886147079412,
+        "growth": "approx_linear"
+      },
+      "java_combine_wall": {
+        "slope_sec_per_sample": 0.023581601231716705,
+        "intercept_sec": 2.9700481139337946,
+        "r2": 0.8895461940097431,
+        "loglog_exponent": 0.16356310642955577,
+        "growth": "approx_linear"
+      }
+    },
+    "notes": [
+      "gatk-rs CombineGVCFs loads each input gVCF fully into memory (`read_all_records`) and merges at breakpoints \u00d7 covering samples \u2014 there is no GenomicsDBImport path.",
+      "Measured Rust Combine wall-time vs N looks approximately linear on this synthetic 10kb/400-SNP ladder; still untested for WGS \u00d7 large N (Peak-RSS already grows with N \u2014 memory will dominate).",
+      "Recommended / signed for joint Combine\u2192Genotype: **up to N=100 samples** on this synthetic scale gate; above that **untested / not claimed**. Java GATK documents GenomicsDBImport for large cohorts for the same class of reason."
+    ]
   },
-  "metrics": []
+  "metrics": [
+    {
+      "region": "synthetic_chr1_cohort",
+      "engine": "rust",
+      "variant_type": "JOINT",
+      "cohort_size": 2,
+      "wall_sec": 0.01,
+      "peak_rss_kb": 11136,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    {
+      "region": "synthetic_chr1_cohort",
+      "engine": "java",
+      "variant_type": "JOINT",
+      "cohort_size": 2,
+      "wall_sec": 5.88,
+      "peak_rss_kb": 28912,
+      "precision": null,
+      "recall": null,
+      "f1": null
+    },
+    {
+      "region": "synthetic_chr1_cohort",
+      "engine": "rust",
+      "variant_type": "JOINT",
+      "cohort_size": 10,
+      "wall_sec": 0.05,
+      "peak_rss_kb": 16832,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    {
+      "region": "synthetic_chr1_cohort",
+      "engine": "java",
+      "variant_type": "JOINT",
+      "cohort_size": 10,
+      "wall_sec": 6.3,
+      "peak_rss_kb": 29248,
+      "precision": null,
+      "recall": null,
+      "f1": null
+    },
+    {
+      "region": "synthetic_chr1_cohort",
+      "engine": "rust",
+      "variant_type": "JOINT",
+      "cohort_size": 25,
+      "wall_sec": 0.1,
+      "peak_rss_kb": 27568,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    {
+      "region": "synthetic_chr1_cohort",
+      "engine": "java",
+      "variant_type": "JOINT",
+      "cohort_size": 25,
+      "wall_sec": 7.5,
+      "peak_rss_kb": 29056,
+      "precision": null,
+      "recall": null,
+      "f1": null
+    },
+    {
+      "region": "synthetic_chr1_cohort",
+      "engine": "rust",
+      "variant_type": "JOINT",
+      "cohort_size": 50,
+      "wall_sec": 0.22,
+      "peak_rss_kb": 44256,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    {
+      "region": "synthetic_chr1_cohort",
+      "engine": "java",
+      "variant_type": "JOINT",
+      "cohort_size": 50,
+      "wall_sec": 8.58,
+      "peak_rss_kb": 29232,
+      "precision": null,
+      "recall": null,
+      "f1": null
+    },
+    {
+      "region": "synthetic_chr1_cohort",
+      "engine": "rust",
+      "variant_type": "JOINT",
+      "cohort_size": 100,
+      "wall_sec": 0.44,
+      "peak_rss_kb": 78704,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    {
+      "region": "synthetic_chr1_cohort",
+      "engine": "java",
+      "variant_type": "JOINT",
+      "cohort_size": 100,
+      "wall_sec": 9.219999999999999,
+      "peak_rss_kb": 28944,
+      "precision": null,
+      "recall": null,
+      "f1": null
+    }
+  ]
 }

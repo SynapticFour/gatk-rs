@@ -214,9 +214,16 @@ Primary speedup baseline is always Java **`FASTEST_AVAILABLE`**.
 ```bash
 sudo ./scripts/perf/tune_host.sh apply
 PERF_REPEATS=5 PERF_THREADS=1 ./scripts/perf/run_fair_hc_comparison.sh
-# or full suite (fair + optional microbenches):
-./scripts/perf/run_dedicated_benchmark_suite.sh
+# or full suite (fair + Peak-RSS smoke+realistic + optional microbenches):
+PERF_SKIP_MEMORY=0 ./scripts/perf/run_dedicated_benchmark_suite.sh
+# Peak-RSS only (smoke + 2 Mb GIAB-dense window — public memory claims):
+./scripts/perf/capture_host_specs.sh
+HC_MEM_PROFILES=smoke,realistic HC_MEM_THREADS=1 ./scripts/perf/run_hc_memory_profile.sh
 ```
+
+Public “X% less memory” claims must cite the **realistic** profile from
+[`docs/perf/HC_MEMORY_PROFILE.md`](../perf/HC_MEMORY_PROFILE.md) measured on this
+host (never the trivial `chr1:1-32` smoke table).
 
 ---
 
