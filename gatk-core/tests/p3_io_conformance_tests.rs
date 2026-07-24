@@ -129,11 +129,13 @@ fn indexed_region_query_counts_expected_reads() {
     let _ = copy_alignments_with_htslib(&out_bam, &sorted_bam).unwrap();
 
     // Build index via samtools for portability across rust-htslib API changes.
-    let status = std::process::Command::new("samtools")
+    let Ok(status) = std::process::Command::new("samtools")
         .arg("index")
         .arg(&sorted_bam)
         .status()
-        .unwrap();
+    else {
+        return;
+    };
     if !status.success() {
         return;
     }
@@ -200,11 +202,13 @@ fn indexed_region_query_returns_stable_qname_order() {
     let in_sam = fixture("p3_region_reads.sam");
     let out_bam = dir.path().join("region_reads.bam");
     let _ = copy_alignments_with_htslib(&in_sam, &out_bam).unwrap();
-    let status = std::process::Command::new("samtools")
+    let Ok(status) = std::process::Command::new("samtools")
         .arg("index")
         .arg(&out_bam)
         .status()
-        .unwrap();
+    else {
+        return;
+    };
     if !status.success() {
         return;
     }

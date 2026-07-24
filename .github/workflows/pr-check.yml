@@ -152,6 +152,13 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install samtools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends samtools
+          command -v samtools
+
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
