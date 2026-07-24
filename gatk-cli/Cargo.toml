@@ -30,7 +30,7 @@ gatk-common = { path = "../gatk-common" }
 gatk-haplotypecaller = { path = "../gatk-haplotypecaller", features = ["dev-dumps"] }
 
 # External dependencies
-colored = "2.1"
+colored = "3.1"
 console = "0.12"
 
 # Benchmarking dependencies
