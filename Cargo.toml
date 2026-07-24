@@ -50,7 +50,7 @@ serde_json = "1.0"
 
 # Mathematics and statistics
 ndarray = "0.15"
-statrs = "0.16"
+statrs = "0.19"
 num-traits = "0.2"
 
 # Bioinformatics I/O
