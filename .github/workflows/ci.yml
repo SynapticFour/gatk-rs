@@ -3,8 +3,9 @@ name: CI
 on:
   push:
     branches: [ main, develop ]
-  pull_request:
-    branches: [ main, develop ]
+  # pull_request disabled: free-runner queue was starved by CI×OS×toolchain matrix on every PR.
+  # PR gate is `.github/workflows/pr-check.yml` only.
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always

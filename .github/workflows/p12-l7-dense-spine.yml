@@ -4,14 +4,7 @@ on:
   schedule:
     - cron: '0 5 * * 0'  # Weekly Sunday 05:00 UTC (after L6 spine job)
   workflow_dispatch:
-  pull_request:
-    paths:
-      - 'gatk-haplotypecaller/**'
-      - 'gatk-cli/**'
-      - 'scripts/parity/run_hc_full_parity_j6_truth.sh'
-      - 'scripts/parity/run_hc_full_parity_j6_dense_chr21.sh'
-      - 'parity/fixtures/hc-full-parity/j6/**'
-      - '.github/workflows/p12-l7-dense-spine.yml'
+  # pull_request disabled — see pr-check.yml for the PR gate.
 
 env:
   CARGO_TERM_COLOR: always

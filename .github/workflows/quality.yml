@@ -3,8 +3,8 @@ name: Code Quality
 on:
   push:
     branches: [ main, develop ]
-  pull_request:
-    branches: [ main, develop ]
+  # pull_request disabled — see pr-check.yml for the PR gate.
+  workflow_dispatch:
 
 jobs:
   code-quality:

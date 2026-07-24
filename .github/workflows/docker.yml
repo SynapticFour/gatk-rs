@@ -9,14 +9,8 @@ on:
       - 'Cargo.lock'
       - 'Cargo.toml'
       - 'src/**'
-  pull_request:
-    branches: [ main, develop ]
-    paths:
-      - 'Dockerfile'
-      - '.dockerignore'
-      - 'Cargo.lock'
-      - 'Cargo.toml'
-      - 'src/**'
+  # pull_request disabled — see pr-check.yml for the PR gate.
+  workflow_dispatch:
 
 jobs:
   build:
