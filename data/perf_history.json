@@ -1,0 +1,10 @@
+{
+  "meta": {
+    "title": "gatk-rs performance dashboard",
+    "primary_java_baseline": "FASTEST_AVAILABLE",
+    "java_gatk_version": "4.4.0.0",
+    "updated_utc": null,
+    "notes": "Speedups are median(Java FASTEST_AVAILABLE wall) / median(gatk-rs SIMD wall) over ≥5 repeats per cell. Never market against LOGLESS_CACHING alone."
+  },
+  "runs": []
+}

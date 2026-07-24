@@ -1,0 +1,39 @@
+{
+  "meta": {
+    "title": "gatk-rs equivalence dashboard",
+    "java_gatk_version": "4.4.0.0",
+    "java_gatk_sha": "2dbc025821bc5f686c423ff332a41e6cef892a77",
+    "java_gatk_docker": "us.gcr.io/broad-gatk/gatk:4.4.0.0",
+    "updated_utc": "2026-07-24T22:55:33Z",
+    "notes": "Updated automatically by nightly-equivalence / genomewide-validation workflows."
+  },
+  "runs": [
+    {
+      "id": "nightly-2026-07-24T22:55:32Z",
+      "workflow": "nightly-equivalence",
+      "generated_utc": "2026-07-24T22:55:32Z",
+      "commit_sha": "b5702baff0294245c58746f724fb3141192e8fbc",
+      "workflow_run_url": "https://github.com/SynapticFour/gatk-rs/actions/runs/30110958275",
+      "scope": {
+        "kind": "trio_joint_e2e",
+        "pipeline": "HaplotypeCaller (GVCF) \u2192 CombineGVCFs \u2192 GenotypeGVCFs \u2192 VariantFiltration",
+        "samples": [
+          "HG002",
+          "HG003",
+          "HG004"
+        ],
+        "regions": [
+          "chr20"
+        ],
+        "assembly": "hs37d5 (GRCh37)",
+        "truth": "GIAB HG002 NISTv4.2.1 (joint callset scored on HG002)",
+        "eval_engine": "Illumina hap.py (Docker) vs HG002 truth",
+        "java_gatk_version": "4.4.0.0",
+        "java_gatk_sha": "2dbc025821bc5f686c423ff332a41e6cef892a77",
+        "java_gatk_docker": "us.gcr.io/broad-gatk/gatk:4.4.0.0",
+        "honesty": "Nightly trio E2E covers only the listed chromosomes/hard slices (not full WGS). BAMs are region-sliced; metrics are hap.py vs HG002 truth after joint genotyping + SNP hard-filters."
+      },
+      "metrics": []
+    }
+  ]
+}
