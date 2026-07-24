@@ -62,7 +62,7 @@ jobs:
         run: ./scripts/parity/run_hc_full_parity_j6_truth.sh
 
       - name: Upload L6 reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: p12-l6-truth-reports
