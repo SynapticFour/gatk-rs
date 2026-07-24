@@ -156,6 +156,10 @@ mod tests {
             seq,
             &qual,
         );
+        // rust-htslib leaves FLAG_UNMAPPED set on bare records until flags are rewritten.
+        rec.set_flags(0);
+        rec.set_tid(0);
+        rec.set_pos(0);
         rec
     }
 
