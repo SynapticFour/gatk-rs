@@ -132,7 +132,7 @@ jobs:
       run: cargo cyclonedx -o json -f sbom.json
 
     - name: Upload SBOM
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: sbom
         path: sbom.json
@@ -162,7 +162,7 @@ jobs:
       run: cargo llvm-cov --package gatk-core --tests --lcov --output-path coverage/lcov.info
 
     - name: Upload coverage report
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: coverage-report
         path: coverage/

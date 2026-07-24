@@ -57,7 +57,7 @@ jobs:
         run: ./scripts/parity/build_gatk_rs_release.sh
       - name: Run spine j6 gate
         run: ./scripts/parity/run_hc_full_parity_j6_truth.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: p12-l7-spine-reports
@@ -97,7 +97,7 @@ jobs:
         run: ./scripts/parity/build_gatk_rs_release.sh
       - name: Run dense chr20 j6 gate
         run: J6_DENSE=1 ./scripts/parity/run_hc_full_parity_j6_truth.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: p12-l7-dense-chr20-reports
