@@ -36,7 +36,7 @@ parking_lot = "0.12"
 # Memory management
 memmap2 = "0.9"
 crossbeam = "0.8"
-dashmap = "6.2"
+dashmap = "5.5"
 lru = "0.12"
 bytes = "1.5"
 
@@ -49,8 +49,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # Mathematics and statistics
-ndarray = "0.15"
-statrs = "0.19"
+ndarray = "0.17"
+statrs = "0.16"
 num-traits = "0.2"
 
 # Bioinformatics I/O
@@ -59,7 +59,7 @@ rust-htslib = "0.46"
 hts-sys = "=2.1.4"
 
 # Testing
-criterion = { version = "0.8", features = ["html_reports"] }
+criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1.4"
 tempfile = "3.8"
 
