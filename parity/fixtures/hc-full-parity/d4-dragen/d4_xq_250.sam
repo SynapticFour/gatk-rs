@@ -1,0 +1,5 @@
+@HD	VN:1.0	SO:coordinate
+@SQ	SN:chr1	LN:100
+@RG	ID:rg1	SM:s1	PL:ILLUMINA
+r_xq	0	chr1	1	60	10M	ACGTACGTAC	*	XQ:i:250
+r_plain	0	chr1	11	60	10M	ACGTACGTAC	*

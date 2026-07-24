@@ -1,0 +1,8 @@
+@HD	VN:1.6	SO:coordinate	GO:none
+@SQ	SN:chr1	LN:32	M5:11111111111111111111111111111111	AS:testAsm	SP:testSpecies
+@RG	ID:rgA	SM:sampleA	PL:ILLUMINA	LB:libA	PU:puA	DS:descA
+@RG	ID:rgB	SM:sampleB	PL:PACBIO	LB:libB	PU:puB	DS:descB
+@PG	ID:pgA	PN:toolA	VN:1.0	CL:cmdA
+@PG	ID:pgB	PN:toolB	VN:2.0	PP:pgA	CL:cmdB
+@CO	complex-header-fixture
+r_complex	0	chr1	5	60	8M	*	0	0	ACGTACGT	FFFFFFFF	RG:Z:rgA	PG:Z:pgB	NM:i:0

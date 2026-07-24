@@ -1,0 +1,8 @@
+@HD	SO:coordinate	VN:1.6	GO:none
+@SQ	SN:chr2	LN:10
+@SQ	LN:32	SN:chr1
+@RG	ID:rg2	SM:sampleB	PL:PACBIO
+@RG	SM:sampleA	PL:ILLUMINA	ID:rg1
+@CO	header-canonicalization-noise
+@PG	ID:pg1	PN:noise-tool	VN:0.1
+r1	0	chr1	1	60	32M	*	0	0	ACGTACGTACGTACGTACGTACGTACGTACGT	IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII	RG:Z:rg1
