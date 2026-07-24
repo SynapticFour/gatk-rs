@@ -36,8 +36,8 @@ parking_lot = "0.12"
 # Memory management
 memmap2 = "0.9"
 crossbeam = "0.8"
-dashmap = "5.5"
-lru = "0.12"
+dashmap = "6.2"
+lru = "0.18"
 bytes = "1.5"
 
 # Error handling
@@ -49,17 +49,17 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # Mathematics and statistics
-ndarray = "0.15"
-statrs = "0.16"
+ndarray = "0.17"
+statrs = "0.19"
 num-traits = "0.2"
 
 # Bioinformatics I/O
-rust-htslib = "0.46"
+rust-htslib = "0.48"
 # rust-htslib 0.46 casts lengths as u64; hts-sys ≥2.2 uses usize in bindings.
 hts-sys = "=2.1.4"
 
 # Testing
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 proptest = "1.4"
 tempfile = "3.8"
 
