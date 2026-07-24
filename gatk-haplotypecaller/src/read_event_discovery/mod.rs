@@ -16,7 +16,10 @@ pub(crate) use indel_evidence::{
 
 // Sprint J-6: prefer `is_cluster_*` / `compatibility::coupled_indel::*`.
 // `is_p12_*` aliases remain for fixtures/tests — do not add new production call sites.
+pub use crate::java_hc_site_semantics::is_cluster_anchor_snp as is_p12_cluster_anchor_snp;
 pub use crate::java_hc_site_semantics::is_cluster_core_hom_ref_excluded as is_p12_cluster_core_hom_ref_excluded;
+pub use crate::java_hc_site_semantics::is_cluster_coupled_indel as is_p12_cluster_coupled_indel;
+pub use crate::java_hc_site_semantics::is_cluster_ctc_del as is_p12_cluster_ctc_del;
 
 pub const P12_CLUSTER_INTERIOR_BLOCK_START: u64 =
     crate::java_hc_site_semantics::CLUSTER_INTERIOR_BLOCK_START;
