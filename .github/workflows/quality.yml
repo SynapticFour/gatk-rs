@@ -92,9 +92,11 @@ jobs:
         CARGO_BUILD_JOBS: "1"
       run: cargo test -p gatk-cli --test rayon_thread_determinism_test -- --nocapture
 
+  # PR-only: dependency-review-action needs base/head refs (see dependency-review.yml).
   dependency-review:
     name: Dependency Review
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
@@ -129,13 +131,14 @@ jobs:
       run: cargo install cargo-cyclonedx
 
     - name: Generate SBOM
-      run: cargo cyclonedx -o json -f sbom.json
+      # cargo-cyclonedx 0.5.x: -f is format; writes <crate>/sbom.json per member.
+      run: cargo cyclonedx -f json --override-filename sbom
 
     - name: Upload SBOM
       uses: actions/upload-artifact@v7
       with:
         name: sbom
-        path: sbom.json
+        path: '**/sbom.json'
 
   test-coverage:
     name: Test Coverage
