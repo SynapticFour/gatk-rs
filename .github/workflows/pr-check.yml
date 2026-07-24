@@ -65,7 +65,8 @@ jobs:
         run: |
           set -euo pipefail
           bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
-          ./actionlint -color
+          # Config lives under .github/; actionlint only auto-loads ./actionlint.yaml at CWD.
+          ./actionlint -color -config-file .github/actionlint.yaml
 
   docs:
     name: Doc link check
