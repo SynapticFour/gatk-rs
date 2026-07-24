@@ -159,6 +159,24 @@ jobs:
           sudo apt-get install -y --no-install-recommends samtools
           command -v samtools
 
+      - name: Stage indexed BAMs from fixture SAMs
+        run: |
+          set -euo pipefail
+          # parity/build/ is gitignored; integration tests expect samtools-built caches.
+          mkdir -p parity/build/sam-indexed-bam
+          shopt -s nullglob
+          for sam in parity/fixtures/*.sam; do
+            base="$(basename "${sam}" .sam)"
+            out="parity/build/sam-indexed-bam/${base}.bam"
+            if [[ -f "${out}" && "${out}" -nt "${sam}" ]]; then
+              continue
+            fi
+            echo "sam->bam ${base}"
+            samtools view -bS "${sam}" | samtools sort -o "${out}"
+            samtools index "${out}"
+          done
+          ls -la parity/build/sam-indexed-bam | head -40
+
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
