@@ -39,6 +39,18 @@ jobs:
     - name: Update dependencies
       run: cargo update
 
+    - name: Install samtools
+      run: |
+        set -euo pipefail
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends samtools
+
+    - name: Stage indexed BAMs from fixture SAMs
+      run: |
+        set -euo pipefail
+        chmod +x scripts/ci/stage_indexed_fixture_bams.sh
+        ./scripts/ci/stage_indexed_fixture_bams.sh
+
     - name: Check formatting
       run: cargo fmt --all -- --check
 
@@ -47,12 +59,18 @@ jobs:
       run: cargo clippy --workspace
 
     - name: Build
+      env:
+        CARGO_BUILD_JOBS: "2"
       run: cargo build --workspace --verbose
 
     - name: Run tests
+      env:
+        CARGO_BUILD_JOBS: "2"
       run: cargo test --workspace --all-features --verbose
 
     - name: Run canonical gatk-core tests
+      env:
+        CARGO_BUILD_JOBS: "2"
       run: cargo test -p gatk-core --release --tests --all-features
 
   nightly-benchmark:

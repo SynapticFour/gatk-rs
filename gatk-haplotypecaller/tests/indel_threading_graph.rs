@@ -67,10 +67,17 @@ fn paths_source_to_sink(
     out
 }
 
-fn production_inputs() -> (AssemblyRead, Vec<AssemblyRead>) {
+fn production_inputs() -> Option<(AssemblyRead, Vec<AssemblyRead>)> {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let ref_fa = repo.join("parity/fixtures/p5_live_reference_indel.fa");
     let bam = repo.join("parity/build/sam-indexed-bam/p5_live_case_indel.bam");
+    if !bam.is_file() {
+        eprintln!(
+            "skip indel fixture: staged BAM missing at {} (run scripts/ci/stage_indexed_fixture_bams.sh)",
+            bam.display()
+        );
+        return None;
+    }
     let dict = SequenceDictionary::from_fasta_path(&ref_fa).unwrap();
     let specs = parse_intervals_cli_string(&dict, "chrIndel:1-40").unwrap();
     let walk = traverse_assembly_region_walker(
@@ -101,12 +108,14 @@ fn production_inputs() -> (AssemblyRead, Vec<AssemblyRead>) {
         false,
     );
     let reads = records_to_assembly_reads(&finalized);
-    (reference, reads)
+    Some((reference, reads))
 }
 
 #[test]
 fn indel_raw_graph_lists_paths_and_branches() {
-    let (reference, reads) = production_inputs();
+    let Some((reference, reads)) = production_inputs() else {
+        return;
+    };
     let params = AssemblyGraphParams {
         kmer_size: KmerSize::try_new(10).unwrap(),
         min_base_quality: 10,
@@ -233,7 +242,9 @@ fn indel_raw_graph_lists_paths_and_branches() {
 
 #[test]
 fn indel_seq_graph_kbest_includes_insertion() {
-    let (reference, reads) = production_inputs();
+    let Some((reference, reads)) = production_inputs() else {
+        return;
+    };
     let args = ReadThreadingAssemblerArgs::default();
     let params = AssemblyGraphParams {
         kmer_size: KmerSize::try_new(10).unwrap(),
@@ -282,7 +293,9 @@ fn indel_try_assemble_k10_extract_keeps_insertion() {
     use gatk_haplotypecaller::haplotype::Haplotype;
     use gatk_haplotypecaller::read_threading_assembler::extract_haplotypes_from_kbest_paths;
 
-    let (reference, reads) = production_inputs();
+    let Some((reference, reads)) = production_inputs() else {
+        return;
+    };
     let args = ReadThreadingAssemblerArgs::default();
     let params = AssemblyGraphParams {
         kmer_size: KmerSize::try_new(10).unwrap(),
@@ -328,7 +341,9 @@ fn indel_try_assemble_k10_extract_keeps_insertion() {
 
 #[test]
 fn indel_rt_graph_assembler_emits_insertion() {
-    let (reference, reads) = production_inputs();
+    let Some((reference, reads)) = production_inputs() else {
+        return;
+    };
     let args = ReadThreadingAssemblerArgs {
         use_seq_graph: false,
         ..ReadThreadingAssemblerArgs::default()
@@ -348,7 +363,9 @@ fn indel_rt_graph_assembler_emits_insertion() {
 
 #[test]
 fn indel_production_assembler_emits_java_insertion_haplotype() {
-    let (reference, reads) = production_inputs();
+    let Some((reference, reads)) = production_inputs() else {
+        return;
+    };
     let args = ReadThreadingAssemblerArgs::default();
     let result = assemble_from_ref_and_reads(&reference, &reads, &args).unwrap();
     eprintln!(

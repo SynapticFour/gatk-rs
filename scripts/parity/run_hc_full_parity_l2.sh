@@ -529,7 +529,17 @@ cases="${repo_root}/parity/fixtures/hc-full-parity/h1-inactive/cases.tsv"
 if [[ -f "${cases}" ]]; then
   while IFS=$'\t' read -r case_id ref bam interval padding _expected; do
     [[ -z "${case_id}" || "${case_id}" == \#* ]] && continue
+    if [[ ! -f "${repo_root}/${ref}" ]]; then
+      echo "[hc-full-parity-l2] skip h1-inactive/${case_id}: missing ref ${ref}"
+      skipped=$((skipped + 1))
+      continue
+    fi
     bam_resolved="$(resolve_alignment_path_l2 "${repo_root}/${bam}")"
+    if [[ ! -f "${bam_resolved}" ]]; then
+      echo "[hc-full-parity-l2] skip h1-inactive/${case_id}: missing bam ${bam}"
+      skipped=$((skipped + 1))
+      continue
+    fi
     run_l2 h1-inactive "${case_id}" inactive-reference-model \
       "${repo_root}/${ref}" "${bam_resolved}" "${interval}" "${padding}"
   done <"${cases}"
