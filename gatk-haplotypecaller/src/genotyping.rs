@@ -97,7 +97,7 @@ pub fn best_haplotype_index(
 
 /// Simple biallelic diploid prior model for genotype states [0/0, 0/1, 1/1].
 /// # Invariants
-/// `het_prior` and `hom_var_prior` ∈ [0,1] and leave positive mass for hom-ref.
+/// `het_prior` and `hom_var_prior` ∈ \[0,1\] and leave positive mass for hom-ref.
 /// # Ownership
 /// [`Copy`] prior parameters (also nested in [`HcGenotypingConfig`](crate::hc_genotyping_engine::HcGenotypingConfig)).
 /// # Mutation

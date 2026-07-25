@@ -86,7 +86,8 @@ pub struct WalkerShardTraversal {
 
 /// Full walker pass over all shards for the given intervals.
 /// # Invariants
-/// `apply_stats.total_apply` equals the sum of regions across all shards when built via [`traverse_walker`].
+/// `apply_stats.total_apply` equals the sum of regions across all shards when built via
+/// [`traverse_assembly_region_walker`].
 /// Shard order follows reference dictionary among contigs in user intervals.
 /// # Ownership
 /// Owns shard traversals and aggregate apply stats.

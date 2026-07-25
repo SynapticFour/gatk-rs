@@ -65,7 +65,7 @@ impl Default for PairHmmParams {
 
 /// One read × haplotype PairHMM scoring input.
 /// # Invariants
-/// `read_bases.len == read_base_quals.len`; haplotype must be non-empty ([`Self::validate`]).
+/// `read_bases.len == read_base_quals.len`; haplotype must be non-empty (validated before score).
 /// # Ownership
 /// Owns read/haplotype strings and quality vector.
 /// # Mutation

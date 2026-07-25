@@ -11,5 +11,6 @@ pub mod coupled_indel;
 pub mod java_hc_site_semantics;
 
 pub use coupled_indel::{
-    is_coupled_indel_for_genotyping, is_ctc_del_for_genotyping, COUPLED_INDEL_PARTNER_OFFSET,
+    is_coupled_indel_for_genotyping, is_coupled_indel_member, is_ctc_del_for_genotyping,
+    CoupledIndelCluster, COUPLED_INDEL_PARTNER_OFFSET,
 };

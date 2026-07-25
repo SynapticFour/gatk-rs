@@ -1,5 +1,7 @@
 //! Genotype-site orchestration surface (L7-B3).
-//! Input bundle for region genotyping; production calls [`assign_genotype_likelihoods_for_region`] directly.
+//! Input bundle for region genotyping; production calls
+//! [`assign_genotype_likelihoods_for_region`](crate::hc_genotyping_engine::assign_genotype_likelihoods_for_region)
+//! directly.
 
 use crate::event_map::VariationEvent;
 use crate::genome_loc::GenomePosition;

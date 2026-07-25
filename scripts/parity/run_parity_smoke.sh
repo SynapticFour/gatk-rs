@@ -231,6 +231,7 @@ EOF
 EOF
     failed=$((failed + 1))
     checks_json+=("${check_json}")
+    echo "[parity-smoke] FAIL ${label} (exit_code_mismatch java=${java_exit} rust=${rust_exit})" >&2
     continue
   fi
 
@@ -286,8 +287,10 @@ EOF
 
   if [[ "${cmp_exit}" -eq 0 ]]; then
     passed=$((passed + 1))
+    echo "[parity-smoke] ok ${label} (java_exit=${java_exit} rust_exit=${rust_exit})"
   else
     failed=$((failed + 1))
+    echo "[parity-smoke] FAIL ${label} (java_exit=${java_exit} rust_exit=${rust_exit} cmp=${cmp_exit})" >&2
   fi
 
   checks_json+=("${check_json}")
@@ -339,6 +342,7 @@ elif [[ "${pr_java_exit}" -ne 0 || "${pr_rust_exit}" -ne 0 ]]; then
 EOF
   failed=$((failed + 1))
   checks_json+=("${pr_check_json}")
+  echo "[parity-smoke] FAIL ${pr_label} (tool_exit_nonzero java=${pr_java_exit} rust=${pr_rust_exit})" >&2
 else
   set +e
   python3 "${compare_sam_py}" \
@@ -350,8 +354,10 @@ else
   set -e
   if [[ "${pr_cmp_exit}" -eq 0 ]]; then
     passed=$((passed + 1))
+    echo "[parity-smoke] ok ${pr_label}"
   else
     failed=$((failed + 1))
+    echo "[parity-smoke] FAIL ${pr_label} (sam mismatch)" >&2
   fi
   checks_json+=("${pr_check_json}")
 fi
@@ -456,19 +462,38 @@ EOF
     checks_json+=("${check_json}")
     return
   fi
+  if [[ ! -f "${out_file}" ]]; then
+    echo "[parity-smoke] FAIL ${label}-locked-expected (missing ${out_file})" >&2
+    cat > "${check_json}" <<EOF
+{
+  "label": "${label}-locked-expected",
+  "mode": "normalized",
+  "equal": false,
+  "reason": "missing_rust_output",
+  "rust_output": "${out_file}"
+}
+EOF
+    failed=$((failed + 1))
+    checks_json+=("${check_json}")
+    return
+  fi
   set +e
+  # Same extract as the live CountBases differential check — ignore tool banners.
   python3 "${diff_py}" \
     --java "${expected_file}" \
     --rust "${out_file}" \
     --label "${label}-locked-expected" \
     --mode normalized \
+    --extract-regex='(?m)^[ACGTN]\s*:\s*[0-9]+' \
     --json-out "${check_json}"
   local cmp_exit=$?
   set -e
   if [[ "${cmp_exit}" -eq 0 ]]; then
     passed=$((passed + 1))
+    echo "[parity-smoke] ok ${label}-locked-expected"
   else
     failed=$((failed + 1))
+    echo "[parity-smoke] FAIL ${label}-locked-expected" >&2
   fi
   checks_json+=("${check_json}")
 }

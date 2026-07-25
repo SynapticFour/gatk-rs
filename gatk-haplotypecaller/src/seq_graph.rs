@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 /// Sequence-labeled vertex after k-mer graph → sequence graph conversion.
 /// # Invariants
-/// `id` is dense index into owning [`SeqGraph::vertices`].
+/// `id` is dense index into the owning sequence graph vertex list.
 /// `sequence` holds vertex bases (full k-mer at source, suffix byte at non-source joins).
 /// # Ownership
 /// Owns base sequence bytes; graph owns vertex vector.
@@ -26,7 +26,7 @@ pub struct SeqVertex {
 /// # Invariants
 /// `from` / `to` index valid vertices; `is_ref` marks reference-spine edges.
 /// # Ownership
-/// [`Copy`] edge record in [`SeqGraph::edges`].
+/// [`Copy`] edge record in the owning sequence graph edge list.
 /// # Mutation
 /// Support may increase on merge; edges removed during cleanup passes.
 /// # Biological assumptions
