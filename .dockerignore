@@ -1,6 +1,6 @@
 # Rust
 target/
-Cargo.lock
+# Keep Cargo.lock — Dockerfile COPY requires it for reproducible release builds.
 **/*.rs.bk
 .pycache/
 .pytest_cache/
