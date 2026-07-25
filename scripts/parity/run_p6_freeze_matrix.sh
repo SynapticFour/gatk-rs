@@ -27,7 +27,7 @@ run_step "phase6-fp-policy-contract" cargo test -p gatk-haplotypecaller --test p
 run_step "phase6-failure-mode-contracts" cargo test -p gatk-haplotypecaller --test p6_failure_mode_contract_test --locked
 run_step "phase6-determinism-matrix" ./scripts/parity/run_p6_determinism_matrix.sh
 run_step "phase6-mismatch-triage-check" ./scripts/parity/run_p6_mismatch_triage_check.sh
-run_step "phase6-pairhmm-bench-smoke" cargo bench -p gatk-haplotypecaller --bench pairhmm --locked -- --quick
+run_step "phase6-pairhmm-bench-smoke" env CARGO_PROFILE_BENCH_OPT_LEVEL=1 cargo bench -p gatk-haplotypecaller --bench pairhmm --locked -- --quick
 run_step "phase6-equivalence-summary" ./scripts/parity/build_p6_equivalence_summary.py
 
 echo "P6 freeze matrix completed successfully."

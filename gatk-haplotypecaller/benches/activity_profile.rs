@@ -1,10 +1,20 @@
 //! Microbenchmarks for Phase-4 activity profile hot paths (step 59).
 #![allow(clippy::result_large_err)]
 
+use std::time::Duration;
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use gatk_haplotypecaller::{
     ActivityProfileState, BandPassActivityProfile, BandPassActivityProfileParams, PositiveSigma,
 };
+
+fn smoke_criterion() -> Criterion {
+    // Foundation `--quick` still pays Criterion default warm-up; keep wall short after compile.
+    Criterion::default()
+        .warm_up_time(Duration::from_millis(200))
+        .measurement_time(Duration::from_secs(1))
+        .sample_size(10)
+}
 
 fn bench_gaussian_kernel_gatk_defaults(c: &mut Criterion) {
     let params = BandPassActivityProfileParams::gatk_haplotype_caller_defaults();
@@ -39,8 +49,8 @@ fn bench_add_and_pop_ready_regions(c: &mut Criterion) {
 }
 
 criterion_group!(
-    benches,
-    bench_gaussian_kernel_gatk_defaults,
-    bench_add_and_pop_ready_regions
+    name = benches;
+    config = smoke_criterion();
+    targets = bench_gaussian_kernel_gatk_defaults, bench_add_and_pop_ready_regions
 );
 criterion_main!(benches);

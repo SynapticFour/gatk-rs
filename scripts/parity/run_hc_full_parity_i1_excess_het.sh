@@ -13,10 +13,10 @@ mkdir -p "${tmp_dir}"
 cargo_run=(cargo run -p gatk-haplotypecaller --features parity_harness --example hc_full_parity_gate_dump --)
 [[ "${PARITY_RUST_PROFILE:-dev}" == "release" ]] && cargo_run=(cargo run --release -p gatk-haplotypecaller --features parity_harness --example hc_full_parity_gate_dump --)
 
-while IFS=$'\t' read -r case_id het hom expected; do
+while IFS=$'\t' read -r case_id ref_count het_count hom_count expected; do
   [[ -z "${case_id}" || "${case_id}" == \#* ]] && continue
   actual="${tmp_dir}/${case_id}.actual.tsv"
-  "${cargo_run[@]}" excess-het "${het}" "${hom}" >"${actual}" 2>"${tmp_dir}/${case_id}.stderr"
+  "${cargo_run[@]}" excess-het "${ref_count}" "${het_count}" "${hom_count}" >"${actual}" 2>"${tmp_dir}/${case_id}.stderr"
   cmp -s "${repo_root}/${expected}" "${actual}" || {
     echo "[hc-full-parity-i1-excess-het] mismatch case=${case_id}" >&2
     diff -u "${repo_root}/${expected}" "${actual}" >&2 || true

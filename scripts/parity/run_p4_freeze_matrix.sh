@@ -28,6 +28,6 @@ run_step "phase4-activity-region-creation-contract" cargo test -p gatk-haplotype
 run_step "phase4-activity-profile-property-tests" cargo test -p gatk-haplotypecaller --test activity_profile_property_tests --locked
 run_step "phase4-activity-repro-concurrency-contract" cargo test -p gatk-haplotypecaller --test p4_activity_repro_contract_test --locked
 run_step "phase4-hc-assembly-region-interval-diff" ./scripts/parity/run_p4_active_region_interval_diff.sh
-run_step "phase4-activity-profile-bench-smoke" cargo bench -p gatk-haplotypecaller --bench activity_profile --locked -- --quick
+run_step "phase4-activity-profile-bench-smoke" env CARGO_PROFILE_BENCH_OPT_LEVEL=1 cargo bench -p gatk-haplotypecaller --bench activity_profile --locked -- --quick
 
 echo "P4 freeze matrix completed successfully."

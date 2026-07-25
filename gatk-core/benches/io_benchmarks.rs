@@ -90,12 +90,12 @@ fn benchmark_fastq_parsing(c: &mut Criterion) {
         let mut content = String::new();
         for i in 0..size {
             content.push_str(&format!("@read{} Test read {}\n", i, i));
+            // 68bp read; quality line must match sequence length.
             content
                 .push_str("ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG\n");
             content.push_str("+\n");
-            content.push_str(
-                "IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII\n",
-            );
+            content
+                .push_str("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII\n");
         }
 
         let fastq_path = test_data.create_file(format!("test_{}.fastq", size), &content);

@@ -195,9 +195,9 @@
     {
       "id": "phase4-activity-profile-bench-smoke",
       "acceptance_class": "phase4-active-region",
-      "timeout_s": 1200,
-      "command": "cargo bench -p gatk-haplotypecaller --bench activity_profile --locked -- --quick",
-      "description": "Phase 4 Step 59: Criterion quick smoke for Gaussian kernel + add/pop-ready hot path",
+      "timeout_s": 3600,
+      "command": "CARGO_PROFILE_BENCH_OPT_LEVEL=1 cargo bench -p gatk-haplotypecaller --bench activity_profile --locked -- --quick",
+      "description": "Phase 4 Step 59: Criterion quick smoke for Gaussian kernel + add/pop-ready hot path (bench opt-level=1 keeps cold compile under foundation wall)",
       "owner": "haplotypecaller"
     },
     {
@@ -283,9 +283,9 @@
     {
       "id": "phase5-assembly-bench-smoke",
       "acceptance_class": "phase5-assembly",
-      "timeout_s": 1200,
-      "command": "cargo bench -p gatk-haplotypecaller --bench assembly_graph --locked -- --quick",
-      "description": "Phase 5 Step-73: assembly graph benchmark smoke (medium/high depth synthetic corpora)",
+      "timeout_s": 3600,
+      "command": "CARGO_PROFILE_BENCH_OPT_LEVEL=1 cargo bench -p gatk-haplotypecaller --bench assembly_graph --locked -- --quick",
+      "description": "Phase 5 Step-73: assembly graph benchmark smoke (medium/high depth synthetic corpora; bench opt-level=1 for cold compile)",
       "owner": "haplotypecaller"
     },
     {
@@ -331,9 +331,9 @@
     {
       "id": "phase6-pairhmm-bench-smoke",
       "acceptance_class": "phase6-pairhmm",
-      "timeout_s": 1200,
-      "command": "cargo bench -p gatk-haplotypecaller --bench pairhmm --locked -- --quick",
-      "description": "Phase 6 Step-85: PairHMM benchmark smoke for batched/vectorized hot path",
+      "timeout_s": 3600,
+      "command": "CARGO_PROFILE_BENCH_OPT_LEVEL=1 cargo bench -p gatk-haplotypecaller --bench pairhmm --locked -- --quick",
+      "description": "Phase 6 Step-85: PairHMM benchmark smoke for batched/vectorized hot path (bench opt-level=1 for cold compile)",
       "owner": "haplotypecaller"
     },
     {
