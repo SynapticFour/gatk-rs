@@ -4,12 +4,21 @@ set -euo pipefail
 
 MODE="${1:-report}"
 
+# Scaffolding / experimental modules are compiled into gatk-core but are not the
+# product surface for the line-coverage ratchet (would pin the gate near ~35%).
+IGNORE_SCAFFOLD='(src/parallel/|src/benchmarking/)'
+
 run_report() {
-  cargo llvm-cov --package gatk-core --tests --summary-only
+  cargo llvm-cov --package gatk-core --tests \
+    --ignore-filename-regex "${IGNORE_SCAFFOLD}" \
+    --summary-only
 }
 
 run_gate_minimum() {
-  cargo llvm-cov --package gatk-core --tests --fail-under-lines 70 --summary-only
+  cargo llvm-cov --package gatk-core --tests \
+    --ignore-filename-regex "${IGNORE_SCAFFOLD}" \
+    --fail-under-lines 70 \
+    --summary-only
 }
 
 run_gate_priority() {

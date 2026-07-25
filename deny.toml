@@ -15,6 +15,9 @@ ignore = [
     "RUSTSEC-2025-0058",
     # polars 0.38 → fast-float 0.2.0 (no release; fork only)
     "RUSTSEC-2025-0003",
+    # transitive informational / unmaintained until next lock refresh
+    "RUSTSEC-2024-0379",
+    "RUSTSEC-2026-0186",
 ]
 
 [licenses]

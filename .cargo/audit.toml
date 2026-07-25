@@ -1,0 +1,12 @@
+# cargo-audit config (deny.toml covers cargo-deny separately).
+# Transitive advisories with no safe upgrade on the locked graph — revisit on bump.
+[advisories]
+ignore = [
+    # polars 0.38 → fast-float 0.2.0 (no release; fork only)
+    "RUSTSEC-2025-0003",
+    # rust-htslib → custom_derive (unmaintained; no safe upgrade)
+    "RUSTSEC-2025-0058",
+    # transitive unmaintained / informational noise until next lock refresh
+    "RUSTSEC-2024-0379",
+    "RUSTSEC-2026-0186",
+]

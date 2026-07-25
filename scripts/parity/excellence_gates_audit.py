@@ -74,12 +74,18 @@ def rel(path: pathlib.Path) -> str:
 
 
 def strip_test_modules(text: str) -> str:
-    """Remove #[cfg(test)] mod … { … } and trailing #[cfg(test)] fn blocks (best-effort)."""
-    # Drop cfg(test) modules with balanced braces.
+    """Remove #[cfg(test)] mod … { … } (attrs allowed between cfg and mod)."""
+    # Drop cfg(test) modules with balanced braces. Production modules often look like:
+    #   #[cfg(test)]
+    #   #[allow(...)]
+    #   mod tests { ... }
     out = []
     i = 0
     while i < len(text):
-        m = re.search(r"#\[cfg\(test\)\]\s*mod\s+\w+\s*\{", text[i:])
+        m = re.search(
+            r"#\[cfg\(test\)\](?:\s*#\[[^\]]*\]|\s*//[^\n]*)*\s*mod\s+\w+\s*\{",
+            text[i:],
+        )
         if not m:
             out.append(text[i:])
             break
