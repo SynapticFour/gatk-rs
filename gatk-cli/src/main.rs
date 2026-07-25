@@ -17,7 +17,7 @@ use gatk_core::variant_filtration::{
     FilterSpec, VariantFiltrationArgs,
 };
 use gatk_haplotypecaller::{
-    dump_smoothed_activity_tsv, init_worker_threads, passes_hc_read_filters_with_header,
+    dump_smoothed_activity_tsv, init_worker_threads, passes_printreads_parity_filters,
     run_combine_gvcfs, run_genotype_gvcfs, run_haplotype_caller, CombineGvcfsArgs,
     GenotypeGvcfsArgs, ReadFilterParams, ReadHeaderSemantics, DEFAULT_STAND_CALL_CONF,
 };
@@ -283,7 +283,7 @@ enum Tool {
         #[arg(short = 'L', long)]
         interval: Option<String>,
 
-        /// Minimum mapping quality (MQ 255 passes as unknown, matching HC semantics)
+        /// Minimum mapping quality (MQ 255 passes: PrintReads MappingQualityReadFilter, not HC Available)
         #[arg(long, default_value = "20")]
         min_mapping_quality: u8,
 
@@ -693,12 +693,7 @@ gatk-rs is a native Rust binary and does not start a JVM \
                 info!("Starting FilterReads");
                 info!("Input: {}", input);
                 info!("Output: {}", output);
-                let params = ReadFilterParams {
-                    min_mapping_quality,
-                    exclude_duplicates: !include_duplicates,
-                    exclude_secondary: true,
-                    exclude_supplementary: true,
-                };
+                let _ = include_duplicates; // reserved; PrintReads parity always drops duplicates
                 let out_format = if output.to_ascii_lowercase().ends_with(".sam") {
                     bam::Format::Sam
                 } else {
@@ -726,7 +721,7 @@ gatk-rs is a native Rust binary and does not start a JVM \
                     for rec in reader.records() {
                         let rec =
                             rec.map_err(|e| anyhow::anyhow!("Failed reading input record: {e}"))?;
-                        if passes_hc_read_filters_with_header(&rec, &hdr_view, &params) {
+                        if passes_printreads_parity_filters(&rec, &hdr_view, min_mapping_quality) {
                             writer.write(&rec).map_err(|e| {
                                 anyhow::anyhow!("Failed writing output record: {e}")
                             })?;
@@ -745,7 +740,7 @@ gatk-rs is a native Rust binary and does not start a JVM \
                     for rec in reader.records() {
                         let rec =
                             rec.map_err(|e| anyhow::anyhow!("Failed reading input record: {e}"))?;
-                        if passes_hc_read_filters_with_header(&rec, &hdr_view, &params) {
+                        if passes_printreads_parity_filters(&rec, &hdr_view, min_mapping_quality) {
                             writer.write(&rec).map_err(|e| {
                                 anyhow::anyhow!("Failed writing output record: {e}")
                             })?;

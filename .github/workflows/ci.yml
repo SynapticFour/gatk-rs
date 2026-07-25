@@ -86,14 +86,15 @@ jobs:
 
     - name: Run tests
       # Match pr-check.yml: integration tests need `parity_harness` (pub P12 surface).
+      # -j 1: rust-lld bus errors when linking many --all-features test bins in parallel.
       env:
         CARGO_BUILD_JOBS: "1"
-      run: cargo test --workspace --all-features --verbose
+      run: cargo test -j 1 --workspace --all-features --verbose
 
     - name: Run canonical gatk-core tests
       env:
         CARGO_BUILD_JOBS: "1"
-      run: cargo test -p gatk-core --release --tests --all-features
+      run: cargo test -j 1 -p gatk-core --release --tests --all-features
 
     - name: Generate documentation
       run: cargo doc --workspace --no-deps
@@ -150,7 +151,9 @@ jobs:
     # full-package gate-minimum already enforces the ratchet in CI.
 
     - name: Generate LCOV report
-      run: cargo llvm-cov --package gatk-core --tests --lcov --output-path coverage/lcov.info
+      run: |
+        mkdir -p coverage
+        cargo llvm-cov --package gatk-core --tests --lcov --output-path coverage/lcov.info
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v5

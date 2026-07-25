@@ -411,9 +411,9 @@ pub use read_header_semantics::{ReadHeaderSemantics, ResolvedReadHeaderSemantics
 pub use read_model::{
     mapq_passes_minimum, passes_hc_read_filter_set, passes_hc_read_filters,
     passes_hc_read_filters_fields, passes_hc_read_filters_with_header,
-    standard_hc_read_filter_failure_index, HcReadFilterSet, ReadFilterParams, FLAG_DUPLICATE,
-    FLAG_NOT_PRIMARY, FLAG_SEGMENT_UNMAPPED, FLAG_SUPPLEMENTARY, FLAG_VENDOR_QUALITY_FAILED,
-    GATK_HC_DEFAULT_MIN_MAPPING_QUALITY, MAPPING_QUALITY_UNAVAILABLE,
+    passes_printreads_parity_filters, standard_hc_read_filter_failure_index, HcReadFilterSet,
+    ReadFilterParams, FLAG_DUPLICATE, FLAG_NOT_PRIMARY, FLAG_SEGMENT_UNMAPPED, FLAG_SUPPLEMENTARY,
+    FLAG_VENDOR_QUALITY_FAILED, GATK_HC_DEFAULT_MIN_MAPPING_QUALITY, MAPPING_QUALITY_UNAVAILABLE,
     STANDARD_HC_READ_FILTER_JAVA_NAMES,
 };
 pub use read_projection::{

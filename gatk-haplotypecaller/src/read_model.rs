@@ -278,6 +278,40 @@ fn passes_soft_clip_shard_read_filters(
     true
 }
 
+/// CLI `FilterReads` / foundation PrintReads differential harness.
+///
+/// Matches GATK `PrintReads` with Mapped + NotSecondary + NotSupplementary +
+/// MappingQuality(`min_mq`) + NotDuplicate (+ tool-default Wellformed). Unlike
+/// standard HC, does **not** apply `MappingQualityAvailableReadFilter` — MQ=255
+/// passes the min-MQ gate (`255 >= min`).
+pub fn passes_printreads_parity_filters(
+    rec: &bam::Record,
+    header: &bam::HeaderView,
+    min_mq: u8,
+) -> bool {
+    let cigar: Vec<Cigar> = rec.cigar().to_vec();
+    if !wellformed_read_filter(rec, header, &cigar) {
+        return false;
+    }
+    if rec.is_unmapped() {
+        return false;
+    }
+    let flags = rec.flags();
+    if flags & FLAG_NOT_PRIMARY != 0 {
+        return false;
+    }
+    if flags & FLAG_SUPPLEMENTARY != 0 {
+        return false;
+    }
+    if !mapq_passes_minimum(rec.mapq(), min_mq) {
+        return false;
+    }
+    if flags & FLAG_DUPLICATE != 0 {
+        return false;
+    }
+    true
+}
+
 fn cigar_op_is_clip(op: &Cigar) -> bool {
     matches!(op, Cigar::SoftClip(_) | Cigar::HardClip(_) | Cigar::Pad(_))
 }
@@ -406,6 +440,8 @@ mod tests {
     fn mapq_below_min_fails() {
         assert!(!mapq_passes_minimum(19, 20));
         assert!(mapq_passes_minimum(20, 20));
+        // PrintReads MappingQualityReadFilter keeps MQ=255 (unavailable); HC Available rejects it.
+        assert!(mapq_passes_minimum(MAPPING_QUALITY_UNAVAILABLE, 20));
     }
 
     #[test]
