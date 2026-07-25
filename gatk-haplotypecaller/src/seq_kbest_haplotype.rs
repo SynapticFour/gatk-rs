@@ -6,6 +6,10 @@ use gatk_common::{GatkError, GatkResult};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashSet};
 
+/// Same bound as the read-threading k-best finder — see `kbest_haplotype`.
+const MAX_KBEST_HEAP_PATHS: usize = 1_024;
+const MAX_KBEST_PATH_EDGES: usize = 256;
+
 #[derive(Debug, Clone)]
 struct PathState {
     start: usize,
@@ -13,6 +17,8 @@ struct PathState {
     last: usize,
     score: f64,
     is_reference: bool,
+    /// Edge count as a cheap heap tie-break (full bases sort happens at the end).
+    edge_count: usize,
 }
 
 impl PathState {
@@ -23,11 +29,14 @@ impl PathState {
             last: start,
             score: 0.0,
             is_reference: false,
+            edge_count: 0,
         }
     }
 
     fn extend(&self, graph: &SeqGraph, to: usize, edge_support: u32, total_outgoing: u32) -> Self {
-        let mut edges = self.edges.clone();
+        // Same as read-threading k-best: no `Vec::clone` on the frontier path.
+        let mut edges = Vec::with_capacity(self.edges.len() + 1);
+        edges.extend_from_slice(&self.edges);
         edges.push((self.last, to));
         let penalty = log_penalty(edge_support, total_outgoing);
         Self {
@@ -36,6 +45,7 @@ impl PathState {
             last: to,
             score: self.score + penalty,
             is_reference: self.is_reference && graph.edge_is_ref(self.last, to),
+            edge_count: self.edge_count + 1,
         }
     }
 }
@@ -93,6 +103,8 @@ pub fn find_best_haplotypes_seq_graph(
     });
 
     let mut vertex_counts = vec![0usize; graph.node_count()];
+    const MAX_KBEST_EXPANSIONS: usize = 50_000;
+    let mut expansions = 0usize;
 
     while !heap.is_empty() && result.len() < max_number_of_haplotypes {
         let item = heap.pop().expect("non-empty");
@@ -104,8 +116,17 @@ pub fn find_best_haplotypes_seq_graph(
                 score: path.score,
                 is_reference: path.is_reference,
             });
-        } else if vertex_counts[path.last] < max_number_of_haplotypes {
+            continue;
+        }
+        if path.edges.len() >= MAX_KBEST_PATH_EDGES
+            || expansions >= MAX_KBEST_EXPANSIONS
+            || heap.len() >= MAX_KBEST_HEAP_PATHS
+        {
+            continue;
+        }
+        if vertex_counts[path.last] < max_number_of_haplotypes {
             vertex_counts[path.last] += 1;
+            expansions += 1;
             let outs = graph.outgoing_nodes(path.last);
             let total: u32 = outs
                 .iter()
@@ -113,13 +134,13 @@ pub fn find_best_haplotypes_seq_graph(
                 .sum();
             for to in outs {
                 if let Some(support) = graph.edge_support(path.last, to) {
+                    if heap.len() >= MAX_KBEST_HEAP_PATHS {
+                        break;
+                    }
                     let extended = path.extend(graph, to, support, total);
-                    let tie = graph
-                        .path_bases_bytes(extended.start, &extended.edges)
-                        .len();
                     heap.push(HeapItem {
                         score_bits: extended.score.to_bits(),
-                        tie,
+                        tie: extended.edge_count,
                         path: extended,
                     });
                 }

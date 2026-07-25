@@ -72,3 +72,10 @@ Follow-ups
 - `try_genotype_variation_event(&VariationEvent)` end-to-end (removes assign clones)
 - Allele-string interning for read_event_discovery HashMap keys
 - Remaining (b) engine snapshot clones when Arc/Cow fits
+
+
+2026-07-25 clone reduction (interval Arc + k-best frontier)
+----------------------------------------------------------
+- OOM-linked: PathState/junction frontier `edges.clone()` → extend_from_slice
+- gatk-core interval: Arc<str> + borrowed IntervalQuery; wired into lib.rs
+- clone ratchet: 466 → 440

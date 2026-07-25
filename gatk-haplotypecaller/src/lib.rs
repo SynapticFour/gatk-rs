@@ -458,8 +458,8 @@ pub use walker::{
 pub use walker_apply::{call_disposition, AssemblyRegionCallDisposition, WalkerApplyStats};
 pub use walker_traversal::{
     collect_assembly_regions, drain_assembly_regions_for_shard, flatten_assembly_regions,
-    into_assembly_regions, traverse_assembly_region_walker, WalkerShardTraversal, WalkerTraversal,
-    WalkerTraversalConfig,
+    for_each_assembly_region, into_assembly_regions, traverse_assembly_region_walker,
+    WalkerShardTraversal, WalkerTraversal, WalkerTraversalConfig,
 };
 pub use worker_threads::init_worker_threads;
 

@@ -214,10 +214,29 @@ def ingest_genomewide(run_dir: pathlib.Path, pinned: dict[str, str], args: argpa
     }
 
 
+def ingest_cohort_scale(payload: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    """Accept a pre-built dashboard_run.json from run_joint_cohort_scale.sh."""
+    run = dict(payload)
+    run["commit_sha"] = args.commit_sha or run.get("commit_sha") or "unknown"
+    if args.workflow_run_url:
+        run["workflow_run_url"] = args.workflow_run_url
+    run.setdefault("workflow", "joint-cohort-scale")
+    run.setdefault("generated_utc", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    return run
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--source", choices=("nightly", "genomewide"), required=True)
-    ap.add_argument("--json", type=pathlib.Path, help="nightly happy_summary.json")
+    ap.add_argument(
+        "--source",
+        choices=("nightly", "genomewide", "cohort_scale"),
+        required=True,
+    )
+    ap.add_argument(
+        "--json",
+        type=pathlib.Path,
+        help="nightly happy_summary.json OR cohort_scale dashboard_run.json",
+    )
     ap.add_argument("--run-dir", type=pathlib.Path, help="genomewide run directory")
     ap.add_argument(
         "--site-dir",
@@ -242,6 +261,12 @@ def main() -> int:
             return 2
         summary = json.loads(args.json.read_text(encoding="utf-8"))
         run = ingest_nightly(summary, pinned, args)
+    elif args.source == "cohort_scale":
+        if not args.json or not args.json.is_file():
+            print("[parity-site] missing --json dashboard_run.json", file=sys.stderr)
+            return 2
+        payload = json.loads(args.json.read_text(encoding="utf-8"))
+        run = ingest_cohort_scale(payload, args)
     else:
         if not args.run_dir or not args.run_dir.is_dir():
             print("[parity-site] missing --run-dir", file=sys.stderr)
@@ -262,7 +287,10 @@ def main() -> int:
         "java_gatk_sha": pinned.get("GATK_PINNED_SHA", "unknown"),
         "java_gatk_docker": pinned.get("GATK_DOCKER_IMAGE", ""),
         "updated_utc": now,
-        "notes": "Updated automatically by nightly-equivalence / genomewide-validation workflows.",
+        "notes": (
+            "Updated by nightly-equivalence / genomewide-validation / "
+            "joint-cohort-scale gates."
+        ),
     }
 
     history_path.write_text(json.dumps(history, indent=2) + "\n", encoding="utf-8")

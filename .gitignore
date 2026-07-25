@@ -91,6 +91,8 @@ parity/realworld/assets/*.bed
 # Staged GIAB window / NA12878 BAM slices (scripts/parity/realworld/)
 parity/realworld/na12878_giab_window_*/
 parity/realworld/na12878_20k_*/
+# Generated synthetic joint-cohort scale fixtures (scripts/parity/generate_synthetic_cohort_gvcfs.py)
+parity/combine_gvcfs/cohort_scale/
 # GIAB multi-sample truth / runs
 parity/giab/truth/
 parity/giab/stratifications/

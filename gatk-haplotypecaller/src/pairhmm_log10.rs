@@ -226,6 +226,17 @@ pub fn log10_pairhmm_likelihood(
     if rn == 0 {
         return Ok(0.0);
     }
+    // Guard: contig-scale inputs (e.g. full chr20) make DP matrices tens of GiB and OOM the process.
+    // GATK assembly regions are hundreds of bp; anything near contig length is a caller bug.
+    const MAX_PAIRHMM_DIM: usize = 100_000;
+    const MAX_PAIRHMM_CELLS: usize = 50_000_000;
+    let cells = (rn + 1).saturating_mul(hn + 1);
+    if rn > MAX_PAIRHMM_DIM || hn > MAX_PAIRHMM_DIM || cells > MAX_PAIRHMM_CELLS {
+        return Err(GatkError::algorithm(format!(
+            "PairHMM Log10 refused oversized DP (read_len={rn}, hap_len={hn}, cells={cells}); \
+             inputs must be assembly-region scale, not contig scale"
+        )));
+    }
 
     PAIRHMM_SCRATCH.with(|cell| {
         let mut scratch = cell.borrow_mut();

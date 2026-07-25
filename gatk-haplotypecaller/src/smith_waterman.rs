@@ -122,23 +122,23 @@ fn align_internal(
 
     // Skip uppercase copies when inputs are already ASCII-upper (common in HC paths).
     if already_ascii_uppercase(reference) && already_ascii_uppercase(alternate) {
-        return Ok(align_uppercase_ready(
+        return align_uppercase_ready(
             reference,
             alternate,
             parameters,
             overhang_strategy,
             allow_substring_fast_path,
-        ));
+        );
     }
     let reference: Vec<u8> = reference.iter().map(|b| b.to_ascii_uppercase()).collect();
     let alternate: Vec<u8> = alternate.iter().map(|b| b.to_ascii_uppercase()).collect();
-    Ok(align_uppercase_ready(
+    align_uppercase_ready(
         &reference,
         &alternate,
         parameters,
         overhang_strategy,
         allow_substring_fast_path,
-    ))
+    )
 }
 
 fn align_uppercase_ready(
@@ -147,7 +147,24 @@ fn align_uppercase_ready(
     parameters: &SwParameters,
     overhang_strategy: SwOverhangStrategy,
     allow_substring_fast_path: bool,
-) -> SmithWatermanAlignment {
+) -> GatkResult<SmithWatermanAlignment> {
+    // MUST run before `last_index_of`: a contig-length "reference" makes that scan
+    // thrash a 16 GiB laptop for minutes even when the DP matrix is never allocated.
+    // Contig × ~read-length grids are ~60 GiB on hs37d5 chr20 (realistic-window OOM).
+    const MAX_SW_DIM: usize = 100_000;
+    const MAX_SW_CELLS: usize = 50_000_000;
+    let nrow = reference.len() + 1;
+    let ncol = alternate.len() + 1;
+    let cells = nrow.saturating_mul(ncol);
+    if reference.len() > MAX_SW_DIM || alternate.len() > MAX_SW_DIM || cells > MAX_SW_CELLS {
+        return Err(GatkError::algorithm(format!(
+            "Smith-Waterman refused oversized matrix (ref_len={}, alt_len={}, cells={cells}); \
+             inputs must be assembly-region scale, not contig scale",
+            reference.len(),
+            alternate.len()
+        )));
+    }
+
     if allow_substring_fast_path
         && matches!(
             overhang_strategy,
@@ -155,21 +172,19 @@ fn align_uppercase_ready(
         )
     {
         if let Some(match_index) = last_index_of(reference, alternate) {
-            return SmithWatermanAlignment {
+            return Ok(SmithWatermanAlignment {
                 cigar: {
                     let mut c = Cigar::new();
                     c.push(alternate.len(), CigarOperator::Match);
                     c
                 },
                 alignment_offset: match_index as i32,
-            };
+            });
         }
     }
 
-    let nrow = reference.len() + 1;
-    let ncol = alternate.len() + 1;
-    let mut sw = vec![0i32; nrow * ncol];
-    let mut btrack = vec![0i32; nrow * ncol];
+    let mut sw = vec![0i32; cells];
+    let mut btrack = vec![0i32; cells];
     calculate_matrix(
         reference,
         alternate,
@@ -180,7 +195,7 @@ fn align_uppercase_ready(
         overhang_strategy,
         parameters,
     );
-    calculate_cigar(&sw, &btrack, nrow, ncol, overhang_strategy)
+    Ok(calculate_cigar(&sw, &btrack, nrow, ncol, overhang_strategy))
 }
 
 fn calculate_matrix(
@@ -452,5 +467,24 @@ mod tests {
             SwOverhangStrategy::Indel,
         );
         assert!(err.is_err());
+    }
+
+    #[test]
+    fn oversized_matrix_is_refused() {
+        // Contig-scale × read-scale would be tens of GiB; refuse before allocate/scan.
+        let huge = vec![b'A'; 200_000];
+        let short = vec![b'A'; 150];
+        let err = align(
+            &huge,
+            &short,
+            &SwParameters::gatk_haplotype_to_reference(),
+            SwOverhangStrategy::SoftClip,
+        );
+        assert!(err.is_err(), "expected refusal of contig-scale SW");
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("refused oversized") || msg.contains("contig scale"),
+            "unexpected err: {msg}"
+        );
     }
 }

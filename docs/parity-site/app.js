@@ -91,6 +91,18 @@
       ["Java GATK Docker", scope.java_gatk_docker || meta.java_gatk_docker || "—"],
       ["Java GATK SHA", (scope.java_gatk_sha || meta.java_gatk_sha || "—").toString().slice(0, 12)],
       ["Samples", (scope.samples || []).join(", ") || "—"],
+      [
+        "Cohort sizes (N)",
+        (scope.cohort_sizes || []).length
+          ? (scope.cohort_sizes || []).join(", ")
+          : "—",
+      ],
+      [
+        "Recommended max N",
+        scope.recommended_max_samples != null
+          ? String(scope.recommended_max_samples)
+          : "—",
+      ],
       ["Regions / intervals", (scope.regions || []).join(", ") || scope.mode_description || "—"],
       ["Assembly", scope.assembly || "—"],
       ["Truth set", scope.truth || "—"],
@@ -118,7 +130,11 @@
       for (const row of run.metrics || []) {
         if (row.variant_type !== vtype) continue;
         if ((row.engine || "rust") !== engine) continue;
-        const region = row.region || row.sample || "all";
+        // Cohort-scale runs: primary series key is cohort_size (N), not region.
+        const region =
+          row.cohort_size != null
+            ? `N=${row.cohort_size}`
+            : row.region || row.sample || "all";
         if (!byRegion.has(region)) byRegion.set(region, []);
         const val = row[metric];
         if (val === null || val === undefined) continue;
@@ -158,6 +174,11 @@
 
     const ctx = $("chart-trend").getContext("2d");
     if (state.trendChart) state.trendChart.destroy();
+    const yScale = { min: 0, ticks: { color: "#9aabbd" }, grid: { color: "#314050" } };
+    // F1/precision/recall are unit interval; wall/RSS are unbounded.
+    if (metric === "f1" || metric === "precision" || metric === "recall") {
+      yScale.max = 1;
+    }
     state.trendChart = new Chart(ctx, {
       type: "line",
       data: { labels, datasets },
@@ -165,12 +186,7 @@
         responsive: true,
         maintainAspectRatio: false,
         scales: {
-          y: {
-            min: 0,
-            max: 1,
-            ticks: { color: "#9aabbd" },
-            grid: { color: "#314050" },
-          },
+          y: yScale,
           x: {
             ticks: { color: "#9aabbd", maxRotation: 45 },
             grid: { color: "#1a222c" },
@@ -191,15 +207,27 @@
     const labels = [];
     const values = [];
     if (run) {
-      for (const row of run.metrics || []) {
-        if (row.variant_type !== vtype) continue;
-        if ((row.engine || "rust") !== engine) continue;
-        labels.push(row.region || row.sample || "all");
+      const rows = (run.metrics || []).filter(
+        (row) =>
+          row.variant_type === vtype && (row.engine || "rust") === engine
+      );
+      // Sort cohort ladder by N when present.
+      rows.sort((a, b) => (a.cohort_size || 0) - (b.cohort_size || 0));
+      for (const row of rows) {
+        labels.push(
+          row.cohort_size != null
+            ? `N=${row.cohort_size}`
+            : row.region || row.sample || "all"
+        );
         values.push(row[metric]);
       }
     }
     const ctx = $("chart-bars").getContext("2d");
     if (state.barChart) state.barChart.destroy();
+    const yScale = { min: 0, ticks: { color: "#9aabbd" }, grid: { color: "#314050" } };
+    if (metric === "f1" || metric === "precision" || metric === "recall") {
+      yScale.max = 1;
+    }
     state.barChart = new Chart(ctx, {
       type: "bar",
       data: {
@@ -218,12 +246,7 @@
         responsive: true,
         maintainAspectRatio: false,
         scales: {
-          y: {
-            min: 0,
-            max: 1,
-            ticks: { color: "#9aabbd" },
-            grid: { color: "#314050" },
-          },
+          y: yScale,
           x: {
             ticks: { color: "#9aabbd" },
             grid: { display: false },
@@ -243,9 +266,19 @@
       wrap.innerHTML = '<p class="empty">No metrics in latest run.</p>';
       return;
     }
+    const isCohort = (run.scope || {}).kind === "cohort_joint_scale";
     const rows = run.metrics
-      .map(
-        (m) => `<tr>
+      .map((m) =>
+        isCohort
+          ? `<tr>
+        <td>${escapeHtml(m.cohort_size != null ? `N=${m.cohort_size}` : m.region || "—")}</td>
+        <td>${escapeHtml(m.engine || "—")}</td>
+        <td>${escapeHtml(m.variant_type || "—")}</td>
+        <td class="num">${fmt(m.wall_sec)}</td>
+        <td class="num">${fmt(m.peak_rss_kb)}</td>
+        <td class="num">${fmt(m.f1)}</td>
+      </tr>`
+          : `<tr>
         <td>${escapeHtml(m.region || m.sample || "—")}</td>
         <td>${escapeHtml(m.engine || "—")}</td>
         <td>${escapeHtml(m.variant_type || "—")}</td>
@@ -255,7 +288,15 @@
       </tr>`
       )
       .join("");
-    wrap.innerHTML = `<table>
+    wrap.innerHTML = isCohort
+      ? `<table>
+      <thead><tr>
+        <th>Cohort size</th><th>Engine</th><th>Type</th>
+        <th>Wall (s)</th><th>Peak RSS (KiB)</th><th>F1 (vs Java)</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`
+      : `<table>
       <thead><tr>
         <th>Region / sample</th><th>Engine</th><th>Type</th>
         <th>Precision</th><th>Recall</th><th>F1</th>

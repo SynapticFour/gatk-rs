@@ -34,9 +34,9 @@ on:
         required: true
         default: "1"
       skip_memory:
-        description: "Skip optional tiny-fixture Peak-RSS profile"
+        description: "Skip Peak-RSS profiles (smoke + realistic GIAB multi-Mb)"
         required: true
-        default: "true"
+        default: "false"
         type: choice
         options:
           - "true"
@@ -171,7 +171,8 @@ jobs:
         env:
           PERF_REPEATS: ${{ github.event_name == 'workflow_dispatch' && inputs.repeats || '5' }}
           PERF_THREADS: ${{ github.event_name == 'workflow_dispatch' && inputs.threads || '1' }}
-          PERF_SKIP_MEMORY: ${{ (github.event_name == 'workflow_dispatch' && inputs.skip_memory == 'false') && '0' || '1' }}
+          # Default: run memory profiles (smoke + realistic). Schedule uses same default.
+          PERF_SKIP_MEMORY: ${{ (github.event_name == 'workflow_dispatch' && inputs.skip_memory == 'true') && '1' || '0' }}
           PERF_SKIP_PAIRHMM: ${{ (github.event_name == 'workflow_dispatch' && inputs.skip_pairhmm == 'false') && '0' || '1' }}
           PERF_SKIP_ENERGY: ${{ (github.event_name == 'workflow_dispatch' && inputs.skip_energy == 'true') && '1' || '0' }}
           PERF_CPU_LIST: ${{ github.event_name == 'workflow_dispatch' && inputs.cpu_list || '' }}
@@ -275,15 +276,18 @@ jobs:
             docs/perf/DEDICATED_BENCH_LATEST.md \
             docs/perf/FAIR_HC_COMPARISON.md \
             docs/perf/fair_hc_comparison_latest.json \
+            docs/perf/HC_MEMORY_PROFILE.md \
+            docs/perf/hc_memory_profile_latest.json \
             docs/parity-site/data/perf_history.json \
             docs/parity-site/data/perf_latest.json \
             2>/dev/null || true
           # Pointer READMEs under runs (lightweight)
           git add docs/perf/runs/dedicated_*/README.md \
             docs/perf/runs/dedicated_*/FAIR_HC_COMPARISON.md \
+            docs/perf/runs/dedicated_*/HC_MEMORY_PROFILE.md \
             2>/dev/null || true
           if ! git diff --cached --quiet; then
-            git commit -m "docs(perf): fair HC comparison (${GITHUB_SHA::12})"
+            git commit -m "docs(perf): fair HC + memory profile (${GITHUB_SHA::12})"
             git push
           else
             echo "No perf doc changes to commit"

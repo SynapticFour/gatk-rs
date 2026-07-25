@@ -196,6 +196,57 @@ pub fn into_assembly_regions(walk: WalkerTraversal) -> Vec<AssemblyRegion> {
     walk.shards.into_iter().flat_map(|s| s.regions).collect()
 }
 
+/// Stream assembly regions shard-by-shard, invoking `on_region` as each region is finalized.
+///
+/// Unlike [`collect_assembly_regions`] / [`into_assembly_regions`], this does **not** retain
+/// prior regions (and their owned BAM record clones) for the whole interval — peak memory stays
+/// near one shard's `all_records` plus the in-flight region(s) the callback holds.
+pub fn for_each_assembly_region<F>(
+    dictionary: &SequenceDictionary,
+    interval_specs: &[IntervalSpec],
+    reference_fasta: &Path,
+    alignment_path: &Path,
+    read_filters: &ReadFilterParams,
+    cfg: &WalkerTraversalConfig,
+    mut on_region: F,
+) -> GatkResult<()>
+where
+    F: FnMut(usize, AssemblyRegion) -> GatkResult<()>,
+{
+    let read_shards = make_read_shards(dictionary, interval_specs, cfg.assembly_region_padding)?;
+    let mut iterator_cfg = cfg.iterator.clone();
+    iterator_cfg.force_active = cfg.force_active;
+    iterator_cfg.feature_sources = cfg.feature_sources.clone();
+    iterator_cfg.track_pileups = cfg.track_pileups;
+    let mut rng = GatkJavaRng::reset_gatk_default();
+    let mut region_index = 0usize;
+    for shard in &read_shards {
+        let (header, mut records) =
+            crate::assembly_region_iterator::load_records_for_shard_raw(alignment_path, shard)?;
+        apply_shard_read_pipeline(
+            &mut records,
+            Some(&header),
+            read_filters,
+            &cfg.shard_pipeline,
+            &mut rng,
+        )?;
+        let mut iter = AssemblyRegionIterator::try_new(
+            shard,
+            dictionary,
+            reference_fasta,
+            records,
+            header,
+            *read_filters,
+            iterator_cfg.clone(),
+        )?;
+        while let Some(region) = iter.next_region()? {
+            on_region(region_index, region)?;
+            region_index += 1;
+        }
+    }
+    Ok(())
+}
+
 /// Convenience: full walker traversal then flattened region list (B.2 dumps / multi-span fixtures).
 pub fn collect_assembly_regions(
     dictionary: &SequenceDictionary,

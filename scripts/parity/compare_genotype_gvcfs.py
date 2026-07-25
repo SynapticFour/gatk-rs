@@ -30,13 +30,35 @@ def parse_body(path: Path) -> Dict[Tuple[str, int], dict]:
             parts = f[9 + i].split(":")
             fmap = {k: parts[j] if j < len(parts) else "." for j, k in enumerate(fmt)}
             gts[name] = fmap.get("GT")
+        alt_list = [a for a in alt.split(",") if a and a != "."]
         rows[(chrom, pos)] = {
             "ref": ref,
-            "alt": set(a for a in alt.split(",") if a and a != "."),
+            "alt": set(alt_list),
+            "alt_list": alt_list,
             "qual": qual,
             "gt": gts,
         }
     return rows
+
+
+def _allele_called(ref: str, alt_list: List[str], gt: Optional[str]) -> Optional[frozenset]:
+    """Map a GT string to the unordered set of called allele bases (allele-identity)."""
+    if gt is None or gt in (".", "./.", ".|."):
+        return frozenset()
+    sep = "|" if "|" in gt else "/"
+    alleles = [ref] + alt_list
+    out = []
+    for tok in gt.split(sep):
+        if tok in (".", ""):
+            continue
+        try:
+            idx = int(tok)
+        except ValueError:
+            return None
+        if idx < 0 or idx >= len(alleles):
+            return None
+        out.append(alleles[idx])
+    return frozenset(out)
 
 
 def main() -> int:
@@ -66,14 +88,20 @@ def main() -> int:
             mismatches += 1
         common = set(a["gt"]) & set(b["gt"])
         for s in sorted(common):
-            if a["gt"][s] != b["gt"][s]:
-                # Normalize ././. vs .
-                ag = a["gt"][s] or "."
-                bg = b["gt"][s] or "."
-                if ag.replace(".", "") == "" and bg.replace(".", "") == "":
-                    continue
-                print(f"[{args.label}] GT {key} {s}: java={a['gt'][s]} rust={b['gt'][s]}")
-                mismatches += 1
+            ag = a["gt"][s] or "."
+            bg = b["gt"][s] or "."
+            if ag == bg:
+                continue
+            # Normalize ././. vs .
+            if ag.replace(".", "") == "" and bg.replace(".", "") == "":
+                continue
+            # Allele-identity compare: ALT order may differ (Java last→first vs discovery).
+            aa = _allele_called(a["ref"], a["alt_list"], ag)
+            ba = _allele_called(b["ref"], b["alt_list"], bg)
+            if aa is not None and ba is not None and aa == ba:
+                continue
+            print(f"[{args.label}] GT {key} {s}: java={a['gt'][s]} rust={b['gt'][s]}")
+            mismatches += 1
         if a["qual"] is not None and b["qual"] is not None:
             if abs(a["qual"] - b["qual"]) > args.qual_tol:
                 print(

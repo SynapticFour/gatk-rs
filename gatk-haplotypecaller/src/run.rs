@@ -5,6 +5,7 @@
 
 use crate::assembly_region_iterator::AssemblyRegion;
 use crate::engine::{CallRegionArgs, HaplotypeCallerEngine};
+use crate::feature_context::FeatureContext;
 use crate::genotyping::EmitMode;
 use crate::gvcf_writer::gatk_hc_gvcf_header_lines;
 use crate::read_binding::total_read_tile_overlaps;
@@ -14,6 +15,7 @@ use crate::read_model::ReadFilterParams;
 use crate::ref_confidence::{
     reference_confidence_loci_for_active_call_none, ReferenceConfidenceConfig,
 };
+use crate::reference_context::ReferenceContext;
 use crate::reference_vcf_emit::{
     active_region_reference_confidence_loci, emit_mode_from_output_mode,
     inactive_reference_model_to_vcf_records, p12_cluster_rcm_band_fragmented,
@@ -26,9 +28,7 @@ use crate::region_vcf_emit::{
 use crate::runtime_config::RuntimeConfig;
 use crate::walker::GATK_DEFAULT_ASSEMBLY_REGION_PADDING;
 use crate::walker_apply::{call_disposition, AssemblyRegionCallDisposition};
-use crate::walker_traversal::{
-    into_assembly_regions, traverse_assembly_region_walker, WalkerTraversalConfig,
-};
+use crate::walker_traversal::{for_each_assembly_region, WalkerTraversalConfig};
 use gatk_common::{GatkConfig, GatkError, GatkResult, HaplotypeCallerConfig};
 use gatk_core::io::vcf::{Contig, VcfHeader, VcfRecord, VcfWriter};
 use gatk_core::reference::{
@@ -413,56 +413,51 @@ fn assembly_region_variant_records(
     let mut ref_cache = ReferenceWindowCache::new(reference_fasta.to_path_buf(), 4);
     let gvcf_global = emit_mode == EmitMode::Gvcf;
 
-    // GVCF path: keep sequential region processing (interval-wide collector + P12 reconcile).
-    // Non-GVCF: parallelize independent AssemblyRegions, then deterministic merge/sort.
+    // GVCF path: sequential streaming (interval-wide collector + P12 reconcile on shells).
+    // Non-GVCF: stream regions in bounded rayon batches — never retain all region.reads at once.
     if gvcf_global {
         let mut gvcf_collector = GvcfIntervalCollector::new();
+        let mut region_shells: Vec<AssemblyRegion> = Vec::new();
         for bam in input_bams {
             let bam_path = Path::new(bam);
             let header = bam::Reader::from_path(bam_path)
                 .map_err(|e| GatkError::generic(format!("open BAM for inactive ref model: {e}")))?
                 .header()
                 .clone();
-            let walk = traverse_assembly_region_walker(
+            for_each_assembly_region(
                 &dict,
                 interval_specs,
                 reference_fasta,
                 bam_path,
                 read_filters,
                 &cfg,
+                |_idx, mut region| {
+                    process_one_region_gvcf(
+                        &region,
+                        &header,
+                        &dict,
+                        reference_fasta,
+                        &args,
+                        read_filters,
+                        stand_emit_confidence,
+                        emit_mode,
+                        ref_confidence_config,
+                        &mut ref_cache,
+                        &mut gvcf_collector,
+                        &mut records,
+                        &mut seen,
+                        sample_name,
+                    )?;
+                    // Keep span metadata for P12 reconcile; drop owned BAM/ref payloads immediately.
+                    strip_region_payloads(&mut region);
+                    region_shells.push(region);
+                    Ok(())
+                },
             )?;
-            let regions = into_assembly_regions(walk);
-            for region in &regions {
-                process_one_region_gvcf(
-                    region,
-                    &header,
-                    &dict,
-                    reference_fasta,
-                    &args,
-                    read_filters,
-                    stand_emit_confidence,
-                    emit_mode,
-                    ref_confidence_config,
-                    &mut ref_cache,
-                    &mut gvcf_collector,
-                    &mut records,
-                    &mut seen,
-                    sample_name,
-                )?;
-            }
         }
         if let Some(bam) = input_bams.last() {
             let bam_path = Path::new(bam);
-            let walk = traverse_assembly_region_walker(
-                &dict,
-                interval_specs,
-                reference_fasta,
-                bam_path,
-                read_filters,
-                &cfg,
-            )?;
-            let regions = into_assembly_regions(walk);
-            if p12_cluster_rcm_band_fragmented(&regions) {
+            if p12_cluster_rcm_band_fragmented(&region_shells) {
                 reconcile_p12_cluster_rcm_band(
                     &mut gvcf_collector,
                     reference_fasta,
@@ -473,7 +468,7 @@ fn assembly_region_variant_records(
                     ref_confidence_config,
                     &args,
                     stand_emit_confidence,
-                    &regions,
+                    &region_shells,
                 )?;
             }
             reconcile_fragmented_dense_cluster_bands(
@@ -486,7 +481,7 @@ fn assembly_region_variant_records(
                 ref_confidence_config,
                 &args,
                 stand_emit_confidence,
-                &regions,
+                &region_shells,
             )?;
             gvcf_collector.fill_interval_gaps_from_pileup(
                 interval_specs,
@@ -506,53 +501,70 @@ fn assembly_region_variant_records(
         }
     } else {
         // H2-5: each `-I` BAM is traversed independently; variant rows are merged.
+        // Bound in-flight regions to the Rayon pool size so Peak-RSS cannot grow with
+        // interval length × cloned BAM records (the 2 Mb / ~60 GiB failure mode).
         let mut all_batches: Vec<RegionEmitBatch> = Vec::new();
+        let batch_limit = rayon::current_num_threads().max(1);
         for bam in input_bams {
             let bam_path = Path::new(bam);
-            let header = bam::Reader::from_path(bam_path)
-                .map_err(|e| GatkError::generic(format!("open BAM for inactive ref model: {e}")))?
-                .header()
-                .clone();
-            let walk = traverse_assembly_region_walker(
+            let _ = bam::Reader::from_path(bam_path)
+                .map_err(|e| GatkError::generic(format!("open BAM for inactive ref model: {e}")))?;
+            let ref_path = reference_fasta.to_path_buf();
+            let bam_path_owned = bam_path.to_path_buf();
+            let sample = sample_name.to_string();
+            let mut pending: Vec<(usize, AssemblyRegion)> = Vec::with_capacity(batch_limit);
+
+            let mut flush_batch = |pending: &mut Vec<(usize, AssemblyRegion)>,
+                                   all_batches: &mut Vec<RegionEmitBatch>|
+             -> GatkResult<()> {
+                if pending.is_empty() {
+                    return Ok(());
+                }
+                let chunk = std::mem::take(pending);
+                let batches: Vec<RegionEmitBatch> = chunk
+                    .into_par_iter()
+                    .map(|(region_index, region)| {
+                        let reader = bam::Reader::from_path(&bam_path_owned).map_err(|e| {
+                            GatkError::generic(format!("open BAM for region parallel worker: {e}"))
+                        })?;
+                        let header = reader.header().clone();
+                        let mut local_cache = ReferenceWindowCache::new(ref_path.clone(), 4);
+                        process_one_region_vcf(
+                            region_index,
+                            region,
+                            &header,
+                            &dict,
+                            &ref_path,
+                            &args,
+                            *read_filters,
+                            stand_emit_confidence,
+                            emit_mode,
+                            ref_confidence_config,
+                            &mut local_cache,
+                            &sample,
+                        )
+                    })
+                    .collect::<GatkResult<Vec<_>>>()?;
+                all_batches.extend(batches);
+                Ok(())
+            };
+
+            for_each_assembly_region(
                 &dict,
                 interval_specs,
                 reference_fasta,
                 bam_path,
                 read_filters,
                 &cfg,
+                |region_index, region| {
+                    pending.push((region_index, region));
+                    if pending.len() >= batch_limit {
+                        flush_batch(&mut pending, &mut all_batches)?;
+                    }
+                    Ok(())
+                },
             )?;
-            let regions = into_assembly_regions(walk);
-            let _ = header; // discovery already validated BAM; workers re-open for HeaderView (!Send)
-            let ref_path = reference_fasta.to_path_buf();
-            let bam_path_owned = bam_path.to_path_buf();
-            let sample = sample_name.to_string();
-            let batches: Vec<RegionEmitBatch> = regions
-                .into_par_iter()
-                .enumerate()
-                .map(|(region_index, region)| {
-                    // HeaderView is neither Sync nor Send across rayon workers — open per task.
-                    let reader = bam::Reader::from_path(&bam_path_owned).map_err(|e| {
-                        GatkError::generic(format!("open BAM for region parallel worker: {e}"))
-                    })?;
-                    let header = reader.header().clone();
-                    let mut local_cache = ReferenceWindowCache::new(ref_path.clone(), 4);
-                    process_one_region_vcf(
-                        region_index,
-                        region,
-                        &header,
-                        &dict,
-                        &ref_path,
-                        &args,
-                        *read_filters,
-                        stand_emit_confidence,
-                        emit_mode,
-                        ref_confidence_config,
-                        &mut local_cache,
-                        &sample,
-                    )
-                })
-                .collect::<GatkResult<Vec<_>>>()?;
-            all_batches.extend(batches);
+            flush_batch(&mut pending, &mut all_batches)?;
         }
         merge_region_emit_batches(&mut all_batches, &mut records, &mut seen);
     }
@@ -736,6 +748,15 @@ fn process_one_region_gvcf(
         }
     }
     Ok(())
+}
+
+/// Drop heavy per-region payloads after apply; keep span/active flags for P12 reconcile.
+fn strip_region_payloads(region: &mut AssemblyRegion) {
+    region.reads.clear();
+    region.read_qnames.clear();
+    region.pileup_loci.clear();
+    region.reference = ReferenceContext::empty();
+    region.features = FeatureContext::empty();
 }
 
 /// Deterministic merge: sort batches by genomic position / region_index, then global dedup.

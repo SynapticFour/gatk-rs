@@ -76,3 +76,7 @@ required-features = ["parity_harness"]
 [[example]]
 name = "allocation_rss_probe"
 path = "examples/allocation_rss_probe.rs"
+
+[[example]]
+name = "hc_region_size_probe"
+path = "examples/hc_region_size_probe.rs"

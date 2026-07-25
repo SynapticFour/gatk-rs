@@ -84,7 +84,16 @@ impl SequenceDictionary {
         });
     }
 
+    /// Build a sequence dictionary from a FASTA path.
+    ///
+    /// When a samtools `.fai` sits beside the FASTA, contig names/lengths are read from the
+    /// index only — we must **not** mmap/scan multi-gigabase FASTA bodies just for LN values
+    /// (that path previously drove ~2–3 GiB Peak-RSS before any reads were processed).
     pub fn from_fasta_path<P: AsRef<Path>>(path: P) -> GatkResult<Self> {
+        let path = path.as_ref();
+        if let Some(dict) = Self::try_from_fai_beside(path) {
+            return Ok(dict);
+        }
         let mut reader = FastaReader::from_file_buffered(path)?;
         let mut dict = Self::new();
 
@@ -93,6 +102,35 @@ impl SequenceDictionary {
         }
 
         Ok(dict)
+    }
+
+    /// Dictionary from `path.fai` in file order. `None` if the index is missing or unusable.
+    fn try_from_fai_beside(fasta_path: &Path) -> Option<Self> {
+        let mut fai_os = fasta_path.as_os_str().to_owned();
+        fai_os.push(".fai");
+        let text = fs::read_to_string(Path::new(&fai_os)).ok()?;
+        let mut dict = Self::new();
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let mut parts = line.split('\t');
+            let name = parts.next()?.to_string();
+            let length: u64 = parts.next()?.parse().ok()?;
+            let _offset = parts.next()?;
+            let line_bases: u64 = parts.next()?.parse().ok()?;
+            let line_width: u64 = parts.next()?.parse().ok()?;
+            if line_bases == 0 || line_width < line_bases {
+                continue;
+            }
+            dict.add_contig(name, length);
+        }
+        if dict.contig_count() == 0 {
+            None
+        } else {
+            Some(dict)
+        }
     }
 
     pub fn contig_count(&self) -> usize {
@@ -914,6 +952,32 @@ impl ReferenceWindowCache {
             .contig(contig_query)
             .map(|c| c.name.clone())
             .ok_or_else(|| GatkError::argument(format!("Unknown contig: {contig_query}")))?;
+        let contig_len = dictionary.contig(&canon).map(|c| c.length).unwrap_or(0);
+        // Contigs larger than this are fetched window-wise via `.fai` instead of retaining
+        // the whole chromosome in the process-wide Arc map (chr1 alone is ~250 MiB).
+        const WHOLE_CONTIG_CACHE_MAX_BP: u64 = 2_000_000;
+        if contig_len > WHOLE_CONTIG_CACHE_MAX_BP {
+            if let Some(fai) = self.fai.as_ref() {
+                if let Some(entry) = fai.entry_for_query(&canon) {
+                    let key = format!("{canon}:{start_1based}-{end_1based_inclusive}");
+                    if !self.contig_cache.contains_key(&key) {
+                        while self.contig_cache.len() >= self.capacity {
+                            self.contig_cache.pop_first();
+                        }
+                        let bytes = read_interval_via_samtools_fai(
+                            &self.fasta_path,
+                            entry,
+                            start_1based,
+                            end_1based_inclusive,
+                        )?;
+                        self.contig_cache.insert(key.clone(), Arc::new(bytes));
+                    }
+                    #[allow(clippy::expect_used)]
+                    let seq = self.contig_cache.get(&key).expect("window cache");
+                    return Ok(seq.as_slice());
+                }
+            }
+        }
         if !self.contig_cache.contains_key(&canon) {
             while self.contig_cache.len() >= self.capacity {
                 self.contig_cache.pop_first();
@@ -1138,9 +1202,25 @@ mod tests {
         let mut cache = ReferenceWindowCache::new(&fa, 1);
         let _ = cache.get_interval_bytes(&dict, "chr1", 1, 2).unwrap();
         assert_eq!(cache.cached_windows(), 1);
-        // Same contig: no extra cache entry (contig-level cache).
+        // Same contig: no extra cache entry (contig-level cache on small fixtures).
         let _ = cache.get_interval_bytes(&dict, "chr1", 5, 6).unwrap();
         assert_eq!(cache.cached_windows(), 1);
+    }
+
+    #[test]
+    fn dictionary_prefers_fai_without_reading_fasta_body() {
+        let td = tempfile::tempdir().unwrap();
+        let fa = td.path().join("huge.fa");
+        // Header only — a full FASTA body parse cannot recover LN=63025520.
+        std::fs::write(&fa, ">chr20\n").unwrap();
+        std::fs::write(
+            td.path().join("huge.fa.fai"),
+            "chr20\t63025520\t8\t60\t61\n",
+        )
+        .unwrap();
+        let dict = SequenceDictionary::from_fasta_path(&fa).expect("dict from fai");
+        assert_eq!(dict.contig_count(), 1);
+        assert_eq!(dict.contig("chr20").unwrap().length, 63_025_520);
     }
 
     #[test]

@@ -71,6 +71,10 @@ Claims and non-claims for what that path has actually proven:
 [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Structure:
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
+**External pilots:** run the same spine on your own BAMs and compare Java↔Rust
+yourself — [`docs/PILOT_GUIDE.md`](docs/PILOT_GUIDE.md) +
+[`scripts/pilot/compare_callsets.py`](scripts/pilot/compare_callsets.py).
+
 **Architecture decision (read this first for scope):**
 [**ADR 0001 — Scope boundary**](docs/adr/0001-scope-boundary.md)
 (why BQSR, VQSR, Mutect2, gCNV/SV, and Funcotator are intentionally out of
@@ -141,21 +145,34 @@ as **dev-host only** — not interchangeable with the fair suite.
 
 ## Memory profile (Peak-RSS)
 
-Reproducible side-by-side Peak-RSS on the checked-in p4 smoke fixture
-(`parity/fixtures/`, `chr1:1-32`), measured by
+Two labeled Peak-RSS profiles via
 [`scripts/perf/run_hc_memory_profile.sh`](scripts/perf/run_hc_memory_profile.sh)
-against pinned Java GATK **4.4.0.0** with pipeline-realistic `-Xms1g -Xmx4g`:
+vs pinned Java GATK **4.4.0.0** (`-Xms1g -Xmx4g`). Full tables, commands, and
+raw logs: [`docs/perf/HC_MEMORY_PROFILE.md`](docs/perf/HC_MEMORY_PROFILE.md).
 
-| Engine | Peak RSS (run `20260724T051610Z`) |
+### A. Trivial smoke — reproducibility only
+
+Checked-in fixture `parity/fixtures/`, interval `chr1:1-32` (32 bp). Dominated
+by JVM/runtime fixed cost — **not** a public “X% less memory” claim.
+
+| Engine | Peak RSS (run `20260724T181512Z`) |
 |--------|-------------------------------------|
-| gatk-rs (release) | **9.27 MiB (9488 KiB)** |
-| Java GATK 4.4.0.0 | **451.92 MiB (462764 KiB)** |
+| gatk-rs (release) | **9.52 MiB (9744 KiB)** |
+| Java GATK 4.4.0.0 | **437.49 MiB (447988 KiB)** |
 
-Full command lines, versions, raw `time` / VmHWM logs:
-[`docs/perf/HC_MEMORY_PROFILE.md`](docs/perf/HC_MEMORY_PROFILE.md).
-**Scope:** this tiny window is dominated by JVM fixed cost — do **not** treat
-the ratio as a genome-wide “X% less memory” claim without re-measuring on a
-realistic GIAB shard.
+### B. Realistic GIAB-dense window — public-claim basis
+
+Multi-Mb NA12878 window on the known-dense chr20 locus
+(default `20:10000000-12000000`, 2 Mb). **Only this profile** may back a public
+memory claim, and **only** when measured on the dedicated
+`gatk-rs-benchmark` host ([`docs/ci/PERF_BENCHMARK_HOST.md`](docs/ci/PERF_BENCHMARK_HOST.md))
+with [`docs/perf/HOST_SPECS.md`](docs/perf/HOST_SPECS.md) populated.
+
+| Engine | Peak RSS |
+|--------|----------|
+| gatk-rs / Java GATK 4.4 | *Pending dedicated-host run* — see `HC_MEMORY_PROFILE.md` |
+
+Until that host run lands, do **not** advertise a genome-wide memory savings %.
 
 ## Equivalence
 

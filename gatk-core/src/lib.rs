@@ -9,6 +9,7 @@
 // Allow in-crate tests/modules to reference this crate by name.
 extern crate self as gatk_core;
 
+pub mod interval;
 pub mod io;
 pub mod math;
 pub mod memory;

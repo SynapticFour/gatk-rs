@@ -93,7 +93,8 @@ impl JunctionTreeSet {
                 if !node.children().contains_key(&edge) {
                     return None;
                 }
-                let mut path_edges = active.path_edges.clone();
+                let mut path_edges = Vec::with_capacity(active.path_edges.len() + 1);
+                path_edges.extend_from_slice(&active.path_edges);
                 path_edges.push(edge);
                 let child = node.children().get(&edge)?;
                 if child.has_no_evidence() {
@@ -214,7 +215,9 @@ impl JtPath {
         from_jt: bool,
         edge_penalty_override: Option<f64>,
     ) -> Self {
-        let mut edges = self.edges.clone();
+        // Avoid `Vec::clone` on the k-best/junction frontier (OOM amplifier).
+        let mut edges = Vec::with_capacity(self.edges.len() + new_edges.len());
+        edges.extend_from_slice(&self.edges);
         let mut is_reference = self.is_reference;
         let mut penalty = edge_penalty_override.unwrap_or(0.0);
         if edge_penalty_override.is_none() && !new_edges.is_empty() {
