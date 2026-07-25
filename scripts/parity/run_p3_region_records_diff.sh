@@ -15,25 +15,71 @@ source_bam="${tmp_dir}/p3_region_reads.bam"
 samtools view -bS "${source_sam}" > "${source_bam}"
 samtools index "${source_bam}"
 
-extract_java_qnames() {
-  local path="$1"
-  python3 - <<PY
-import pathlib
-out = []
-for ln in pathlib.Path("${path}").read_text(encoding="utf-8", errors="replace").splitlines():
-    if not ln or ln.startswith("@"):
-        continue
-    out.append(ln.split("\t", 1)[0])
-print("\n".join(out))
-PY
-}
+# Write one case result as valid JSON (qnames may contain noise from cargo 2>&1 capture).
+write_check_json() {
+  local out_path="$1"
+  python3 - "$@" <<'PY'
+import json, pathlib, re, sys
 
-extract_rust_qnames() {
-  local path="$1"
-  python3 - <<PY
-import pathlib
-lines = [ln.strip() for ln in pathlib.Path("${path}").read_text(encoding="utf-8", errors="replace").splitlines() if ln.strip()]
-print("\n".join(lines))
+out_path = pathlib.Path(sys.argv[1])
+label = sys.argv[2]
+equal_s = sys.argv[3]  # "true" | "false" | "null"
+region = sys.argv[4]
+java_path = pathlib.Path(sys.argv[5])
+rust_path = pathlib.Path(sys.argv[6])
+reason = sys.argv[7] if len(sys.argv) > 7 else ""
+java_exit = int(sys.argv[8]) if len(sys.argv) > 8 and sys.argv[8] != "" else None
+rust_exit = int(sys.argv[9]) if len(sys.argv) > 9 and sys.argv[9] != "" else None
+
+# SAM QNAME charset; drops cargo/ANSI/log lines mixed into rust stdout via 2>&1.
+_QNAME = re.compile(r"^[!-?A-~]{1,254}$")
+
+def java_qnames(path: pathlib.Path) -> list[str]:
+    out = []
+    if not path.is_file():
+        return out
+    for ln in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not ln or ln.startswith("@"):
+            continue
+        out.append(ln.split("\t", 1)[0])
+    return out
+
+def rust_qnames(path: pathlib.Path) -> list[str]:
+    out = []
+    if not path.is_file():
+        return out
+    for ln in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        s = ln.strip()
+        if not s or not _QNAME.match(s):
+            continue
+        out.append(s)
+    return out
+
+payload = {
+    "label": label,
+    "mode": "phase3-region-records-diff",
+    "region": region,
+    "java_output": str(java_path),
+    "rust_output": str(rust_path),
+}
+if equal_s == "null":
+    payload["equal"] = None
+    payload["skipped"] = True
+    payload["reason"] = reason or "java_gatk_missing"
+elif equal_s == "tool_fail":
+    payload["equal"] = False
+    payload["reason"] = "tool_exit_nonzero"
+    payload["java_exit"] = java_exit
+    payload["rust_exit"] = rust_exit
+else:
+    jq = java_qnames(java_path)
+    rq = rust_qnames(rust_path)
+    payload["equal"] = jq == rq
+    payload["java_qnames"] = jq
+    payload["rust_qnames"] = rq
+
+out_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+print("1" if payload.get("equal") is True else ("skip" if payload.get("skipped") else "0"))
 PY
 }
 
@@ -58,59 +104,22 @@ run_case() {
   set -e
 
   if [[ "${java_exit}" -eq 127 && "${PARITY_ALLOW_MISSING_JAVA:-0}" == "1" ]]; then
-    cat > "${check_json}" <<EOF
-{
-  "label": "${label}",
-  "mode": "phase3-region-records-diff",
-  "equal": null,
-  "skipped": true,
-  "reason": "java_gatk_missing",
-  "java_output": "${java_stdout}",
-  "rust_output": "${rust_stdout}"
-}
-EOF
+    write_check_json "${check_json}" "${label}" "null" "${region}" "${java_stdout}" "${rust_stdout}" "java_gatk_missing" >/dev/null
     skipped=$((skipped + 1))
     checks_json+=("${check_json}")
     return
   fi
 
   if [[ "${java_exit}" -ne 0 || "${rust_exit}" -ne 0 ]]; then
-    cat > "${check_json}" <<EOF
-{
-  "label": "${label}",
-  "mode": "phase3-region-records-diff",
-  "equal": false,
-  "reason": "tool_exit_nonzero",
-  "java_exit": ${java_exit},
-  "rust_exit": ${rust_exit},
-  "java_output": "${java_stdout}",
-  "rust_output": "${rust_stdout}"
-}
-EOF
+    write_check_json "${check_json}" "${label}" "tool_fail" "${region}" "${java_stdout}" "${rust_stdout}" "" "${java_exit}" "${rust_exit}" >/dev/null
     failed=$((failed + 1))
     checks_json+=("${check_json}")
     return
   fi
 
-  java_qnames="$(extract_java_qnames "${java_sam}")"
-  rust_qnames="$(extract_rust_qnames "${rust_stdout}")"
-  equal=false
-  if [[ "${java_qnames}" == "${rust_qnames}" ]]; then
-    equal=true
-  fi
-
-  cat > "${check_json}" <<EOF
-{
-  "label": "${label}",
-  "mode": "phase3-region-records-diff",
-  "equal": ${equal},
-  "region": "${region}",
-  "java_qnames": "$(echo "${java_qnames}" | tr '\n' ',' | sed 's/,$//')",
-  "rust_qnames": "$(echo "${rust_qnames}" | tr '\n' ',' | sed 's/,$//')"
-}
-EOF
-
-  if [[ "${equal}" == "true" ]]; then
+  # Compare PrintReads SAM QNAMEs vs ListReadsInRegion lines (ignore cargo/ANSI noise in 2>&1 capture).
+  result="$(write_check_json "${check_json}" "${label}" "compare" "${region}" "${java_sam}" "${rust_stdout}")"
+  if [[ "${result}" == "1" ]]; then
     passed=$((passed + 1))
   else
     failed=$((failed + 1))
@@ -122,26 +131,18 @@ run_case "p3-region-records-chr1-1-16" "chr1:1-16"
 run_case "p3-region-records-chr1-17-32" "chr1:17-32"
 
 summary_json="${report_dir}/p3-region-records-diff.json"
-{
-  echo "{"
-  echo "  \"passed\": ${passed},"
-  echo "  \"failed\": ${failed},"
-  echo "  \"skipped\": ${skipped},"
-  echo "  \"checks\": ["
-  for i in "${!checks_json[@]}"; do
-    comma=","
-    if [[ "${i}" -eq $((${#checks_json[@]} - 1)) ]]; then
-      comma=""
-    fi
-    python3 - <<PY
-import json, pathlib
-print(json.dumps(json.loads(pathlib.Path("${checks_json[$i]}").read_text()), indent=2))
+python3 - "${passed}" "${failed}" "${skipped}" "${summary_json}" "${checks_json[@]}" <<'PY'
+import json, pathlib, sys
+
+passed, failed, skipped = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
+summary_path = pathlib.Path(sys.argv[4])
+checks = [json.loads(pathlib.Path(p).read_text(encoding="utf-8")) for p in sys.argv[5:]]
+summary_path.write_text(
+    json.dumps({"passed": passed, "failed": failed, "skipped": skipped, "checks": checks}, indent=2)
+    + "\n",
+    encoding="utf-8",
+)
 PY
-    echo "${comma}"
-  done
-  echo "  ]"
-  echo "}"
-} > "${summary_json}"
 
 if [[ "${failed}" -gt 0 ]]; then
   echo "P3 region records differential checks failed: ${failed}"
