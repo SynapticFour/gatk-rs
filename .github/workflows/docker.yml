@@ -6,9 +6,11 @@ on:
     paths:
       - 'Dockerfile'
       - '.dockerignore'
+      - '.github/workflows/docker.yml'
       - 'Cargo.lock'
       - 'Cargo.toml'
       - 'src/**'
+      - 'gatk-*/**'
   # pull_request disabled — see pr-check.yml for the PR gate.
   workflow_dispatch:
 
@@ -65,7 +67,7 @@ jobs:
         docker run --rm -v $(pwd)/test.fa:/test.fa ${{ steps.meta.outputs.tags }} --help || true
 
     - name: Run security scan
-      uses: aquasecurity/trivy-action@0.28.0
+      uses: aquasecurity/trivy-action@v0.36.0
       with:
         image-ref: ${{ steps.meta.outputs.tags }}
         format: 'sarif'
@@ -167,7 +169,7 @@ jobs:
         tags: gatkr/gatk-rs:test
 
     - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@0.28.0
+      uses: aquasecurity/trivy-action@v0.36.0
       with:
         image-ref: 'gatkr/gatk-rs:test'
         format: 'sarif'
