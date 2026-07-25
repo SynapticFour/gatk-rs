@@ -11,6 +11,6 @@ echo "[p6-wave-c] step86 fp policy contracts"
 cargo test -p gatk-haplotypecaller --test p6_fp_policy_contract_test --locked
 
 echo "[p6-wave-c] step85 pairhmm bench smoke"
-cargo bench -p gatk-haplotypecaller --bench pairhmm --locked -- --quick
+CARGO_PROFILE_BENCH_OPT_LEVEL=1 cargo bench -p gatk-haplotypecaller --bench pairhmm --locked -- --quick
 
 echo "[p6-wave-c] passed"

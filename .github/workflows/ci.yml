@@ -412,8 +412,25 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
 
+    - name: Free disk space
+      run: |
+        chmod +x scripts/ci/free_runner_disk.sh
+        ./scripts/ci/free_runner_disk.sh
+
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache Cargo registry
+      uses: actions/cache@v4
+      with:
+        # Registry only — caching target/ exhausts ubuntu-latest disk on this long gate.
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+        key: ${{ runner.os }}-cargo-reg-parity-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-reg-parity-
+          ${{ runner.os }}-cargo-reg-
 
     - name: Load pinned GATK upstream (Phase A P0)
       run: |

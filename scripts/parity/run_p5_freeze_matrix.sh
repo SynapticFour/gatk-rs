@@ -27,7 +27,7 @@ run_step "phase5-assembly-regression-suite" cargo test -p gatk-haplotypecaller -
 run_step "phase5-determinism-matrix" ./scripts/parity/run_p5_determinism_matrix.sh
 run_step "phase5-assembly-stability-contract" ./scripts/parity/run_p5_assembly_stability_contract.sh
 run_step "phase5-mismatch-triage-check" ./scripts/parity/run_p5_mismatch_triage_check.sh
-run_step "phase5-assembly-bench-smoke" cargo bench -p gatk-haplotypecaller --bench assembly_graph --locked -- --quick
+run_step "phase5-assembly-bench-smoke" env CARGO_PROFILE_BENCH_OPT_LEVEL=1 cargo bench -p gatk-haplotypecaller --bench assembly_graph --locked -- --quick
 run_step "phase5-equivalence-summary" ./scripts/parity/build_p5_equivalence_summary.py
 
 echo "P5 freeze matrix completed successfully."
