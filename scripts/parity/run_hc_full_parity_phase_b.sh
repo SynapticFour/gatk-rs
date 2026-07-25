@@ -11,8 +11,9 @@ if [[ "${PARITY_SKIP_HC_FULL_PHASE_B:-0}" == "1" ]]; then
   exit 0
 fi
 
-echo "[hc-full-parity-phase-b] cargo test -p gatk-haplotypecaller (skip unrelated Phase E assembler unit test)"
-cargo test -p gatk-haplotypecaller -- --skip p5_case1_assembler_emits_reference_haplotype --skip pairhmm_likelihood_vector_matches_frozen_java_dump_fixture
+echo "[hc-full-parity-phase-b] cargo test -p gatk-haplotypecaller --features parity_harness (skip unrelated Phase E assembler unit test)"
+# Integration tests (e.g. p12_java_site_trace) need the pub P12 / discovery surface.
+cargo test -p gatk-haplotypecaller --features parity_harness -- --skip p5_case1_assembler_emits_reference_haplotype --skip pairhmm_likelihood_vector_matches_frozen_java_dump_fixture
 
 for gate in \
   run_hc_full_parity_b1_read_shards.sh \

@@ -79,7 +79,7 @@ impl JavaOptions {
 /// Spark options configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SparkOptions {
-    /// Master URL (e.g., "local[*]", "yarn")
+    /// Master URL (e.g., "local\[*\]", "yarn")
     pub master: Option<String>,
     /// Application name
     pub app_name: Option<String>,

@@ -1,7 +1,7 @@
 //! Optional structured semantic checkpoints for HaplotypeCaller (observe-only).
 //! Enable with `GATK_RS_SEMANTIC_TRACE=<ndjson-path>`. When unset, every emit helper
 //! is a single atomic load and returns immediately — no algorithm branching.
-//! Schema: `gatk_rs.hc.semantic_trace/v1` (see [`schema`]).
+//! Schema id: `gatk_rs.hc.semantic_trace/v1`.
 //! Compare Java vs Rust with `scripts/parity/compare_semantic_trace.py`.
 
 mod schema;

@@ -677,9 +677,11 @@ pub fn graph_only_read_snp_has_java_sparse_support(
 
 /// Read support for strict Java **genotyping** (PairHMM fallback / GL rescue): Java sparse ≥2 alt.
 /// Contig-2 / P12-scoped: keeps the historical alt≥ref bias used to lock the sparse spine.
-/// **L13-D2:** coupled/CTC recognition uses [`is_coupled_indel_for_genotyping`]
-/// [`is_ctc_del_for_genotyping`] with `region_events` (phenotype when partners present;
-/// absolute W-H1 oracle only when the slice is empty).
+/// **L13-D2:** coupled/CTC recognition uses
+/// [`is_coupled_indel_for_genotyping`](crate::compatibility::is_coupled_indel_for_genotyping) /
+/// [`is_ctc_del_for_genotyping`](crate::compatibility::is_ctc_del_for_genotyping) with
+/// `region_events` (phenotype when partners present; absolute W-H1 oracle only when the slice
+/// is empty).
 pub fn strict_graph_only_genotype_read_support(
     event: &VariationEvent,
     read_ref_ad: i32,

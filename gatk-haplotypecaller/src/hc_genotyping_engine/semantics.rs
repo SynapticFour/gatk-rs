@@ -1,13 +1,14 @@
 //! Genotyping semantics — Sprint **K-2** single source of mode truth.
 //! Maps onto [`crate::engine::CallRegionMode`] for the production pipeline. Prefer
-//! [`GenotypingSemantics`] / [`HcGenotypingConfig::is_java_compatible`] over raw booleans.
+//! [`GenotypingSemantics`] / [`HcGenotypingConfig::is_java_compatible`](crate::hc_genotyping_engine::HcGenotypingConfig::is_java_compatible)
+//! over raw booleans.
 
 /// How genotyping/emit should behave relative to GATK 4.4 Java HC.
 /// # Invariants
 /// [`Self::JavaCompatible`] is the only production mode on release builds.
 /// Maps 1:1 from [`crate::engine::CallRegionMode`] for pipeline mode selection.
 /// # Ownership
-/// [`Copy`] enum stored on [`HcGenotypingConfig`].
+/// [`Copy`] enum stored on [`HcGenotypingConfig`](crate::hc_genotyping_engine::HcGenotypingConfig).
 /// # Mutation
 /// Selected at engine construction; not changed mid-region in production.
 /// # Biological assumptions

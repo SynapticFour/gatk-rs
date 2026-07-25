@@ -9,7 +9,7 @@ use std::io::Write;
 
 /// Per-sample genotype row in H-D02 reference-confidence merge parity dumps.
 /// # Invariants
-/// Mirrors [`MergeGenotypeOut`] plus optional GQ for dump completeness.
+/// Mirrors [`MergeGenotypeOut`](crate::ref_confidence_merger::MergeGenotypeOut) plus optional GQ for dump completeness.
 /// # Ownership
 /// Owns name and optional PL/AD/GQ vectors for TSV serialization.
 /// # Mutation

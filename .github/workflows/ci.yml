@@ -81,18 +81,18 @@ jobs:
     - name: Build
       env:
         # Parallel linking of many --all-features test bins OOMs/bus-errors GH runners.
-        CARGO_BUILD_JOBS: "2"
+        CARGO_BUILD_JOBS: "1"
       run: cargo build --workspace --verbose
 
     - name: Run tests
       # Match pr-check.yml: integration tests need `parity_harness` (pub P12 surface).
       env:
-        CARGO_BUILD_JOBS: "2"
+        CARGO_BUILD_JOBS: "1"
       run: cargo test --workspace --all-features --verbose
 
     - name: Run canonical gatk-core tests
       env:
-        CARGO_BUILD_JOBS: "2"
+        CARGO_BUILD_JOBS: "1"
       run: cargo test -p gatk-core --release --tests --all-features
 
     - name: Generate documentation
@@ -411,6 +411,7 @@ jobs:
       run: ./scripts/parity/run_foundation_gate.sh
 
     - name: Upload parity report artifact
+      if: always()
       uses: actions/upload-artifact@v7
       with:
         name: parity-smoke-report

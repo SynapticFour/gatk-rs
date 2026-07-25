@@ -60,17 +60,17 @@ jobs:
 
     - name: Build
       env:
-        CARGO_BUILD_JOBS: "2"
+        CARGO_BUILD_JOBS: "1"
       run: cargo build --workspace --verbose
 
     - name: Run tests
       env:
-        CARGO_BUILD_JOBS: "2"
+        CARGO_BUILD_JOBS: "1"
       run: cargo test --workspace --all-features --verbose
 
     - name: Run canonical gatk-core tests
       env:
-        CARGO_BUILD_JOBS: "2"
+        CARGO_BUILD_JOBS: "1"
       run: cargo test -p gatk-core --release --tests --all-features
 
   nightly-benchmark:
