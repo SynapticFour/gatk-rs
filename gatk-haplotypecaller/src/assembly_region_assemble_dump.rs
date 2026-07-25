@@ -110,10 +110,11 @@ pub fn dump_assembly_region_haplotypes_tsv(
         &assemble_args,
     )?;
     // Java `emitAssemblyRegionHaplotypesFromMaterial`: `isVariationPresent` is still false
-    // after `runLocalAssembly` (SeqGraph `findBestPaths` uses `add(h)` only). Kmer metadata is 0.
+    // after `runLocalAssembly` (SeqGraph `findBestPaths` uses `add(h)` only — scores stay 0).
+    // Kmer metadata is 0. Match frozen java_dumps/e2e/*.tsv (scores always 0).
     write_region_meta(out, region, "just_assembled_reference", 0)?;
     let ref_bases = reference.bases.as_bytes();
-    let haplotypes = if assembly_set.haplotypes.len() == 1
+    let mut haplotypes = if assembly_set.haplotypes.len() == 1
         && assembly_set.haplotypes[0].is_reference
         && assembly_set.haplotypes[0].bases.as_slice() != ref_bases
     {
@@ -124,6 +125,9 @@ pub fn dump_assembly_region_haplotypes_tsv(
     } else {
         assembly_set.haplotypes
     };
+    for h in &mut haplotypes {
+        h.score = 0.0;
+    }
     write_haplotype_rows_with_ref_recovery(&haplotypes, ref_bases, &reference.bases, out)
 }
 

@@ -193,14 +193,18 @@ read1	0	chr1	100	60	100M	*	0	0	ACGTACGTACGTACGT	IIIIIIIIIIIIIIII	NM:i:1	MD:Z:100
 }
 
 fn benchmark_bam_parsing(c: &mut Criterion) {
-    // Hand-rolled "BAM\x01" blobs are not valid BGZF BAM — they UnexpectedEof in BamReader.
-    // Bench a real fixture when present (parity/fixtures or package test_data).
+    // `BamReader` is a pure-Rust uncompressed-BAM parser (`BAM\x01` magic). Tracked
+    // `parity/fixtures/sample.bam` is BGZF — samtools can read it, BamReader cannot.
+    // Skip unless we have an uncompressed BAM the reader can open.
     let candidates = [
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../parity/fixtures/sample.bam"),
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/tests/test_data/sample.bam"),
     ];
-    let Some(bam_path) = candidates.into_iter().find(|p| p.is_file()) else {
-        eprintln!("benchmark_bam_parsing: skip (no sample.bam fixture)");
+    let Some(bam_path) = candidates
+        .into_iter()
+        .find(|p| p.is_file() && BamReader::from_file(p).is_ok())
+    else {
+        eprintln!("benchmark_bam_parsing: skip (no uncompressed BAM fixture for BamReader)");
         return;
     };
 
