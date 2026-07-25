@@ -73,7 +73,7 @@ USER gatkrs
 # Add metadata
 LABEL org.opencontainers.image.title="GATK-RS"
 LABEL org.opencontainers.image.description="A native Rust implementation of the Genome Analysis Toolkit (GATK)"
-LABEL org.opencontainers.image.source="https://github.com/gatk-rs/gatk-rs"
+LABEL org.opencontainers.image.source="https://github.com/SynapticFour/gatk-rs"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.version="0.1.0"
 

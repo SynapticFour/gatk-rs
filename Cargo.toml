@@ -14,8 +14,8 @@ version = "0.1.0"
 edition = "2021"
 authors = ["GATK-RS Contributors"]
 license = "Apache-2.0"
-homepage = "https://github.com/gatk-rs/gatk-rs"
-repository = "https://github.com/gatk-rs/gatk-rs"
+homepage = "https://github.com/SynapticFour/gatk-rs"
+repository = "https://github.com/SynapticFour/gatk-rs"
 description = "A native Rust implementation of the Genome Analysis Toolkit (GATK)"
 rust-version = "1.75"
 
