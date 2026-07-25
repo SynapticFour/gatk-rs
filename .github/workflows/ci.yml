@@ -10,6 +10,11 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # Match pr-check.yml: huge HC test bins + full debuginfo fill ubuntu-latest and
+  # rust-lld dies with signal 7 (bus error). Shrink debuginfo globally for this workflow.
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  CARGO_BUILD_JOBS: "1"
 
 jobs:
   test:
@@ -34,13 +39,34 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
 
+    - name: Free disk space (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        chmod +x scripts/ci/free_runner_disk.sh
+        ./scripts/ci/free_runner_disk.sh
+
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: ${{ matrix.rust }}
         components: rustfmt, clippy
 
-    - name: Cache dependencies
+    - name: Cache Cargo registry (Linux — no target/)
+      if: runner.os == 'Linux'
+      uses: actions/cache@v4
+      with:
+        # Restoring a fat target/ plus rebuilding tests exhausts ubuntu-latest disk
+        # (pr-check uses cache-targets: false for the same reason).
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+        key: ${{ runner.os }}-cargo-reg-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-reg-${{ matrix.rust }}-
+          ${{ runner.os }}-cargo-reg-
+
+    - name: Cache Cargo (macOS/Windows — include target/)
+      if: runner.os != 'Linux'
       uses: actions/cache@v4
       with:
         path: |
@@ -79,21 +105,13 @@ jobs:
       run: cargo clippy --workspace
 
     - name: Build
-      env:
-        # Parallel linking of many --all-features test bins OOMs/bus-errors GH runners.
-        CARGO_BUILD_JOBS: "1"
       run: cargo build --workspace --verbose
 
     - name: Run tests
       # Match pr-check.yml: integration tests need `parity_harness` (pub P12 surface).
-      # -j 1: rust-lld bus errors when linking many --all-features test bins in parallel.
-      env:
-        CARGO_BUILD_JOBS: "1"
       run: cargo test -j 1 --workspace --all-features --verbose
 
     - name: Run canonical gatk-core tests
-      env:
-        CARGO_BUILD_JOBS: "1"
       run: cargo test -j 1 -p gatk-core --release --tests --all-features
 
     - name: Generate documentation
@@ -338,6 +356,11 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
 
+    - name: Free disk space
+      run: |
+        chmod +x scripts/ci/free_runner_disk.sh
+        ./scripts/ci/free_runner_disk.sh
+
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
 
@@ -362,6 +385,9 @@ jobs:
         PARITY_HC_FULL_L2_STRICT: "1"
         PARITY_REQUIRE_SAMTOOLS: "1"
         PARITY_RUST_PROFILE: release
+        CARGO_PROFILE_DEV_DEBUG: "0"
+        CARGO_PROFILE_TEST_DEBUG: "0"
+        CARGO_BUILD_JOBS: "1"
       run: ./scripts/parity/run_hc_full_parity_ci1.sh
 
     - name: L3 real-world parity (strict, bundled golden)
