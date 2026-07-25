@@ -53,12 +53,13 @@ disappointment — that's the actual experiment working. Open an issue.
 
 ### Live equivalence dashboard
 
-**[Equivalence dashboard (GitHub Pages)](https://gatk-rs.github.io/gatk-rs/)**
+**[Equivalence dashboard (GitHub Pages)](https://synapticfour.github.io/gatk-rs/)**
 (source: [`docs/parity-site/`](docs/parity-site/)) — Chart.js view of hap.py
 F1 / precision / recall **once** `nightly-equivalence` /
-`genomewide-validation` have published a run. Until then
-`data/history.json` is empty by design: **no F1 numbers are advertised here**.
-Scope (regions, samples, Java GATK 4.4 pin) is always shown with the metrics.
+`genomewide-validation` have published a run with non-empty metrics.
+Until then the UI shows “No published runs yet” — **no F1 numbers are
+advertised here**. Scope (regions, samples, Java GATK 4.4 pin) is always
+shown with the metrics.
 
 ## Validated Scope
 

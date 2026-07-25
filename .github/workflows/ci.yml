@@ -61,10 +61,11 @@ jobs:
       run: cargo build --workspace --verbose
 
     - name: Run tests
-      run: cargo test --workspace --verbose
+      # Match pr-check.yml: integration tests need `parity_harness` (pub P12 surface).
+      run: cargo test --workspace --all-features --verbose
 
     - name: Run canonical gatk-core tests
-      run: cargo test -p gatk-core --release --tests
+      run: cargo test -p gatk-core --release --tests --all-features
 
     - name: Generate documentation
       run: cargo doc --workspace --no-deps
@@ -255,9 +256,9 @@ jobs:
 
     - name: L4 fixture contracts
       run: |
-        cargo test -p gatk-haplotypecaller --test p12_format_parity_test p12_java_format_fixture_contract --release
-        cargo test -p gatk-haplotypecaller --test p12_format_parity_test p12_cluster_format_fixture --release
-        cargo test -p gatk-haplotypecaller --test p12_java_format_fixup_test --release
+        cargo test -p gatk-haplotypecaller --features parity_harness --test p12_format_parity_test p12_java_format_fixture_contract --release
+        cargo test -p gatk-haplotypecaller --features parity_harness --test p12_format_parity_test p12_cluster_format_fixture --release
+        cargo test -p gatk-haplotypecaller --features parity_harness --test p12_java_format_fixup_test --release
 
   hc-full-parity-l5-fixtures:
     name: HC L5.0 + h1-inactive (fast)
@@ -446,4 +447,4 @@ jobs:
       run: cargo build --workspace --target ${{ matrix.target }}
 
     - name: Test for target
-      run: cargo test --workspace --target ${{ matrix.target }} --lib
+      run: cargo test --workspace --all-features --target ${{ matrix.target }} --lib
