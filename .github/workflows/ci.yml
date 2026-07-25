@@ -146,10 +146,8 @@ jobs:
     - name: Phase B coverage minimum gate
       run: ./scripts/coverage.sh gate-minimum
 
-    - name: Phase C prioritized module gate
-      # Opt-in signal only — full-package gate-minimum already enforces the ratchet.
-      if: false
-      run: ./scripts/coverage.sh gate-priority
+    # Phase C (gate-priority) is opt-in locally via ./scripts/coverage.sh gate-priority;
+    # full-package gate-minimum already enforces the ratchet in CI.
 
     - name: Generate LCOV report
       run: cargo llvm-cov --package gatk-core --tests --lcov --output-path coverage/lcov.info
