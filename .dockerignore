@@ -1,68 +1,50 @@
-# Rust
+# Rust build artifacts
 target/
-# Keep Cargo.lock — Dockerfile COPY requires it for reproducible release builds.
 **/*.rs.bk
 .pycache/
 .pytest_cache/
 
-# Documentation
+# Keep Cargo.lock — required for reproducible release builds.
+
+# Docs / site (not needed for the CLI image)
 docs/
 *.md
 !README.md
 
-# Git
+# VCS
 .git/
 .gitignore
 .gitattributes
 
-# CI/CD
+# CI / IDE / OS
 .github/
 .travis.yml
 .circleci/
-
-# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-
-# OS
 .DS_Store
 Thumbs.db
 
-# Logs
+# Logs / temp
 *.log
-
-# Test data
-test-data/
-tests/
-*.test
-*.vcf
-*.bam
-*.fa
-*.fq
-
-# Temporary files
 tmp/
 temp/
 *.tmp
-
-# Backup files
 *.bak
 *.backup
-
-# Environment
 .env
 .env.local
 .env.*.local
 
-# Docker
-Dockerfile*
-docker-compose*
-.dockerignore
-
-# Other
+# Large / non-runtime fixtures (CLI image does not ship test data)
+parity/build/
+parity/reports/
+parity/fixtures/**/*.bam
+parity/fixtures/**/*.cram
+test-data/
+*.test
 *.orig
 *.rej
-~*
