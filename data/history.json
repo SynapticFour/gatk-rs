@@ -4,16 +4,462 @@
     "java_gatk_version": "4.4.0.0",
     "java_gatk_sha": "2dbc025821bc5f686c423ff332a41e6cef892a77",
     "java_gatk_docker": "us.gcr.io/broad-gatk/gatk:4.4.0.0",
-    "updated_utc": "2026-07-24T22:55:33Z",
-    "notes": "Updated automatically by nightly-equivalence / genomewide-validation workflows."
+    "updated_utc": "2026-07-25T11:53:03Z",
+    "notes": "Updated by nightly-equivalence / genomewide-validation / joint-cohort-scale gates."
   },
   "runs": [
     {
-      "id": "nightly-2026-07-24T22:55:32Z",
-      "workflow": "nightly-equivalence",
-      "generated_utc": "2026-07-24T22:55:32Z",
+      "id": "cohort-joint-20260724T183432Z",
+      "workflow": "joint-cohort-scale",
+      "generated_utc": "2026-07-24T18:38:58Z",
       "commit_sha": "b5702baff0294245c58746f724fb3141192e8fbc",
-      "workflow_run_url": "https://github.com/SynapticFour/gatk-rs/actions/runs/30110958275",
+      "workflow_run_url": null,
+      "scope": {
+        "kind": "cohort_joint_scale",
+        "pipeline": "CombineGVCFs\u2192GenotypeGVCFs",
+        "samples": [
+          "N=2",
+          "N=10",
+          "N=25",
+          "N=50"
+        ],
+        "cohort_sizes": [
+          2,
+          10,
+          25,
+          50
+        ],
+        "recommended_max_samples": 2,
+        "regions": [
+          "chr1:1-160 (synthetic)"
+        ],
+        "assembly": "synthetic-mini",
+        "truth": "Java GATK 4.4 genotype VCF (paircompare); not GIAB",
+        "eval_engine": "compare_genotype_gvcfs.py",
+        "java_gatk_version": "4.4.0.0",
+        "java_gatk_sha": "2dbc025821bc5f686c423ff332a41e6cef892a77",
+        "java_gatk_docker": "us.gcr.io/broad-gatk/gatk:4.4.0.0",
+        "honesty": "Synthetic cohort scale ladder for joint genotyping \u2014 not genome-wide clinical equivalence. The primary axis is cohort_size.",
+        "scaling": {
+          "rust_combine_wall": null,
+          "java_combine_wall": null
+        },
+        "notes": [
+          "gatk-rs CombineGVCFs loads each input gVCF fully into memory (`read_all_records`) and merges at breakpoints \u00d7 covering samples \u2014 there is no GenomicsDBImport path.",
+          "Recommended / signed for joint Combine\u2192Genotype: **up to N=2 samples** on this synthetic scale gate; above that **untested / not claimed**. Java GATK documents GenomicsDBImport for large cohorts for the same class of reason."
+        ]
+      },
+      "metrics": [
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "rust",
+          "variant_type": "JOINT",
+          "cohort_size": 2,
+          "wall_sec": null,
+          "peak_rss_kb": 8432,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "java",
+          "variant_type": "JOINT",
+          "cohort_size": 2,
+          "wall_sec": null,
+          "peak_rss_kb": 28832,
+          "precision": null,
+          "recall": null,
+          "f1": null
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "rust",
+          "variant_type": "JOINT",
+          "cohort_size": 10,
+          "wall_sec": null,
+          "peak_rss_kb": 8832,
+          "precision": null,
+          "recall": null,
+          "f1": null
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "java",
+          "variant_type": "JOINT",
+          "cohort_size": 10,
+          "wall_sec": null,
+          "peak_rss_kb": 29424,
+          "precision": null,
+          "recall": null,
+          "f1": null
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "rust",
+          "variant_type": "JOINT",
+          "cohort_size": 25,
+          "wall_sec": null,
+          "peak_rss_kb": 9280,
+          "precision": null,
+          "recall": null,
+          "f1": null
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "java",
+          "variant_type": "JOINT",
+          "cohort_size": 25,
+          "wall_sec": null,
+          "peak_rss_kb": 28144,
+          "precision": null,
+          "recall": null,
+          "f1": null
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "rust",
+          "variant_type": "JOINT",
+          "cohort_size": 50,
+          "wall_sec": null,
+          "peak_rss_kb": 9792,
+          "precision": null,
+          "recall": null,
+          "f1": null
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "java",
+          "variant_type": "JOINT",
+          "cohort_size": 50,
+          "wall_sec": null,
+          "peak_rss_kb": 29216,
+          "precision": null,
+          "recall": null,
+          "f1": null
+        }
+      ]
+    },
+    {
+      "id": "cohort-joint-20260724T184021Z",
+      "workflow": "joint-cohort-scale",
+      "generated_utc": "2026-07-24T18:44:23Z",
+      "commit_sha": "b5702baff0294245c58746f724fb3141192e8fbc",
+      "workflow_run_url": null,
+      "scope": {
+        "kind": "cohort_joint_scale",
+        "pipeline": "CombineGVCFs\u2192GenotypeGVCFs",
+        "samples": [
+          "N=2",
+          "N=10",
+          "N=25",
+          "N=50"
+        ],
+        "cohort_sizes": [
+          2,
+          10,
+          25,
+          50
+        ],
+        "recommended_max_samples": 50,
+        "regions": [
+          "chr1:1-160 (synthetic)"
+        ],
+        "assembly": "synthetic-mini",
+        "truth": "Java GATK 4.4 genotype VCF (paircompare); not GIAB",
+        "eval_engine": "compare_genotype_gvcfs.py",
+        "java_gatk_version": "4.4.0.0",
+        "java_gatk_sha": "2dbc025821bc5f686c423ff332a41e6cef892a77",
+        "java_gatk_docker": "us.gcr.io/broad-gatk/gatk:4.4.0.0",
+        "honesty": "Synthetic cohort scale ladder for joint genotyping \u2014 not genome-wide clinical equivalence. The primary axis is cohort_size.",
+        "scaling": {
+          "rust_combine_wall": {
+            "slope_sec_per_sample": 0.003100804189265008,
+            "intercept_sec": 0.00755750888348608,
+            "r2": 0.9963436716669348,
+            "loglog_exponent": 0.8639173884335679,
+            "growth": "approx_linear"
+          },
+          "java_combine_wall": {
+            "slope_sec_per_sample": 0.03914344492238639,
+            "intercept_sec": 2.653630072938096,
+            "r2": 0.9671722885979447,
+            "loglog_exponent": 0.14919499556517715,
+            "growth": "approx_linear"
+          }
+        },
+        "notes": [
+          "gatk-rs CombineGVCFs loads each input gVCF fully into memory (`read_all_records`) and merges at breakpoints \u00d7 covering samples \u2014 there is no GenomicsDBImport path.",
+          "Measured Rust Combine wall-time vs N looks approximately linear on this tiny synthetic interval; still untested for WGS \u00d7 large N (memory will dominate).",
+          "Recommended / signed for joint Combine\u2192Genotype: **up to N=50 samples** on this synthetic scale gate; above that **untested / not claimed**. Java GATK documents GenomicsDBImport for large cohorts for the same class of reason."
+        ]
+      },
+      "metrics": [
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "rust",
+          "variant_type": "JOINT",
+          "cohort_size": 2,
+          "wall_sec": 0.01,
+          "peak_rss_kb": 11456,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "java",
+          "variant_type": "JOINT",
+          "cohort_size": 2,
+          "wall_sec": 5.57,
+          "peak_rss_kb": 29024,
+          "precision": null,
+          "recall": null,
+          "f1": null
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "rust",
+          "variant_type": "JOINT",
+          "cohort_size": 10,
+          "wall_sec": 0.05,
+          "peak_rss_kb": 16832,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "java",
+          "variant_type": "JOINT",
+          "cohort_size": 10,
+          "wall_sec": 6.470000000000001,
+          "peak_rss_kb": 29008,
+          "precision": null,
+          "recall": null,
+          "f1": null
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "rust",
+          "variant_type": "JOINT",
+          "cohort_size": 25,
+          "wall_sec": 0.11,
+          "peak_rss_kb": 27680,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "java",
+          "variant_type": "JOINT",
+          "cohort_size": 25,
+          "wall_sec": 6.779999999999999,
+          "peak_rss_kb": 29312,
+          "precision": null,
+          "recall": null,
+          "f1": null
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "rust",
+          "variant_type": "JOINT",
+          "cohort_size": 50,
+          "wall_sec": 0.19,
+          "peak_rss_kb": 44480,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "java",
+          "variant_type": "JOINT",
+          "cohort_size": 50,
+          "wall_sec": 8.99,
+          "peak_rss_kb": 28992,
+          "precision": null,
+          "recall": null,
+          "f1": null
+        }
+      ]
+    },
+    {
+      "id": "cohort-joint-20260724T184447Z",
+      "workflow": "joint-cohort-scale",
+      "generated_utc": "2026-07-24T18:53:16Z",
+      "commit_sha": "b5702baff0294245c58746f724fb3141192e8fbc",
+      "workflow_run_url": null,
+      "scope": {
+        "kind": "cohort_joint_scale",
+        "pipeline": "CombineGVCFs\u2192GenotypeGVCFs",
+        "samples": [
+          "N=2",
+          "N=10",
+          "N=25",
+          "N=50",
+          "N=100"
+        ],
+        "cohort_sizes": [
+          2,
+          10,
+          25,
+          50,
+          100
+        ],
+        "recommended_max_samples": 100,
+        "regions": [
+          "chr1:1-160 (synthetic)"
+        ],
+        "assembly": "synthetic-mini",
+        "truth": "Java GATK 4.4 genotype VCF (paircompare); not GIAB",
+        "eval_engine": "compare_genotype_gvcfs.py",
+        "java_gatk_version": "4.4.0.0",
+        "java_gatk_sha": "2dbc025821bc5f686c423ff332a41e6cef892a77",
+        "java_gatk_docker": "us.gcr.io/broad-gatk/gatk:4.4.0.0",
+        "honesty": "Synthetic cohort scale ladder for joint genotyping \u2014 not genome-wide clinical equivalence. The primary axis is cohort_size.",
+        "scaling": {
+          "rust_combine_wall": {
+            "slope_sec_per_sample": 0.003686810366948935,
+            "intercept_sec": -0.0018867077238901853,
+            "r2": 0.9980263390888144,
+            "loglog_exponent": 0.9140886147079412,
+            "growth": "approx_linear"
+          },
+          "java_combine_wall": {
+            "slope_sec_per_sample": 0.023581601231716705,
+            "intercept_sec": 2.9700481139337946,
+            "r2": 0.8895461940097431,
+            "loglog_exponent": 0.16356310642955577,
+            "growth": "approx_linear"
+          }
+        },
+        "notes": [
+          "gatk-rs CombineGVCFs loads each input gVCF fully into memory (`read_all_records`) and merges at breakpoints \u00d7 covering samples \u2014 there is no GenomicsDBImport path.",
+          "Measured Rust Combine wall-time vs N looks approximately linear on this synthetic 10kb/400-SNP ladder; still untested for WGS \u00d7 large N (Peak-RSS already grows with N \u2014 memory will dominate).",
+          "Recommended / signed for joint Combine\u2192Genotype: **up to N=100 samples** on this synthetic scale gate; above that **untested / not claimed**. Java GATK documents GenomicsDBImport for large cohorts for the same class of reason."
+        ]
+      },
+      "metrics": [
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "rust",
+          "variant_type": "JOINT",
+          "cohort_size": 2,
+          "wall_sec": 0.01,
+          "peak_rss_kb": 11136,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "java",
+          "variant_type": "JOINT",
+          "cohort_size": 2,
+          "wall_sec": 5.88,
+          "peak_rss_kb": 28912,
+          "precision": null,
+          "recall": null,
+          "f1": null
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "rust",
+          "variant_type": "JOINT",
+          "cohort_size": 10,
+          "wall_sec": 0.05,
+          "peak_rss_kb": 16832,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "java",
+          "variant_type": "JOINT",
+          "cohort_size": 10,
+          "wall_sec": 6.3,
+          "peak_rss_kb": 29248,
+          "precision": null,
+          "recall": null,
+          "f1": null
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "rust",
+          "variant_type": "JOINT",
+          "cohort_size": 25,
+          "wall_sec": 0.1,
+          "peak_rss_kb": 27568,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "java",
+          "variant_type": "JOINT",
+          "cohort_size": 25,
+          "wall_sec": 7.5,
+          "peak_rss_kb": 29056,
+          "precision": null,
+          "recall": null,
+          "f1": null
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "rust",
+          "variant_type": "JOINT",
+          "cohort_size": 50,
+          "wall_sec": 0.22,
+          "peak_rss_kb": 44256,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "java",
+          "variant_type": "JOINT",
+          "cohort_size": 50,
+          "wall_sec": 8.58,
+          "peak_rss_kb": 29232,
+          "precision": null,
+          "recall": null,
+          "f1": null
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "rust",
+          "variant_type": "JOINT",
+          "cohort_size": 100,
+          "wall_sec": 0.44,
+          "peak_rss_kb": 78704,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        {
+          "region": "synthetic_chr1_cohort",
+          "engine": "java",
+          "variant_type": "JOINT",
+          "cohort_size": 100,
+          "wall_sec": 9.219999999999999,
+          "peak_rss_kb": 28944,
+          "precision": null,
+          "recall": null,
+          "f1": null
+        }
+      ]
+    },
+    {
+      "id": "nightly-2026-07-25T11:53:02Z",
+      "workflow": "nightly-equivalence",
+      "generated_utc": "2026-07-25T11:53:02Z",
+      "commit_sha": "fb10c554d0ac5abd27a6cd0ac509b2df78ccdd16",
+      "workflow_run_url": "https://github.com/SynapticFour/gatk-rs/actions/runs/30146521285",
       "scope": {
         "kind": "trio_joint_e2e",
         "pipeline": "HaplotypeCaller (GVCF) \u2192 CombineGVCFs \u2192 GenotypeGVCFs \u2192 VariantFiltration",
