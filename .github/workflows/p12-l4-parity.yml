@@ -35,9 +35,9 @@ jobs:
 
       - name: L4.0 fixture contracts
         run: |
-          cargo test -p gatk-haplotypecaller --test p12_format_parity_test p12_java_format_fixture_contract --release
-          cargo test -p gatk-haplotypecaller --test p12_format_parity_test p12_cluster_format_fixture --release
-          cargo test -p gatk-haplotypecaller --test p12_java_format_fixup_test --release
+          cargo test -p gatk-haplotypecaller --features parity_harness --test p12_format_parity_test p12_java_format_fixture_contract --release
+          cargo test -p gatk-haplotypecaller --features parity_harness --test p12_format_parity_test p12_cluster_format_fixture --release
+          cargo test -p gatk-haplotypecaller --features parity_harness --test p12_java_format_fixup_test --release
 
   l4-signoff:
     name: L4 sign-off battery (BAM required)
