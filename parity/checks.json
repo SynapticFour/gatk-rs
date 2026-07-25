@@ -76,7 +76,7 @@
       "id": "phase2-ingress-order-contract",
       "acceptance_class": "phase2-determinism",
       "timeout_s": 600,
-      "command": "cargo test -p gatk-haplotypecaller --test read_ingress_determinism_test --locked",
+      "command": "cargo test -p gatk-haplotypecaller --features parity_harness --test read_ingress_determinism_test --locked",
       "description": "Step 35 deterministic ingress order contract across thread-count env settings",
       "owner": "haplotypecaller"
     },

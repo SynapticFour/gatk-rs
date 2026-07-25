@@ -193,51 +193,30 @@ read1	0	chr1	100	60	100M	*	0	0	ACGTACGTACGTACGT	IIIIIIIIIIIIIIII	NM:i:1	MD:Z:100
 }
 
 fn benchmark_bam_parsing(c: &mut Criterion) {
-    let test_data = TestData::new();
-    let sizes = vec![100, 1000, 10000];
+    // Hand-rolled "BAM\x01" blobs are not valid BGZF BAM — they UnexpectedEof in BamReader.
+    // Bench a real fixture when present (parity/fixtures or package test_data).
+    let candidates = [
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../parity/fixtures/sample.bam"),
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/tests/test_data/sample.bam"),
+    ];
+    let Some(bam_path) = candidates.into_iter().find(|p| p.is_file()) else {
+        eprintln!("benchmark_bam_parsing: skip (no sample.bam fixture)");
+        return;
+    };
 
     let mut group = c.benchmark_group("bam_parsing");
-    group.measurement_time(Duration::from_secs(10));
-
-    for size in sizes {
-        // Create simplified BAM file for testing
-        let mut bam_data = Vec::new();
-        bam_data.extend_from_slice(b"BAM\x01");
-        bam_data.extend_from_slice(&32u32.to_le_bytes());
-
-        let header_text = "@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:1000000\n";
-        bam_data.extend_from_slice(header_text.as_bytes());
-        bam_data.extend_from_slice(&1u32.to_le_bytes());
-
-        let chr1_name = b"chr1";
-        bam_data.extend_from_slice(&(chr1_name.len() as u32).to_le_bytes());
-        bam_data.extend_from_slice(chr1_name);
-        bam_data.extend_from_slice(&1000000u32.to_le_bytes());
-
-        // Add simplified records
-        for i in 0..size {
-            let record_data = format!(
-                "bam_read{}\t0\tchr1\t{}\t60\t100M\t*\t0\t0\tACGTACGTACGTACGT\tIIIIIIIIIIIIIIII\tNM:i:{}\tRG:Z:RG1",
-                i,
-                i * 100,
-                i % 5
-            );
-            bam_data.extend_from_slice(&(record_data.len() as u32).to_le_bytes());
-            bam_data.extend_from_slice(record_data.as_bytes());
-        }
-
-        let bam_path = test_data.path().join(format!("test_{}.bam", size));
-        std::fs::write(&bam_path, bam_data).unwrap();
-
-        group.bench_with_input(BenchmarkId::new("parsing", size), &bam_path, |b, path| {
+    group.measurement_time(Duration::from_secs(5));
+    group.bench_with_input(
+        BenchmarkId::new("parsing", "sample.bam"),
+        &bam_path,
+        |b, path| {
             b.iter(|| {
                 let mut reader = BamReader::from_file(black_box(path)).unwrap();
                 let records = reader.read_all_records().unwrap();
                 black_box(records)
             })
-        });
-    }
-
+        },
+    );
     group.finish();
 }
 

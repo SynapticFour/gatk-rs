@@ -558,7 +558,7 @@ pub use pairhmm_native_dump::dump_pairhmm_native_likelihoods_tsv;
 pub use ploidy_dump::dump_ploidy_resolution_tsv;
 #[cfg(feature = "dev-dumps")]
 pub use pre_dragstr_dump::dump_dragstr_calibration_tsv;
-#[cfg(feature = "parity_harness")]
+/// Deterministic ingress order helpers (foundation Step 35 + HC tiling).
 pub use read_binding::{
     count_reads_overlapping_tile, filtered_read_iteration_order, total_read_tile_overlaps,
 };

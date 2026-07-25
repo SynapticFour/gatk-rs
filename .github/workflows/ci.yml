@@ -20,20 +20,12 @@ jobs:
   test:
     name: Test Suite
     runs-on: ${{ matrix.os }}
-    # Windows hts-sys native build is frequently broken on GH runners; don't block CI.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Windows omitted: hts-sys needs OpenSSL includes on GH windows-latest (no native support yet).
+        os: [ubuntu-latest, macos-latest]
         rust: [stable, beta, nightly]
-        exclude:
-          # Exclude nightly on Windows for faster CI
-          - os: windows-latest
-            rust: nightly
-          # Exclude beta on Windows for faster CI
-          - os: windows-latest
-            rust: beta
 
     steps:
     - name: Checkout repository
@@ -380,6 +372,11 @@ jobs:
     - name: Install samtools
       run: sudo apt-get update && sudo apt-get install -y samtools
 
+    - name: Stage indexed BAMs from fixture SAMs
+      run: |
+        chmod +x scripts/ci/stage_indexed_fixture_bams.sh
+        ./scripts/ci/stage_indexed_fixture_bams.sh
+
     - name: HC full parity phase bundles B–J + strict L2
       env:
         PARITY_HC_FULL_L2_STRICT: "1"
@@ -471,18 +468,15 @@ jobs:
   cross-platform:
     name: Cross Platform Tests
     runs-on: ${{ matrix.os }}
-    # Windows hts-sys native build is frequently broken on GH runners; don't block CI.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
         include:
+          # Windows omitted: hts-sys needs OpenSSL includes on GH windows-latest.
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
           - os: macos-latest
             target: x86_64-apple-darwin
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
 
     steps:
     - name: Checkout repository
