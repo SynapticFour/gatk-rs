@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["bam","fasta","fastq","hts_copy","sam","vcf"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["HALF_OF_DEFAULT_PCR_SNV_ERROR_QUAL"],"fn":["adjust_quals_of_overlapping_pair","clean_overlapping_read_pairs","format_quals","overlapping_pairs_indices","read_base_at_ref_coord_1based"]};

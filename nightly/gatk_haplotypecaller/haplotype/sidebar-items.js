@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["collapse_dangling_tail_alt_duplicates","haplotype_size_and_base_order","normalize_ref_equivalent_haplotypes","prune_fragment_non_reference_haplotypes","sort_haplotypes_assembly_result_order"],"struct":["Haplotype"]};

@@ -1,0 +1,119 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `gatk-core/src/benchmarking/comparator.rs`."><title>comparator.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="gatk_core" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../../../static.files/src-script-813739b1.js"></script><script defer src="../../../src-files.js"></script><script defer src="../../../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1><div class="sub-heading">gatk_core/benchmarking/</div>comparator.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#2 id=2 data-nosnippet>2</a><span class="kw">use </span>serde::{Deserialize, Serialize};
+<a href=#3 id=3 data-nosnippet>3</a>
+<a href=#4 id=4 data-nosnippet>4</a><span class="doccomment">/// Roll-up statistics across many suite-to-suite benchmark comparisons.
+<a href=#5 id=5 data-nosnippet>5</a>/// # Invariants
+<a href=#6 id=6 data-nosnippet>6</a>/// Rates are fractions in `[0.0, 1.0]` when `total_comparisons &gt; 0`.
+<a href=#7 id=7 data-nosnippet>7</a>/// `meets_all_targets` uses 2× speedup and 2× memory reduction heuristics.
+<a href=#8 id=8 data-nosnippet>8</a>/// # Ownership
+<a href=#9 id=9 data-nosnippet>9</a>/// Plain scalars; serde clone.
+<a href=#10 id=10 data-nosnippet>10</a>/// # Mutation
+<a href=#11 id=11 data-nosnippet>11</a>/// Immutable output of [`SuiteComparator::compare_suites`].
+<a href=#12 id=12 data-nosnippet>12</a>/// # Biological assumptions
+<a href=#13 id=13 data-nosnippet>13</a>/// None (infrastructure).
+<a href=#14 id=14 data-nosnippet>14</a>/// # Java equivalence
+<a href=#15 id=15 data-nosnippet>15</a>/// None / Rust-native.
+<a href=#16 id=16 data-nosnippet>16</a></span><span class="attr">#[derive(Debug, Clone, Serialize, Deserialize)]
+<a href=#17 id=17 data-nosnippet>17</a></span><span class="kw">pub struct </span>OverallStats {
+<a href=#18 id=18 data-nosnippet>18</a>    <span class="kw">pub </span>total_comparisons: usize,
+<a href=#19 id=19 data-nosnippet>19</a>    <span class="kw">pub </span>average_speedup: f64,
+<a href=#20 id=20 data-nosnippet>20</a>    <span class="kw">pub </span>average_memory_reduction: f64,
+<a href=#21 id=21 data-nosnippet>21</a>    <span class="kw">pub </span>average_overall_score: f64,
+<a href=#22 id=22 data-nosnippet>22</a>    <span class="kw">pub </span>bitwise_identical_rate: f64,
+<a href=#23 id=23 data-nosnippet>23</a>    <span class="kw">pub </span>functional_equivalent_rate: f64,
+<a href=#24 id=24 data-nosnippet>24</a>    <span class="kw">pub </span>meets_all_targets: bool,
+<a href=#25 id=25 data-nosnippet>25</a>}
+<a href=#26 id=26 data-nosnippet>26</a>
+<a href=#27 id=27 data-nosnippet>27</a><span class="doccomment">/// Comparison of two [`BenchmarkSuite`] instances with aggregated stats.
+<a href=#28 id=28 data-nosnippet>28</a>/// # Invariants
+<a href=#29 id=29 data-nosnippet>29</a>/// Pairs GATK and GATK-RS results by zip index; empty suites yield zeroed stats.
+<a href=#30 id=30 data-nosnippet>30</a>/// # Ownership
+<a href=#31 id=31 data-nosnippet>31</a>/// Owns [`OverallStats`]; cheap clone.
+<a href=#32 id=32 data-nosnippet>32</a>/// # Mutation
+<a href=#33 id=33 data-nosnippet>33</a>/// Immutable comparison product.
+<a href=#34 id=34 data-nosnippet>34</a>/// # Biological assumptions
+<a href=#35 id=35 data-nosnippet>35</a>/// None (infrastructure).
+<a href=#36 id=36 data-nosnippet>36</a>/// # Java equivalence
+<a href=#37 id=37 data-nosnippet>37</a>/// None / Rust-native.
+<a href=#38 id=38 data-nosnippet>38</a></span><span class="attr">#[derive(Debug, Clone, Serialize, Deserialize)]
+<a href=#39 id=39 data-nosnippet>39</a></span><span class="kw">pub struct </span>SuiteComparison {
+<a href=#40 id=40 data-nosnippet>40</a>    <span class="kw">pub </span>overall_stats: OverallStats,
+<a href=#41 id=41 data-nosnippet>41</a>}
+<a href=#42 id=42 data-nosnippet>42</a>
+<a href=#43 id=43 data-nosnippet>43</a><span class="doccomment">/// Stateless comparator for benchmark suite pairs.
+<a href=#44 id=44 data-nosnippet>44</a>/// # Invariants
+<a href=#45 id=45 data-nosnippet>45</a>/// Unit struct; no configuration state.
+<a href=#46 id=46 data-nosnippet>46</a>/// # Ownership
+<a href=#47 id=47 data-nosnippet>47</a>/// Zero-sized; use [`SuiteComparator::new`] for value.
+<a href=#48 id=48 data-nosnippet>48</a>/// # Mutation
+<a href=#49 id=49 data-nosnippet>49</a>/// N/A.
+<a href=#50 id=50 data-nosnippet>50</a>/// # Biological assumptions
+<a href=#51 id=51 data-nosnippet>51</a>/// None (infrastructure).
+<a href=#52 id=52 data-nosnippet>52</a>/// # Java equivalence
+<a href=#53 id=53 data-nosnippet>53</a>/// None / Rust-native.
+<a href=#54 id=54 data-nosnippet>54</a></span><span class="kw">pub struct </span>SuiteComparator;
+<a href=#55 id=55 data-nosnippet>55</a>
+<a href=#56 id=56 data-nosnippet>56</a><span class="kw">impl </span>Default <span class="kw">for </span>SuiteComparator {
+<a href=#57 id=57 data-nosnippet>57</a>    <span class="kw">fn </span>default() -&gt; <span class="self">Self </span>{
+<a href=#58 id=58 data-nosnippet>58</a>        <span class="self">Self</span>::new()
+<a href=#59 id=59 data-nosnippet>59</a>    }
+<a href=#60 id=60 data-nosnippet>60</a>}
+<a href=#61 id=61 data-nosnippet>61</a>
+<a href=#62 id=62 data-nosnippet>62</a><span class="kw">impl </span>SuiteComparator {
+<a href=#63 id=63 data-nosnippet>63</a>    <span class="kw">pub fn </span>new() -&gt; <span class="self">Self </span>{
+<a href=#64 id=64 data-nosnippet>64</a>        <span class="self">Self
+<a href=#65 id=65 data-nosnippet>65</a>    </span>}
+<a href=#66 id=66 data-nosnippet>66</a>
+<a href=#67 id=67 data-nosnippet>67</a>    <span class="kw">pub fn </span>compare_suites(
+<a href=#68 id=68 data-nosnippet>68</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
+<a href=#69 id=69 data-nosnippet>69</a>        gatk: <span class="kw-2">&amp;</span>BenchmarkSuite,
+<a href=#70 id=70 data-nosnippet>70</a>        gatk_rs: <span class="kw-2">&amp;</span>BenchmarkSuite,
+<a href=#71 id=71 data-nosnippet>71</a>    ) -&gt; SuiteComparison {
+<a href=#72 id=72 data-nosnippet>72</a>        <span class="kw">let </span>pairs = gatk
+<a href=#73 id=73 data-nosnippet>73</a>            .gatk_results
+<a href=#74 id=74 data-nosnippet>74</a>            .iter()
+<a href=#75 id=75 data-nosnippet>75</a>            .zip(gatk_rs.gatk_rs_results.iter())
+<a href=#76 id=76 data-nosnippet>76</a>            .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
+<a href=#77 id=77 data-nosnippet>77</a>        <span class="kw">let </span>total = pairs.len();
+<a href=#78 id=78 data-nosnippet>78</a>        <span class="kw">if </span>total == <span class="number">0 </span>{
+<a href=#79 id=79 data-nosnippet>79</a>            <span class="kw">return </span>SuiteComparison {
+<a href=#80 id=80 data-nosnippet>80</a>                overall_stats: OverallStats {
+<a href=#81 id=81 data-nosnippet>81</a>                    total_comparisons: <span class="number">0</span>,
+<a href=#82 id=82 data-nosnippet>82</a>                    average_speedup: <span class="number">0.0</span>,
+<a href=#83 id=83 data-nosnippet>83</a>                    average_memory_reduction: <span class="number">0.0</span>,
+<a href=#84 id=84 data-nosnippet>84</a>                    average_overall_score: <span class="number">0.0</span>,
+<a href=#85 id=85 data-nosnippet>85</a>                    bitwise_identical_rate: <span class="number">0.0</span>,
+<a href=#86 id=86 data-nosnippet>86</a>                    functional_equivalent_rate: <span class="number">0.0</span>,
+<a href=#87 id=87 data-nosnippet>87</a>                    meets_all_targets: <span class="bool-val">false</span>,
+<a href=#88 id=88 data-nosnippet>88</a>                },
+<a href=#89 id=89 data-nosnippet>89</a>            };
+<a href=#90 id=90 data-nosnippet>90</a>        }
+<a href=#91 id=91 data-nosnippet>91</a>
+<a href=#92 id=92 data-nosnippet>92</a>        <span class="kw">let </span><span class="kw-2">mut </span>speedups = Vec::new();
+<a href=#93 id=93 data-nosnippet>93</a>        <span class="kw">let </span><span class="kw-2">mut </span>mem_red = Vec::new();
+<a href=#94 id=94 data-nosnippet>94</a>        <span class="kw">let </span><span class="kw-2">mut </span>scores = Vec::new();
+<a href=#95 id=95 data-nosnippet>95</a>        <span class="kw">let </span><span class="kw-2">mut </span>functional = <span class="number">0usize</span>;
+<a href=#96 id=96 data-nosnippet>96</a>        <span class="kw">for </span>(a, b) <span class="kw">in </span>pairs {
+<a href=#97 id=97 data-nosnippet>97</a>            <span class="kw">let </span>c = ComparisonResult::new(a, b);
+<a href=#98 id=98 data-nosnippet>98</a>            speedups.push(c.speedup);
+<a href=#99 id=99 data-nosnippet>99</a>            mem_red.push(c.memory_reduction);
+<a href=#100 id=100 data-nosnippet>100</a>            scores.push((c.speedup.min(<span class="number">4.0</span>) / <span class="number">4.0 </span>+ c.memory_reduction.min(<span class="number">4.0</span>) / <span class="number">4.0</span>) * <span class="number">50.0</span>);
+<a href=#101 id=101 data-nosnippet>101</a>            <span class="kw">if </span>c.both_succeeded {
+<a href=#102 id=102 data-nosnippet>102</a>                functional += <span class="number">1</span>;
+<a href=#103 id=103 data-nosnippet>103</a>            }
+<a href=#104 id=104 data-nosnippet>104</a>        }
+<a href=#105 id=105 data-nosnippet>105</a>        <span class="kw">let </span>avg = |v: <span class="kw-2">&amp;</span>[f64]| v.iter().sum::&lt;f64&gt;() / v.len() <span class="kw">as </span>f64;
+<a href=#106 id=106 data-nosnippet>106</a>        SuiteComparison {
+<a href=#107 id=107 data-nosnippet>107</a>            overall_stats: OverallStats {
+<a href=#108 id=108 data-nosnippet>108</a>                total_comparisons: total,
+<a href=#109 id=109 data-nosnippet>109</a>                average_speedup: avg(<span class="kw-2">&amp;</span>speedups),
+<a href=#110 id=110 data-nosnippet>110</a>                average_memory_reduction: avg(<span class="kw-2">&amp;</span>mem_red),
+<a href=#111 id=111 data-nosnippet>111</a>                average_overall_score: avg(<span class="kw-2">&amp;</span>scores),
+<a href=#112 id=112 data-nosnippet>112</a>                bitwise_identical_rate: <span class="number">0.0</span>,
+<a href=#113 id=113 data-nosnippet>113</a>                functional_equivalent_rate: functional <span class="kw">as </span>f64 / total <span class="kw">as </span>f64,
+<a href=#114 id=114 data-nosnippet>114</a>                meets_all_targets: avg(<span class="kw-2">&amp;</span>speedups) &gt;= <span class="number">2.0 </span>&amp;&amp; avg(<span class="kw-2">&amp;</span>mem_red) &gt;= <span class="number">2.0</span>,
+<a href=#115 id=115 data-nosnippet>115</a>            },
+<a href=#116 id=116 data-nosnippet>116</a>        }
+<a href=#117 id=117 data-nosnippet>117</a>    }
+<a href=#118 id=118 data-nosnippet>118</a>}
+</code></pre></div></section></main></body></html>

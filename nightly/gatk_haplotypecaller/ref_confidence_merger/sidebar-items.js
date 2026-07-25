@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["NON_REF_ALLELE","SPAN_DEL_ALLELE"],"fn":["merge_reference_confidence"],"struct":["MergeAllele","MergeGenotype","MergeGenotypeOut","MergeVcInput","RefConfidenceMergeResult"]};

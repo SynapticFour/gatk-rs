@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["cigar_hard_clip_length","cigar_soft_clip_ends","query_index_at_reference_position","reference_position_at_query_index"]};

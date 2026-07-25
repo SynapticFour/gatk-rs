@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["GATK_PARITY_DEFAULT_DEL_QUAL","GATK_PARITY_DEFAULT_GCP","GATK_PARITY_DEFAULT_INS_QUAL"],"fn":["log10_pairhmm_likelihood","log10_pairhmm_likelihood_parity_defaults"]};

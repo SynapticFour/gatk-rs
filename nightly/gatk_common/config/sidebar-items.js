@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["VerbosityLevel"],"struct":["AssemblyRegionConfig","GatkConfig","GlobalConfig","HaplotypeCallerConfig","InputConfig","JavaOptions","OutputConfig","SparkOptions","ToolConfig"]};

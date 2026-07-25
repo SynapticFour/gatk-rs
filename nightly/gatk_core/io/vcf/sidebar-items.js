@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["InfoValue"],"struct":["BufferedVcfReader","Contig","FilterField","FormatField","Genotype","InfoField","SampleData","VcfHeader","VcfIterator","VcfReader","VcfRecord","VcfWriter"]};

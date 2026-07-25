@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["parity_java_aligned_hap_log10_sums","parity_java_aligned_read_rows","parity_region_genotype_from_rows","parity_region_genotype_from_rows_with_gl_mode","write_parity_region_genotype_dump"],"struct":["ParityRegionGenotypeDump"]};

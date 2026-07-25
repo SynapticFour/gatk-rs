@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["GATK_MINIMUM_READ_LENGTH_AFTER_TRIMMING"],"enum":["CallRegionMode"],"fn":["remove_read_stubs_after_trim"],"struct":["CallRegionArgs","CallRegionOutcome","HaplotypeCallerEngine"]};

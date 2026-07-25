@@ -1,0 +1,1 @@
+rd_("kgatk_commonigatk_coreAdgatk_haplotypecallerggatk_rsmgatk_rs_equiv")

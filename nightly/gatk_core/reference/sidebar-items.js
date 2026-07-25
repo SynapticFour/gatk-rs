@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["count_acgtn_histogram_for_interval_specs","intervals_for_haplotype_caller","parse_intervals_cli_string","reference_base_at_1based","resolve_interval_specs_includes_excludes"],"struct":["ContigRecord","IntervalSpec","ReferenceWindowCache","SequenceDictionary"]};

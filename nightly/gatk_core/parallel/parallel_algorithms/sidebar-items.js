@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["AlignmentResult","GenomicRegion","ParallelAlignment","ParallelQualityProcessing","ParallelVariantCalling","QualityDistribution","ReadData","VariantCall"]};

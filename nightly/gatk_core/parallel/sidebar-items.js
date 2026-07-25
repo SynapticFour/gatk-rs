@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["async_io","distributed","memory_mapped","parallel_algorithms","polars_integration","rayon_integration","tokio_integration","utils"],"struct":["ChunkedProcessor","LoadBalancer","MemoryAwareScheduler","ParallelConfig","ParallelContext","ParallelProfiler","ParallelStats"]};

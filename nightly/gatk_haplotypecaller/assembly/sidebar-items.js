@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["AssemblyGraph","AssemblyGraphParams","AssemblyGraphPruningParams","AssemblyGraphSummary","AssemblyRead","CandidateHaplotype","DanglingMergeHaplotype","KmerEdge","KmerNode"]};

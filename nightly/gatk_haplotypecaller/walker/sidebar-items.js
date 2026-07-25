@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["GATK_DEFAULT_ASSEMBLY_REGION_PADDING"],"fn":["make_read_shards","make_read_shards_default_padding"],"struct":["ReadShard"]};

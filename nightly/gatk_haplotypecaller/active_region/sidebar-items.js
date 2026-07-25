@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_TRAVERSAL_TILE_BP"],"fn":["tile_closed_interval"],"struct":["TraversalTile"]};

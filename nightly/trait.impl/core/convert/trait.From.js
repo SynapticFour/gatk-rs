@@ -1,0 +1,9 @@
+(function() {
+    const implementors = Object.fromEntries([["gatk_common",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.97.1/core/convert/trait.From.html\" title=\"trait core::convert::From\">From</a>&lt;<a class=\"struct\" href=\"https://doc.rust-lang.org/1.97.1/std/io/error/struct.Error.html\" title=\"struct std::io::error::Error\">Error</a>&gt; for <a class=\"enum\" href=\"gatk_common/error/enum.GatkError.html\" title=\"enum gatk_common::error::GatkError\">GatkError</a>",0]]],["gatk_haplotypecaller",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.97.1/core/convert/trait.From.html\" title=\"trait core::convert::From\">From</a>&lt;<a class=\"struct\" href=\"gatk_haplotypecaller/activity_profile/struct.ActivityProfileRegion.html\" title=\"struct gatk_haplotypecaller::activity_profile::ActivityProfileRegion\">ActivityProfileRegion</a>&gt; for <a class=\"struct\" href=\"gatk_haplotypecaller/assembly_region_iterator/struct.AssemblyRegion.html\" title=\"struct gatk_haplotypecaller::assembly_region_iterator::AssemblyRegion\">AssemblyRegion</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.97.1/core/convert/trait.From.html\" title=\"trait core::convert::From\">From</a>&lt;<a class=\"struct\" href=\"gatk_haplotypecaller/genome_loc/struct.GenomePosition.html\" title=\"struct gatk_haplotypecaller::genome_loc::GenomePosition\">GenomePosition</a>&gt; for <a class=\"primitive\" href=\"https://doc.rust-lang.org/1.97.1/std/primitive.u64.html\">u64</a>",0]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":59,"fragment_lengths":[440,1017]}

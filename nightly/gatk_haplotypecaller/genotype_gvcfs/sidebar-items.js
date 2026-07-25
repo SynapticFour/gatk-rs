@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_STAND_CALL_CONF"],"fn":["genotype_gvcf_records","run_genotype_gvcfs"],"struct":["GenotypeGvcfsArgs","GenotypeGvcfsConfig","GenotypedSite"]};

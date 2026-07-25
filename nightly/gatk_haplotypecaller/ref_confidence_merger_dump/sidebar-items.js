@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["dump_ref_confidence_merge_case","dump_ref_confidence_merge_tsv","merge_reference_confidence_fixture"],"struct":["DumpGenotype","RefConfidenceMergeDump"]};

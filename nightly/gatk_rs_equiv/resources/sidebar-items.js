@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_JAVA_XMX","DEFAULT_MIN_FREE_GB","DEFAULT_THREADS","MAX_THREADS"],"fn":["apply_process_env","clamp_threads","require_free_gb"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["GATK_HQ_SOFT_CLIP_BASE_QUAL","RCM_HQ_SOFT_CLIP_QUAL_THRESHOLD"],"fn":["count_high_quality_soft_clip_bases_rcm","hq_soft_clip_running_mean_at_locus","max_hq_soft_clip_bases"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["calculate_optimal_chunk_size","chunk_data","estimate_memory_usage","should_use_parallel"]};

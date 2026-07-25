@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["alleles_equal","alt_allele","average_base_quality","base_composition","filter_by_quality","gc_content","hamming_distance","is_valid_dna","merge_intervals","phred_to_probability","position_in_intervals","probability_to_phred","ref_allele","reverse_complement","unique_bases"]};

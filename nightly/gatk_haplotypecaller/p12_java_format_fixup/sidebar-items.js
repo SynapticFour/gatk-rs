@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["apply_java_format_to_vcf_record","lookup_java_format","p12_java_format_fixup_enabled"],"struct":["P12JavaFormatRow"]};

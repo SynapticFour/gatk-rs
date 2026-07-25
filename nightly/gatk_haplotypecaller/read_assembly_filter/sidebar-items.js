@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["filter_non_passing_reads","filter_non_passing_reads_default","passes_assembly_read"],"struct":["AssemblyReadFilterConfig"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["LOG_10_INFORMATIVE_THRESHOLD"],"fn":["change_evidence_to_best_haplotype","haplotype_alignment_tiebreak_priority","realign_reads_to_best_haplotype"]};

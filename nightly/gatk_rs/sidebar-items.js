@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DISCLAIMER_HELP"],"enum":["Tool"],"fn":["init_haplotype_caller_threads","init_logging","main","parse_single_region","query_bases_consumed_by_cigar","sam_header_to_text"],"mod":["benchmarking"],"struct":["Cli"]};

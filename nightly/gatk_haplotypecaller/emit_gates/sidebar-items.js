@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MIN_HOM_ALT_AD_FOR_EMIT"],"fn":["gl_for_java_af_calculation","java_emit_would_pass","passes_cluster_anchor_read_support","passes_emit_for_variation_event","passes_hc_variant_emit_biallelic","passes_java_emit_not_hom_ref","passes_read_style_sparse_emit"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["MappingQuality"],"struct":["AlleleDepth","AlleleIndex","DiploidGenotypeIndex","GenotypeQuality","HaplotypeIndex","KmerSize","PadOffset0","PhredLikelihood","Ploidy","ReadCoordinate","ReadDepth","ReadIndex","SampleIndex"],"type":["ReferenceCoordinate"]};

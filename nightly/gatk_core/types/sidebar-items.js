@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Base","MappingQuality","VariantType"],"struct":["Allele","BaseQuality","GenomicInterval","GenomicPosition","Genotype","ReadQuality","SequenceRead","VariantContext"]};

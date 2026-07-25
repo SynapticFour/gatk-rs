@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["given_alleles_from_env","given_alleles_to_trim_variants","load_given_alleles_from_vcf_path","merge_given_alleles_into_assembly"],"struct":["GatkGivenAllele"]};

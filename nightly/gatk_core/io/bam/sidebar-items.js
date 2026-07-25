@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CigarOp","OptionalField"],"fn":["parse_cigar_str"],"struct":["BamHeader","BamIterator","BamReader","BamRecord","BamWriter","Program","ReadGroup","ReferenceSequence"]};

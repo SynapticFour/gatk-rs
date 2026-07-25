@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["SamHeader","SamIterator","SamReader","SamRecord","SamWriter"]};

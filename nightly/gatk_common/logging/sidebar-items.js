@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["init_default_logging","init_logging","init_logging_from_env","try_init_from_gatk_rs_hc_trace"],"struct":["LoggingConfig","PerformanceLogger","ProgressLogger"]};

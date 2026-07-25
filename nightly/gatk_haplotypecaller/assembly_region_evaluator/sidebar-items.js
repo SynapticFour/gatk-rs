@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["add_locus_for_smoothed_activity","evaluate_hc_activity_state"]};

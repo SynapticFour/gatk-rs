@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MIN_USABLE_Q_SCORE"],"fn":["cap_read_base_qualities","set_to_fixed_value_if_too_low"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AssemblyRegionHaplotypeTarget"],"fn":["dump_assembly_region_haplotypes_tsv","dump_assembly_region_kmer_probe_tsv"]};

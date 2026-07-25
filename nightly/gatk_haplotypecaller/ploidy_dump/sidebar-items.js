@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["GATK_MINIMUM_PUTATIVE_PLOIDY_FOR_ACTIVE_REGION_DISCOVERY"],"fn":["activity_evaluation_ploidy","dump_ploidy_resolution_tsv","genotyping_ploidy"]};

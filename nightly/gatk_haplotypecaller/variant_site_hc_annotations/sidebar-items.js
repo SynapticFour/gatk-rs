@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["annotate_hc_variant_site","qd_depth_for_variant","qual_from_af_calculation"],"struct":["HcVariantSiteAnnotations"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["SPAN_DEL_ALLELE"],"fn":["best_alt_haplotype_index","create_allele_mapper","hap_base_at_ref_locus","haplotype_supports_allele_at","haplotype_supports_allele_at_with_ref","replace_span_del_events"],"struct":["AlleleHaplotypeMapping"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CigarOperator"],"fn":["length_on_read","length_on_reference"],"struct":["Cigar","CigarElement"]};

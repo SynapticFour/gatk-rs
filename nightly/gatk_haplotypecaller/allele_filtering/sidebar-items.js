@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_NON_REF_HAPLOTYPES_FOR_GENOTYPING"],"fn":["ensure_reference_haplotype","filter_assembly_and_likelihoods","filter_haplotypes_for_genotyping","haplotype_log10_sums_from_region_likelihoods","remap_read_likelihoods_after_hap_filter"]};

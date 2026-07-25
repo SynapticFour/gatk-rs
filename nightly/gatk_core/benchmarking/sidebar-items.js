@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DatasetCategory","DatasetComplexity"],"mod":["comparator","datasets","metrics","reporter","runner"],"struct":["BenchmarkConfig","BenchmarkResult","BenchmarkSuite","ComparisonResult","DatasetInfo","SuiteMetadata","SystemInfo"]};

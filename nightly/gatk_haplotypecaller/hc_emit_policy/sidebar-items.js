@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["explain_strict_java_emit_gates","genotype_from_best_index","passes_emit_for_genotyped_call","passes_strict_java_emit_for_genotyped_call","vcf_emit_key"]};

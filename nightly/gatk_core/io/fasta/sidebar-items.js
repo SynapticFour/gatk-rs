@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["FastaIndex","FastaIndexEntry","FastaIterator","FastaMetadata","FastaReader","FastaSequence","FastaWriter"]};

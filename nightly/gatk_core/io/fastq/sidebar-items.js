@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["QualityFormat"],"struct":["FastqIterator","FastqMetadata","FastqQualityStats","FastqRead","FastqReader","FastqWriter"]};

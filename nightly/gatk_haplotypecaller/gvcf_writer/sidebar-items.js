@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["GATK_HC_DEFAULT_GQB"],"fn":["dump_gvcf_writer_state_tsv","gatk_hc_gvcf_header_lines"],"struct":["GvcfWriter","GvcfWriterConfig"]};
