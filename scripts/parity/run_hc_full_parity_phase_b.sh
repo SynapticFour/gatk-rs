@@ -13,7 +13,9 @@ fi
 
 echo "[hc-full-parity-phase-b] cargo test -p gatk-haplotypecaller --features parity_harness (skip unrelated Phase E assembler unit test)"
 # Integration tests (e.g. p12_java_site_trace) need the pub P12 / discovery surface.
-cargo test -p gatk-haplotypecaller --features parity_harness -- --skip p5_case1_assembler_emits_reference_haplotype --skip pairhmm_likelihood_vector_matches_frozen_java_dump_fixture
+# Serialize linking: parallel --all-features-style test bins bus-error ld on GH runners.
+export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
+cargo test -j 1 -p gatk-haplotypecaller --features parity_harness -- --skip p5_case1_assembler_emits_reference_haplotype --skip pairhmm_likelihood_vector_matches_frozen_java_dump_fixture
 
 for gate in \
   run_hc_full_parity_b1_read_shards.sh \

@@ -162,7 +162,9 @@ jobs:
       run: ./scripts/coverage.sh gate-minimum
 
     - name: Generate LCOV report
-      run: cargo llvm-cov --package gatk-core --tests --lcov --output-path coverage/lcov.info
+      run: |
+        mkdir -p coverage
+        cargo llvm-cov --package gatk-core --tests --lcov --output-path coverage/lcov.info
 
     - name: Upload coverage report
       uses: actions/upload-artifact@v7

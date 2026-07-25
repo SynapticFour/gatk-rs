@@ -130,7 +130,9 @@ jobs:
       run: ./scripts/coverage.sh gate-minimum
 
     - name: Generate LCOV report
-      run: cargo llvm-cov --package gatk-core --tests --lcov --output-path coverage/lcov.info
+      run: |
+        mkdir -p coverage
+        cargo llvm-cov --package gatk-core --tests --lcov --output-path coverage/lcov.info
 
     - name: Upload to Codecov
       uses: codecov/codecov-action@v5
