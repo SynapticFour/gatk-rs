@@ -222,7 +222,7 @@ jobs:
     - name: Compare with baseline
       run: |
         # Download previous benchmark results
-        curl -L -o baseline.json https://github.com/gatk-rs/gatk-rs/releases/latest/download/benchmark-results.json || echo "No baseline found"
+        curl -L -o baseline.json https://github.com/SynapticFour/gatk-rs/releases/latest/download/benchmark-results.json || echo "No baseline found"
         
         # Run current benchmarks
         cargo bench --workspace -- --output-format json > current.json
