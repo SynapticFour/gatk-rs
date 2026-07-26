@@ -1,4 +1,3 @@
-use gatk_haplotypecaller::genome_loc::GenomePosition;
 use gatk_haplotypecaller::{
     build_gvcf_blocks, gvcf_block_to_record_fields, GvcfBlockRecordFields, ReferenceConfidenceLocus,
 };

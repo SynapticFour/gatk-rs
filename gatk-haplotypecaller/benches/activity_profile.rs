@@ -3,10 +3,11 @@
 
 use std::time::Duration;
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use gatk_haplotypecaller::{
     ActivityProfileState, BandPassActivityProfile, BandPassActivityProfileParams, PositiveSigma,
 };
+use std::hint::black_box;
 
 fn smoke_criterion() -> Criterion {
     // Foundation `--quick` still pays Criterion default warm-up; keep wall short after compile.

@@ -1,11 +1,12 @@
 //! BAM/SAM benchmarks for GATK-RS
 //! Performance benchmarks to ensure BAM/SAM parsers meet GATK standards.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use gatk_core::io::*;
 use gatk_core::tests::*;
 use std::time::Duration;
 
+use std::hint::black_box;
 fn benchmark_sam_parsing(c: &mut Criterion) {
     let test_data = TestData::new();
     let sizes = vec![100, 1000, 10000];

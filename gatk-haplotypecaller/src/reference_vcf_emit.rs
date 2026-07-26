@@ -1087,7 +1087,6 @@ pub fn active_region_reference_confidence_loci(
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
-    use crate::assembly_region_iterator::AssemblyRegion;
     use crate::genome_loc::GenomePosition;
 
     #[test]

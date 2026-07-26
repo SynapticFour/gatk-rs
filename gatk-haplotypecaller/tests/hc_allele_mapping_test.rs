@@ -217,7 +217,7 @@ fn hap_base_reconciles_trim_pad_with_full_pad_alignment_start() {
     // Caller passes full pad — same answer.
     assert_eq!(hap_base_at_ref_locus(&hap, full_pad, snp_loc), Some(b'A'));
 
-    let mut ref_bases = vec![b'A'; 80];
+    let ref_bases = vec![b'A'; 80];
     let mut ref_hap = Haplotype::new(ref_bases.clone(), true);
     let mut ref_cigar = Cigar::new();
     ref_cigar.push(80, CigarOperator::Match);
