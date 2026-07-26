@@ -555,6 +555,9 @@ impl FastqRead {
             .rposition(|&q| q >= min_quality)
             .map(|pos| pos + 1)
             .unwrap_or(self.quality.len());
+        // Clamp to both streams so mismatched synthetic/bench inputs cannot panic.
+        let end = end.min(self.sequence.len()).min(self.quality.len());
+        let start = start.min(end);
 
         FastqRead {
             header: self.header.clone(),

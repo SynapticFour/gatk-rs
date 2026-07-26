@@ -15,7 +15,7 @@ interval="${PARITY_HC_REALWORLD_INTERVAL:-chrLive:1-63}"
 out_vcf="${repo_root}/parity/reports/hc-realworld-out.vcf"
 golden_default="${repo_root}/parity/fixtures/hc-full-parity/e2e-real/expected/p11_java_positive_chrlive_golden.vcf"
 golden="${PARITY_HC_REALWORLD_GOLDEN_VCF:-${golden_default}}"
-java_out="${repo_root}/parity/reports/hc-realworld-java.vcf}"
+java_out="${repo_root}/parity/reports/hc-realworld-java.vcf"
 strict="${PARITY_HC_REALWORLD_STRICT:-0}"
 
 if [[ "${strict}" == "1" && ! -f "${golden}" ]]; then
