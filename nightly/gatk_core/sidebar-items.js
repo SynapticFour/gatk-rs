@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"macro":[["bench_test",1],["prop_test",1]],"mod":["benchmarking","io","math","memory","parallel","reference","types","utils","variant_filtration"]};
+window.SIDEBAR_ITEMS = {"macro":[["bench_test",1],["prop_test",1]],"mod":["benchmarking","interval","io","math","memory","parallel","reference","types","utils","variant_filtration"]};

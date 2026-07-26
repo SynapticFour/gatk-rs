@@ -110,93 +110,97 @@
 <a href=#110 id=110 data-nosnippet>110</a>        <span class="kw-2">&amp;</span>assemble_args,
 <a href=#111 id=111 data-nosnippet>111</a>    )<span class="question-mark">?</span>;
 <a href=#112 id=112 data-nosnippet>112</a>    <span class="comment">// Java `emitAssemblyRegionHaplotypesFromMaterial`: `isVariationPresent` is still false
-<a href=#113 id=113 data-nosnippet>113</a>    // after `runLocalAssembly` (SeqGraph `findBestPaths` uses `add(h)` only). Kmer metadata is 0.
-<a href=#114 id=114 data-nosnippet>114</a>    </span>write_region_meta(out, region, <span class="string">"just_assembled_reference"</span>, <span class="number">0</span>)<span class="question-mark">?</span>;
-<a href=#115 id=115 data-nosnippet>115</a>    <span class="kw">let </span>ref_bases = reference.bases.as_bytes();
-<a href=#116 id=116 data-nosnippet>116</a>    <span class="kw">let </span>haplotypes = <span class="kw">if </span>assembly_set.haplotypes.len() == <span class="number">1
-<a href=#117 id=117 data-nosnippet>117</a>        </span>&amp;&amp; assembly_set.haplotypes[<span class="number">0</span>].is_reference
-<a href=#118 id=118 data-nosnippet>118</a>        &amp;&amp; assembly_set.haplotypes[<span class="number">0</span>].bases.as_slice() != ref_bases
-<a href=#119 id=119 data-nosnippet>119</a>    {
-<a href=#120 id=120 data-nosnippet>120</a>        <span class="comment">// Cyclic k=85 graphs can mark a stitched ref path `is_reference` with non-ref-length bases.
-<a href=#121 id=121 data-nosnippet>121</a>        </span><span class="macro">vec!</span>[reference_haplotype_for_assembly_region(
-<a href=#122 id=122 data-nosnippet>122</a>            <span class="kw-2">&amp;</span>reference, region, <span class="kw-2">&amp;</span>dict,
-<a href=#123 id=123 data-nosnippet>123</a>        )]
-<a href=#124 id=124 data-nosnippet>124</a>    } <span class="kw">else </span>{
-<a href=#125 id=125 data-nosnippet>125</a>        assembly_set.haplotypes
-<a href=#126 id=126 data-nosnippet>126</a>    };
-<a href=#127 id=127 data-nosnippet>127</a>    write_haplotype_rows_with_ref_recovery(<span class="kw-2">&amp;</span>haplotypes, ref_bases, <span class="kw-2">&amp;</span>reference.bases, out)
-<a href=#128 id=128 data-nosnippet>128</a>}
-<a href=#129 id=129 data-nosnippet>129</a>
-<a href=#130 id=130 data-nosnippet>130</a><span class="doccomment">/// Per-kmer SeqGraph probe for the first active region (assembly divergence diagnostics).
-<a href=#131 id=131 data-nosnippet>131</a></span><span class="kw">pub fn </span>dump_assembly_region_kmer_probe_tsv(
-<a href=#132 id=132 data-nosnippet>132</a>    ref_fasta: <span class="kw-2">&amp;</span>Path,
-<a href=#133 id=133 data-nosnippet>133</a>    bam_path: <span class="kw-2">&amp;</span>Path,
-<a href=#134 id=134 data-nosnippet>134</a>    interval_cli: <span class="kw-2">&amp;</span>str,
-<a href=#135 id=135 data-nosnippet>135</a>    padding: u64,
-<a href=#136 id=136 data-nosnippet>136</a>    out: <span class="kw-2">&amp;mut </span><span class="kw">impl </span>Write,
-<a href=#137 id=137 data-nosnippet>137</a>) -&gt; GatkResult&lt;()&gt; {
-<a href=#138 id=138 data-nosnippet>138</a>    <span class="kw">let </span>dict = SequenceDictionary::from_fasta_path(ref_fasta)<span class="question-mark">?</span>;
-<a href=#139 id=139 data-nosnippet>139</a>    <span class="kw">let </span>specs = parse_intervals_cli_string(<span class="kw-2">&amp;</span>dict, interval_cli)<span class="question-mark">?</span>;
-<a href=#140 id=140 data-nosnippet>140</a>    <span class="kw">let </span>filters = ReadFilterParams::gatk_standard_hc();
-<a href=#141 id=141 data-nosnippet>141</a>    <span class="kw">let </span>cfg = WalkerTraversalConfig::gatk_haplotype_caller_production(padding);
-<a href=#142 id=142 data-nosnippet>142</a>    <span class="kw">let </span>walk = traverse_assembly_region_walker(<span class="kw-2">&amp;</span>dict, <span class="kw-2">&amp;</span>specs, ref_fasta, bam_path, <span class="kw-2">&amp;</span>filters, <span class="kw-2">&amp;</span>cfg)<span class="question-mark">?</span>;
-<a href=#143 id=143 data-nosnippet>143</a>    <span class="kw">let </span>regions = flatten_assembly_regions(<span class="kw-2">&amp;</span>walk);
-<a href=#144 id=144 data-nosnippet>144</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_cache = ReferenceWindowCache::new(ref_fasta.to_path_buf(), <span class="number">4</span>);
-<a href=#145 id=145 data-nosnippet>145</a>
-<a href=#146 id=146 data-nosnippet>146</a>    <span class="kw">let </span>region = select_region_for_asm_dump(<span class="kw-2">&amp;</span>regions)
-<a href=#147 id=147 data-nosnippet>147</a>        .ok_or_else(|| GatkError::argument(<span class="string">"no assembly region with reads in interval"</span>))<span class="question-mark">?</span>;
-<a href=#148 id=148 data-nosnippet>148</a>    <span class="kw">if </span>!<span class="macro">matches!</span>(
-<a href=#149 id=149 data-nosnippet>149</a>        call_disposition(region),
-<a href=#150 id=150 data-nosnippet>150</a>        AssemblyRegionCallDisposition::ActiveFull
-<a href=#151 id=151 data-nosnippet>151</a>    ) {
-<a href=#152 id=152 data-nosnippet>152</a>        <span class="macro">writeln!</span>(out, <span class="string">"warn\tregion_inactive_kmer_probe_on_inactive_reads"</span>)
-<a href=#153 id=153 data-nosnippet>153</a>            .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write tsv: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#154 id=154 data-nosnippet>154</a>    }
-<a href=#155 id=155 data-nosnippet>155</a>
-<a href=#156 id=156 data-nosnippet>156</a>    <span class="kw">let </span>reference = assembly_reference_read(<span class="kw-2">&amp;</span>dict, <span class="kw-2">&amp;mut </span>ref_cache, region)<span class="question-mark">?</span>;
-<a href=#157 id=157 data-nosnippet>157</a>    <span class="kw">let </span>assemble_args = AssembleReadsArgs::default();
-<a href=#158 id=158 data-nosnippet>158</a>    <span class="kw">let </span>reads = assembly_reads_for_java_materialize_dump(<span class="kw-2">&amp;</span>region.reads);
+<a href=#113 id=113 data-nosnippet>113</a>    // after `runLocalAssembly` (SeqGraph `findBestPaths` uses `add(h)` only — scores stay 0).
+<a href=#114 id=114 data-nosnippet>114</a>    // Kmer metadata is 0. Match frozen java_dumps/e2e/*.tsv (scores always 0).
+<a href=#115 id=115 data-nosnippet>115</a>    </span>write_region_meta(out, region, <span class="string">"just_assembled_reference"</span>, <span class="number">0</span>)<span class="question-mark">?</span>;
+<a href=#116 id=116 data-nosnippet>116</a>    <span class="kw">let </span>ref_bases = reference.bases.as_bytes();
+<a href=#117 id=117 data-nosnippet>117</a>    <span class="kw">let </span><span class="kw-2">mut </span>haplotypes = <span class="kw">if </span>assembly_set.haplotypes.len() == <span class="number">1
+<a href=#118 id=118 data-nosnippet>118</a>        </span>&amp;&amp; assembly_set.haplotypes[<span class="number">0</span>].is_reference
+<a href=#119 id=119 data-nosnippet>119</a>        &amp;&amp; assembly_set.haplotypes[<span class="number">0</span>].bases.as_slice() != ref_bases
+<a href=#120 id=120 data-nosnippet>120</a>    {
+<a href=#121 id=121 data-nosnippet>121</a>        <span class="comment">// Cyclic k=85 graphs can mark a stitched ref path `is_reference` with non-ref-length bases.
+<a href=#122 id=122 data-nosnippet>122</a>        </span><span class="macro">vec!</span>[reference_haplotype_for_assembly_region(
+<a href=#123 id=123 data-nosnippet>123</a>            <span class="kw-2">&amp;</span>reference, region, <span class="kw-2">&amp;</span>dict,
+<a href=#124 id=124 data-nosnippet>124</a>        )]
+<a href=#125 id=125 data-nosnippet>125</a>    } <span class="kw">else </span>{
+<a href=#126 id=126 data-nosnippet>126</a>        assembly_set.haplotypes
+<a href=#127 id=127 data-nosnippet>127</a>    };
+<a href=#128 id=128 data-nosnippet>128</a>    <span class="kw">for </span>h <span class="kw">in </span><span class="kw-2">&amp;mut </span>haplotypes {
+<a href=#129 id=129 data-nosnippet>129</a>        h.score = <span class="number">0.0</span>;
+<a href=#130 id=130 data-nosnippet>130</a>    }
+<a href=#131 id=131 data-nosnippet>131</a>    write_haplotype_rows_with_ref_recovery(<span class="kw-2">&amp;</span>haplotypes, ref_bases, <span class="kw-2">&amp;</span>reference.bases, out)
+<a href=#132 id=132 data-nosnippet>132</a>}
+<a href=#133 id=133 data-nosnippet>133</a>
+<a href=#134 id=134 data-nosnippet>134</a><span class="doccomment">/// Per-kmer SeqGraph probe for the first active region (assembly divergence diagnostics).
+<a href=#135 id=135 data-nosnippet>135</a></span><span class="kw">pub fn </span>dump_assembly_region_kmer_probe_tsv(
+<a href=#136 id=136 data-nosnippet>136</a>    ref_fasta: <span class="kw-2">&amp;</span>Path,
+<a href=#137 id=137 data-nosnippet>137</a>    bam_path: <span class="kw-2">&amp;</span>Path,
+<a href=#138 id=138 data-nosnippet>138</a>    interval_cli: <span class="kw-2">&amp;</span>str,
+<a href=#139 id=139 data-nosnippet>139</a>    padding: u64,
+<a href=#140 id=140 data-nosnippet>140</a>    out: <span class="kw-2">&amp;mut </span><span class="kw">impl </span>Write,
+<a href=#141 id=141 data-nosnippet>141</a>) -&gt; GatkResult&lt;()&gt; {
+<a href=#142 id=142 data-nosnippet>142</a>    <span class="kw">let </span>dict = SequenceDictionary::from_fasta_path(ref_fasta)<span class="question-mark">?</span>;
+<a href=#143 id=143 data-nosnippet>143</a>    <span class="kw">let </span>specs = parse_intervals_cli_string(<span class="kw-2">&amp;</span>dict, interval_cli)<span class="question-mark">?</span>;
+<a href=#144 id=144 data-nosnippet>144</a>    <span class="kw">let </span>filters = ReadFilterParams::gatk_standard_hc();
+<a href=#145 id=145 data-nosnippet>145</a>    <span class="kw">let </span>cfg = WalkerTraversalConfig::gatk_haplotype_caller_production(padding);
+<a href=#146 id=146 data-nosnippet>146</a>    <span class="kw">let </span>walk = traverse_assembly_region_walker(<span class="kw-2">&amp;</span>dict, <span class="kw-2">&amp;</span>specs, ref_fasta, bam_path, <span class="kw-2">&amp;</span>filters, <span class="kw-2">&amp;</span>cfg)<span class="question-mark">?</span>;
+<a href=#147 id=147 data-nosnippet>147</a>    <span class="kw">let </span>regions = flatten_assembly_regions(<span class="kw-2">&amp;</span>walk);
+<a href=#148 id=148 data-nosnippet>148</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_cache = ReferenceWindowCache::new(ref_fasta.to_path_buf(), <span class="number">4</span>);
+<a href=#149 id=149 data-nosnippet>149</a>
+<a href=#150 id=150 data-nosnippet>150</a>    <span class="kw">let </span>region = select_region_for_asm_dump(<span class="kw-2">&amp;</span>regions)
+<a href=#151 id=151 data-nosnippet>151</a>        .ok_or_else(|| GatkError::argument(<span class="string">"no assembly region with reads in interval"</span>))<span class="question-mark">?</span>;
+<a href=#152 id=152 data-nosnippet>152</a>    <span class="kw">if </span>!<span class="macro">matches!</span>(
+<a href=#153 id=153 data-nosnippet>153</a>        call_disposition(region),
+<a href=#154 id=154 data-nosnippet>154</a>        AssemblyRegionCallDisposition::ActiveFull
+<a href=#155 id=155 data-nosnippet>155</a>    ) {
+<a href=#156 id=156 data-nosnippet>156</a>        <span class="macro">writeln!</span>(out, <span class="string">"warn\tregion_inactive_kmer_probe_on_inactive_reads"</span>)
+<a href=#157 id=157 data-nosnippet>157</a>            .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write tsv: {e}"</span>)))<span class="question-mark">?</span>;
+<a href=#158 id=158 data-nosnippet>158</a>    }
 <a href=#159 id=159 data-nosnippet>159</a>
-<a href=#160 id=160 data-nosnippet>160</a>    <span class="macro">writeln!</span>(out, <span class="string">"region_contig\t{}"</span>, region.contig)
-<a href=#161 id=161 data-nosnippet>161</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write tsv: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#162 id=162 data-nosnippet>162</a>    <span class="macro">writeln!</span>(out, <span class="string">"region_start\t{}"</span>, region.start.get())
-<a href=#163 id=163 data-nosnippet>163</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write tsv: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#164 id=164 data-nosnippet>164</a>    <span class="macro">writeln!</span>(out, <span class="string">"region_end\t{}"</span>, region.end.get())
+<a href=#160 id=160 data-nosnippet>160</a>    <span class="kw">let </span>reference = assembly_reference_read(<span class="kw-2">&amp;</span>dict, <span class="kw-2">&amp;mut </span>ref_cache, region)<span class="question-mark">?</span>;
+<a href=#161 id=161 data-nosnippet>161</a>    <span class="kw">let </span>assemble_args = AssembleReadsArgs::default();
+<a href=#162 id=162 data-nosnippet>162</a>    <span class="kw">let </span>reads = assembly_reads_for_java_materialize_dump(<span class="kw-2">&amp;</span>region.reads);
+<a href=#163 id=163 data-nosnippet>163</a>
+<a href=#164 id=164 data-nosnippet>164</a>    <span class="macro">writeln!</span>(out, <span class="string">"region_contig\t{}"</span>, region.contig)
 <a href=#165 id=165 data-nosnippet>165</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write tsv: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#166 id=166 data-nosnippet>166</a>    <span class="macro">writeln!</span>(out, <span class="string">"padded_ref_len\t{}"</span>, reference.bases.len())
+<a href=#166 id=166 data-nosnippet>166</a>    <span class="macro">writeln!</span>(out, <span class="string">"region_start\t{}"</span>, region.start.get())
 <a href=#167 id=167 data-nosnippet>167</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write tsv: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#168 id=168 data-nosnippet>168</a>    <span class="macro">writeln!</span>(out, <span class="string">"read_count\t{}"</span>, reads.len())
+<a href=#168 id=168 data-nosnippet>168</a>    <span class="macro">writeln!</span>(out, <span class="string">"region_end\t{}"</span>, region.end.get())
 <a href=#169 id=169 data-nosnippet>169</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write tsv: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#170 id=170 data-nosnippet>170</a>
-<a href=#171 id=171 data-nosnippet>171</a>    <span class="kw">let </span>rows = probe_seq_graph_kmer_attempts(<span class="kw-2">&amp;</span>reference, <span class="kw-2">&amp;</span>reads, <span class="kw-2">&amp;</span>assemble_args.assembler)<span class="question-mark">?</span>;
-<a href=#172 id=172 data-nosnippet>172</a>    <span class="macro">writeln!</span>(
-<a href=#173 id=173 data-nosnippet>173</a>        out,
-<a href=#174 id=174 data-nosnippet>174</a>        <span class="string">"phase\tkmer\tallow_low_complexity\tallow_non_unique\toutcome\tthread_nodes\tthread_edges\tcleanup_status\thas_ref_source\thas_ref_sink\tref_path_matches\tkbest_paths\textracted_haps\tnon_ref_haps\tpath_bases_len\tpath_eq_ref"
-<a href=#175 id=175 data-nosnippet>175</a>    </span>)
-<a href=#176 id=176 data-nosnippet>176</a>    .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write tsv: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#177 id=177 data-nosnippet>177</a>    <span class="kw">for </span>r <span class="kw">in </span><span class="kw-2">&amp;</span>rows {
-<a href=#178 id=178 data-nosnippet>178</a>        <span class="macro">writeln!</span>(
-<a href=#179 id=179 data-nosnippet>179</a>            out,
-<a href=#180 id=180 data-nosnippet>180</a>            <span class="string">"{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}"</span>,
-<a href=#181 id=181 data-nosnippet>181</a>            r.phase,
-<a href=#182 id=182 data-nosnippet>182</a>            r.kmer_size,
-<a href=#183 id=183 data-nosnippet>183</a>            r.allow_low_complexity,
-<a href=#184 id=184 data-nosnippet>184</a>            r.allow_non_unique_ref,
-<a href=#185 id=185 data-nosnippet>185</a>            r.outcome,
-<a href=#186 id=186 data-nosnippet>186</a>            r.thread_nodes,
-<a href=#187 id=187 data-nosnippet>187</a>            r.thread_edges,
-<a href=#188 id=188 data-nosnippet>188</a>            r.cleanup_status,
-<a href=#189 id=189 data-nosnippet>189</a>            r.has_ref_source,
-<a href=#190 id=190 data-nosnippet>190</a>            r.has_ref_sink,
-<a href=#191 id=191 data-nosnippet>191</a>            r.ref_path_matches,
-<a href=#192 id=192 data-nosnippet>192</a>            r.kbest_paths,
-<a href=#193 id=193 data-nosnippet>193</a>            r.extracted_haps,
-<a href=#194 id=194 data-nosnippet>194</a>            r.non_ref_haps,
-<a href=#195 id=195 data-nosnippet>195</a>            r.path_bases_len,
-<a href=#196 id=196 data-nosnippet>196</a>            r.path_eq_ref_bases,
-<a href=#197 id=197 data-nosnippet>197</a>        )
-<a href=#198 id=198 data-nosnippet>198</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write tsv: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#199 id=199 data-nosnippet>199</a>    }
-<a href=#200 id=200 data-nosnippet>200</a>    <span class="prelude-val">Ok</span>(())
-<a href=#201 id=201 data-nosnippet>201</a>}
+<a href=#170 id=170 data-nosnippet>170</a>    <span class="macro">writeln!</span>(out, <span class="string">"padded_ref_len\t{}"</span>, reference.bases.len())
+<a href=#171 id=171 data-nosnippet>171</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write tsv: {e}"</span>)))<span class="question-mark">?</span>;
+<a href=#172 id=172 data-nosnippet>172</a>    <span class="macro">writeln!</span>(out, <span class="string">"read_count\t{}"</span>, reads.len())
+<a href=#173 id=173 data-nosnippet>173</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write tsv: {e}"</span>)))<span class="question-mark">?</span>;
+<a href=#174 id=174 data-nosnippet>174</a>
+<a href=#175 id=175 data-nosnippet>175</a>    <span class="kw">let </span>rows = probe_seq_graph_kmer_attempts(<span class="kw-2">&amp;</span>reference, <span class="kw-2">&amp;</span>reads, <span class="kw-2">&amp;</span>assemble_args.assembler)<span class="question-mark">?</span>;
+<a href=#176 id=176 data-nosnippet>176</a>    <span class="macro">writeln!</span>(
+<a href=#177 id=177 data-nosnippet>177</a>        out,
+<a href=#178 id=178 data-nosnippet>178</a>        <span class="string">"phase\tkmer\tallow_low_complexity\tallow_non_unique\toutcome\tthread_nodes\tthread_edges\tcleanup_status\thas_ref_source\thas_ref_sink\tref_path_matches\tkbest_paths\textracted_haps\tnon_ref_haps\tpath_bases_len\tpath_eq_ref"
+<a href=#179 id=179 data-nosnippet>179</a>    </span>)
+<a href=#180 id=180 data-nosnippet>180</a>    .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write tsv: {e}"</span>)))<span class="question-mark">?</span>;
+<a href=#181 id=181 data-nosnippet>181</a>    <span class="kw">for </span>r <span class="kw">in </span><span class="kw-2">&amp;</span>rows {
+<a href=#182 id=182 data-nosnippet>182</a>        <span class="macro">writeln!</span>(
+<a href=#183 id=183 data-nosnippet>183</a>            out,
+<a href=#184 id=184 data-nosnippet>184</a>            <span class="string">"{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}"</span>,
+<a href=#185 id=185 data-nosnippet>185</a>            r.phase,
+<a href=#186 id=186 data-nosnippet>186</a>            r.kmer_size,
+<a href=#187 id=187 data-nosnippet>187</a>            r.allow_low_complexity,
+<a href=#188 id=188 data-nosnippet>188</a>            r.allow_non_unique_ref,
+<a href=#189 id=189 data-nosnippet>189</a>            r.outcome,
+<a href=#190 id=190 data-nosnippet>190</a>            r.thread_nodes,
+<a href=#191 id=191 data-nosnippet>191</a>            r.thread_edges,
+<a href=#192 id=192 data-nosnippet>192</a>            r.cleanup_status,
+<a href=#193 id=193 data-nosnippet>193</a>            r.has_ref_source,
+<a href=#194 id=194 data-nosnippet>194</a>            r.has_ref_sink,
+<a href=#195 id=195 data-nosnippet>195</a>            r.ref_path_matches,
+<a href=#196 id=196 data-nosnippet>196</a>            r.kbest_paths,
+<a href=#197 id=197 data-nosnippet>197</a>            r.extracted_haps,
+<a href=#198 id=198 data-nosnippet>198</a>            r.non_ref_haps,
+<a href=#199 id=199 data-nosnippet>199</a>            r.path_bases_len,
+<a href=#200 id=200 data-nosnippet>200</a>            r.path_eq_ref_bases,
+<a href=#201 id=201 data-nosnippet>201</a>        )
+<a href=#202 id=202 data-nosnippet>202</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write tsv: {e}"</span>)))<span class="question-mark">?</span>;
+<a href=#203 id=203 data-nosnippet>203</a>    }
+<a href=#204 id=204 data-nosnippet>204</a>    <span class="prelude-val">Ok</span>(())
+<a href=#205 id=205 data-nosnippet>205</a>}
 </code></pre></div></section></main></body></html>

@@ -6,7 +6,7 @@
 <a href=#6 id=6 data-nosnippet>6</a>
 <a href=#7 id=7 data-nosnippet>7</a><span class="doccomment">/// Sequence-labeled vertex after k-mer graph → sequence graph conversion.
 <a href=#8 id=8 data-nosnippet>8</a>/// # Invariants
-<a href=#9 id=9 data-nosnippet>9</a>/// `id` is dense index into owning [`SeqGraph::vertices`].
+<a href=#9 id=9 data-nosnippet>9</a>/// `id` is dense index into the owning sequence graph vertex list.
 <a href=#10 id=10 data-nosnippet>10</a>/// `sequence` holds vertex bases (full k-mer at source, suffix byte at non-source joins).
 <a href=#11 id=11 data-nosnippet>11</a>/// # Ownership
 <a href=#12 id=12 data-nosnippet>12</a>/// Owns base sequence bytes; graph owns vertex vector.
@@ -26,7 +26,7 @@
 <a href=#26 id=26 data-nosnippet>26</a>/// # Invariants
 <a href=#27 id=27 data-nosnippet>27</a>/// `from` / `to` index valid vertices; `is_ref` marks reference-spine edges.
 <a href=#28 id=28 data-nosnippet>28</a>/// # Ownership
-<a href=#29 id=29 data-nosnippet>29</a>/// [`Copy`] edge record in [`SeqGraph::edges`].
+<a href=#29 id=29 data-nosnippet>29</a>/// [`Copy`] edge record in the owning sequence graph edge list.
 <a href=#30 id=30 data-nosnippet>30</a>/// # Mutation
 <a href=#31 id=31 data-nosnippet>31</a>/// Support may increase on merge; edges removed during cleanup passes.
 <a href=#32 id=32 data-nosnippet>32</a>/// # Biological assumptions

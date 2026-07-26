@@ -17,7 +17,7 @@
 <a href=#17 id=17 data-nosnippet>17</a>    FilterSpec, VariantFiltrationArgs,
 <a href=#18 id=18 data-nosnippet>18</a>};
 <a href=#19 id=19 data-nosnippet>19</a><span class="kw">use </span>gatk_haplotypecaller::{
-<a href=#20 id=20 data-nosnippet>20</a>    dump_smoothed_activity_tsv, init_worker_threads, passes_hc_read_filters_with_header,
+<a href=#20 id=20 data-nosnippet>20</a>    dump_smoothed_activity_tsv, init_worker_threads, passes_printreads_parity_filters,
 <a href=#21 id=21 data-nosnippet>21</a>    run_combine_gvcfs, run_genotype_gvcfs, run_haplotype_caller, CombineGvcfsArgs,
 <a href=#22 id=22 data-nosnippet>22</a>    GenotypeGvcfsArgs, ReadFilterParams, ReadHeaderSemantics, DEFAULT_STAND_CALL_CONF,
 <a href=#23 id=23 data-nosnippet>23</a>};
@@ -283,7 +283,7 @@
 <a href=#283 id=283 data-nosnippet>283</a>        </span><span class="attr">#[arg(short = <span class="string">'L'</span>, long)]
 <a href=#284 id=284 data-nosnippet>284</a>        </span>interval: <span class="prelude-ty">Option</span>&lt;String&gt;,
 <a href=#285 id=285 data-nosnippet>285</a>
-<a href=#286 id=286 data-nosnippet>286</a>        <span class="doccomment">/// Minimum mapping quality (MQ 255 passes as unknown, matching HC semantics)
+<a href=#286 id=286 data-nosnippet>286</a>        <span class="doccomment">/// Minimum mapping quality (MQ 255 passes: PrintReads MappingQualityReadFilter, not HC Available)
 <a href=#287 id=287 data-nosnippet>287</a>        </span><span class="attr">#[arg(long, default_value = <span class="string">"20"</span>)]
 <a href=#288 id=288 data-nosnippet>288</a>        </span>min_mapping_quality: u8,
 <a href=#289 id=289 data-nosnippet>289</a>
@@ -693,334 +693,329 @@
 <a href=#693 id=693 data-nosnippet>693</a>                <span class="macro">info!</span>(<span class="string">"Starting FilterReads"</span>);
 <a href=#694 id=694 data-nosnippet>694</a>                <span class="macro">info!</span>(<span class="string">"Input: {}"</span>, input);
 <a href=#695 id=695 data-nosnippet>695</a>                <span class="macro">info!</span>(<span class="string">"Output: {}"</span>, output);
-<a href=#696 id=696 data-nosnippet>696</a>                <span class="kw">let </span>params = ReadFilterParams {
-<a href=#697 id=697 data-nosnippet>697</a>                    min_mapping_quality,
-<a href=#698 id=698 data-nosnippet>698</a>                    exclude_duplicates: !include_duplicates,
-<a href=#699 id=699 data-nosnippet>699</a>                    exclude_secondary: <span class="bool-val">true</span>,
-<a href=#700 id=700 data-nosnippet>700</a>                    exclude_supplementary: <span class="bool-val">true</span>,
+<a href=#696 id=696 data-nosnippet>696</a>                <span class="kw">let _ </span>= include_duplicates; <span class="comment">// reserved; PrintReads parity always drops duplicates
+<a href=#697 id=697 data-nosnippet>697</a>                </span><span class="kw">let </span>out_format = <span class="kw">if </span>output.to_ascii_lowercase().ends_with(<span class="string">".sam"</span>) {
+<a href=#698 id=698 data-nosnippet>698</a>                    bam::Format::Sam
+<a href=#699 id=699 data-nosnippet>699</a>                } <span class="kw">else </span>{
+<a href=#700 id=700 data-nosnippet>700</a>                    bam::Format::Bam
 <a href=#701 id=701 data-nosnippet>701</a>                };
-<a href=#702 id=702 data-nosnippet>702</a>                <span class="kw">let </span>out_format = <span class="kw">if </span>output.to_ascii_lowercase().ends_with(<span class="string">".sam"</span>) {
-<a href=#703 id=703 data-nosnippet>703</a>                    bam::Format::Sam
-<a href=#704 id=704 data-nosnippet>704</a>                } <span class="kw">else </span>{
-<a href=#705 id=705 data-nosnippet>705</a>                    bam::Format::Bam
-<a href=#706 id=706 data-nosnippet>706</a>                };
-<a href=#707 id=707 data-nosnippet>707</a>                <span class="kw">let </span><span class="kw-2">mut </span>kept = <span class="number">0usize</span>;
-<a href=#708 id=708 data-nosnippet>708</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(reg) = interval {
-<a href=#709 id=709 data-nosnippet>709</a>                    <span class="kw">let </span>(contig, start_1, end_1) = parse_single_region(<span class="kw-2">&amp;</span>reg)<span class="question-mark">?</span>;
-<a href=#710 id=710 data-nosnippet>710</a>                    <span class="kw">let </span><span class="kw-2">mut </span>reader = bam::IndexedReader::from_path(<span class="kw-2">&amp;</span>input)
-<a href=#711 id=711 data-nosnippet>711</a>                        .map_err(|e| <span class="macro">anyhow::anyhow!</span>(<span class="string">"Indexed BAM required for -L: {e}"</span>))<span class="question-mark">?</span>;
-<a href=#712 id=712 data-nosnippet>712</a>                    <span class="kw">let </span>header = bam::Header::from_template(reader.header());
-<a href=#713 id=713 data-nosnippet>713</a>                    <span class="kw">let </span>tid = reader.header().tid(contig.as_bytes()).ok_or_else(|| {
-<a href=#714 id=714 data-nosnippet>714</a>                        <span class="macro">anyhow::anyhow!</span>(<span class="string">"Contig {contig} not found in BAM header"</span>)
-<a href=#715 id=715 data-nosnippet>715</a>                    })<span class="question-mark">?</span>;
-<a href=#716 id=716 data-nosnippet>716</a>                    <span class="kw">let </span>start0 = start_1 - <span class="number">1</span>;
-<a href=#717 id=717 data-nosnippet>717</a>                    <span class="kw">let </span>end0 = end_1;
-<a href=#718 id=718 data-nosnippet>718</a>                    reader
-<a href=#719 id=719 data-nosnippet>719</a>                        .fetch((tid, start0 <span class="kw">as </span>i64, end0 <span class="kw">as </span>i64))
-<a href=#720 id=720 data-nosnippet>720</a>                        .map_err(|e| <span class="macro">anyhow::anyhow!</span>(<span class="string">"fetch failed: {e}"</span>))<span class="question-mark">?</span>;
-<a href=#721 id=721 data-nosnippet>721</a>                    <span class="kw">let </span>hdr_view = reader.header().clone();
-<a href=#722 id=722 data-nosnippet>722</a>                    <span class="kw">let </span><span class="kw-2">mut </span>writer =
-<a href=#723 id=723 data-nosnippet>723</a>                        bam::Writer::from_path(<span class="kw-2">&amp;</span>output, <span class="kw-2">&amp;</span>header, out_format).map_err(|e| {
-<a href=#724 id=724 data-nosnippet>724</a>                            <span class="macro">anyhow::anyhow!</span>(<span class="string">"Failed to create output alignment file: {e}"</span>)
-<a href=#725 id=725 data-nosnippet>725</a>                        })<span class="question-mark">?</span>;
-<a href=#726 id=726 data-nosnippet>726</a>                    <span class="kw">for </span>rec <span class="kw">in </span>reader.records() {
-<a href=#727 id=727 data-nosnippet>727</a>                        <span class="kw">let </span>rec =
-<a href=#728 id=728 data-nosnippet>728</a>                            rec.map_err(|e| <span class="macro">anyhow::anyhow!</span>(<span class="string">"Failed reading input record: {e}"</span>))<span class="question-mark">?</span>;
-<a href=#729 id=729 data-nosnippet>729</a>                        <span class="kw">if </span>passes_hc_read_filters_with_header(<span class="kw-2">&amp;</span>rec, <span class="kw-2">&amp;</span>hdr_view, <span class="kw-2">&amp;</span>params) {
-<a href=#730 id=730 data-nosnippet>730</a>                            writer.write(<span class="kw-2">&amp;</span>rec).map_err(|e| {
-<a href=#731 id=731 data-nosnippet>731</a>                                <span class="macro">anyhow::anyhow!</span>(<span class="string">"Failed writing output record: {e}"</span>)
-<a href=#732 id=732 data-nosnippet>732</a>                            })<span class="question-mark">?</span>;
-<a href=#733 id=733 data-nosnippet>733</a>                            kept += <span class="number">1</span>;
-<a href=#734 id=734 data-nosnippet>734</a>                        }
-<a href=#735 id=735 data-nosnippet>735</a>                    }
-<a href=#736 id=736 data-nosnippet>736</a>                } <span class="kw">else </span>{
-<a href=#737 id=737 data-nosnippet>737</a>                    <span class="kw">let </span><span class="kw-2">mut </span>reader = bam::Reader::from_path(<span class="kw-2">&amp;</span>input)
-<a href=#738 id=738 data-nosnippet>738</a>                        .map_err(|e| <span class="macro">anyhow::anyhow!</span>(<span class="string">"Failed to open input alignment file: {e}"</span>))<span class="question-mark">?</span>;
-<a href=#739 id=739 data-nosnippet>739</a>                    <span class="kw">let </span>header = bam::Header::from_template(reader.header());
-<a href=#740 id=740 data-nosnippet>740</a>                    <span class="kw">let </span>hdr_view = reader.header().clone();
-<a href=#741 id=741 data-nosnippet>741</a>                    <span class="kw">let </span><span class="kw-2">mut </span>writer =
-<a href=#742 id=742 data-nosnippet>742</a>                        bam::Writer::from_path(<span class="kw-2">&amp;</span>output, <span class="kw-2">&amp;</span>header, out_format).map_err(|e| {
-<a href=#743 id=743 data-nosnippet>743</a>                            <span class="macro">anyhow::anyhow!</span>(<span class="string">"Failed to create output alignment file: {e}"</span>)
-<a href=#744 id=744 data-nosnippet>744</a>                        })<span class="question-mark">?</span>;
-<a href=#745 id=745 data-nosnippet>745</a>                    <span class="kw">for </span>rec <span class="kw">in </span>reader.records() {
-<a href=#746 id=746 data-nosnippet>746</a>                        <span class="kw">let </span>rec =
-<a href=#747 id=747 data-nosnippet>747</a>                            rec.map_err(|e| <span class="macro">anyhow::anyhow!</span>(<span class="string">"Failed reading input record: {e}"</span>))<span class="question-mark">?</span>;
-<a href=#748 id=748 data-nosnippet>748</a>                        <span class="kw">if </span>passes_hc_read_filters_with_header(<span class="kw-2">&amp;</span>rec, <span class="kw-2">&amp;</span>hdr_view, <span class="kw-2">&amp;</span>params) {
-<a href=#749 id=749 data-nosnippet>749</a>                            writer.write(<span class="kw-2">&amp;</span>rec).map_err(|e| {
-<a href=#750 id=750 data-nosnippet>750</a>                                <span class="macro">anyhow::anyhow!</span>(<span class="string">"Failed writing output record: {e}"</span>)
-<a href=#751 id=751 data-nosnippet>751</a>                            })<span class="question-mark">?</span>;
-<a href=#752 id=752 data-nosnippet>752</a>                            kept += <span class="number">1</span>;
-<a href=#753 id=753 data-nosnippet>753</a>                        }
-<a href=#754 id=754 data-nosnippet>754</a>                    }
-<a href=#755 id=755 data-nosnippet>755</a>                }
-<a href=#756 id=756 data-nosnippet>756</a>                <span class="macro">println!</span>(<span class="string">"FilterReads kept {} records"</span>, kept);
-<a href=#757 id=757 data-nosnippet>757</a>                <span class="prelude-val">Ok</span>(())
-<a href=#758 id=758 data-nosnippet>758</a>            }
-<a href=#759 id=759 data-nosnippet>759</a>
-<a href=#760 id=760 data-nosnippet>760</a>            Tool::ListTools =&gt; {
-<a href=#761 id=761 data-nosnippet>761</a>                <span class="macro">println!</span>(<span class="string">"Available tools:"</span>);
-<a href=#762 id=762 data-nosnippet>762</a>                <span class="macro">println!</span>(<span class="string">"  HaplotypeCaller        - Call germline SNPs and indels via local re-assembly of haplotypes"</span>);
-<a href=#763 id=763 data-nosnippet>763</a>                <span class="macro">println!</span>(
-<a href=#764 id=764 data-nosnippet>764</a>                    <span class="string">"  CombineGVCFs           - Merge per-sample gVCFs into a multi-sample gVCF"
-<a href=#765 id=765 data-nosnippet>765</a>                </span>);
-<a href=#766 id=766 data-nosnippet>766</a>                <span class="macro">println!</span>(
-<a href=#767 id=767 data-nosnippet>767</a>                    <span class="string">"  GenotypeGVCFs          - Joint-genotype a multi-sample gVCF into a cohort VCF"
-<a href=#768 id=768 data-nosnippet>768</a>                </span>);
-<a href=#769 id=769 data-nosnippet>769</a>                <span class="macro">println!</span>(
-<a href=#770 id=770 data-nosnippet>770</a>                    <span class="string">"  VariantFiltration     - Hard-filter variants (GATK expressions; not VQSR)"
-<a href=#771 id=771 data-nosnippet>771</a>                </span>);
-<a href=#772 id=772 data-nosnippet>772</a>                <span class="macro">println!</span>(
-<a href=#773 id=773 data-nosnippet>773</a>                    <span class="string">"  CountBasesInReference  - Count A/C/G/T/N in the reference over intervals"
-<a href=#774 id=774 data-nosnippet>774</a>                </span>);
-<a href=#775 id=775 data-nosnippet>775</a>                <span class="macro">println!</span>(<span class="string">"  CountReadsInRegion     - Count reads in one indexed region"</span>);
-<a href=#776 id=776 data-nosnippet>776</a>                <span class="macro">println!</span>(<span class="string">"  ListReadsInRegion      - List read names in one indexed region"</span>);
-<a href=#777 id=777 data-nosnippet>777</a>                <span class="macro">println!</span>(<span class="string">"  PrintReads            - Print reads from SAM/BAM file to output"</span>);
-<a href=#778 id=778 data-nosnippet>778</a>                <span class="macro">println!</span>(
-<a href=#779 id=779 data-nosnippet>779</a>                    <span class="string">"  DumpSmoothedActivity  - Per-base smoothed activity TSV (assembly-region parity)"
-<a href=#780 id=780 data-nosnippet>780</a>                </span>);
-<a href=#781 id=781 data-nosnippet>781</a>                <span class="macro">println!</span>(<span class="string">"  FilterReads           - Apply HC-style ingress read filters"</span>);
-<a href=#782 id=782 data-nosnippet>782</a>                <span class="macro">println!</span>(<span class="string">"  Validate              - Validate input file formats"</span>);
-<a href=#783 id=783 data-nosnippet>783</a>                <span class="macro">println!</span>();
-<a href=#784 id=784 data-nosnippet>784</a>                <span class="macro">println!</span>(<span class="string">"More tools will be added as implementation progresses."</span>);
-<a href=#785 id=785 data-nosnippet>785</a>
-<a href=#786 id=786 data-nosnippet>786</a>                <span class="prelude-val">Ok</span>(())
-<a href=#787 id=787 data-nosnippet>787</a>            }
-<a href=#788 id=788 data-nosnippet>788</a>
-<a href=#789 id=789 data-nosnippet>789</a>            Tool::Version =&gt; {
-<a href=#790 id=790 data-nosnippet>790</a>                <span class="comment">// Do not impersonate Broad GATK. Expose our version and the pinned
-<a href=#791 id=791 data-nosnippet>791</a>                // Java oracle version used for differential parity testing only.
-<a href=#792 id=792 data-nosnippet>792</a>                </span><span class="macro">println!</span>(
-<a href=#793 id=793 data-nosnippet>793</a>                    <span class="string">"gatk-rs {} (independent community project — not Broad Institute GATK)"</span>,
-<a href=#794 id=794 data-nosnippet>794</a>                    <span class="macro">env!</span>(<span class="string">"CARGO_PKG_VERSION"</span>)
-<a href=#795 id=795 data-nosnippet>795</a>                );
-<a href=#796 id=796 data-nosnippet>796</a>                <span class="macro">println!</span>(
-<a href=#797 id=797 data-nosnippet>797</a>                    <span class="string">"Pinned Java GATK oracle for parity tests: 4.4.0.0 (see GATK_PINNED_SHA / NOTICE.md)"
-<a href=#798 id=798 data-nosnippet>798</a>                </span>);
-<a href=#799 id=799 data-nosnippet>799</a>                <span class="macro">println!</span>(<span class="string">"{DISCLAIMER_HELP}"</span>);
-<a href=#800 id=800 data-nosnippet>800</a>
-<a href=#801 id=801 data-nosnippet>801</a>                <span class="prelude-val">Ok</span>(())
-<a href=#802 id=802 data-nosnippet>802</a>            }
-<a href=#803 id=803 data-nosnippet>803</a>
-<a href=#804 id=804 data-nosnippet>804</a>            Tool::Validate {
-<a href=#805 id=805 data-nosnippet>805</a>                input,
-<a href=#806 id=806 data-nosnippet>806</a>                file_type,
-<a href=#807 id=807 data-nosnippet>807</a>                reference,
-<a href=#808 id=808 data-nosnippet>808</a>            } =&gt; {
-<a href=#809 id=809 data-nosnippet>809</a>                <span class="macro">info!</span>(<span class="string">"Validating {} file: {}"</span>, file_type, input);
-<a href=#810 id=810 data-nosnippet>810</a>                <span class="kw">let </span>dictionary = <span class="kw">if let </span><span class="prelude-val">Some</span>(reference_path) = <span class="kw-2">&amp;</span>reference {
-<a href=#811 id=811 data-nosnippet>811</a>                    <span class="prelude-val">Some</span>(
-<a href=#812 id=812 data-nosnippet>812</a>                        SequenceDictionary::from_fasta_path(reference_path).map_err(|e| {
-<a href=#813 id=813 data-nosnippet>813</a>                            <span class="macro">anyhow::anyhow!</span>(<span class="string">"Reference dictionary creation failed: {e}"</span>)
-<a href=#814 id=814 data-nosnippet>814</a>                        })<span class="question-mark">?</span>,
-<a href=#815 id=815 data-nosnippet>815</a>                    )
-<a href=#816 id=816 data-nosnippet>816</a>                } <span class="kw">else </span>{
-<a href=#817 id=817 data-nosnippet>817</a>                    <span class="prelude-val">None
-<a href=#818 id=818 data-nosnippet>818</a>                </span>};
-<a href=#819 id=819 data-nosnippet>819</a>
-<a href=#820 id=820 data-nosnippet>820</a>                <span class="kw">match </span>file_type.to_uppercase().as_str() {
-<a href=#821 id=821 data-nosnippet>821</a>                    <span class="string">"BAM" </span>=&gt; {
-<a href=#822 id=822 data-nosnippet>822</a>                        <span class="kw">let </span>count =
-<a href=#823 id=823 data-nosnippet>823</a>                            validate_bam_file(std::path::Path::new(<span class="kw-2">&amp;</span>input), dictionary.as_ref())
-<a href=#824 id=824 data-nosnippet>824</a>                                .map_err(|e| <span class="macro">anyhow::anyhow!</span>(<span class="string">"BAM validation failed: {e}"</span>))<span class="question-mark">?</span>;
-<a href=#825 id=825 data-nosnippet>825</a>                        <span class="macro">println!</span>(
-<a href=#826 id=826 data-nosnippet>826</a>                            <span class="string">"BAM validation passed for file: {} ({} records)"</span>,
-<a href=#827 id=827 data-nosnippet>827</a>                            input, count
-<a href=#828 id=828 data-nosnippet>828</a>                        );
-<a href=#829 id=829 data-nosnippet>829</a>                    }
-<a href=#830 id=830 data-nosnippet>830</a>                    <span class="string">"SAM" </span>=&gt; {
-<a href=#831 id=831 data-nosnippet>831</a>                        <span class="kw">let </span><span class="kw-2">mut </span>reader =
-<a href=#832 id=832 data-nosnippet>832</a>                            gatk_core::io::SamReader::from_file(<span class="kw-2">&amp;</span>input).map_err(|e| {
-<a href=#833 id=833 data-nosnippet>833</a>                                <span class="macro">anyhow::anyhow!</span>(<span class="string">"SAM validation failed to open file: {e}"</span>)
-<a href=#834 id=834 data-nosnippet>834</a>                            })<span class="question-mark">?</span>;
-<a href=#835 id=835 data-nosnippet>835</a>                        <span class="kw">if let </span><span class="prelude-val">Some</span>(dict) = <span class="kw-2">&amp;</span>dictionary {
-<a href=#836 id=836 data-nosnippet>836</a>                            dict.validate_sam_header(reader.header()).map_err(|e| {
-<a href=#837 id=837 data-nosnippet>837</a>                                <span class="macro">anyhow::anyhow!</span>(<span class="string">"SAM/reference dictionary mismatch: {e}"</span>)
-<a href=#838 id=838 data-nosnippet>838</a>                            })<span class="question-mark">?</span>;
-<a href=#839 id=839 data-nosnippet>839</a>                        }
-<a href=#840 id=840 data-nosnippet>840</a>                        <span class="kw">let </span>semantics = ReadHeaderSemantics::from_sam_header_text(
-<a href=#841 id=841 data-nosnippet>841</a>                            <span class="kw-2">&amp;</span>sam_header_to_text(reader.header()),
-<a href=#842 id=842 data-nosnippet>842</a>                        )
-<a href=#843 id=843 data-nosnippet>843</a>                        .map_err(|e| <span class="macro">anyhow::anyhow!</span>(<span class="string">"SAM header semantics invalid: {e}"</span>))<span class="question-mark">?</span>;
-<a href=#844 id=844 data-nosnippet>844</a>
-<a href=#845 id=845 data-nosnippet>845</a>                        <span class="kw">let </span><span class="kw-2">mut </span>records_seen = <span class="number">0usize</span>;
-<a href=#846 id=846 data-nosnippet>846</a>                        <span class="kw">while let </span><span class="prelude-val">Some</span>(record) = reader.read_next_record().map_err(|e| {
-<a href=#847 id=847 data-nosnippet>847</a>                            <span class="macro">anyhow::anyhow!</span>(<span class="string">"SAM validation failed while reading: {e}"</span>)
-<a href=#848 id=848 data-nosnippet>848</a>                        })<span class="question-mark">? </span>{
-<a href=#849 id=849 data-nosnippet>849</a>                            records_seen += <span class="number">1</span>;
-<a href=#850 id=850 data-nosnippet>850</a>                            <span class="kw">if </span>record.cigar != <span class="string">"*" </span>&amp;&amp; record.seq != <span class="string">"*" </span>{
-<a href=#851 id=851 data-nosnippet>851</a>                                <span class="kw">let </span>expected_seq_bases =
-<a href=#852 id=852 data-nosnippet>852</a>                                    query_bases_consumed_by_cigar(<span class="kw-2">&amp;</span>record.cigar).map_err(|e| {
-<a href=#853 id=853 data-nosnippet>853</a>                                        <span class="macro">anyhow::anyhow!</span>(
-<a href=#854 id=854 data-nosnippet>854</a>                                            <span class="string">"SAM validation failed for record {}: {e}"</span>,
-<a href=#855 id=855 data-nosnippet>855</a>                                            record.qname
-<a href=#856 id=856 data-nosnippet>856</a>                                        )
-<a href=#857 id=857 data-nosnippet>857</a>                                    })<span class="question-mark">?</span>;
-<a href=#858 id=858 data-nosnippet>858</a>                                <span class="kw">if </span>expected_seq_bases != record.seq.len() {
-<a href=#859 id=859 data-nosnippet>859</a>                                    <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">anyhow::anyhow!</span>(
-<a href=#860 id=860 data-nosnippet>860</a>                                        <span class="string">"SAM validation failed for record {}: CIGAR/SEQ length mismatch (expected {} query bases from CIGAR '{}', observed SEQ length {})"</span>,
-<a href=#861 id=861 data-nosnippet>861</a>                                        record.qname,
-<a href=#862 id=862 data-nosnippet>862</a>                                        expected_seq_bases,
-<a href=#863 id=863 data-nosnippet>863</a>                                        record.cigar,
-<a href=#864 id=864 data-nosnippet>864</a>                                        record.seq.len()
-<a href=#865 id=865 data-nosnippet>865</a>                                    ));
-<a href=#866 id=866 data-nosnippet>866</a>                                }
-<a href=#867 id=867 data-nosnippet>867</a>                            }
-<a href=#868 id=868 data-nosnippet>868</a>                            <span class="kw">let </span>rg_tag = record.get_optional_value(<span class="string">"RG"</span>);
-<a href=#869 id=869 data-nosnippet>869</a>                            <span class="kw">let </span>pg_tag = record.get_optional_value(<span class="string">"PG"</span>);
-<a href=#870 id=870 data-nosnippet>870</a>                            semantics
-<a href=#871 id=871 data-nosnippet>871</a>                                .validate_record_links(rg_tag.as_deref(), pg_tag.as_deref())
-<a href=#872 id=872 data-nosnippet>872</a>                                .map_err(|e| {
-<a href=#873 id=873 data-nosnippet>873</a>                                    <span class="macro">anyhow::anyhow!</span>(
-<a href=#874 id=874 data-nosnippet>874</a>                                        <span class="string">"SAM read-header semantics failed for record {}: {e}"</span>,
-<a href=#875 id=875 data-nosnippet>875</a>                                        record.qname
-<a href=#876 id=876 data-nosnippet>876</a>                                    )
-<a href=#877 id=877 data-nosnippet>877</a>                                })<span class="question-mark">?</span>;
+<a href=#702 id=702 data-nosnippet>702</a>                <span class="kw">let </span><span class="kw-2">mut </span>kept = <span class="number">0usize</span>;
+<a href=#703 id=703 data-nosnippet>703</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(reg) = interval {
+<a href=#704 id=704 data-nosnippet>704</a>                    <span class="kw">let </span>(contig, start_1, end_1) = parse_single_region(<span class="kw-2">&amp;</span>reg)<span class="question-mark">?</span>;
+<a href=#705 id=705 data-nosnippet>705</a>                    <span class="kw">let </span><span class="kw-2">mut </span>reader = bam::IndexedReader::from_path(<span class="kw-2">&amp;</span>input)
+<a href=#706 id=706 data-nosnippet>706</a>                        .map_err(|e| <span class="macro">anyhow::anyhow!</span>(<span class="string">"Indexed BAM required for -L: {e}"</span>))<span class="question-mark">?</span>;
+<a href=#707 id=707 data-nosnippet>707</a>                    <span class="kw">let </span>header = bam::Header::from_template(reader.header());
+<a href=#708 id=708 data-nosnippet>708</a>                    <span class="kw">let </span>tid = reader.header().tid(contig.as_bytes()).ok_or_else(|| {
+<a href=#709 id=709 data-nosnippet>709</a>                        <span class="macro">anyhow::anyhow!</span>(<span class="string">"Contig {contig} not found in BAM header"</span>)
+<a href=#710 id=710 data-nosnippet>710</a>                    })<span class="question-mark">?</span>;
+<a href=#711 id=711 data-nosnippet>711</a>                    <span class="kw">let </span>start0 = start_1 - <span class="number">1</span>;
+<a href=#712 id=712 data-nosnippet>712</a>                    <span class="kw">let </span>end0 = end_1;
+<a href=#713 id=713 data-nosnippet>713</a>                    reader
+<a href=#714 id=714 data-nosnippet>714</a>                        .fetch((tid, start0 <span class="kw">as </span>i64, end0 <span class="kw">as </span>i64))
+<a href=#715 id=715 data-nosnippet>715</a>                        .map_err(|e| <span class="macro">anyhow::anyhow!</span>(<span class="string">"fetch failed: {e}"</span>))<span class="question-mark">?</span>;
+<a href=#716 id=716 data-nosnippet>716</a>                    <span class="kw">let </span>hdr_view = reader.header().clone();
+<a href=#717 id=717 data-nosnippet>717</a>                    <span class="kw">let </span><span class="kw-2">mut </span>writer =
+<a href=#718 id=718 data-nosnippet>718</a>                        bam::Writer::from_path(<span class="kw-2">&amp;</span>output, <span class="kw-2">&amp;</span>header, out_format).map_err(|e| {
+<a href=#719 id=719 data-nosnippet>719</a>                            <span class="macro">anyhow::anyhow!</span>(<span class="string">"Failed to create output alignment file: {e}"</span>)
+<a href=#720 id=720 data-nosnippet>720</a>                        })<span class="question-mark">?</span>;
+<a href=#721 id=721 data-nosnippet>721</a>                    <span class="kw">for </span>rec <span class="kw">in </span>reader.records() {
+<a href=#722 id=722 data-nosnippet>722</a>                        <span class="kw">let </span>rec =
+<a href=#723 id=723 data-nosnippet>723</a>                            rec.map_err(|e| <span class="macro">anyhow::anyhow!</span>(<span class="string">"Failed reading input record: {e}"</span>))<span class="question-mark">?</span>;
+<a href=#724 id=724 data-nosnippet>724</a>                        <span class="kw">if </span>passes_printreads_parity_filters(<span class="kw-2">&amp;</span>rec, <span class="kw-2">&amp;</span>hdr_view, min_mapping_quality) {
+<a href=#725 id=725 data-nosnippet>725</a>                            writer.write(<span class="kw-2">&amp;</span>rec).map_err(|e| {
+<a href=#726 id=726 data-nosnippet>726</a>                                <span class="macro">anyhow::anyhow!</span>(<span class="string">"Failed writing output record: {e}"</span>)
+<a href=#727 id=727 data-nosnippet>727</a>                            })<span class="question-mark">?</span>;
+<a href=#728 id=728 data-nosnippet>728</a>                            kept += <span class="number">1</span>;
+<a href=#729 id=729 data-nosnippet>729</a>                        }
+<a href=#730 id=730 data-nosnippet>730</a>                    }
+<a href=#731 id=731 data-nosnippet>731</a>                } <span class="kw">else </span>{
+<a href=#732 id=732 data-nosnippet>732</a>                    <span class="kw">let </span><span class="kw-2">mut </span>reader = bam::Reader::from_path(<span class="kw-2">&amp;</span>input)
+<a href=#733 id=733 data-nosnippet>733</a>                        .map_err(|e| <span class="macro">anyhow::anyhow!</span>(<span class="string">"Failed to open input alignment file: {e}"</span>))<span class="question-mark">?</span>;
+<a href=#734 id=734 data-nosnippet>734</a>                    <span class="kw">let </span>header = bam::Header::from_template(reader.header());
+<a href=#735 id=735 data-nosnippet>735</a>                    <span class="kw">let </span>hdr_view = reader.header().clone();
+<a href=#736 id=736 data-nosnippet>736</a>                    <span class="kw">let </span><span class="kw-2">mut </span>writer =
+<a href=#737 id=737 data-nosnippet>737</a>                        bam::Writer::from_path(<span class="kw-2">&amp;</span>output, <span class="kw-2">&amp;</span>header, out_format).map_err(|e| {
+<a href=#738 id=738 data-nosnippet>738</a>                            <span class="macro">anyhow::anyhow!</span>(<span class="string">"Failed to create output alignment file: {e}"</span>)
+<a href=#739 id=739 data-nosnippet>739</a>                        })<span class="question-mark">?</span>;
+<a href=#740 id=740 data-nosnippet>740</a>                    <span class="kw">for </span>rec <span class="kw">in </span>reader.records() {
+<a href=#741 id=741 data-nosnippet>741</a>                        <span class="kw">let </span>rec =
+<a href=#742 id=742 data-nosnippet>742</a>                            rec.map_err(|e| <span class="macro">anyhow::anyhow!</span>(<span class="string">"Failed reading input record: {e}"</span>))<span class="question-mark">?</span>;
+<a href=#743 id=743 data-nosnippet>743</a>                        <span class="kw">if </span>passes_printreads_parity_filters(<span class="kw-2">&amp;</span>rec, <span class="kw-2">&amp;</span>hdr_view, min_mapping_quality) {
+<a href=#744 id=744 data-nosnippet>744</a>                            writer.write(<span class="kw-2">&amp;</span>rec).map_err(|e| {
+<a href=#745 id=745 data-nosnippet>745</a>                                <span class="macro">anyhow::anyhow!</span>(<span class="string">"Failed writing output record: {e}"</span>)
+<a href=#746 id=746 data-nosnippet>746</a>                            })<span class="question-mark">?</span>;
+<a href=#747 id=747 data-nosnippet>747</a>                            kept += <span class="number">1</span>;
+<a href=#748 id=748 data-nosnippet>748</a>                        }
+<a href=#749 id=749 data-nosnippet>749</a>                    }
+<a href=#750 id=750 data-nosnippet>750</a>                }
+<a href=#751 id=751 data-nosnippet>751</a>                <span class="macro">println!</span>(<span class="string">"FilterReads kept {} records"</span>, kept);
+<a href=#752 id=752 data-nosnippet>752</a>                <span class="prelude-val">Ok</span>(())
+<a href=#753 id=753 data-nosnippet>753</a>            }
+<a href=#754 id=754 data-nosnippet>754</a>
+<a href=#755 id=755 data-nosnippet>755</a>            Tool::ListTools =&gt; {
+<a href=#756 id=756 data-nosnippet>756</a>                <span class="macro">println!</span>(<span class="string">"Available tools:"</span>);
+<a href=#757 id=757 data-nosnippet>757</a>                <span class="macro">println!</span>(<span class="string">"  HaplotypeCaller        - Call germline SNPs and indels via local re-assembly of haplotypes"</span>);
+<a href=#758 id=758 data-nosnippet>758</a>                <span class="macro">println!</span>(
+<a href=#759 id=759 data-nosnippet>759</a>                    <span class="string">"  CombineGVCFs           - Merge per-sample gVCFs into a multi-sample gVCF"
+<a href=#760 id=760 data-nosnippet>760</a>                </span>);
+<a href=#761 id=761 data-nosnippet>761</a>                <span class="macro">println!</span>(
+<a href=#762 id=762 data-nosnippet>762</a>                    <span class="string">"  GenotypeGVCFs          - Joint-genotype a multi-sample gVCF into a cohort VCF"
+<a href=#763 id=763 data-nosnippet>763</a>                </span>);
+<a href=#764 id=764 data-nosnippet>764</a>                <span class="macro">println!</span>(
+<a href=#765 id=765 data-nosnippet>765</a>                    <span class="string">"  VariantFiltration     - Hard-filter variants (GATK expressions; not VQSR)"
+<a href=#766 id=766 data-nosnippet>766</a>                </span>);
+<a href=#767 id=767 data-nosnippet>767</a>                <span class="macro">println!</span>(
+<a href=#768 id=768 data-nosnippet>768</a>                    <span class="string">"  CountBasesInReference  - Count A/C/G/T/N in the reference over intervals"
+<a href=#769 id=769 data-nosnippet>769</a>                </span>);
+<a href=#770 id=770 data-nosnippet>770</a>                <span class="macro">println!</span>(<span class="string">"  CountReadsInRegion     - Count reads in one indexed region"</span>);
+<a href=#771 id=771 data-nosnippet>771</a>                <span class="macro">println!</span>(<span class="string">"  ListReadsInRegion      - List read names in one indexed region"</span>);
+<a href=#772 id=772 data-nosnippet>772</a>                <span class="macro">println!</span>(<span class="string">"  PrintReads            - Print reads from SAM/BAM file to output"</span>);
+<a href=#773 id=773 data-nosnippet>773</a>                <span class="macro">println!</span>(
+<a href=#774 id=774 data-nosnippet>774</a>                    <span class="string">"  DumpSmoothedActivity  - Per-base smoothed activity TSV (assembly-region parity)"
+<a href=#775 id=775 data-nosnippet>775</a>                </span>);
+<a href=#776 id=776 data-nosnippet>776</a>                <span class="macro">println!</span>(<span class="string">"  FilterReads           - Apply HC-style ingress read filters"</span>);
+<a href=#777 id=777 data-nosnippet>777</a>                <span class="macro">println!</span>(<span class="string">"  Validate              - Validate input file formats"</span>);
+<a href=#778 id=778 data-nosnippet>778</a>                <span class="macro">println!</span>();
+<a href=#779 id=779 data-nosnippet>779</a>                <span class="macro">println!</span>(<span class="string">"More tools will be added as implementation progresses."</span>);
+<a href=#780 id=780 data-nosnippet>780</a>
+<a href=#781 id=781 data-nosnippet>781</a>                <span class="prelude-val">Ok</span>(())
+<a href=#782 id=782 data-nosnippet>782</a>            }
+<a href=#783 id=783 data-nosnippet>783</a>
+<a href=#784 id=784 data-nosnippet>784</a>            Tool::Version =&gt; {
+<a href=#785 id=785 data-nosnippet>785</a>                <span class="comment">// Do not impersonate Broad GATK. Expose our version and the pinned
+<a href=#786 id=786 data-nosnippet>786</a>                // Java oracle version used for differential parity testing only.
+<a href=#787 id=787 data-nosnippet>787</a>                </span><span class="macro">println!</span>(
+<a href=#788 id=788 data-nosnippet>788</a>                    <span class="string">"gatk-rs {} (independent community project — not Broad Institute GATK)"</span>,
+<a href=#789 id=789 data-nosnippet>789</a>                    <span class="macro">env!</span>(<span class="string">"CARGO_PKG_VERSION"</span>)
+<a href=#790 id=790 data-nosnippet>790</a>                );
+<a href=#791 id=791 data-nosnippet>791</a>                <span class="macro">println!</span>(
+<a href=#792 id=792 data-nosnippet>792</a>                    <span class="string">"Pinned Java GATK oracle for parity tests: 4.4.0.0 (see GATK_PINNED_SHA / NOTICE.md)"
+<a href=#793 id=793 data-nosnippet>793</a>                </span>);
+<a href=#794 id=794 data-nosnippet>794</a>                <span class="macro">println!</span>(<span class="string">"{DISCLAIMER_HELP}"</span>);
+<a href=#795 id=795 data-nosnippet>795</a>
+<a href=#796 id=796 data-nosnippet>796</a>                <span class="prelude-val">Ok</span>(())
+<a href=#797 id=797 data-nosnippet>797</a>            }
+<a href=#798 id=798 data-nosnippet>798</a>
+<a href=#799 id=799 data-nosnippet>799</a>            Tool::Validate {
+<a href=#800 id=800 data-nosnippet>800</a>                input,
+<a href=#801 id=801 data-nosnippet>801</a>                file_type,
+<a href=#802 id=802 data-nosnippet>802</a>                reference,
+<a href=#803 id=803 data-nosnippet>803</a>            } =&gt; {
+<a href=#804 id=804 data-nosnippet>804</a>                <span class="macro">info!</span>(<span class="string">"Validating {} file: {}"</span>, file_type, input);
+<a href=#805 id=805 data-nosnippet>805</a>                <span class="kw">let </span>dictionary = <span class="kw">if let </span><span class="prelude-val">Some</span>(reference_path) = <span class="kw-2">&amp;</span>reference {
+<a href=#806 id=806 data-nosnippet>806</a>                    <span class="prelude-val">Some</span>(
+<a href=#807 id=807 data-nosnippet>807</a>                        SequenceDictionary::from_fasta_path(reference_path).map_err(|e| {
+<a href=#808 id=808 data-nosnippet>808</a>                            <span class="macro">anyhow::anyhow!</span>(<span class="string">"Reference dictionary creation failed: {e}"</span>)
+<a href=#809 id=809 data-nosnippet>809</a>                        })<span class="question-mark">?</span>,
+<a href=#810 id=810 data-nosnippet>810</a>                    )
+<a href=#811 id=811 data-nosnippet>811</a>                } <span class="kw">else </span>{
+<a href=#812 id=812 data-nosnippet>812</a>                    <span class="prelude-val">None
+<a href=#813 id=813 data-nosnippet>813</a>                </span>};
+<a href=#814 id=814 data-nosnippet>814</a>
+<a href=#815 id=815 data-nosnippet>815</a>                <span class="kw">match </span>file_type.to_uppercase().as_str() {
+<a href=#816 id=816 data-nosnippet>816</a>                    <span class="string">"BAM" </span>=&gt; {
+<a href=#817 id=817 data-nosnippet>817</a>                        <span class="kw">let </span>count =
+<a href=#818 id=818 data-nosnippet>818</a>                            validate_bam_file(std::path::Path::new(<span class="kw-2">&amp;</span>input), dictionary.as_ref())
+<a href=#819 id=819 data-nosnippet>819</a>                                .map_err(|e| <span class="macro">anyhow::anyhow!</span>(<span class="string">"BAM validation failed: {e}"</span>))<span class="question-mark">?</span>;
+<a href=#820 id=820 data-nosnippet>820</a>                        <span class="macro">println!</span>(
+<a href=#821 id=821 data-nosnippet>821</a>                            <span class="string">"BAM validation passed for file: {} ({} records)"</span>,
+<a href=#822 id=822 data-nosnippet>822</a>                            input, count
+<a href=#823 id=823 data-nosnippet>823</a>                        );
+<a href=#824 id=824 data-nosnippet>824</a>                    }
+<a href=#825 id=825 data-nosnippet>825</a>                    <span class="string">"SAM" </span>=&gt; {
+<a href=#826 id=826 data-nosnippet>826</a>                        <span class="kw">let </span><span class="kw-2">mut </span>reader =
+<a href=#827 id=827 data-nosnippet>827</a>                            gatk_core::io::SamReader::from_file(<span class="kw-2">&amp;</span>input).map_err(|e| {
+<a href=#828 id=828 data-nosnippet>828</a>                                <span class="macro">anyhow::anyhow!</span>(<span class="string">"SAM validation failed to open file: {e}"</span>)
+<a href=#829 id=829 data-nosnippet>829</a>                            })<span class="question-mark">?</span>;
+<a href=#830 id=830 data-nosnippet>830</a>                        <span class="kw">if let </span><span class="prelude-val">Some</span>(dict) = <span class="kw-2">&amp;</span>dictionary {
+<a href=#831 id=831 data-nosnippet>831</a>                            dict.validate_sam_header(reader.header()).map_err(|e| {
+<a href=#832 id=832 data-nosnippet>832</a>                                <span class="macro">anyhow::anyhow!</span>(<span class="string">"SAM/reference dictionary mismatch: {e}"</span>)
+<a href=#833 id=833 data-nosnippet>833</a>                            })<span class="question-mark">?</span>;
+<a href=#834 id=834 data-nosnippet>834</a>                        }
+<a href=#835 id=835 data-nosnippet>835</a>                        <span class="kw">let </span>semantics = ReadHeaderSemantics::from_sam_header_text(
+<a href=#836 id=836 data-nosnippet>836</a>                            <span class="kw-2">&amp;</span>sam_header_to_text(reader.header()),
+<a href=#837 id=837 data-nosnippet>837</a>                        )
+<a href=#838 id=838 data-nosnippet>838</a>                        .map_err(|e| <span class="macro">anyhow::anyhow!</span>(<span class="string">"SAM header semantics invalid: {e}"</span>))<span class="question-mark">?</span>;
+<a href=#839 id=839 data-nosnippet>839</a>
+<a href=#840 id=840 data-nosnippet>840</a>                        <span class="kw">let </span><span class="kw-2">mut </span>records_seen = <span class="number">0usize</span>;
+<a href=#841 id=841 data-nosnippet>841</a>                        <span class="kw">while let </span><span class="prelude-val">Some</span>(record) = reader.read_next_record().map_err(|e| {
+<a href=#842 id=842 data-nosnippet>842</a>                            <span class="macro">anyhow::anyhow!</span>(<span class="string">"SAM validation failed while reading: {e}"</span>)
+<a href=#843 id=843 data-nosnippet>843</a>                        })<span class="question-mark">? </span>{
+<a href=#844 id=844 data-nosnippet>844</a>                            records_seen += <span class="number">1</span>;
+<a href=#845 id=845 data-nosnippet>845</a>                            <span class="kw">if </span>record.cigar != <span class="string">"*" </span>&amp;&amp; record.seq != <span class="string">"*" </span>{
+<a href=#846 id=846 data-nosnippet>846</a>                                <span class="kw">let </span>expected_seq_bases =
+<a href=#847 id=847 data-nosnippet>847</a>                                    query_bases_consumed_by_cigar(<span class="kw-2">&amp;</span>record.cigar).map_err(|e| {
+<a href=#848 id=848 data-nosnippet>848</a>                                        <span class="macro">anyhow::anyhow!</span>(
+<a href=#849 id=849 data-nosnippet>849</a>                                            <span class="string">"SAM validation failed for record {}: {e}"</span>,
+<a href=#850 id=850 data-nosnippet>850</a>                                            record.qname
+<a href=#851 id=851 data-nosnippet>851</a>                                        )
+<a href=#852 id=852 data-nosnippet>852</a>                                    })<span class="question-mark">?</span>;
+<a href=#853 id=853 data-nosnippet>853</a>                                <span class="kw">if </span>expected_seq_bases != record.seq.len() {
+<a href=#854 id=854 data-nosnippet>854</a>                                    <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">anyhow::anyhow!</span>(
+<a href=#855 id=855 data-nosnippet>855</a>                                        <span class="string">"SAM validation failed for record {}: CIGAR/SEQ length mismatch (expected {} query bases from CIGAR '{}', observed SEQ length {})"</span>,
+<a href=#856 id=856 data-nosnippet>856</a>                                        record.qname,
+<a href=#857 id=857 data-nosnippet>857</a>                                        expected_seq_bases,
+<a href=#858 id=858 data-nosnippet>858</a>                                        record.cigar,
+<a href=#859 id=859 data-nosnippet>859</a>                                        record.seq.len()
+<a href=#860 id=860 data-nosnippet>860</a>                                    ));
+<a href=#861 id=861 data-nosnippet>861</a>                                }
+<a href=#862 id=862 data-nosnippet>862</a>                            }
+<a href=#863 id=863 data-nosnippet>863</a>                            <span class="kw">let </span>rg_tag = record.get_optional_value(<span class="string">"RG"</span>);
+<a href=#864 id=864 data-nosnippet>864</a>                            <span class="kw">let </span>pg_tag = record.get_optional_value(<span class="string">"PG"</span>);
+<a href=#865 id=865 data-nosnippet>865</a>                            semantics
+<a href=#866 id=866 data-nosnippet>866</a>                                .validate_record_links(rg_tag.as_deref(), pg_tag.as_deref())
+<a href=#867 id=867 data-nosnippet>867</a>                                .map_err(|e| {
+<a href=#868 id=868 data-nosnippet>868</a>                                    <span class="macro">anyhow::anyhow!</span>(
+<a href=#869 id=869 data-nosnippet>869</a>                                        <span class="string">"SAM read-header semantics failed for record {}: {e}"</span>,
+<a href=#870 id=870 data-nosnippet>870</a>                                        record.qname
+<a href=#871 id=871 data-nosnippet>871</a>                                    )
+<a href=#872 id=872 data-nosnippet>872</a>                                })<span class="question-mark">?</span>;
+<a href=#873 id=873 data-nosnippet>873</a>                        }
+<a href=#874 id=874 data-nosnippet>874</a>                        <span class="kw">if </span>records_seen == <span class="number">0 </span>{
+<a href=#875 id=875 data-nosnippet>875</a>                            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">anyhow::anyhow!</span>(
+<a href=#876 id=876 data-nosnippet>876</a>                                <span class="string">"SAM validation failed while reading: no alignment records found"
+<a href=#877 id=877 data-nosnippet>877</a>                            </span>));
 <a href=#878 id=878 data-nosnippet>878</a>                        }
-<a href=#879 id=879 data-nosnippet>879</a>                        <span class="kw">if </span>records_seen == <span class="number">0 </span>{
-<a href=#880 id=880 data-nosnippet>880</a>                            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">anyhow::anyhow!</span>(
-<a href=#881 id=881 data-nosnippet>881</a>                                <span class="string">"SAM validation failed while reading: no alignment records found"
-<a href=#882 id=882 data-nosnippet>882</a>                            </span>));
-<a href=#883 id=883 data-nosnippet>883</a>                        }
-<a href=#884 id=884 data-nosnippet>884</a>                        <span class="macro">println!</span>(<span class="string">"SAM validation passed for file: {}"</span>, input);
-<a href=#885 id=885 data-nosnippet>885</a>                    }
-<a href=#886 id=886 data-nosnippet>886</a>                    <span class="string">"VCF" </span>=&gt; {
-<a href=#887 id=887 data-nosnippet>887</a>                        <span class="kw">let </span><span class="kw-2">mut </span>reader = VcfReader::from_file(<span class="kw-2">&amp;</span>input).map_err(|e| {
-<a href=#888 id=888 data-nosnippet>888</a>                            <span class="macro">anyhow::anyhow!</span>(<span class="string">"VCF validation failed to open file: {e}"</span>)
-<a href=#889 id=889 data-nosnippet>889</a>                        })<span class="question-mark">?</span>;
-<a href=#890 id=890 data-nosnippet>890</a>                        <span class="kw">if let </span><span class="prelude-val">Some</span>(dict) = <span class="kw-2">&amp;</span>dictionary {
-<a href=#891 id=891 data-nosnippet>891</a>                            dict.validate_vcf_header(reader.header()).map_err(|e| {
-<a href=#892 id=892 data-nosnippet>892</a>                                <span class="macro">anyhow::anyhow!</span>(<span class="string">"VCF/reference dictionary mismatch: {e}"</span>)
-<a href=#893 id=893 data-nosnippet>893</a>                            })<span class="question-mark">?</span>;
-<a href=#894 id=894 data-nosnippet>894</a>                        }
-<a href=#895 id=895 data-nosnippet>895</a>                        <span class="kw">let _ </span>= reader.read_next_record().map_err(|e| {
-<a href=#896 id=896 data-nosnippet>896</a>                            <span class="macro">anyhow::anyhow!</span>(<span class="string">"VCF validation failed while reading: {e}"</span>)
-<a href=#897 id=897 data-nosnippet>897</a>                        })<span class="question-mark">?</span>;
-<a href=#898 id=898 data-nosnippet>898</a>                        <span class="macro">println!</span>(<span class="string">"VCF validation passed for file: {}"</span>, input);
-<a href=#899 id=899 data-nosnippet>899</a>                    }
-<a href=#900 id=900 data-nosnippet>900</a>                    <span class="string">"FASTA" </span>=&gt; {
-<a href=#901 id=901 data-nosnippet>901</a>                        <span class="kw">let </span><span class="kw-2">mut </span>reader = FastaReader::from_file(<span class="kw-2">&amp;</span>input).map_err(|e| {
-<a href=#902 id=902 data-nosnippet>902</a>                            <span class="macro">anyhow::anyhow!</span>(<span class="string">"FASTA validation failed to open file: {e}"</span>)
-<a href=#903 id=903 data-nosnippet>903</a>                        })<span class="question-mark">?</span>;
-<a href=#904 id=904 data-nosnippet>904</a>                        <span class="kw">let _ </span>= reader.read_next_sequence().map_err(|e| {
-<a href=#905 id=905 data-nosnippet>905</a>                            <span class="macro">anyhow::anyhow!</span>(<span class="string">"FASTA validation failed while reading: {e}"</span>)
-<a href=#906 id=906 data-nosnippet>906</a>                        })<span class="question-mark">?</span>;
-<a href=#907 id=907 data-nosnippet>907</a>                        <span class="macro">println!</span>(<span class="string">"FASTA validation passed for file: {}"</span>, input);
-<a href=#908 id=908 data-nosnippet>908</a>                    }
-<a href=#909 id=909 data-nosnippet>909</a>                    <span class="kw">_ </span>=&gt; {
-<a href=#910 id=910 data-nosnippet>910</a>                        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">anyhow::anyhow!</span>(<span class="string">"Unsupported file type: {}"</span>, file_type));
-<a href=#911 id=911 data-nosnippet>911</a>                    }
-<a href=#912 id=912 data-nosnippet>912</a>                }
-<a href=#913 id=913 data-nosnippet>913</a>
-<a href=#914 id=914 data-nosnippet>914</a>                <span class="prelude-val">Ok</span>(())
-<a href=#915 id=915 data-nosnippet>915</a>            }
-<a href=#916 id=916 data-nosnippet>916</a>
-<a href=#917 id=917 data-nosnippet>917</a>            Tool::Benchmark { args } =&gt; {
-<a href=#918 id=918 data-nosnippet>918</a>                <span class="macro">info!</span>(<span class="string">"Running benchmarking command"</span>);
-<a href=#919 id=919 data-nosnippet>919</a>                run_benchmarking_command(args)<span class="question-mark">?</span>;
-<a href=#920 id=920 data-nosnippet>920</a>                <span class="prelude-val">Ok</span>(())
-<a href=#921 id=921 data-nosnippet>921</a>            }
-<a href=#922 id=922 data-nosnippet>922</a>        }
-<a href=#923 id=923 data-nosnippet>923</a>    })();
-<a href=#924 id=924 data-nosnippet>924</a>
-<a href=#925 id=925 data-nosnippet>925</a>    <span class="kw">if let </span><span class="prelude-val">Err</span>(e) = result {
-<a href=#926 id=926 data-nosnippet>926</a>        <span class="macro">eprintln!</span>(<span class="string">"{e}"</span>);
-<a href=#927 id=927 data-nosnippet>927</a>        <span class="comment">// Match GATK user-facing failure convention.
-<a href=#928 id=928 data-nosnippet>928</a>        </span>process::exit(<span class="number">2</span>);
-<a href=#929 id=929 data-nosnippet>929</a>    }
-<a href=#930 id=930 data-nosnippet>930</a>}
-<a href=#931 id=931 data-nosnippet>931</a>
-<a href=#932 id=932 data-nosnippet>932</a><span class="kw">fn </span>init_logging() {
-<a href=#933 id=933 data-nosnippet>933</a>    tracing_subscriber::registry()
-<a href=#934 id=934 data-nosnippet>934</a>        .with(
-<a href=#935 id=935 data-nosnippet>935</a>            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|<span class="kw">_</span>| <span class="string">"info"</span>.into()),
-<a href=#936 id=936 data-nosnippet>936</a>        )
-<a href=#937 id=937 data-nosnippet>937</a>        .with(tracing_subscriber::fmt::layer())
-<a href=#938 id=938 data-nosnippet>938</a>        .init();
-<a href=#939 id=939 data-nosnippet>939</a>}
-<a href=#940 id=940 data-nosnippet>940</a>
-<a href=#941 id=941 data-nosnippet>941</a><span class="kw">fn </span>sam_header_to_text(header: <span class="kw-2">&amp;</span>gatk_core::io::SamHeader) -&gt; String {
-<a href=#942 id=942 data-nosnippet>942</a>    <span class="kw">let </span><span class="kw-2">mut </span>lines = Vec::new();
-<a href=#943 id=943 data-nosnippet>943</a>    lines.push(<span class="string">"@HD\tVN:1.6"</span>.to_string());
-<a href=#944 id=944 data-nosnippet>944</a>    <span class="kw">for </span>rg <span class="kw">in </span><span class="kw-2">&amp;</span>header.read_groups {
-<a href=#945 id=945 data-nosnippet>945</a>        <span class="kw">let </span><span class="kw-2">mut </span>line = <span class="macro">format!</span>(<span class="string">"@RG\tID:{}"</span>, rg.id);
-<a href=#946 id=946 data-nosnippet>946</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(sm) = <span class="kw-2">&amp;</span>rg.sample {
-<a href=#947 id=947 data-nosnippet>947</a>            line.push_str(<span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">"\tSM:{sm}"</span>));
-<a href=#948 id=948 data-nosnippet>948</a>        }
-<a href=#949 id=949 data-nosnippet>949</a>        lines.push(line);
-<a href=#950 id=950 data-nosnippet>950</a>    }
-<a href=#951 id=951 data-nosnippet>951</a>    <span class="kw">for </span>pg <span class="kw">in </span><span class="kw-2">&amp;</span>header.programs {
-<a href=#952 id=952 data-nosnippet>952</a>        lines.push(<span class="macro">format!</span>(<span class="string">"@PG\tID:{}"</span>, pg.id));
-<a href=#953 id=953 data-nosnippet>953</a>    }
-<a href=#954 id=954 data-nosnippet>954</a>    lines.join(<span class="string">"\n"</span>)
-<a href=#955 id=955 data-nosnippet>955</a>}
-<a href=#956 id=956 data-nosnippet>956</a>
-<a href=#957 id=957 data-nosnippet>957</a><span class="kw">fn </span>parse_single_region(region: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Result</span>&lt;(String, u64, u64)&gt; {
-<a href=#958 id=958 data-nosnippet>958</a>    <span class="kw">let </span>(contig, span) = region
-<a href=#959 id=959 data-nosnippet>959</a>        .split_once(<span class="string">':'</span>)
-<a href=#960 id=960 data-nosnippet>960</a>        .ok_or_else(|| <span class="macro">anyhow::anyhow!</span>(<span class="string">"Invalid region '{}': expected contig:start-end"</span>, region))<span class="question-mark">?</span>;
-<a href=#961 id=961 data-nosnippet>961</a>    <span class="kw">let </span>span = span.replace(<span class="string">','</span>, <span class="string">""</span>);
-<a href=#962 id=962 data-nosnippet>962</a>    <span class="kw">let </span>(start_s, end_s) = span
-<a href=#963 id=963 data-nosnippet>963</a>        .split_once(<span class="string">'-'</span>)
-<a href=#964 id=964 data-nosnippet>964</a>        .ok_or_else(|| <span class="macro">anyhow::anyhow!</span>(<span class="string">"Invalid region '{}': expected start-end"</span>, region))<span class="question-mark">?</span>;
-<a href=#965 id=965 data-nosnippet>965</a>    <span class="kw">let </span>start = start_s
-<a href=#966 id=966 data-nosnippet>966</a>        .parse::&lt;u64&gt;()
-<a href=#967 id=967 data-nosnippet>967</a>        .map_err(|<span class="kw">_</span>| <span class="macro">anyhow::anyhow!</span>(<span class="string">"Invalid region start '{}'"</span>, start_s))<span class="question-mark">?</span>;
-<a href=#968 id=968 data-nosnippet>968</a>    <span class="kw">let </span>end = end_s
-<a href=#969 id=969 data-nosnippet>969</a>        .parse::&lt;u64&gt;()
-<a href=#970 id=970 data-nosnippet>970</a>        .map_err(|<span class="kw">_</span>| <span class="macro">anyhow::anyhow!</span>(<span class="string">"Invalid region end '{}'"</span>, end_s))<span class="question-mark">?</span>;
-<a href=#971 id=971 data-nosnippet>971</a>    <span class="kw">if </span>start == <span class="number">0 </span>{
-<a href=#972 id=972 data-nosnippet>972</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">anyhow::anyhow!</span>(
-<a href=#973 id=973 data-nosnippet>973</a>            <span class="string">"Invalid region '{}': start must be &gt;= 1"</span>,
-<a href=#974 id=974 data-nosnippet>974</a>            region
-<a href=#975 id=975 data-nosnippet>975</a>        ));
-<a href=#976 id=976 data-nosnippet>976</a>    }
-<a href=#977 id=977 data-nosnippet>977</a>    <span class="kw">if </span>start &gt; end {
-<a href=#978 id=978 data-nosnippet>978</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">anyhow::anyhow!</span>(
-<a href=#979 id=979 data-nosnippet>979</a>            <span class="string">"Invalid region '{}': start must be &lt;= end"</span>,
-<a href=#980 id=980 data-nosnippet>980</a>            region
-<a href=#981 id=981 data-nosnippet>981</a>        ));
-<a href=#982 id=982 data-nosnippet>982</a>    }
-<a href=#983 id=983 data-nosnippet>983</a>    <span class="prelude-val">Ok</span>((contig.to_string(), start, end))
-<a href=#984 id=984 data-nosnippet>984</a>}
-<a href=#985 id=985 data-nosnippet>985</a>
-<a href=#986 id=986 data-nosnippet>986</a><span class="kw">fn </span>query_bases_consumed_by_cigar(cigar: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Result</span>&lt;usize&gt; {
-<a href=#987 id=987 data-nosnippet>987</a>    <span class="kw">let </span><span class="kw-2">mut </span>total = <span class="number">0usize</span>;
-<a href=#988 id=988 data-nosnippet>988</a>    <span class="kw">let </span><span class="kw-2">mut </span>num = String::new();
-<a href=#989 id=989 data-nosnippet>989</a>    <span class="kw">for </span>ch <span class="kw">in </span>cigar.chars() {
-<a href=#990 id=990 data-nosnippet>990</a>        <span class="kw">if </span>ch.is_ascii_digit() {
-<a href=#991 id=991 data-nosnippet>991</a>            num.push(ch);
-<a href=#992 id=992 data-nosnippet>992</a>            <span class="kw">continue</span>;
-<a href=#993 id=993 data-nosnippet>993</a>        }
-<a href=#994 id=994 data-nosnippet>994</a>        <span class="kw">if </span>num.is_empty() {
-<a href=#995 id=995 data-nosnippet>995</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">anyhow::anyhow!</span>(
-<a href=#996 id=996 data-nosnippet>996</a>                <span class="string">"Invalid CIGAR '{}': missing length before op '{}'"</span>,
-<a href=#997 id=997 data-nosnippet>997</a>                cigar,
-<a href=#998 id=998 data-nosnippet>998</a>                ch
-<a href=#999 id=999 data-nosnippet>999</a>            ));
-<a href=#1000 id=1000 data-nosnippet>1000</a>        }
-<a href=#1001 id=1001 data-nosnippet>1001</a>        <span class="kw">let </span>len: usize = num
-<a href=#1002 id=1002 data-nosnippet>1002</a>            .parse()
-<a href=#1003 id=1003 data-nosnippet>1003</a>            .map_err(|<span class="kw">_</span>| <span class="macro">anyhow::anyhow!</span>(<span class="string">"Invalid CIGAR '{}': bad op length '{}'"</span>, cigar, num))<span class="question-mark">?</span>;
-<a href=#1004 id=1004 data-nosnippet>1004</a>        <span class="kw">match </span>ch {
-<a href=#1005 id=1005 data-nosnippet>1005</a>            <span class="string">'M' </span>| <span class="string">'I' </span>| <span class="string">'S' </span>| <span class="string">'=' </span>| <span class="string">'X' </span>=&gt; total += len,
-<a href=#1006 id=1006 data-nosnippet>1006</a>            <span class="string">'D' </span>| <span class="string">'N' </span>| <span class="string">'H' </span>| <span class="string">'P' </span>=&gt; {}
-<a href=#1007 id=1007 data-nosnippet>1007</a>            <span class="kw">_ </span>=&gt; {
-<a href=#1008 id=1008 data-nosnippet>1008</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">anyhow::anyhow!</span>(
-<a href=#1009 id=1009 data-nosnippet>1009</a>                    <span class="string">"Invalid CIGAR '{}': unknown op '{}'"</span>,
-<a href=#1010 id=1010 data-nosnippet>1010</a>                    cigar,
-<a href=#1011 id=1011 data-nosnippet>1011</a>                    ch
-<a href=#1012 id=1012 data-nosnippet>1012</a>                ))
-<a href=#1013 id=1013 data-nosnippet>1013</a>            }
-<a href=#1014 id=1014 data-nosnippet>1014</a>        }
-<a href=#1015 id=1015 data-nosnippet>1015</a>        num.clear();
-<a href=#1016 id=1016 data-nosnippet>1016</a>    }
-<a href=#1017 id=1017 data-nosnippet>1017</a>    <span class="kw">if </span>!num.is_empty() {
-<a href=#1018 id=1018 data-nosnippet>1018</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">anyhow::anyhow!</span>(
-<a href=#1019 id=1019 data-nosnippet>1019</a>            <span class="string">"Invalid CIGAR '{}': trailing length without op '{}'"</span>,
-<a href=#1020 id=1020 data-nosnippet>1020</a>            cigar,
-<a href=#1021 id=1021 data-nosnippet>1021</a>            num
-<a href=#1022 id=1022 data-nosnippet>1022</a>        ));
-<a href=#1023 id=1023 data-nosnippet>1023</a>    }
-<a href=#1024 id=1024 data-nosnippet>1024</a>    <span class="prelude-val">Ok</span>(total)
-<a href=#1025 id=1025 data-nosnippet>1025</a>}
+<a href=#879 id=879 data-nosnippet>879</a>                        <span class="macro">println!</span>(<span class="string">"SAM validation passed for file: {}"</span>, input);
+<a href=#880 id=880 data-nosnippet>880</a>                    }
+<a href=#881 id=881 data-nosnippet>881</a>                    <span class="string">"VCF" </span>=&gt; {
+<a href=#882 id=882 data-nosnippet>882</a>                        <span class="kw">let </span><span class="kw-2">mut </span>reader = VcfReader::from_file(<span class="kw-2">&amp;</span>input).map_err(|e| {
+<a href=#883 id=883 data-nosnippet>883</a>                            <span class="macro">anyhow::anyhow!</span>(<span class="string">"VCF validation failed to open file: {e}"</span>)
+<a href=#884 id=884 data-nosnippet>884</a>                        })<span class="question-mark">?</span>;
+<a href=#885 id=885 data-nosnippet>885</a>                        <span class="kw">if let </span><span class="prelude-val">Some</span>(dict) = <span class="kw-2">&amp;</span>dictionary {
+<a href=#886 id=886 data-nosnippet>886</a>                            dict.validate_vcf_header(reader.header()).map_err(|e| {
+<a href=#887 id=887 data-nosnippet>887</a>                                <span class="macro">anyhow::anyhow!</span>(<span class="string">"VCF/reference dictionary mismatch: {e}"</span>)
+<a href=#888 id=888 data-nosnippet>888</a>                            })<span class="question-mark">?</span>;
+<a href=#889 id=889 data-nosnippet>889</a>                        }
+<a href=#890 id=890 data-nosnippet>890</a>                        <span class="kw">let _ </span>= reader.read_next_record().map_err(|e| {
+<a href=#891 id=891 data-nosnippet>891</a>                            <span class="macro">anyhow::anyhow!</span>(<span class="string">"VCF validation failed while reading: {e}"</span>)
+<a href=#892 id=892 data-nosnippet>892</a>                        })<span class="question-mark">?</span>;
+<a href=#893 id=893 data-nosnippet>893</a>                        <span class="macro">println!</span>(<span class="string">"VCF validation passed for file: {}"</span>, input);
+<a href=#894 id=894 data-nosnippet>894</a>                    }
+<a href=#895 id=895 data-nosnippet>895</a>                    <span class="string">"FASTA" </span>=&gt; {
+<a href=#896 id=896 data-nosnippet>896</a>                        <span class="kw">let </span><span class="kw-2">mut </span>reader = FastaReader::from_file(<span class="kw-2">&amp;</span>input).map_err(|e| {
+<a href=#897 id=897 data-nosnippet>897</a>                            <span class="macro">anyhow::anyhow!</span>(<span class="string">"FASTA validation failed to open file: {e}"</span>)
+<a href=#898 id=898 data-nosnippet>898</a>                        })<span class="question-mark">?</span>;
+<a href=#899 id=899 data-nosnippet>899</a>                        <span class="kw">let _ </span>= reader.read_next_sequence().map_err(|e| {
+<a href=#900 id=900 data-nosnippet>900</a>                            <span class="macro">anyhow::anyhow!</span>(<span class="string">"FASTA validation failed while reading: {e}"</span>)
+<a href=#901 id=901 data-nosnippet>901</a>                        })<span class="question-mark">?</span>;
+<a href=#902 id=902 data-nosnippet>902</a>                        <span class="macro">println!</span>(<span class="string">"FASTA validation passed for file: {}"</span>, input);
+<a href=#903 id=903 data-nosnippet>903</a>                    }
+<a href=#904 id=904 data-nosnippet>904</a>                    <span class="kw">_ </span>=&gt; {
+<a href=#905 id=905 data-nosnippet>905</a>                        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">anyhow::anyhow!</span>(<span class="string">"Unsupported file type: {}"</span>, file_type));
+<a href=#906 id=906 data-nosnippet>906</a>                    }
+<a href=#907 id=907 data-nosnippet>907</a>                }
+<a href=#908 id=908 data-nosnippet>908</a>
+<a href=#909 id=909 data-nosnippet>909</a>                <span class="prelude-val">Ok</span>(())
+<a href=#910 id=910 data-nosnippet>910</a>            }
+<a href=#911 id=911 data-nosnippet>911</a>
+<a href=#912 id=912 data-nosnippet>912</a>            Tool::Benchmark { args } =&gt; {
+<a href=#913 id=913 data-nosnippet>913</a>                <span class="macro">info!</span>(<span class="string">"Running benchmarking command"</span>);
+<a href=#914 id=914 data-nosnippet>914</a>                run_benchmarking_command(args)<span class="question-mark">?</span>;
+<a href=#915 id=915 data-nosnippet>915</a>                <span class="prelude-val">Ok</span>(())
+<a href=#916 id=916 data-nosnippet>916</a>            }
+<a href=#917 id=917 data-nosnippet>917</a>        }
+<a href=#918 id=918 data-nosnippet>918</a>    })();
+<a href=#919 id=919 data-nosnippet>919</a>
+<a href=#920 id=920 data-nosnippet>920</a>    <span class="kw">if let </span><span class="prelude-val">Err</span>(e) = result {
+<a href=#921 id=921 data-nosnippet>921</a>        <span class="macro">eprintln!</span>(<span class="string">"{e}"</span>);
+<a href=#922 id=922 data-nosnippet>922</a>        <span class="comment">// Match GATK user-facing failure convention.
+<a href=#923 id=923 data-nosnippet>923</a>        </span>process::exit(<span class="number">2</span>);
+<a href=#924 id=924 data-nosnippet>924</a>    }
+<a href=#925 id=925 data-nosnippet>925</a>}
+<a href=#926 id=926 data-nosnippet>926</a>
+<a href=#927 id=927 data-nosnippet>927</a><span class="kw">fn </span>init_logging() {
+<a href=#928 id=928 data-nosnippet>928</a>    tracing_subscriber::registry()
+<a href=#929 id=929 data-nosnippet>929</a>        .with(
+<a href=#930 id=930 data-nosnippet>930</a>            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|<span class="kw">_</span>| <span class="string">"info"</span>.into()),
+<a href=#931 id=931 data-nosnippet>931</a>        )
+<a href=#932 id=932 data-nosnippet>932</a>        .with(tracing_subscriber::fmt::layer())
+<a href=#933 id=933 data-nosnippet>933</a>        .init();
+<a href=#934 id=934 data-nosnippet>934</a>}
+<a href=#935 id=935 data-nosnippet>935</a>
+<a href=#936 id=936 data-nosnippet>936</a><span class="kw">fn </span>sam_header_to_text(header: <span class="kw-2">&amp;</span>gatk_core::io::SamHeader) -&gt; String {
+<a href=#937 id=937 data-nosnippet>937</a>    <span class="kw">let </span><span class="kw-2">mut </span>lines = Vec::new();
+<a href=#938 id=938 data-nosnippet>938</a>    lines.push(<span class="string">"@HD\tVN:1.6"</span>.to_string());
+<a href=#939 id=939 data-nosnippet>939</a>    <span class="kw">for </span>rg <span class="kw">in </span><span class="kw-2">&amp;</span>header.read_groups {
+<a href=#940 id=940 data-nosnippet>940</a>        <span class="kw">let </span><span class="kw-2">mut </span>line = <span class="macro">format!</span>(<span class="string">"@RG\tID:{}"</span>, rg.id);
+<a href=#941 id=941 data-nosnippet>941</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(sm) = <span class="kw-2">&amp;</span>rg.sample {
+<a href=#942 id=942 data-nosnippet>942</a>            line.push_str(<span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">"\tSM:{sm}"</span>));
+<a href=#943 id=943 data-nosnippet>943</a>        }
+<a href=#944 id=944 data-nosnippet>944</a>        lines.push(line);
+<a href=#945 id=945 data-nosnippet>945</a>    }
+<a href=#946 id=946 data-nosnippet>946</a>    <span class="kw">for </span>pg <span class="kw">in </span><span class="kw-2">&amp;</span>header.programs {
+<a href=#947 id=947 data-nosnippet>947</a>        lines.push(<span class="macro">format!</span>(<span class="string">"@PG\tID:{}"</span>, pg.id));
+<a href=#948 id=948 data-nosnippet>948</a>    }
+<a href=#949 id=949 data-nosnippet>949</a>    lines.join(<span class="string">"\n"</span>)
+<a href=#950 id=950 data-nosnippet>950</a>}
+<a href=#951 id=951 data-nosnippet>951</a>
+<a href=#952 id=952 data-nosnippet>952</a><span class="kw">fn </span>parse_single_region(region: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Result</span>&lt;(String, u64, u64)&gt; {
+<a href=#953 id=953 data-nosnippet>953</a>    <span class="kw">let </span>(contig, span) = region
+<a href=#954 id=954 data-nosnippet>954</a>        .split_once(<span class="string">':'</span>)
+<a href=#955 id=955 data-nosnippet>955</a>        .ok_or_else(|| <span class="macro">anyhow::anyhow!</span>(<span class="string">"Invalid region '{}': expected contig:start-end"</span>, region))<span class="question-mark">?</span>;
+<a href=#956 id=956 data-nosnippet>956</a>    <span class="kw">let </span>span = span.replace(<span class="string">','</span>, <span class="string">""</span>);
+<a href=#957 id=957 data-nosnippet>957</a>    <span class="kw">let </span>(start_s, end_s) = span
+<a href=#958 id=958 data-nosnippet>958</a>        .split_once(<span class="string">'-'</span>)
+<a href=#959 id=959 data-nosnippet>959</a>        .ok_or_else(|| <span class="macro">anyhow::anyhow!</span>(<span class="string">"Invalid region '{}': expected start-end"</span>, region))<span class="question-mark">?</span>;
+<a href=#960 id=960 data-nosnippet>960</a>    <span class="kw">let </span>start = start_s
+<a href=#961 id=961 data-nosnippet>961</a>        .parse::&lt;u64&gt;()
+<a href=#962 id=962 data-nosnippet>962</a>        .map_err(|<span class="kw">_</span>| <span class="macro">anyhow::anyhow!</span>(<span class="string">"Invalid region start '{}'"</span>, start_s))<span class="question-mark">?</span>;
+<a href=#963 id=963 data-nosnippet>963</a>    <span class="kw">let </span>end = end_s
+<a href=#964 id=964 data-nosnippet>964</a>        .parse::&lt;u64&gt;()
+<a href=#965 id=965 data-nosnippet>965</a>        .map_err(|<span class="kw">_</span>| <span class="macro">anyhow::anyhow!</span>(<span class="string">"Invalid region end '{}'"</span>, end_s))<span class="question-mark">?</span>;
+<a href=#966 id=966 data-nosnippet>966</a>    <span class="kw">if </span>start == <span class="number">0 </span>{
+<a href=#967 id=967 data-nosnippet>967</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">anyhow::anyhow!</span>(
+<a href=#968 id=968 data-nosnippet>968</a>            <span class="string">"Invalid region '{}': start must be &gt;= 1"</span>,
+<a href=#969 id=969 data-nosnippet>969</a>            region
+<a href=#970 id=970 data-nosnippet>970</a>        ));
+<a href=#971 id=971 data-nosnippet>971</a>    }
+<a href=#972 id=972 data-nosnippet>972</a>    <span class="kw">if </span>start &gt; end {
+<a href=#973 id=973 data-nosnippet>973</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">anyhow::anyhow!</span>(
+<a href=#974 id=974 data-nosnippet>974</a>            <span class="string">"Invalid region '{}': start must be &lt;= end"</span>,
+<a href=#975 id=975 data-nosnippet>975</a>            region
+<a href=#976 id=976 data-nosnippet>976</a>        ));
+<a href=#977 id=977 data-nosnippet>977</a>    }
+<a href=#978 id=978 data-nosnippet>978</a>    <span class="prelude-val">Ok</span>((contig.to_string(), start, end))
+<a href=#979 id=979 data-nosnippet>979</a>}
+<a href=#980 id=980 data-nosnippet>980</a>
+<a href=#981 id=981 data-nosnippet>981</a><span class="kw">fn </span>query_bases_consumed_by_cigar(cigar: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Result</span>&lt;usize&gt; {
+<a href=#982 id=982 data-nosnippet>982</a>    <span class="kw">let </span><span class="kw-2">mut </span>total = <span class="number">0usize</span>;
+<a href=#983 id=983 data-nosnippet>983</a>    <span class="kw">let </span><span class="kw-2">mut </span>num = String::new();
+<a href=#984 id=984 data-nosnippet>984</a>    <span class="kw">for </span>ch <span class="kw">in </span>cigar.chars() {
+<a href=#985 id=985 data-nosnippet>985</a>        <span class="kw">if </span>ch.is_ascii_digit() {
+<a href=#986 id=986 data-nosnippet>986</a>            num.push(ch);
+<a href=#987 id=987 data-nosnippet>987</a>            <span class="kw">continue</span>;
+<a href=#988 id=988 data-nosnippet>988</a>        }
+<a href=#989 id=989 data-nosnippet>989</a>        <span class="kw">if </span>num.is_empty() {
+<a href=#990 id=990 data-nosnippet>990</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">anyhow::anyhow!</span>(
+<a href=#991 id=991 data-nosnippet>991</a>                <span class="string">"Invalid CIGAR '{}': missing length before op '{}'"</span>,
+<a href=#992 id=992 data-nosnippet>992</a>                cigar,
+<a href=#993 id=993 data-nosnippet>993</a>                ch
+<a href=#994 id=994 data-nosnippet>994</a>            ));
+<a href=#995 id=995 data-nosnippet>995</a>        }
+<a href=#996 id=996 data-nosnippet>996</a>        <span class="kw">let </span>len: usize = num
+<a href=#997 id=997 data-nosnippet>997</a>            .parse()
+<a href=#998 id=998 data-nosnippet>998</a>            .map_err(|<span class="kw">_</span>| <span class="macro">anyhow::anyhow!</span>(<span class="string">"Invalid CIGAR '{}': bad op length '{}'"</span>, cigar, num))<span class="question-mark">?</span>;
+<a href=#999 id=999 data-nosnippet>999</a>        <span class="kw">match </span>ch {
+<a href=#1000 id=1000 data-nosnippet>1000</a>            <span class="string">'M' </span>| <span class="string">'I' </span>| <span class="string">'S' </span>| <span class="string">'=' </span>| <span class="string">'X' </span>=&gt; total += len,
+<a href=#1001 id=1001 data-nosnippet>1001</a>            <span class="string">'D' </span>| <span class="string">'N' </span>| <span class="string">'H' </span>| <span class="string">'P' </span>=&gt; {}
+<a href=#1002 id=1002 data-nosnippet>1002</a>            <span class="kw">_ </span>=&gt; {
+<a href=#1003 id=1003 data-nosnippet>1003</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">anyhow::anyhow!</span>(
+<a href=#1004 id=1004 data-nosnippet>1004</a>                    <span class="string">"Invalid CIGAR '{}': unknown op '{}'"</span>,
+<a href=#1005 id=1005 data-nosnippet>1005</a>                    cigar,
+<a href=#1006 id=1006 data-nosnippet>1006</a>                    ch
+<a href=#1007 id=1007 data-nosnippet>1007</a>                ))
+<a href=#1008 id=1008 data-nosnippet>1008</a>            }
+<a href=#1009 id=1009 data-nosnippet>1009</a>        }
+<a href=#1010 id=1010 data-nosnippet>1010</a>        num.clear();
+<a href=#1011 id=1011 data-nosnippet>1011</a>    }
+<a href=#1012 id=1012 data-nosnippet>1012</a>    <span class="kw">if </span>!num.is_empty() {
+<a href=#1013 id=1013 data-nosnippet>1013</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">anyhow::anyhow!</span>(
+<a href=#1014 id=1014 data-nosnippet>1014</a>            <span class="string">"Invalid CIGAR '{}': trailing length without op '{}'"</span>,
+<a href=#1015 id=1015 data-nosnippet>1015</a>            cigar,
+<a href=#1016 id=1016 data-nosnippet>1016</a>            num
+<a href=#1017 id=1017 data-nosnippet>1017</a>        ));
+<a href=#1018 id=1018 data-nosnippet>1018</a>    }
+<a href=#1019 id=1019 data-nosnippet>1019</a>    <span class="prelude-val">Ok</span>(total)
+<a href=#1020 id=1020 data-nosnippet>1020</a>}
 </code></pre></div></section></main></body></html>

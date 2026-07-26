@@ -5,7 +5,7 @@
     pub haplotype_bases: <a class="struct" href="https://doc.rust-lang.org/1.97.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>,
 }</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>One read × haplotype PairHMM scoring input.</p>
 <h2 id="invariants"><a class="doc-anchor" href="#invariants">§</a>Invariants</h2>
-<p><code>read_bases.len == read_base_quals.len</code>; haplotype must be non-empty (<a href="struct.PairHmmInput.html#method.validate" title="method gatk_haplotypecaller::pairhmm::PairHmmInput::validate"><code>Self::validate</code></a>).</p>
+<p><code>read_bases.len == read_base_quals.len</code>; haplotype must be non-empty (validated before score).</p>
 <h2 id="ownership"><a class="doc-anchor" href="#ownership">§</a>Ownership</h2>
 <p>Owns read/haplotype strings and quality vector.</p>
 <h2 id="mutation"><a class="doc-anchor" href="#mutation">§</a>Mutation</h2>

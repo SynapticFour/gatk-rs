@@ -411,9 +411,9 @@
 <a href=#411 id=411 data-nosnippet>411</a><span class="kw">pub use </span>read_model::{
 <a href=#412 id=412 data-nosnippet>412</a>    mapq_passes_minimum, passes_hc_read_filter_set, passes_hc_read_filters,
 <a href=#413 id=413 data-nosnippet>413</a>    passes_hc_read_filters_fields, passes_hc_read_filters_with_header,
-<a href=#414 id=414 data-nosnippet>414</a>    standard_hc_read_filter_failure_index, HcReadFilterSet, ReadFilterParams, FLAG_DUPLICATE,
-<a href=#415 id=415 data-nosnippet>415</a>    FLAG_NOT_PRIMARY, FLAG_SEGMENT_UNMAPPED, FLAG_SUPPLEMENTARY, FLAG_VENDOR_QUALITY_FAILED,
-<a href=#416 id=416 data-nosnippet>416</a>    GATK_HC_DEFAULT_MIN_MAPPING_QUALITY, MAPPING_QUALITY_UNAVAILABLE,
+<a href=#414 id=414 data-nosnippet>414</a>    passes_printreads_parity_filters, standard_hc_read_filter_failure_index, HcReadFilterSet,
+<a href=#415 id=415 data-nosnippet>415</a>    ReadFilterParams, FLAG_DUPLICATE, FLAG_NOT_PRIMARY, FLAG_SEGMENT_UNMAPPED, FLAG_SUPPLEMENTARY,
+<a href=#416 id=416 data-nosnippet>416</a>    FLAG_VENDOR_QUALITY_FAILED, GATK_HC_DEFAULT_MIN_MAPPING_QUALITY, MAPPING_QUALITY_UNAVAILABLE,
 <a href=#417 id=417 data-nosnippet>417</a>    STANDARD_HC_READ_FILTER_JAVA_NAMES,
 <a href=#418 id=418 data-nosnippet>418</a>};
 <a href=#419 id=419 data-nosnippet>419</a><span class="kw">pub use </span>read_projection::{
@@ -458,8 +458,8 @@
 <a href=#458 id=458 data-nosnippet>458</a><span class="kw">pub use </span>walker_apply::{call_disposition, AssemblyRegionCallDisposition, WalkerApplyStats};
 <a href=#459 id=459 data-nosnippet>459</a><span class="kw">pub use </span>walker_traversal::{
 <a href=#460 id=460 data-nosnippet>460</a>    collect_assembly_regions, drain_assembly_regions_for_shard, flatten_assembly_regions,
-<a href=#461 id=461 data-nosnippet>461</a>    into_assembly_regions, traverse_assembly_region_walker, WalkerShardTraversal, WalkerTraversal,
-<a href=#462 id=462 data-nosnippet>462</a>    WalkerTraversalConfig,
+<a href=#461 id=461 data-nosnippet>461</a>    for_each_assembly_region, into_assembly_regions, traverse_assembly_region_walker,
+<a href=#462 id=462 data-nosnippet>462</a>    WalkerShardTraversal, WalkerTraversal, WalkerTraversalConfig,
 <a href=#463 id=463 data-nosnippet>463</a>};
 <a href=#464 id=464 data-nosnippet>464</a><span class="kw">pub use </span>worker_threads::init_worker_threads;
 <a href=#465 id=465 data-nosnippet>465</a>
@@ -558,7 +558,7 @@
 <a href=#558 id=558 data-nosnippet>558</a></span><span class="kw">pub use </span>ploidy_dump::dump_ploidy_resolution_tsv;
 <a href=#559 id=559 data-nosnippet>559</a><span class="attr">#[cfg(feature = <span class="string">"dev-dumps"</span>)]
 <a href=#560 id=560 data-nosnippet>560</a></span><span class="kw">pub use </span>pre_dragstr_dump::dump_dragstr_calibration_tsv;
-<a href=#561 id=561 data-nosnippet>561</a><span class="attr">#[cfg(feature = <span class="string">"parity_harness"</span>)]
+<a href=#561 id=561 data-nosnippet>561</a><span class="doccomment">/// Deterministic ingress order helpers (foundation Step 35 + HC tiling).
 <a href=#562 id=562 data-nosnippet>562</a></span><span class="kw">pub use </span>read_binding::{
 <a href=#563 id=563 data-nosnippet>563</a>    count_reads_overlapping_tile, filtered_read_iteration_order, total_read_tile_overlaps,
 <a href=#564 id=564 data-nosnippet>564</a>};

@@ -3,7 +3,7 @@
     pub sequence: <a class="struct" href="https://doc.rust-lang.org/1.97.1/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.97.1/std/primitive.u8.html">u8</a>&gt;,
 }</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Sequence-labeled vertex after k-mer graph → sequence graph conversion.</p>
 <h2 id="invariants"><a class="doc-anchor" href="#invariants">§</a>Invariants</h2>
-<p><code>id</code> is dense index into owning <a href="struct.SeqGraph.html#structfield.vertices" title="field gatk_haplotypecaller::seq_graph::SeqGraph::vertices"><code>SeqGraph::vertices</code></a>.
+<p><code>id</code> is dense index into the owning sequence graph vertex list.
 <code>sequence</code> holds vertex bases (full k-mer at source, suffix byte at non-source joins).</p>
 <h2 id="ownership"><a class="doc-anchor" href="#ownership">§</a>Ownership</h2>
 <p>Owns base sequence bytes; graph owns vertex vector.</p>
