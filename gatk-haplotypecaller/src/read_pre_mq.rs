@@ -20,6 +20,7 @@ pub fn passes_assembly_mq_filter(rec: &bam::Record, threshold: u8) -> bool {
 }
 
 /// Default HC assembly-path threshold (20).
+#[allow(dead_code)] // convenience wrapper; call sites pass an explicit threshold today
 #[inline]
 pub fn passes_assembly_mq_filter_default(rec: &bam::Record) -> bool {
     passes_assembly_mq_filter(rec, GATK_ASSEMBLY_MQ_FILTER_THRESHOLD)

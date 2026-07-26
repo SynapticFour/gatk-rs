@@ -55,9 +55,9 @@ pub struct LoadedGvcf {
 
 /// Inclusive genomic interval on one contig.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Span {
-    start: u64,
-    end: u64,
+pub struct Span {
+    pub start: u64,
+    pub end: u64,
 }
 
 /// Run CombineGVCFs from filesystem paths (CLI entry).

@@ -48,6 +48,7 @@ pub fn locus_is_strictly_after_closed_interval_1based(pos1: u64, span_end1: u64)
 }
 
 /// GATK `IntervalUtils.isAfter(read, span, dict)` — alignment **start** (1-based) is past `span` end.
+#[allow(dead_code)] // record-level helper; locus form is used on the hot path
 pub fn record_is_strictly_after_closed_interval_1based(
     record: &bam::Record,
     header: &bam::HeaderView,

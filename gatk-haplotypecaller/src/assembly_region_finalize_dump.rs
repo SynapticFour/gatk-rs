@@ -60,7 +60,7 @@ fn format_cigar(rec: &bam::Record) -> String {
 
 fn finalize_read_row(rec: &bam::Record, phase: &'static str) -> FinalizeReadRow {
     let unmapped = rec.tid() < 0 || rec.is_unmapped() || rec.seq().is_empty();
-    let start = if unmapped { 0 } else { (rec.pos() + 1) };
+    let start = if unmapped { 0 } else { rec.pos() + 1 };
     let end = if unmapped {
         0
     } else {

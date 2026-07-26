@@ -100,7 +100,8 @@ fn reference_span0(
 /// GATK `LocusIteratorByState` (LIBS) style pileup walk.
 #[derive(Debug)]
 pub struct LocusPileupState {
-    header: bam::HeaderView,
+    /// Retained for Java LIBS-style state; contig names are resolved at construction.
+    _header: bam::HeaderView,
     sorted_indices: Vec<usize>,
     pub(crate) active: Vec<usize>,
     next_sorted: usize,
@@ -171,7 +172,7 @@ impl LocusPileupState {
             }
         }
         Self {
-            header: header.clone(),
+            _header: header.clone(),
             sorted_indices,
             active: Vec::new(),
             next_sorted: 0,

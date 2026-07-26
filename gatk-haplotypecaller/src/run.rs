@@ -514,8 +514,8 @@ fn assembly_region_variant_records(
             let sample = sample_name.to_string();
             let mut pending: Vec<(usize, AssemblyRegion)> = Vec::with_capacity(batch_limit);
 
-            let mut flush_batch = |pending: &mut Vec<(usize, AssemblyRegion)>,
-                                   all_batches: &mut Vec<RegionEmitBatch>|
+            let flush_batch = |pending: &mut Vec<(usize, AssemblyRegion)>,
+                               all_batches: &mut Vec<RegionEmitBatch>|
              -> GatkResult<()> {
                 if pending.is_empty() {
                     return Ok(());

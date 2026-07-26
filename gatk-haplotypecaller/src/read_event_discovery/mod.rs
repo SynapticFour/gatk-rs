@@ -2251,7 +2251,7 @@ pub(crate) fn tag_alt_haplotype_from_reference(
     }
 }
 
-/// Drop read-supplement alts that used the full padded ref instead of the trimmed hap span.
+// Drop read-supplement alts that used the full padded ref instead of the trimmed hap span.
 include!("apply_read_events.rs");
 
 #[cfg(test)]
