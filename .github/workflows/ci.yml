@@ -277,7 +277,9 @@ jobs:
   p12-l4-fixtures:
     name: P12 L4 fixture contracts (fast)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Cold `--release` haplotypecaller compile alone can take ~15m on ubuntu-latest;
+    # GitHub surfaces job timeout as "The operation was canceled" even after tests pass.
+    timeout-minutes: 45
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7

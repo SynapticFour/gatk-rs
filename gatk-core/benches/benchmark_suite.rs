@@ -1,9 +1,10 @@
 //! Comprehensive benchmark suite for GATK-RS
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use gatk_core::benchmarking::*;
 use std::time::Duration;
 
+use std::hint::black_box;
 /// Benchmark the benchmarking framework itself
 fn benchmark_framework_overhead(c: &mut Criterion) {
     let mut group = c.benchmark_group("framework_overhead");

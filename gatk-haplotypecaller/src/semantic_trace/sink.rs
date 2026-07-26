@@ -32,10 +32,6 @@ impl NdjsonFileSink {
     fn write_event(&mut self, event: &SemanticTraceEvent) -> std::io::Result<()> {
         serde_json::to_writer(&mut self.writer, event)?;
         self.writer.write_all(b"\n")?;
-        Ok(())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
         self.writer.flush()
     }
 }
@@ -115,7 +111,7 @@ pub(super) fn reset_for_tests() {
 pub(super) fn flush_for_tests() {
     if let Ok(mut guard) = SINK.lock() {
         if let Some(sink) = guard.as_mut() {
-            let _ = sink.flush();
+            let _ = sink.writer.flush();
         }
     }
 }

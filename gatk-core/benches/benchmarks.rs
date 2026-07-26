@@ -1,7 +1,7 @@
 //! Benchmark tests for GATK-RS core components
 #![allow(clippy::result_large_err)]
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use gatk_core::io::FastaSequence;
 use gatk_core::memory::{
     GenomicCache, GenomicInterval, IntervalTree, MemoryMappedFile, MemoryPool, StreamProcessor,
@@ -9,6 +9,7 @@ use gatk_core::memory::{
 use gatk_core::tests::{mocks, TestData};
 use gatk_core::types::{Allele, Base, BaseQuality, GenomicPosition, VariantContext};
 use gatk_core::{math, utils};
+use std::hint::black_box;
 
 fn benchmark_fasta_sequence_ops(c: &mut Criterion) {
     let sequence = FastaSequence::new("seq".to_string(), vec![b'A'; 1_000_000]);

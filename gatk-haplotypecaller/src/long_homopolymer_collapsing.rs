@@ -30,6 +30,7 @@ pub fn needs_collapsing(ref_bases: &[u8], hmer_size_threshold: usize) -> bool {
 }
 
 /// GATK `LongHomopolymerHaplotypeCollapsingEngine.identicalBySequence`.
+#[allow(dead_code)] // unit-tested; production path uses collapsing helpers below
 pub fn identical_by_sequence(haplotypes: &[Haplotype]) -> BTreeMap<usize, Vec<usize>> {
     let mut by_seq: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     for (i, h) in haplotypes.iter().enumerate() {

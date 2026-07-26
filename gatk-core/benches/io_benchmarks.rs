@@ -2,11 +2,12 @@
 //! Performance benchmarks to ensure GATK-RS parsers meet or exceed
 //! the performance of the original GATK implementation.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use gatk_core::io::*;
 use gatk_core::tests::*;
 use std::time::Duration;
 
+use std::hint::black_box;
 fn benchmark_fasta_parsing(c: &mut Criterion) {
     let test_data = TestData::new();
 

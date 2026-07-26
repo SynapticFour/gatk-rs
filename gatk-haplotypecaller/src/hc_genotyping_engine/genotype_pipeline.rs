@@ -2,6 +2,7 @@
 /// Stages are owned by dedicated types; this trait documents the composition for
 /// tests and future alternate engines. Default production wiring uses
 /// [`StrictJavaGenotypingPipeline`].
+#[allow(dead_code)] // composition surface; stage types are wired directly today
 pub(crate) trait GenotypingPipeline {
     /// Named stage order for production `enable_java_strict` sites.
     fn stage_names(&self) -> &'static [&'static str] {
@@ -19,6 +20,7 @@ pub(crate) trait GenotypingPipeline {
 
 /// Production pipeline: [`SiteMap`] → [`SiteEarlyTemplate`] → [`SitePileupRescue`]
 /// → [`SiteScore`] → [`SiteReshape`] → [`GenotypeFinalize`] → emit filter.
+#[allow(dead_code)] // composition surface; stage types are wired directly today
 pub(crate) struct StrictJavaGenotypingPipeline;
 
 impl GenotypingPipeline for StrictJavaGenotypingPipeline {}

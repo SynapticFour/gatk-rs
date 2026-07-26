@@ -8,6 +8,9 @@
 //! helpers are crate-private unless `parity_harness` is enabled (integration
 //! tests + the `hc_full_parity_gate` example).
 #![allow(clippy::result_large_err)]
+// Without `parity_harness`, P12/compat/dump scaffolding stays compiled but unwired
+// into the product path — suppress that dead-code noise. CI uses `--all-features`.
+#![cfg_attr(not(feature = "parity_harness"), allow(dead_code, unused_imports))]
 
 // --------------------------------------------------------------------------
 // Product modules (stable / embedding surface)

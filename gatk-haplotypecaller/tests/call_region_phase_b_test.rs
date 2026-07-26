@@ -3,7 +3,9 @@
 #![allow(deprecated)]
 use gatk_haplotypecaller::event_map::VariationEvent;
 use gatk_haplotypecaller::genome_loc::GenomePosition;
+#[cfg(feature = "parity_harness")]
 use gatk_haplotypecaller::genotyping::GenotypeFormatFields;
+#[cfg(feature = "parity_harness")]
 use gatk_haplotypecaller::hc_emit_policy::passes_emit_for_variation_event;
 use gatk_haplotypecaller::hc_genotyping_engine::HcGenotypingConfig;
 use gatk_haplotypecaller::CallRegionArgs;

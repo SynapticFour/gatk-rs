@@ -721,11 +721,14 @@ impl AssemblyGraph {
 
 /// Wave-A graph-first assembly API (not on production `call_region` path).
 /// Prefer [`crate::read_threading_assembler`] / [`crate::assembly_based_caller`].
+/// Exercised by `#[cfg(test)]` unit tests; kept for that contract outside test cfg.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) struct AssemblyEngine {
     params: AssemblyGraphParams,
 }
 
+#[allow(dead_code)] // see struct note — unit-tested under cfg(test)
 impl AssemblyEngine {
     /// Create a new assembly engine.
     pub fn new(params: AssemblyGraphParams) -> GatkResult<Self> {

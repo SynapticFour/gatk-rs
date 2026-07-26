@@ -1,9 +1,10 @@
 //! Microbenchmarks for Smith-Waterman (nested → flat DP matrices).
 #![allow(clippy::result_large_err)]
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use gatk_haplotypecaller::smith_waterman::{align, SwOverhangStrategy, SwParameters};
 
+use std::hint::black_box;
 fn make_seqs(ref_len: usize, alt_len: usize, mismatch_every: usize) -> (Vec<u8>, Vec<u8>) {
     let bases = [b'A', b'C', b'G', b'T'];
     let reference: Vec<u8> = (0..ref_len).map(|i| bases[i % 4]).collect();

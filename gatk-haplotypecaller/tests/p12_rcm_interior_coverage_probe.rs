@@ -192,7 +192,6 @@ fn p12_rcm_interior_genotyping_vs_region_pileup() {
         }
         if best_ll - second_ll < INFORMATIVE {
             let mut tie_best = best_a;
-            let mut tie_second = second_a;
             let mut tie_best_pri = hap_priorities.get(best_a).copied().unwrap_or(0.0);
             let mut tie_second_pri = hap_priorities.get(second_a).copied().unwrap_or(0.0);
             for a in 0..hap_count {
@@ -202,15 +201,14 @@ fn p12_rcm_interior_genotyping_vs_region_pileup() {
                 }
                 let pri = hap_priorities.get(a).copied().unwrap_or(0.0);
                 if pri > tie_best_pri {
-                    tie_second = tie_best;
                     tie_second_pri = tie_best_pri;
                     tie_best = a;
                     tie_best_pri = pri;
                 } else if pri > tie_second_pri {
-                    tie_second = a;
                     tie_second_pri = pri;
                 }
             }
+            let _ = tie_second_pri;
             best_a = tie_best;
         }
         best_a

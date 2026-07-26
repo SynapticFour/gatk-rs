@@ -21,6 +21,7 @@ const NORMAL_SD: f64 = 1.0;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TestType {
     FirstDominates,
+    #[allow(dead_code)] // GATK API surface; callers may flip series order
     SecondDominates,
     TwoSided,
 }
@@ -38,9 +39,12 @@ pub enum TestType {
 /// GATK `MannWhitneyU` result object (`org.broadinstitute.hellbender.utils.MannWhitneyU`).
 #[derive(Debug, Clone, Copy)]
 pub struct MannWhitneyResult {
+    #[allow(dead_code)] // public stats bundle; BaseQ path currently consumes `z`
     pub u: f64,
     pub z: f64,
+    #[allow(dead_code)]
     pub p: f64,
+    #[allow(dead_code)]
     pub median_shift: f64,
 }
 

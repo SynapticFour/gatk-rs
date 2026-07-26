@@ -80,3 +80,125 @@ path = "examples/allocation_rss_probe.rs"
 [[example]]
 name = "hc_region_size_probe"
 path = "examples/hc_region_size_probe.rs"
+
+# Integration tests that touch the parity_harness public surface (P12/compat/dumps).
+# Without the feature those modules are crate-private; skip the binaries by default.
+[[test]]
+name = "hc_emit_policy_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "l2_may_regression_gate_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_asm8_only_gate_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_asm8_production_gate_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_cluster_asm1_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_cluster_call_region_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_format_parity_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_graph_only_gap_events_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_java_format_fixup_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_java_site_trace_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_parity_gate_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_production_parity_gate_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_region_923162_mid_a_genotyping_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_rust_only_emit_triage_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_site_92305634_pairhmm_trace_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_site_92305716_pairhmm_trace_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_site_92307324_emit_probe_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_site_92307324_pairhmm_trace_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_site_92307364_pairhmm_trace_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_site_92309492_probe_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_site_92318199_pairhmm_trace_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_site_92318227_pairhmm_trace_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_site_92318244_pairhmm_trace_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_site_92318315_pairhmm_trace_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_site_92318325_pairhmm_trace_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_two_remaining_sites_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "p12_variant_not_confident_pl_dump_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "r42_dense_indel_probe_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "read_filter_dump_counts_section_test"
+required-features = ["parity_harness"]
+
+[[test]]
+name = "walker_phase_c_activity_test"
+required-features = ["parity_harness"]

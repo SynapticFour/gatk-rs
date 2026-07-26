@@ -25,6 +25,8 @@ pub const GATK_MIN_TAIL_QUALITY_WITH_ERROR_CORRECTION: u8 = 6;
 #[derive(Debug, Clone)]
 pub struct NearbyKmerErrorCorrectorConfig {
     pub kmer_length: usize,
+    /// GATK constructor field; tail soft-clip before correction not yet wired here.
+    #[allow(dead_code)]
     pub min_tail_quality: u8,
     pub min_observations_for_kmer_to_be_solid: usize,
     pub debug: bool,

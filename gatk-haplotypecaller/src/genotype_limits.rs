@@ -76,6 +76,7 @@ fn top_two_scores(scores: &[f64]) -> (f64, f64) {
 }
 
 /// GATK `HaplotypeCallerGenotypingEngine.whichAllelesToKeepBasedonHapScores`.
+#[allow(dead_code)] // thin wrapper over `_with_ref`; kept for GATK-shaped call sites
 pub fn which_alleles_to_keep_by_haplotype_scores<S: AsRef<[f64]>>(
     scores_per_allele: &[S],
     desired_allele_count: usize,

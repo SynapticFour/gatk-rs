@@ -42,7 +42,11 @@ pub struct AfCalculationResult {
 /// GATK 4.4 `AlleleFrequencyCalculator` / `AFCalculationResult` configuration slice.
 #[derive(Debug, Clone, Copy)]
 pub struct AfCalculatorConfig {
+    /// Java config mirror; EM loop currently consumes derived pseudocounts.
+    #[allow(dead_code)]
     pub snp_heterozygosity: f64,
+    /// Java config mirror; EM loop currently consumes derived pseudocounts.
+    #[allow(dead_code)]
     pub heterozygosity_standard_deviation: f64,
     pub ref_pseudocount: f64,
     pub snp_pseudocount: f64,

@@ -7,10 +7,11 @@
 //! ```
 #![allow(clippy::result_large_err)]
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use gatk_haplotypecaller::{
     AssemblyResultSet, AssemblyStatus, Cigar, CigarOperator, Haplotype, ThreadingAssemblyResult,
 };
+use std::hint::black_box;
 use std::sync::Arc;
 
 /// Medium synthetic padded region (~3 kb) — typical HC active-region window scale.
