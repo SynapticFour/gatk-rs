@@ -48,9 +48,12 @@ PY
     continue
   fi
 
+  rust_log="${report_dir}/${case_id}.rust_compare.log"
   set +e
   P5_LIVE_SAM="${sam_path}" P5_LIVE_JAVA_OUT="${java_out}" P5_LIVE_JAVA_VCF="${vcf_out}" \
-    cargo test -p gatk-haplotypecaller --test p5_live_java_rust_diff_test --locked live_java_eventmap_haplotype_signatures_cover_rust_candidates >/dev/null 2>&1
+    cargo test -p gatk-haplotypecaller --test p5_live_java_rust_diff_test --locked \
+    live_java_eventmap_haplotype_signatures_cover_rust_candidates \
+    >"${rust_log}" 2>&1
   rust_code=$?
   set -e
   if [[ "${rust_code}" -eq 0 ]]; then
@@ -61,6 +64,7 @@ print(json.dumps({"case":"${case_id}","interval":"${interval}","ok":True}))
 PY
   else
     failed=$((failed + 1))
+    echo "[p5-live-diff] rust compare failed for ${case_id} (see ${rust_log})" >&2
     python3 - <<PY >> "${rows_json}"
 import json
 print(json.dumps({"case":"${case_id}","interval":"${interval}","ok":False,"reason":"rust_compare_failed"}))
