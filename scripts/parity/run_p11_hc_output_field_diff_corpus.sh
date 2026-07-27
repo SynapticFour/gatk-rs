@@ -30,6 +30,9 @@ repo = pathlib.Path(sys.argv[2])
 tmp_dir = pathlib.Path(sys.argv[3])
 json_out = pathlib.Path(sys.argv[4])
 target_dir = pathlib.Path(sys.argv[5])
+sys.path.insert(0, str(repo / "scripts" / "parity"))
+from p11_field_compare import compare_first_variants, count_variants, first_variant_fields
+
 docker_image = "us.gcr.io/broad-gatk/gatk:4.4.0.0"
 docker_platform = "linux/amd64"
 
@@ -38,58 +41,6 @@ def run(cmd, env=None, check=True):
     if check and res.returncode != 0:
         raise RuntimeError(f"command failed ({res.returncode}): {' '.join(cmd)}\n{res.stderr}")
     return res
-
-def count_variants(path: pathlib.Path) -> int:
-    if not path.exists():
-        return 0
-    return sum(1 for l in path.read_text(encoding="utf-8", errors="replace").splitlines() if l and not l.startswith("#"))
-
-def first_variant(path: pathlib.Path):
-    if not path.exists():
-        return None
-    for l in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        if not l or l.startswith("#"):
-            continue
-        cols = l.split("\t")
-        if len(cols) < 8:
-            return None
-        out = {
-            "CHROM": cols[0],
-            "POS": cols[1],
-            "REF": cols[3],
-            "ALT": cols[4],
-            "QUAL": cols[5],
-            "FILTER": cols[6],
-            "INFO": cols[7],
-        }
-        if len(cols) >= 10:
-            out["FORMAT"] = cols[8]
-            out["SAMPLE"] = cols[9]
-        return out
-    return None
-
-def parse_info(s):
-    d = {}
-    if not s or s == ".":
-        return d
-    for tok in s.split(";"):
-        if "=" in tok:
-            k, v = tok.split("=", 1)
-            d[k] = v
-        else:
-            d[tok] = "true"
-    return d
-
-def parse_sample(variant):
-    if not variant:
-        return {}
-    fmt = variant.get("FORMAT")
-    sample = variant.get("SAMPLE")
-    if not fmt or not sample:
-        return {}
-    keys = fmt.split(":")
-    vals = sample.split(":")
-    return {k: vals[i] if i < len(vals) else "." for i, k in enumerate(keys)}
 
 rows = list(csv.DictReader(manifest.read_text(encoding="utf-8").splitlines(), delimiter="\t"))
 if not rows:
@@ -101,7 +52,7 @@ for row in rows:
     cid = row["case_id"]
     reference = repo / row["reference"]
     java_input = repo / row["java_input"]
-    rust_input = row["rust_input"]
+    rust_input = repo / row["rust_input"]
     interval = row["interval"]
     activate = row["activate_output"] == "1"
     expect_variant = row["expect_variant"] == "1"
@@ -109,22 +60,46 @@ for row in rows:
     rust_vcf = tmp_dir / f"{cid}.rust.vcf"
 
     java_input_for_hc = java_input
-    java_tmp_bam = None
-    if java_input.suffix.lower() == ".sam":
-        java_tmp_bam = tmp_dir / f"{cid}.java.bam"
-        run([
-            "docker", "run", "--rm", "--platform", docker_platform,
-            "-v", f"{repo}:{repo}",
-            "-w", str(repo),
-            docker_image,
-            "gatk", "SortSam",
-            "-I", str(java_input),
-            "-O", str(java_tmp_bam),
-            "-SO", "coordinate",
-            "--CREATE_INDEX", "true",
-            "--QUIET", "true",
-        ])
-        java_input_for_hc = java_tmp_bam
+    rust_input_for_hc = rust_input
+    # Rust HC requires an index for -L queries. Prefer staged samtools cache, else
+    # local samtools, else Docker SortSam — then feed the same BAM to both sides.
+    if java_input.suffix.lower() == ".sam" or rust_input.suffix.lower() == ".sam":
+        sam_src = java_input if java_input.suffix.lower() == ".sam" else rust_input
+        cache_bam = repo / "parity/build/sam-indexed-bam" / f"{sam_src.stem}.bam"
+        indexed = None
+        if cache_bam.exists() and (cache_bam.with_suffix(".bam.bai").exists() or cache_bam.with_name(cache_bam.name + ".bai").exists() or cache_bam.with_suffix(".bai").exists()):
+            indexed = cache_bam
+        else:
+            indexed = tmp_dir / f"{cid}.java.bam"
+            # Prefer samtools (laptop + CI staging path); fall back to GATK SortSam.
+            import shutil
+            if shutil.which("samtools"):
+                view = subprocess.run(
+                    ["samtools", "view", "-bS", str(sam_src)],
+                    cwd=repo, capture_output=True, check=True,
+                )
+                subprocess.run(
+                    ["samtools", "sort", "-o", str(indexed)],
+                    input=view.stdout, cwd=repo, check=True,
+                )
+                run(["samtools", "index", str(indexed)])
+            else:
+                run([
+                    "docker", "run", "--rm", "--platform", docker_platform,
+                    "-v", f"{repo}:{repo}",
+                    "-w", str(repo),
+                    docker_image,
+                    "gatk", "SortSam",
+                    "-I", str(sam_src),
+                    "-O", str(indexed),
+                    "-SO", "coordinate",
+                    "--CREATE_INDEX", "true",
+                    "--QUIET", "true",
+                ])
+        if java_input.suffix.lower() == ".sam":
+            java_input_for_hc = indexed
+        if rust_input.suffix.lower() == ".sam":
+            rust_input_for_hc = indexed
 
     java_cmd = [
         "docker", "run", "--rm", "--platform", docker_platform,
@@ -152,7 +127,7 @@ for row in rows:
         "cargo", "run", "--quiet", "--bin", "gatk-rs", "--",
         "HaplotypeCaller",
         "-R", row["reference"],
-        "-I", rust_input,
+        "-I", str(rust_input_for_hc),
         "-O", str(rust_vcf),
     ]
     if interval and interval != "-":
@@ -161,8 +136,8 @@ for row in rows:
 
     java_n = count_variants(java_vcf) if java_res.returncode == 0 else 0
     rust_n = count_variants(rust_vcf) if rust_res.returncode == 0 else 0
-    java_first = first_variant(java_vcf)
-    rust_first = first_variant(rust_vcf)
+    java_first = first_variant_fields(java_vcf)
+    rust_first = first_variant_fields(rust_vcf)
     status = "pass"
     mismatches = []
 
@@ -177,29 +152,17 @@ for row in rows:
             status = "fail"
             mismatches.append("variant_presence")
         else:
-            for k in ["CHROM", "POS", "REF", "ALT", "QUAL", "FILTER"]:
-                if (java_first or {}).get(k) != (rust_first or {}).get(k):
-                    mismatches.append(k)
-            ji, ri = parse_info((java_first or {}).get("INFO", ".")), parse_info((rust_first or {}).get("INFO", "."))
-            for k in ["AC", "AF", "AN", "DP"]:
-                if k == "AF":
-                    try:
-                        if abs(float(ji.get(k, "nan")) - float(ri.get(k, "nan"))) > 0.01:
-                            mismatches.append(f"INFO.{k}")
-                    except Exception:
-                        mismatches.append(f"INFO.{k}")
-                elif ji.get(k) != ri.get(k):
-                    mismatches.append(f"INFO.{k}")
-            js, rs = parse_sample(java_first), parse_sample(rust_first)
-            for k in ["GT", "AD", "DP", "GQ", "PL"]:
-                if js.get(k) != rs.get(k):
-                    mismatches.append(f"SAMPLE.{k}")
+            mismatches = compare_first_variants(java_first, rust_first)
             if mismatches:
                 status = "fail"
     else:
-        if java_n != 0 or rust_n != 0:
+        # Scaffold / no-variant cases: allow header-only on both sides.
+        if activate and (java_n != 0 or rust_n != 0):
             status = "fail"
             mismatches.append("expected_no_variant")
+        elif not activate and rust_n != 0:
+            status = "fail"
+            mismatches.append("expected_scaffold_no_variant")
 
     if status != "pass":
         failed += 1

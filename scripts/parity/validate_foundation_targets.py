@@ -92,6 +92,36 @@ def main() -> int:
         if not seed.exists():
             all_issues.append(f"missing triage seed: {seed.relative_to(ROOT)}")
 
+    # Phase-11 smoke must not feed Rust the unindexed .sam with -L (Io exit 3).
+    smoke = ROOT / "scripts/parity/run_p11_hc_output_field_diff_smoke.sh"
+    if smoke.exists():
+        text = smoke.read_text(encoding="utf-8", errors="ignore")
+        if re.search(r'-I\s+\S*p11_java_positive\.sam', text):
+            all_issues.append(
+                "phase11-hc-output-field-diff-smoke: Rust HC must not use "
+                "p11_java_positive.sam directly (needs indexed BAM for -L)"
+            )
+        if not re.search(r'-I\s+"?\$\{java_bam\}"?', text):
+            all_issues.append(
+                "phase11-hc-output-field-diff-smoke: Rust HC must use indexed "
+                "java_bam (SAM lacks index → gatk-rs Io exit 3)"
+            )
+    compare = ROOT / "scripts/parity/p11_field_compare.py"
+    if not compare.exists():
+        all_issues.append("missing scripts/parity/p11_field_compare.py")
+    else:
+        import subprocess
+
+        chk = subprocess.run(
+            [sys.executable, str(compare)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        if chk.returncode != 0:
+            all_issues.append(
+                f"p11_field_compare self-check failed: {chk.stderr.strip() or chk.stdout.strip()}"
+            )
     if all_issues:
         print("[foundation-preflight] FAILED — missing targets/scripts:", file=sys.stderr)
         for msg in sorted(set(all_issues)):
