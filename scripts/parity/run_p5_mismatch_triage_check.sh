@@ -2,6 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
+"${repo_root}/scripts/parity/ensure_mismatch_triage.sh" p5
 triage="${repo_root}/parity/reports/p5_mismatch_triage.jsonl"
 
 python3 - "${repo_root}" <<'PY'

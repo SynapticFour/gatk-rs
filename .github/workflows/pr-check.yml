@@ -125,6 +125,10 @@ jobs:
           fi
           ./scripts/dev/count_unsafe_patterns.sh check
 
+      - name: Foundation target preflight
+        # Catch missing cargo --test/--bench targets before the 45m test job.
+        run: python3 ./scripts/parity/validate_foundation_targets.py
+
   test:
     name: Build · Test · Determinism
     needs: [changes, fmt-clippy]
