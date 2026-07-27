@@ -2,6 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
+"${repo_root}/scripts/parity/ensure_mismatch_triage.sh" p7
 
 python3 - "${repo_root}" <<'PY'
 import json

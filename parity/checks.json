@@ -1,6 +1,14 @@
 {
   "required": [
     {
+      "id": "foundation-target-preflight",
+      "acceptance_class": "governance",
+      "timeout_s": 120,
+      "command": "python3 ./scripts/parity/validate_foundation_targets.py",
+      "description": "Fail fast if required foundation checks reference missing cargo --test/--bench targets or scripts (avoids 45m compile-then-101 loops)",
+      "owner": "parity"
+    },
+    {
       "id": "pinned-gatk-upstream",
       "acceptance_class": "governance",
       "timeout_s": 300,
