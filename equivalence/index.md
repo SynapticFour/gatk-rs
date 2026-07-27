@@ -3,9 +3,9 @@
 Full spine: **HaplotypeCaller (GVCF) → CombineGVCFs → GenotypeGVCFs → VariantFiltration**
 for GIAB Ashkenazi trio HG002/HG003/HG004, scored with **hap.py** vs HG002 truth.
 
-- **Generated (UTC):** 2026-07-26T12:01:41Z
-- **Commit:** `78662fee4974869e9c06467e73de7431f0b2768c`
-- **Run dir:** `/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/nightly_trio_20260726T061724Z`
+- **Generated (UTC):** 2026-07-27T12:08:35Z
+- **Commit:** `a32230f8fd3e2d264294abef216a3372401985e4`
+- **Run dir:** `/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/nightly_trio_20260727T062214Z`
 - **Baseline:** `docs/equivalence/baseline.json`
 - **Regression threshold (|ΔF1| drop):** 0.02
 - **Regressions:** 0
