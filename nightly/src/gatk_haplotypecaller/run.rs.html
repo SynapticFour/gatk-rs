@@ -514,8 +514,8 @@
 <a href=#514 id=514 data-nosnippet>514</a>            <span class="kw">let </span>sample = sample_name.to_string();
 <a href=#515 id=515 data-nosnippet>515</a>            <span class="kw">let </span><span class="kw-2">mut </span>pending: Vec&lt;(usize, AssemblyRegion)&gt; = Vec::with_capacity(batch_limit);
 <a href=#516 id=516 data-nosnippet>516</a>
-<a href=#517 id=517 data-nosnippet>517</a>            <span class="kw">let </span><span class="kw-2">mut </span>flush_batch = |pending: <span class="kw-2">&amp;mut </span>Vec&lt;(usize, AssemblyRegion)&gt;,
-<a href=#518 id=518 data-nosnippet>518</a>                                   all_batches: <span class="kw-2">&amp;mut </span>Vec&lt;RegionEmitBatch&gt;|
+<a href=#517 id=517 data-nosnippet>517</a>            <span class="kw">let </span>flush_batch = |pending: <span class="kw-2">&amp;mut </span>Vec&lt;(usize, AssemblyRegion)&gt;,
+<a href=#518 id=518 data-nosnippet>518</a>                               all_batches: <span class="kw-2">&amp;mut </span>Vec&lt;RegionEmitBatch&gt;|
 <a href=#519 id=519 data-nosnippet>519</a>             -&gt; GatkResult&lt;()&gt; {
 <a href=#520 id=520 data-nosnippet>520</a>                <span class="kw">if </span>pending.is_empty() {
 <a href=#521 id=521 data-nosnippet>521</a>                    <span class="kw">return </span><span class="prelude-val">Ok</span>(());
