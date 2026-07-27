@@ -93,9 +93,9 @@ enum Tool {
         #[arg(short = 'O', long)]
         output: String,
 
-        /// Genomic intervals (GATK: `-L`)
-        #[arg(short = 'L', long)]
-        intervals: Option<String>,
+        /// Genomic intervals (GATK: `-L`; repeatable, same as Java GATK)
+        #[arg(short = 'L', long = "intervals", action = clap::ArgAction::Append)]
+        intervals: Vec<String>,
 
         /// Variant calling output mode: VCF | GVCF | BP_RESOLUTION (GATK: `--output-mode` / `-mode`)
         #[arg(long = "output-mode", alias = "mode", default_value = "VCF")]
@@ -190,9 +190,9 @@ enum Tool {
         #[arg(short = 'O', long)]
         output: String,
 
-        /// Optional intervals (GATK: `-L`)
-        #[arg(short = 'L', long)]
-        intervals: Option<String>,
+        /// Optional intervals (GATK: `-L`; repeatable)
+        #[arg(short = 'L', long = "intervals", action = clap::ArgAction::Append)]
+        intervals: Vec<String>,
     },
 
     /// Hard-filter variants with GATK-style filter expressions (not VQSR).
@@ -246,9 +246,9 @@ enum Tool {
         #[arg(short = 'O', long)]
         output: String,
 
-        /// Optional intervals (GATK: `-L`)
-        #[arg(short = 'L', long)]
-        intervals: Option<String>,
+        /// Optional intervals (GATK: `-L`; repeatable)
+        #[arg(short = 'L', long = "intervals", action = clap::ArgAction::Append)]
+        intervals: Vec<String>,
 
         /// Minimum QUAL to emit (GATK: `--standard-min-confidence-threshold-for-calling`)
         #[arg(long = "stand-call-conf", default_value_t = DEFAULT_STAND_CALL_CONF)]
@@ -349,6 +349,17 @@ enum Tool {
     },
 }
 
+/// Join repeatable `-L` / `--intervals` args the way GATK unions multiple `-L` tokens.
+/// A single path (interval list file) stays a one-element list; multiple literals become
+/// a `;`-separated string for [`parse_intervals_cli_string`].
+fn join_interval_cli_args(intervals: &[String]) -> Option<String> {
+    if intervals.is_empty() {
+        None
+    } else {
+        Some(intervals.join(";"))
+    }
+}
+
 /// Resolve HC worker threads and initialize Rayon's global pool (via haplotypecaller).
 /// Explicit `--threads N` / `--nt N` (N>0) wins over ambient `RAYON_NUM_THREADS`
 /// `--threads 0` → auto-detect (`num_cpus`)
@@ -429,10 +440,10 @@ gatk-rs is a native Rust binary and does not start a JVM \
                     config.set_reference(reference.clone());
                     config.set_output_vcf(output.clone());
 
-                    if let Some(intervals_val) = &intervals {
+                    if let Some(intervals_val) = join_interval_cli_args(&intervals) {
                         let dict = SequenceDictionary::from_fasta_path(&reference)?;
-                        let _specs = parse_intervals_cli_string(&dict, intervals_val)?;
-                        config.set_parameter("intervals".to_string(), intervals_val.clone());
+                        let _specs = parse_intervals_cli_string(&dict, &intervals_val)?;
+                        config.set_parameter("intervals".to_string(), intervals_val);
                     }
                     config.set_output_mode(output_mode.clone());
                     config.set_parameter("output_mode".to_string(), output_mode);
@@ -591,7 +602,7 @@ gatk-rs is a native Rust binary and does not start a JVM \
                     reference: PathBuf::from(reference),
                     variant_paths: variant.into_iter().map(PathBuf::from).collect(),
                     output: PathBuf::from(output),
-                    intervals,
+                    intervals: join_interval_cli_args(&intervals),
                 })
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
                 Ok(())
@@ -655,7 +666,7 @@ gatk-rs is a native Rust binary and does not start a JVM \
                     reference: PathBuf::from(reference),
                     variant: PathBuf::from(variant),
                     output: PathBuf::from(output),
-                    intervals,
+                    intervals: join_interval_cli_args(&intervals),
                     stand_call_conf,
                     include_non_variant_sites: false,
                 })

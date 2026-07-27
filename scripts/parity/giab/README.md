@@ -7,7 +7,7 @@ External-facing runner: download GIAB truth sets, call **Java GATK4** (pinned) a
 | Mode | Meaning | Typical use |
 |------|---------|-------------|
 | `smoke` | Three ~50 kb windows (chr20 / chr21 / P12) | M4 laptop / PR sanity |
-| **`ci-subset` (default)** | **Full chr20 + full chr21** + **one 50 kb probe** on each other autosome | Nightly/weekly CI |
+| **`ci-subset` (default)** | **Full chr20 + full chr21** + **one 50 kb probe** on each other autosome (clamped to hs37d5 contig ends; chr19/22 use end-of-contig) | Nightly/weekly CI |
 | `chr20-21` | Full chromosomes 20 and 21 only | Intermediate |
 | `autosomes` | Full chr1–22 | Large hosts only — not for 16 GB laptops |
 
