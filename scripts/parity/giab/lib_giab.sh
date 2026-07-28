@@ -2,6 +2,9 @@
 # Shared helpers for GIAB genome-wide equivalence runners.
 # shellcheck shell=bash
 
+# Resolved at source time (inside functions BASH_SOURCE[0] is the caller).
+_GIAB_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 giab_time_backend() {
   # Prefer GNU time -v (Linux CI / gtime on macOS); else macOS /usr/bin/time -l.
   if /usr/bin/time -v true >/dev/null 2>&1; then
@@ -175,4 +178,84 @@ giab_mode_description() {
       echo "AUTOSOMES: chromosomes 1–22 in full. Requires large RAM/disk/time — not for M4 laptops."
       ;;
   esac
+}
+
+# Write shard interval lists under $1 from $2 (intervals.txt). One shard per file:
+#   smoke        → 00_all
+#   ci-subset    → 00_chr20, 01_chr21, 02_probes  (resume-friendly on free-tier CI)
+#   chr20-21     → 00_chr20, 01_chr21
+#   autosomes    → one shard per contig
+giab_write_hc_shards() {
+  local shard_dir="$1"
+  local intervals_file="$2"
+  local mode="$3"
+  mkdir -p "${shard_dir}"
+  find "${shard_dir}" -maxdepth 1 -type f -name '*.intervals' -delete 2>/dev/null || true
+
+  case "${mode}" in
+    smoke)
+      cp "${intervals_file}" "${shard_dir}/00_all.intervals"
+      ;;
+    ci-subset)
+      : > "${shard_dir}/00_chr20.intervals"
+      : > "${shard_dir}/01_chr21.intervals"
+      : > "${shard_dir}/02_probes.intervals"
+      while IFS= read -r iv || [[ -n "${iv}" ]]; do
+        [[ -z "${iv}" ]] && continue
+        case "${iv}" in
+          20:* | 20) echo "${iv}" >> "${shard_dir}/00_chr20.intervals" ;;
+          21:* | 21) echo "${iv}" >> "${shard_dir}/01_chr21.intervals" ;;
+          *) echo "${iv}" >> "${shard_dir}/02_probes.intervals" ;;
+        esac
+      done < "${intervals_file}"
+      ;;
+    chr20-21)
+      : > "${shard_dir}/00_chr20.intervals"
+      : > "${shard_dir}/01_chr21.intervals"
+      while IFS= read -r iv || [[ -n "${iv}" ]]; do
+        [[ -z "${iv}" ]] && continue
+        case "${iv}" in
+          20:* | 20) echo "${iv}" >> "${shard_dir}/00_chr20.intervals" ;;
+          21:* | 21) echo "${iv}" >> "${shard_dir}/01_chr21.intervals" ;;
+          *)
+            echo "[giab] unexpected interval for chr20-21 mode: ${iv}" >&2
+            return 2
+            ;;
+        esac
+      done < "${intervals_file}"
+      ;;
+    autosomes)
+      local chr
+      for chr in $(seq 1 22); do
+        printf '%s\n' "${chr}" > "${shard_dir}/$(printf '%02d' "${chr}")_chr${chr}.intervals"
+      done
+      ;;
+    *)
+      echo "[giab] unknown mode for sharding: ${mode}" >&2
+      return 2
+      ;;
+  esac
+
+  # Drop empty shard files (e.g. missing probe file).
+  find "${shard_dir}" -maxdepth 1 -type f -name '*.intervals' -size 0 -delete 2>/dev/null || true
+}
+
+# Concatenate VCF shards → $1. Prefers bcftools; falls back to concat_vcfs.py.
+giab_concat_vcfs() {
+  local out_vcf="$1"
+  shift
+  local -a inputs=("$@")
+  if [[ "${#inputs[@]}" -eq 0 ]]; then
+    echo "[giab] giab_concat_vcfs: no inputs" >&2
+    return 2
+  fi
+  if [[ "${#inputs[@]}" -eq 1 ]]; then
+    cp -f "${inputs[0]}" "${out_vcf}"
+    return 0
+  fi
+  if command -v bcftools >/dev/null 2>&1; then
+    bcftools concat -a -O v -o "${out_vcf}" "${inputs[@]}"
+    return 0
+  fi
+  python3 "${_GIAB_LIB_DIR}/concat_vcfs.py" -o "${out_vcf}" "${inputs[@]}"
 }

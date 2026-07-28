@@ -33,7 +33,9 @@ jobs:
   giab-equivalence:
     name: GIAB equivalence (${{ github.event.inputs.mode || 'ci-subset' }})
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    # Rust HC on full chr20+21 is multi-hour; shards resume across restarts but one
+    # clean pass still needs headroom beyond the old 360m (cancelled mid-Rust HC).
+    timeout-minutes: 900
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -50,7 +52,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            samtools curl time openjdk-17-jre-headless \
+            samtools bcftools curl time openjdk-17-jre-headless \
             zlib1g-dev libbz2-dev liblzma-dev pkg-config build-essential
 
       - name: Install RTG Tools (hap.py fallback for gatk-rs-equiv)

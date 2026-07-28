@@ -101,6 +101,13 @@ while IFS= read -r line || [[ -n "${line}" ]]; do
   intervals+=("${line}")
 done < "${out_root}/intervals.txt"
 
+shard_root="${out_root}/shards"
+giab_write_hc_shards "${shard_root}" "${out_root}/intervals.txt" "${mode}"
+echo "[giab] HC shards:"
+ls -1 "${shard_root}"/*.intervals 2>/dev/null | while IFS= read -r sf; do
+  echo "  $(basename "${sf}"): $(wc -l < "${sf}" | tr -d ' ') interval(s)"
+done
+
 time_backend="$(giab_time_backend)"
 echo "[giab] time_backend=${time_backend}"
 
@@ -166,54 +173,94 @@ for sample in "$@"; do
   rust_vcf="${sdir}/hc/rust.vcf"
   java_time="${sdir}/time/java.time.txt"
   rust_time="${sdir}/time/rust.time.txt"
+  shard_vcf_dir="${sdir}/hc/shards"
+  mkdir -p "${shard_vcf_dir}"
 
-  l_args=()
-  for iv in "${intervals[@]}"; do
-    l_args+=(-L "${iv}")
+  # Run HC per shard so free-tier timeouts can resume completed contig groups.
+  run_hc_shard() {
+    local engine="$1" shard_name="$2" shard_intervals="$3" out_vcf="$4" time_log="$5"
+    local l_args=()
+    local iv
+    while IFS= read -r iv || [[ -n "${iv}" ]]; do
+      [[ -z "${iv}" ]] && continue
+      l_args+=(-L "${iv}")
+    done < "${shard_intervals}"
+    if [[ "${#l_args[@]}" -eq 0 ]]; then
+      echo "[giab] empty shard ${shard_name}; skipping" >&2
+      return 0
+    fi
+    if [[ "${engine}" == "java" ]]; then
+      if [[ -n "${java_jar}" ]]; then
+        run_timed "java-hc-${sample}-${shard_name}" "${time_log}" \
+          java -Xmx4g -jar "${java_jar}" HaplotypeCaller \
+            -R "${ref}" -I "${bam}" -O "${out_vcf}" --verbosity ERROR \
+            --native-pair-hmm-threads "${threads}" "${l_args[@]}"
+      elif [[ -n "${java_bin}" ]]; then
+        run_timed "java-hc-${sample}-${shard_name}" "${time_log}" \
+          "${java_bin}" HaplotypeCaller \
+            -R "${ref}" -I "${bam}" -O "${out_vcf}" --verbosity ERROR \
+            --native-pair-hmm-threads "${threads}" "${l_args[@]}"
+      elif command -v gatk >/dev/null 2>&1; then
+        run_timed "java-hc-${sample}-${shard_name}" "${time_log}" \
+          gatk HaplotypeCaller \
+            -R "${ref}" -I "${bam}" -O "${out_vcf}" --verbosity ERROR \
+            --native-pair-hmm-threads "${threads}" "${l_args[@]}"
+      else
+        # shellcheck source=../lib_pinned_gatk.sh
+        source "${repo_root}/scripts/parity/lib_pinned_gatk.sh"
+        local img="${GATK_DOCKER_IMAGE:-us.gcr.io/broad-gatk/gatk:4.4.0.0}"
+        local plat="${GATK_DOCKER_PLATFORM:-linux/amd64}"
+        run_timed "java-hc-${sample}-${shard_name}" "${time_log}" \
+          docker run --rm --platform "${plat}" \
+            -v "${repo_root}:${repo_root}" -w "${repo_root}" \
+            "${img}" gatk HaplotypeCaller \
+            -R "${ref}" -I "${bam}" -O "${out_vcf}" --verbosity ERROR \
+            --native-pair-hmm-threads "${threads}" "${l_args[@]}"
+      fi
+    else
+      run_timed "rust-hc-${sample}-${shard_name}" "${time_log}" \
+        env RAYON_NUM_THREADS="${threads}" \
+        "${rust_bin}" HaplotypeCaller \
+          -R "${ref}" -I "${bam}" -O "${out_vcf}" "${l_args[@]}"
+    fi
+  }
+
+  java_shard_vcfs=()
+  rust_shard_vcfs=()
+  for shard_file in "${shard_root}"/*.intervals; do
+    [[ -f "${shard_file}" ]] || continue
+    shard_name="$(basename "${shard_file}" .intervals)"
+    java_shard_vcf="${shard_vcf_dir}/java.${shard_name}.vcf"
+    rust_shard_vcf="${shard_vcf_dir}/rust.${shard_name}.vcf"
+    java_shard_time="${sdir}/time/java.${shard_name}.time.txt"
+    rust_shard_time="${sdir}/time/rust.${shard_name}.time.txt"
+
+    if [[ ! -f "${java_shard_vcf}" || "${GIAB_FORCE_HC:-0}" == "1" ]]; then
+      run_hc_shard java "${shard_name}" "${shard_file}" "${java_shard_vcf}" "${java_shard_time}"
+    else
+      echo "[giab] reuse ${java_shard_vcf}"
+    fi
+    if [[ ! -f "${rust_shard_vcf}" || "${GIAB_FORCE_HC:-0}" == "1" ]]; then
+      run_hc_shard rust "${shard_name}" "${shard_file}" "${rust_shard_vcf}" "${rust_shard_time}"
+    else
+      echo "[giab] reuse ${rust_shard_vcf}"
+    fi
+    java_shard_vcfs+=("${java_shard_vcf}")
+    rust_shard_vcfs+=("${rust_shard_vcf}")
   done
 
-  if [[ ! -f "${java_vcf}" || "${GIAB_FORCE_HC:-0}" == "1" ]]; then
-    if [[ -n "${java_jar}" ]]; then
-      run_timed "java-hc-${sample}" "${java_time}" \
-        java -Xmx4g -jar "${java_jar}" HaplotypeCaller \
-          -R "${ref}" -I "${bam}" -O "${java_vcf}" --verbosity ERROR \
-          --native-pair-hmm-threads "${threads}" "${l_args[@]}"
-    elif [[ -n "${java_bin}" ]]; then
-      run_timed "java-hc-${sample}" "${java_time}" \
-        "${java_bin}" HaplotypeCaller \
-          -R "${ref}" -I "${bam}" -O "${java_vcf}" --verbosity ERROR \
-          --native-pair-hmm-threads "${threads}" "${l_args[@]}"
-    elif command -v gatk >/dev/null 2>&1; then
-      run_timed "java-hc-${sample}" "${java_time}" \
-        gatk HaplotypeCaller \
-          -R "${ref}" -I "${bam}" -O "${java_vcf}" --verbosity ERROR \
-          --native-pair-hmm-threads "${threads}" "${l_args[@]}"
-    else
-      # shellcheck source=../lib_pinned_gatk.sh
-      source "${repo_root}/scripts/parity/lib_pinned_gatk.sh"
-      img="${GATK_DOCKER_IMAGE:-us.gcr.io/broad-gatk/gatk:4.4.0.0}"
-      plat="${GATK_DOCKER_PLATFORM:-linux/amd64}"
-      run_timed "java-hc-${sample}" "${java_time}" \
-        docker run --rm --platform "${plat}" \
-          -v "${repo_root}:${repo_root}" -w "${repo_root}" \
-          "${img}" gatk HaplotypeCaller \
-          -R "${ref}" -I "${bam}" -O "${java_vcf}" --verbosity ERROR \
-          --native-pair-hmm-threads "${threads}" "${l_args[@]}"
-    fi
-  else
-    echo "[giab] reuse ${java_vcf}"
-    : > "${java_time}"
+  if [[ "${#java_shard_vcfs[@]}" -eq 0 ]]; then
+    echo "[giab] no HC shards produced for ${sample}" >&2
+    exit 2
   fi
 
-  if [[ ! -f "${rust_vcf}" || "${GIAB_FORCE_HC:-0}" == "1" ]]; then
-    run_timed "rust-hc-${sample}" "${rust_time}" \
-      env RAYON_NUM_THREADS="${threads}" \
-      "${rust_bin}" HaplotypeCaller \
-        -R "${ref}" -I "${bam}" -O "${rust_vcf}" "${l_args[@]}"
-  else
-    echo "[giab] reuse ${rust_vcf}"
-    : > "${rust_time}"
-  fi
+  # Always rebuild combined callsets from shards (cheap; keeps resume consistent).
+  echo "[giab] concat ${#java_shard_vcfs[@]} Java shard VCF(s) → ${java_vcf}"
+  giab_concat_vcfs "${java_vcf}" "${java_shard_vcfs[@]}"
+  : > "${java_time}"
+  echo "[giab] concat ${#rust_shard_vcfs[@]} Rust shard VCF(s) → ${rust_vcf}"
+  giab_concat_vcfs "${rust_vcf}" "${rust_shard_vcfs[@]}"
+  : > "${rust_time}"
 
   java_perf="$(giab_parse_time_log "${java_time}" 2>/dev/null || echo '{}')"
   rust_perf="$(giab_parse_time_log "${rust_time}" 2>/dev/null || echo '{}')"
