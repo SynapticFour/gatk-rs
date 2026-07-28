@@ -149,9 +149,12 @@ jobs:
     name: Push Docker Image
     runs-on: ubuntu-latest
     needs: [build, multi-arch]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    # Soft: Docker Hub credentials are optional on this fork.
-    continue-on-error: true
+    # Skip entirely when Hub secrets are unset (avoids red X from empty login).
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      secrets.DOCKER_USERNAME != '' &&
+      secrets.DOCKER_PASSWORD != ''
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7

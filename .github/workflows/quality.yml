@@ -200,21 +200,24 @@ jobs:
       run: cargo build --workspace --release
 
     - name: Run benchmarks
-      run: cargo bench --workspace -- --output-format json > benchmark-results.json
+      run: |
+        set -euo pipefail
+        # Criterion packages only (harness = false); libtest rejects --output-format.
+        cargo bench -p gatk-core -p gatk-haplotypecaller -- --output-format bencher \
+          | tee benchmark-results.txt
 
     - name: Compare with baseline
       run: |
-        # Download baseline from main branch
+        set -euo pipefail
+        cp benchmark-results.txt /tmp/pr-bench.txt
         git checkout origin/main
         cargo build --workspace --release
-        cargo bench --workspace -- --output-format json > baseline.json
-        
-        # Switch back to PR branch
+        cargo bench -p gatk-core -p gatk-haplotypecaller -- --output-format bencher \
+          | tee baseline.txt
         git checkout ${{ github.sha }}
-        
-        # Compare results (simplified check)
-        echo "Performance comparison completed"
-        cat benchmark-results.json
+        echo "Performance comparison completed (bencher format)"
+        wc -l /tmp/pr-bench.txt baseline.txt
+        head -n 20 /tmp/pr-bench.txt
 
   security-scan:
     name: Security Scan
