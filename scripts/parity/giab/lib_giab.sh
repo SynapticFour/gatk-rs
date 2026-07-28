@@ -2,6 +2,9 @@
 # Shared helpers for GIAB genome-wide equivalence runners.
 # shellcheck shell=bash
 
+# Resolved at source time (inside functions BASH_SOURCE[0] is the caller).
+_GIAB_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 giab_time_backend() {
   # Prefer GNU time -v (Linux CI / gtime on macOS); else macOS /usr/bin/time -l.
   if /usr/bin/time -v true >/dev/null 2>&1; then
@@ -66,6 +69,62 @@ print(json.dumps({"wall_sec": wall, "max_rss_kb": rss_kb}))
 PY
 }
 
+# hs37d5 autosomal lengths (numeric contigs; matches parity/realworld/assets/hs37d5.simple.fa).
+# Used so ci-subset 50kb probes never exceed contig ends (GATK USER ERROR otherwise).
+giab_hs37d5_chrom_len() {
+  case "$1" in
+    1) echo 249250621 ;;
+    2) echo 243199373 ;;
+    3) echo 198022430 ;;
+    4) echo 191154276 ;;
+    5) echo 180915260 ;;
+    6) echo 171115067 ;;
+    7) echo 159138663 ;;
+    8) echo 146364022 ;;
+    9) echo 141213431 ;;
+    10) echo 135534747 ;;
+    11) echo 135006516 ;;
+    12) echo 133851895 ;;
+    13) echo 115169878 ;;
+    14) echo 107349540 ;;
+    15) echo 102531392 ;;
+    16) echo 90354753 ;;
+    17) echo 81195210 ;;
+    18) echo 78077248 ;;
+    19) echo 59128983 ;;
+    20) echo 63025520 ;;
+    21) echo 48129895 ;;
+    22) echo 51304566 ;;
+    *)
+      echo "[giab] unknown contig for hs37d5 length: $1" >&2
+      return 2
+      ;;
+  esac
+}
+
+# Emit a 50kb probe for $1 (chrom), preferring start=chr*3e6+1e7, clamped into contig.
+giab_ci_subset_probe() {
+  local chr="$1"
+  local probe_len=50000
+  local len sample_start max_start end
+  len="$(giab_hs37d5_chrom_len "${chr}")" || return 2
+  sample_start=$((chr * 3000000 + 10000000))
+  max_start=$((len - probe_len + 1))
+  if (( max_start < 1 )); then
+    echo "[giab] contig ${chr} shorter than ${probe_len} bp" >&2
+    return 2
+  fi
+  if (( sample_start > max_start )); then
+    # chr19/22 overflow the naive formula on hs37d5 — park at contig end.
+    sample_start="${max_start}"
+  fi
+  if (( sample_start < 1 )); then
+    sample_start=1
+  fi
+  end=$((sample_start + probe_len - 1))
+  echo "${chr}:${sample_start}-${end}"
+}
+
 giab_build_intervals() {
   # Args: mode → writes interval strings one per line on stdout
   local mode="$1"
@@ -77,14 +136,13 @@ giab_build_intervals() {
       echo "2:92300000-92350000"
       ;;
     ci-subset)
-      # Practical “genome-wide” for CI: full chr20+chr21 + 50kb samples on other autosomes.
+      # Practical “genome-wide” for CI: full chr20+chr21 + 50kb probes on other autosomes.
+      # Probes are clamped to hs37d5 contig lengths (naive mid-ish formula overflows 19/22).
       echo "20:1-63025520"
       echo "21:1-48129895"
-      local chr sample_start
+      local chr
       for chr in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 22; do
-        # Deterministic mid-chromosome-ish 50kb probes (hs37d5 lengths not required for -L).
-        sample_start=$((chr * 3000000 + 10000000))
-        echo "${chr}:${sample_start}-$((sample_start + 49999))"
+        giab_ci_subset_probe "${chr}"
       done
       ;;
     chr20-21)
@@ -120,4 +178,84 @@ giab_mode_description() {
       echo "AUTOSOMES: chromosomes 1–22 in full. Requires large RAM/disk/time — not for M4 laptops."
       ;;
   esac
+}
+
+# Write shard interval lists under $1 from $2 (intervals.txt). One shard per file:
+#   smoke        → 00_all
+#   ci-subset    → 00_chr20, 01_chr21, 02_probes  (resume-friendly on free-tier CI)
+#   chr20-21     → 00_chr20, 01_chr21
+#   autosomes    → one shard per contig
+giab_write_hc_shards() {
+  local shard_dir="$1"
+  local intervals_file="$2"
+  local mode="$3"
+  mkdir -p "${shard_dir}"
+  find "${shard_dir}" -maxdepth 1 -type f -name '*.intervals' -delete 2>/dev/null || true
+
+  case "${mode}" in
+    smoke)
+      cp "${intervals_file}" "${shard_dir}/00_all.intervals"
+      ;;
+    ci-subset)
+      : > "${shard_dir}/00_chr20.intervals"
+      : > "${shard_dir}/01_chr21.intervals"
+      : > "${shard_dir}/02_probes.intervals"
+      while IFS= read -r iv || [[ -n "${iv}" ]]; do
+        [[ -z "${iv}" ]] && continue
+        case "${iv}" in
+          20:* | 20) echo "${iv}" >> "${shard_dir}/00_chr20.intervals" ;;
+          21:* | 21) echo "${iv}" >> "${shard_dir}/01_chr21.intervals" ;;
+          *) echo "${iv}" >> "${shard_dir}/02_probes.intervals" ;;
+        esac
+      done < "${intervals_file}"
+      ;;
+    chr20-21)
+      : > "${shard_dir}/00_chr20.intervals"
+      : > "${shard_dir}/01_chr21.intervals"
+      while IFS= read -r iv || [[ -n "${iv}" ]]; do
+        [[ -z "${iv}" ]] && continue
+        case "${iv}" in
+          20:* | 20) echo "${iv}" >> "${shard_dir}/00_chr20.intervals" ;;
+          21:* | 21) echo "${iv}" >> "${shard_dir}/01_chr21.intervals" ;;
+          *)
+            echo "[giab] unexpected interval for chr20-21 mode: ${iv}" >&2
+            return 2
+            ;;
+        esac
+      done < "${intervals_file}"
+      ;;
+    autosomes)
+      local chr
+      for chr in $(seq 1 22); do
+        printf '%s\n' "${chr}" > "${shard_dir}/$(printf '%02d' "${chr}")_chr${chr}.intervals"
+      done
+      ;;
+    *)
+      echo "[giab] unknown mode for sharding: ${mode}" >&2
+      return 2
+      ;;
+  esac
+
+  # Drop empty shard files (e.g. missing probe file).
+  find "${shard_dir}" -maxdepth 1 -type f -name '*.intervals' -size 0 -delete 2>/dev/null || true
+}
+
+# Concatenate VCF shards → $1. Prefers bcftools; falls back to concat_vcfs.py.
+giab_concat_vcfs() {
+  local out_vcf="$1"
+  shift
+  local -a inputs=("$@")
+  if [[ "${#inputs[@]}" -eq 0 ]]; then
+    echo "[giab] giab_concat_vcfs: no inputs" >&2
+    return 2
+  fi
+  if [[ "${#inputs[@]}" -eq 1 ]]; then
+    cp -f "${inputs[0]}" "${out_vcf}"
+    return 0
+  fi
+  if command -v bcftools >/dev/null 2>&1; then
+    bcftools concat -a -O v -o "${out_vcf}" "${inputs[@]}"
+    return 0
+  fi
+  python3 "${_GIAB_LIB_DIR}/concat_vcfs.py" -o "${out_vcf}" "${inputs[@]}"
 }
