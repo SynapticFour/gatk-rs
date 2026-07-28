@@ -1,5 +1,9 @@
 # Weekly (and manual) GIAB equivalence: Java GATK4 vs gatk-rs via gatk-rs-equiv.
 # Default mode is ci-subset (full chr20+chr21 + autosomal probes) — see scripts/parity/giab/README.md.
+#
+# GitHub-hosted runners hard-cap each job at 6h. HC is therefore split into a
+# prepare → matrix(shard × engine) → finalize pipeline so Rust chr20/chr21 each
+# get a full 6h budget (in-job sharding alone still hit the wall-clock limit).
 name: GIAB genomewide equivalence
 
 on:
@@ -29,13 +33,173 @@ concurrency:
   group: giab-genomewide
   cancel-in-progress: false
 
+env:
+  GIAB_MODE: ${{ github.event.inputs.mode || 'ci-subset' }}
+  GIAB_SAMPLES: ${{ github.event.inputs.samples || 'HG001' }}
+  GIAB_F1_DELTA_THRESHOLD: ${{ github.event.inputs.f1_delta || '0.02' }}
+  GIAB_THREADS: "2"
+  GIAB_OUT_ROOT: ${{ github.workspace }}/parity/giab/runs/ci
+  CARGO_BUILD_JOBS: "2"
+  RAYON_NUM_THREADS: "2"
+  GATK_DOCKER_IMAGE: us.gcr.io/broad-gatk/gatk:4.4.0.0
+  GATK_DOCKER_PLATFORM: linux/amd64
+
 jobs:
-  giab-equivalence:
-    name: GIAB equivalence (${{ github.event.inputs.mode || 'ci-subset' }})
+  prepare:
+    name: Prepare (${{ github.event.inputs.mode || 'ci-subset' }})
     runs-on: ubuntu-latest
-    # Rust HC on full chr20+21 is multi-hour; shards resume across restarts but one
-    # clean pass still needs headroom beyond the old 360m (cancelled mid-Rust HC).
-    timeout-minutes: 900
+    timeout-minutes: 90
+    outputs:
+      shards: ${{ steps.prepare.outputs.shards }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Free disk
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
+          df -h
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            samtools bcftools curl time openjdk-17-jre-headless \
+            zlib1g-dev libbz2-dev liblzma-dev pkg-config build-essential
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-giab-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-giab-
+
+      - name: Build gatk-rs + gatk-rs-equiv
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "false"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+        run: |
+          source scripts/parity/m4_disk_guard.sh
+          ./scripts/parity/build_gatk_rs_release.sh
+          cargo build -p gatk-rs-equiv --release -j "${CARGO_BUILD_JOBS}"
+          mkdir -p giab-bins
+          cp -f target/release/gatk-rs target/release/gatk-rs-equiv giab-bins/
+
+      - name: Fetch GIAB truth sets
+        run: ./scripts/parity/giab/fetch_giab_truthsets.sh
+
+      - name: Prepare intervals + shards
+        id: prepare
+        env:
+          GIAB_PHASE: prepare
+          GIAB_FETCH_TRUTH: "0"
+          GIAB_STAGE_REF: "1"
+        run: |
+          set -euo pipefail
+          ./scripts/parity/giab/run_genomewide_equivalence.sh
+          test -f "${GIAB_OUT_ROOT}/shards.json"
+          echo "shards=$(cat "${GIAB_OUT_ROOT}/shards.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload prepare artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: giab-prepare-${{ github.run_id }}
+          path: |
+            giab-bins/**
+            parity/giab/truth/**
+            parity/giab/stratifications/**
+            parity/giab/runs/ci/SCOPE.txt
+            parity/giab/runs/ci/run.env
+            parity/giab/runs/ci/intervals.txt
+            parity/giab/runs/ci/shards.json
+            parity/giab/runs/ci/shards/**
+          if-no-files-found: error
+          retention-days: 14
+
+  hc-shard:
+    name: HC ${{ matrix.shard }} / ${{ matrix.engine }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    # GitHub-hosted hard cap is 6h; do not set higher — it is silently clamped.
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson(needs.prepare.outputs.shards) }}
+        engine: [java, rust]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Free disk
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
+          df -h
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            samtools bcftools curl time openjdk-17-jre-headless \
+            zlib1g-dev libbz2-dev liblzma-dev pkg-config build-essential
+
+      - name: Download prepare artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: giab-prepare-${{ github.run_id }}
+          path: .
+
+      - name: Restore bins onto PATH layout
+        run: |
+          set -euo pipefail
+          mkdir -p target/release
+          cp -f giab-bins/gatk-rs giab-bins/gatk-rs-equiv target/release/
+          chmod +x target/release/gatk-rs target/release/gatk-rs-equiv
+
+      - name: Run HC shard
+        env:
+          GIAB_PHASE: hc
+          GIAB_HC_SHARDS: ${{ matrix.shard }}
+          GIAB_HC_ENGINES: ${{ matrix.engine }}
+          GIAB_FETCH_TRUTH: "0"
+          GIAB_STAGE_REF: "1"
+          GIAB_RUST_BIN: ${{ github.workspace }}/target/release/gatk-rs
+          GIAB_EQUIV_BIN: ${{ github.workspace }}/target/release/gatk-rs-equiv
+          GIAB_SKIP_EQUIV_ENGINE: "1"
+        run: |
+          set -euo pipefail
+          source scripts/parity/lib_pinned_gatk.sh
+          ./scripts/parity/giab/run_genomewide_equivalence.sh
+
+      - name: Upload shard VCF
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: giab-hc-${{ matrix.shard }}-${{ matrix.engine }}-${{ github.run_id }}
+          path: |
+            parity/giab/runs/ci/*/hc/shards/${{ matrix.engine }}.${{ matrix.shard }}.vcf
+            parity/giab/runs/ci/*/time/${{ matrix.engine }}.${{ matrix.shard }}.time.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+  finalize:
+    name: Finalize + score
+    needs: [prepare, hc-shard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -59,7 +223,6 @@ jobs:
         run: |
           set -euo pipefail
           ver="3.12.1"
-          # Release assets are linux-x64 / nojre / windows — there is no *-http.zip.
           url="https://github.com/RealTimeGenomics/rtg-tools/releases/download/${ver}/rtg-tools-${ver}-linux-x64.zip"
           for attempt in 1 2 3; do
             if curl -fsSL --retry 3 --retry-delay 5 -o /tmp/rtg.zip "${url}"; then
@@ -72,59 +235,39 @@ jobs:
             sleep $((attempt * 5))
           done
           sudo unzip -q /tmp/rtg.zip -d /opt
-          # RTG wants a license acknowledgement file on first run
           printf 'y\n' | /opt/rtg-tools-${ver}/rtg version >/dev/null || true
           echo "/opt/rtg-tools-${ver}" >> "$GITHUB_PATH"
           echo "RTG_BIN=/opt/rtg-tools-${ver}/rtg" >> "$GITHUB_ENV"
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
+      - name: Download prepare + HC artifacts
+        uses: actions/download-artifact@v7
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-giab-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-giab-
+          pattern: giab-*
+          merge-multiple: true
+          path: .
 
-      - name: Build gatk-rs + gatk-rs-equiv
-        env:
-          CARGO_BUILD_JOBS: "2"
-          CARGO_PROFILE_RELEASE_LTO: "false"
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
-          RAYON_NUM_THREADS: "2"
-        run: |
-          source scripts/parity/m4_disk_guard.sh
-          ./scripts/parity/build_gatk_rs_release.sh
-          cargo build -p gatk-rs-equiv --release -j "${CARGO_BUILD_JOBS}"
-
-      - name: Fetch GIAB truth sets
-        run: ./scripts/parity/giab/fetch_giab_truthsets.sh
-
-      - name: Run genomewide equivalence
-        env:
-          GIAB_MODE: ${{ github.event.inputs.mode || 'ci-subset' }}
-          GIAB_SAMPLES: ${{ github.event.inputs.samples || 'HG001' }}
-          GIAB_F1_DELTA_THRESHOLD: ${{ github.event.inputs.f1_delta || '0.02' }}
-          GIAB_THREADS: "2"
-          GIAB_FETCH_TRUTH: "0"
-          GIAB_OUT_ROOT: ${{ github.workspace }}/parity/giab/runs/ci
-          CARGO_BUILD_JOBS: "2"
-          RAYON_NUM_THREADS: "2"
-          RTG_BIN: ${{ env.RTG_BIN }}
-          # Prefer Docker GATK pin when no local jar
-          GATK_DOCKER_IMAGE: us.gcr.io/broad-gatk/gatk:4.4.0.0
-          GATK_DOCKER_PLATFORM: linux/amd64
+      - name: Restore bins
         run: |
           set -euo pipefail
-          source scripts/parity/lib_pinned_gatk.sh
-          ./scripts/parity/giab/run_genomewide_equivalence.sh
-        continue-on-error: true
+          mkdir -p target/release
+          cp -f giab-bins/gatk-rs giab-bins/gatk-rs-equiv target/release/
+          chmod +x target/release/gatk-rs target/release/gatk-rs-equiv
+          echo "[giab] shard VCFs present:"
+          find parity/giab/runs/ci -type f -name '*.vcf' | sort
+
+      - name: Concat + equivalence gate
         id: giab_run
+        continue-on-error: true
+        env:
+          GIAB_PHASE: finalize
+          GIAB_FETCH_TRUTH: "0"
+          GIAB_STAGE_REF: "1"
+          GIAB_RUST_BIN: ${{ github.workspace }}/target/release/gatk-rs
+          GIAB_EQUIV_BIN: ${{ github.workspace }}/target/release/gatk-rs-equiv
+          RTG_BIN: ${{ env.RTG_BIN }}
+        run: |
+          set -euo pipefail
+          ./scripts/parity/giab/run_genomewide_equivalence.sh
 
       - name: Upload run artifacts
         if: always()
@@ -145,7 +288,7 @@ jobs:
   # Publish under /giab-ci/ so we do not clobber the customer-facing parity-site at Pages root.
   deploy-giab-ci-pages:
     name: Deploy CI dashboard to /giab-ci/
-    needs: giab-equivalence
+    needs: finalize
     if: always() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
