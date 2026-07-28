@@ -253,7 +253,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download genomewide artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: genomewide-validation-${{ github.run_id }}
           path: parity/giab/runs/genomewide

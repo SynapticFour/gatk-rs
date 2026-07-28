@@ -1073,7 +1073,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.19",
  "tokio",
  "tracing",
  "tracing-appender",
@@ -1089,7 +1089,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.19",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
@@ -1129,7 +1129,7 @@ dependencies = [
  "smallvec",
  "statrs",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.19",
  "tokio",
  "tokio-test",
  "tracing",
@@ -1160,7 +1160,7 @@ dependencies = [
  "serde_json",
  "statrs",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.19",
  "tracing",
  "uuid",
 ]
@@ -1177,7 +1177,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.19",
 ]
 
 [[package]]

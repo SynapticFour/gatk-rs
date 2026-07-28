@@ -297,7 +297,7 @@ jobs:
 
       - name: Download run artifact
         continue-on-error: true
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: giab-genomewide-${{ github.run_id }}
           path: parity/giab/runs/ci
