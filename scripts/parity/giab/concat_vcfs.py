@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Concatenate non-overlapping VCF shards (header from first file, body from all).
 
-Used by GIAB HC sharding so a timed-out CI job can resume completed contig shards
+Used by GIAB HC sharding so timed-out CI jobs can resume completed window shards
 without re-running Java/Rust HaplotypeCaller on finished intervals.
 Prefer `bcftools concat -a` when available; this is the portable fallback.
 """

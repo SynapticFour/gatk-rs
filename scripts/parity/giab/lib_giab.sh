@@ -180,15 +180,73 @@ giab_mode_description() {
   esac
 }
 
+# Window size (bp) for splitting full-contig intervals into matrix jobs.
+# Contig-sized shards (full chr20/21) can still burn the GitHub-hosted 6h hard
+# cap at GIAB_THREADS=2; 10 Mb windows keep each shard×engine job smaller.
+giab_hc_window_bp() {
+  echo "${GIAB_HC_WINDOW_BP:-10000000}"
+}
+
+# Parse "chr", "chr:start-end" → chrom start end (1-based inclusive).
+giab_parse_interval() {
+  local iv="$1"
+  local chrom rest start end len
+  case "${iv}" in
+    *:*)
+      chrom="${iv%%:*}"
+      rest="${iv#*:}"
+      start="${rest%-*}"
+      end="${rest#*-}"
+      ;;
+    *)
+      chrom="${iv}"
+      len="$(giab_hs37d5_chrom_len "${chrom}")" || return 2
+      start=1
+      end="${len}"
+      ;;
+  esac
+  printf '%s %s %s\n' "${chrom}" "${start}" "${end}"
+}
+
+# Write one .intervals file per window for a full-chrom (or long) interval.
+# Names: ${prefix}_w00, ${prefix}_w01, … (zero-padded for concat order).
+# Short intervals (≤ window_bp) become a single ${prefix}_w00 shard.
+giab_write_interval_windows() {
+  local shard_dir="$1"
+  local prefix="$2"
+  local iv="$3"
+  local window_bp="$4"
+  local chrom start end wstart wend idx
+  read -r chrom start end < <(giab_parse_interval "${iv}") || return 2
+  if (( start < 1 || end < start )); then
+    echo "[giab] bad interval ${iv}" >&2
+    return 2
+  fi
+  idx=0
+  wstart="${start}"
+  while (( wstart <= end )); do
+    wend=$((wstart + window_bp - 1))
+    if (( wend > end )); then
+      wend="${end}"
+    fi
+    printf '%s:%s-%s\n' "${chrom}" "${wstart}" "${wend}" \
+      > "${shard_dir}/$(printf '%s_w%02d' "${prefix}" "${idx}").intervals"
+    wstart=$((wend + 1))
+    idx=$((idx + 1))
+  done
+}
+
 # Write shard interval lists under $1 from $2 (intervals.txt). One shard per file:
 #   smoke        → 00_all
-#   ci-subset    → 00_chr20, 01_chr21, 02_probes  (resume-friendly on free-tier CI)
-#   chr20-21     → 00_chr20, 01_chr21
-#   autosomes    → one shard per contig
+#   ci-subset    → 00_chr20_wNN, 01_chr21_wNN, 02_probes  (matrix jobs under 6h)
+#   chr20-21     → 00_chr20_wNN, 01_chr21_wNN
+#   autosomes    → one shard per contig (self-hosted; not window-split)
 giab_write_hc_shards() {
   local shard_dir="$1"
   local intervals_file="$2"
   local mode="$3"
+  local window_bp
+  window_bp="$(giab_hc_window_bp)"
   mkdir -p "${shard_dir}"
   find "${shard_dir}" -maxdepth 1 -type f -name '*.intervals' -delete 2>/dev/null || true
 
@@ -197,26 +255,32 @@ giab_write_hc_shards() {
       cp "${intervals_file}" "${shard_dir}/00_all.intervals"
       ;;
     ci-subset)
-      : > "${shard_dir}/00_chr20.intervals"
-      : > "${shard_dir}/01_chr21.intervals"
       : > "${shard_dir}/02_probes.intervals"
       while IFS= read -r iv || [[ -n "${iv}" ]]; do
         [[ -z "${iv}" ]] && continue
         case "${iv}" in
-          20:* | 20) echo "${iv}" >> "${shard_dir}/00_chr20.intervals" ;;
-          21:* | 21) echo "${iv}" >> "${shard_dir}/01_chr21.intervals" ;;
-          *) echo "${iv}" >> "${shard_dir}/02_probes.intervals" ;;
+          20:* | 20)
+            giab_write_interval_windows "${shard_dir}" "00_chr20" "${iv}" "${window_bp}"
+            ;;
+          21:* | 21)
+            giab_write_interval_windows "${shard_dir}" "01_chr21" "${iv}" "${window_bp}"
+            ;;
+          *)
+            echo "${iv}" >> "${shard_dir}/02_probes.intervals"
+            ;;
         esac
       done < "${intervals_file}"
       ;;
     chr20-21)
-      : > "${shard_dir}/00_chr20.intervals"
-      : > "${shard_dir}/01_chr21.intervals"
       while IFS= read -r iv || [[ -n "${iv}" ]]; do
         [[ -z "${iv}" ]] && continue
         case "${iv}" in
-          20:* | 20) echo "${iv}" >> "${shard_dir}/00_chr20.intervals" ;;
-          21:* | 21) echo "${iv}" >> "${shard_dir}/01_chr21.intervals" ;;
+          20:* | 20)
+            giab_write_interval_windows "${shard_dir}" "00_chr20" "${iv}" "${window_bp}"
+            ;;
+          21:* | 21)
+            giab_write_interval_windows "${shard_dir}" "01_chr21" "${iv}" "${window_bp}"
+            ;;
           *)
             echo "[giab] unexpected interval for chr20-21 mode: ${iv}" >&2
             return 2
