@@ -51,9 +51,9 @@ Outputs under `parity/giab/runs/<timestamp>_<mode>/`:
 Workflow: `.github/workflows/giab-genomewide.yml` (weekly + `workflow_dispatch`).
 
 - Default: `GIAB_MODE=ci-subset`, `GIAB_SAMPLES=HG001`  
-- Job timeout **900 m**; HC sharded (chr20 / chr21 / probes) with per-shard VCF reuse  
-- Uploads run artifacts  
-- Deploys `dashboard/` to GitHub Pages  
+- **Matrix pipeline** (GitHub-hosted 6 h hard cap): `prepare` → HC jobs per `shard × engine` (360 m each) → `finalize` (concat + hap.py/RTG)  
+- Phases via `GIAB_PHASE=prepare|hc|finalize|all`; filters `GIAB_HC_SHARDS` / `GIAB_HC_ENGINES`  
+- Uploads run artifacts; deploys `dashboard/` to GitHub Pages under `/giab-ci/`
 
 ### Nightly trio joint E2E (HC → Combine → Genotype → Filter)
 
