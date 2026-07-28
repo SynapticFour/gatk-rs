@@ -48,6 +48,33 @@ fn haplotype_caller_emit_ref_confidence_long_form_accepted() {
 }
 
 #[test]
+fn haplotype_caller_accepts_repeated_interval_flags() {
+    // GIAB ci-subset / Java GATK pass many `-L` tokens; clap must Append, not reject.
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("out.vcf");
+    Command::cargo_bin("gatk-rs")
+        .unwrap()
+        .current_dir(repo_root())
+        .env("GATK_RS_HC_SCAFFOLD_OUTPUT", "1")
+        .args([
+            "HaplotypeCaller",
+            "-R",
+            "parity/fixtures/reference.fa",
+            "-I",
+            "parity/fixtures/sample.bam",
+            "-O",
+            out.to_str().unwrap(),
+            "-L",
+            "chr1:1-16",
+            "-L",
+            "chr1:17-32",
+        ])
+        .assert()
+        .success();
+    assert!(out.exists());
+}
+
+#[test]
 fn haplotype_caller_invalid_interval_user_error_exit_2() {
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("bad.vcf");
