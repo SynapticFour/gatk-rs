@@ -133,6 +133,18 @@ if [[ "${stage_ref}" == "1" && ! -f "${ref}" ]]; then
 fi
 if [[ ! -f "${ref}" ]]; then
   echo "[giab] missing reference: ${ref}" >&2
+  if [[ "${stage_ref}" != "1" ]]; then
+    echo "[giab] GIAB_STAGE_REF=${stage_ref}: expected hs37d5 from prepare artifact / cache; refusing to curl EBI FTP." >&2
+  fi
+  exit 2
+fi
+if [[ ! -f "${ref}.fai" ]]; then
+  echo "[giab] missing reference index: ${ref}.fai" >&2
+  exit 2
+fi
+ref_dict="$(dirname "${ref}")/hs37d5.simple.dict"
+if [[ ! -f "${ref_dict}" ]]; then
+  echo "[giab] missing reference dict: ${ref_dict}" >&2
   exit 2
 fi
 
