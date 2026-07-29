@@ -105,21 +105,31 @@ else
 fi
 
 if [[ ! -f "${ref_fai}" ]]; then
-  run_cmd docker run --rm --platform "${GATK_DOCKER_PLATFORM:-linux/amd64}" \
-    -v "${repo_root}:${repo_root}" \
-    -w "${repo_root}" \
-    "${GATK_DOCKER_IMAGE:-us.gcr.io/broad-gatk/gatk:4.4.0.0}" \
-    samtools faidx "${ref_fa}"
+  # Prefer host samtools (CI installs it) — avoids a multi‑GB GATK Docker pull
+  # just to faidx the reference during GIAB prepare.
+  if command -v samtools >/dev/null 2>&1; then
+    run_cmd samtools faidx "${ref_fa}"
+  else
+    run_cmd docker run --rm --platform "${GATK_DOCKER_PLATFORM:-linux/amd64}" \
+      -v "${repo_root}:${repo_root}" \
+      -w "${repo_root}" \
+      "${GATK_DOCKER_IMAGE:-us.gcr.io/broad-gatk/gatk:4.4.0.0}" \
+      samtools faidx "${ref_fa}"
+  fi
 else
   log "REF_FAI already present: ${ref_fai}"
 fi
 
 if [[ ! -f "${ref_dict}" ]]; then
-  run_cmd docker run --rm --platform "${GATK_DOCKER_PLATFORM:-linux/amd64}" \
-    -v "${repo_root}:${repo_root}" \
-    -w "${repo_root}" \
-    "${GATK_DOCKER_IMAGE:-us.gcr.io/broad-gatk/gatk:4.4.0.0}" \
-    gatk CreateSequenceDictionary -R "${ref_fa}" -O "${ref_dict}" --QUIET true
+  if command -v samtools >/dev/null 2>&1; then
+    run_cmd samtools dict -o "${ref_dict}" "${ref_fa}"
+  else
+    run_cmd docker run --rm --platform "${GATK_DOCKER_PLATFORM:-linux/amd64}" \
+      -v "${repo_root}:${repo_root}" \
+      -w "${repo_root}" \
+      "${GATK_DOCKER_IMAGE:-us.gcr.io/broad-gatk/gatk:4.4.0.0}" \
+      gatk CreateSequenceDictionary -R "${ref_fa}" -O "${ref_dict}" --QUIET true
+  fi
 else
   log "REF_DICT already present: ${ref_dict}"
 fi
