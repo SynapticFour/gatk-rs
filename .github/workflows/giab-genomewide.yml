@@ -57,7 +57,8 @@ jobs:
   prepare:
     name: Prepare (${{ github.event.inputs.mode || 'ci-subset' }})
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # First-time hs37d5 fetch (~3 GB) can take >1h on cold cache; keep headroom.
+    timeout-minutes: 180
     outputs:
       shards: ${{ steps.prepare.outputs.shards }}
     steps:
@@ -118,10 +119,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
+            parity/realworld/assets/hs37d5.fa.gz
             parity/realworld/assets/hs37d5.simple.fa
             parity/realworld/assets/hs37d5.simple.fa.fai
             parity/realworld/assets/hs37d5.simple.dict
-          key: hs37d5-simple-v1
+          key: hs37d5-simple-v2
           restore-keys: |
             hs37d5-simple-
 
