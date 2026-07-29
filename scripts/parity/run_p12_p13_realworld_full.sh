@@ -22,7 +22,8 @@ run_cmd() {
 
 log "=== P12/P13 real-world full run start (${timestamp}) ==="
 
-ref_gz_url="${P12P13_REF_GZ_URL:-https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz}"
+# Prefer NCBI mirrors from GitHub-hosted runners; EBI often stalls for hours.
+ref_gz_url="${P12P13_REF_GZ_URL:-}"
 ref_gz="${data_dir}/hs37d5.fa.gz"
 ref_fa_raw="${data_dir}/hs37d5.fa"
 ref_fa="${data_dir}/hs37d5.simple.fa"
@@ -34,21 +35,46 @@ truth_vcf="${data_dir}/HG001_GRCh37_1_22_v4.2.1_benchmark.vcf.gz"
 truth_bed_url="${P12P13_TRUTH_BED_URL:-https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/NA12878_HG001/NISTv4.2.1/GRCh37/HG001_GRCh37_1_22_v4.2.1_benchmark.bed}"
 truth_bed="${data_dir}/HG001_GRCh37_1_22_v4.2.1_benchmark.bed"
 
-if [[ ! -f "${ref_gz}" ]]; then
-  # EBI FTP is flaky / rate-limited; retry with backoff (used by GIAB prepare).
-  for attempt in 1 2 3 4 5; do
-    if curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
-      "${ref_gz_url}" -o "${ref_gz}.partial"; then
-      mv "${ref_gz}.partial" "${ref_gz}"
-      break
-    fi
-    rm -f "${ref_gz}.partial"
-    if [[ "${attempt}" -eq 5 ]]; then
-      log "REF_GZ download failed after ${attempt} attempts: ${ref_gz_url}"
-      exit 1
-    fi
-    sleep $((attempt * 10))
+download_ref_gz() {
+  local mirrors=()
+  if [[ -n "${ref_gz_url}" ]]; then
+    mirrors+=("${ref_gz_url}")
+  fi
+  mirrors+=(
+    "https://ftp-trace.ncbi.nlm.nih.gov/1000genomes/ftp/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz"
+    "https://ftp.ncbi.nlm.nih.gov/1000genomes/ftp/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz"
+    "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz"
+  )
+  local url attempt
+  rm -f "${ref_gz}.partial"
+  for url in "${mirrors[@]}"; do
+    log "REF_GZ trying ${url}"
+    for attempt in 1 2 3; do
+      # Resume partial downloads; NCBI is typically reachable from GH runners.
+      if curl -fL --retry 2 --retry-delay 5 --connect-timeout 20 --max-time 1800 \
+        -C - "${url}" -o "${ref_gz}.partial"; then
+        # Basic sanity: gzip header
+        if gzip -t "${ref_gz}.partial" 2>/dev/null; then
+          mv "${ref_gz}.partial" "${ref_gz}"
+          log "REF_GZ downloaded from ${url}"
+          return 0
+        fi
+        log "REF_GZ corrupt gzip from ${url}; retrying"
+        rm -f "${ref_gz}.partial"
+      else
+        log "REF_GZ curl failed (${url} attempt ${attempt})"
+      fi
+      sleep $((attempt * 5))
+    done
   done
+  return 1
+}
+
+if [[ ! -f "${ref_gz}" ]]; then
+  if ! download_ref_gz; then
+    log "REF_GZ download failed on all mirrors"
+    exit 1
+  fi
 else
   log "REF_GZ already present: ${ref_gz}"
 fi
