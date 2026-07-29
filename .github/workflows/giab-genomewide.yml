@@ -6,9 +6,9 @@
 # split into ~10 Mb windows (GIAB_HC_WINDOW_BP) so no single shard×engine job
 # needs the entire contig wall-clock budget.
 #
-# Reference handoff: prepare stages hs37d5 once (cached) and ships it in the
-# prepare artifact. HC/finalize set GIAB_STAGE_REF=0 so they never re-curl EBI
-# FTP (26 parallel curls previously burned the entire 6h budget).
+# Reference handoff: prepare fetches hs37d5 from GitHub Release giab-ref-v1
+# (CDN), caches it, and ships it in the prepare artifact. HC/finalize set
+# GIAB_STAGE_REF=0 so they never re-curl EBI/NCBI FTP.
 #
 # Full autosomes belong on self-hosted genomewide-validation.yml — not here.
 name: GIAB genomewide equivalence

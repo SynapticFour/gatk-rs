@@ -23,6 +23,7 @@ run_cmd() {
 log "=== P12/P13 real-world full run start (${timestamp}) ==="
 
 # Prefer NCBI mirrors from GitHub-hosted runners; EBI often stalls for hours.
+# Best path: GitHub Release CDN (giab-ref-v1) — no FTP at all.
 ref_gz_url="${P12P13_REF_GZ_URL:-}"
 ref_gz="${data_dir}/hs37d5.fa.gz"
 ref_fa_raw="${data_dir}/hs37d5.fa"
@@ -34,6 +35,18 @@ truth_url="${P12P13_TRUTH_URL:-https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSampl
 truth_vcf="${data_dir}/HG001_GRCh37_1_22_v4.2.1_benchmark.vcf.gz"
 truth_bed_url="${P12P13_TRUTH_BED_URL:-https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/NA12878_HG001/NISTv4.2.1/GRCh37/HG001_GRCh37_1_22_v4.2.1_benchmark.bed}"
 truth_bed="${data_dir}/HG001_GRCh37_1_22_v4.2.1_benchmark.bed"
+
+# --- Preferred: pinned release assets (simple.fa.gz + fai + dict) -------------
+if [[ ! -f "${ref_fa}" || ! -f "${ref_fai}" || ! -f "${ref_dict}" ]]; then
+  if [[ "${GIAB_REF_USE_RELEASE:-1}" == "1" ]]; then
+    log "Trying GitHub Release giab-ref assets…"
+    if "${repo_root}/scripts/parity/giab/fetch_hs37d5_release.sh"; then
+      log "REF from GitHub Release OK"
+    else
+      log "GitHub Release fetch failed; will try FTP mirrors"
+    fi
+  fi
+fi
 
 download_ref_gz() {
   local mirrors=()
@@ -53,14 +66,21 @@ download_ref_gz() {
       # Resume partial downloads; NCBI is typically reachable from GH runners.
       if curl -fL --retry 2 --retry-delay 5 --connect-timeout 20 --max-time 1800 \
         -C - "${url}" -o "${ref_gz}.partial"; then
-        # Basic sanity: gzip header
-        if gzip -t "${ref_gz}.partial" 2>/dev/null; then
+        # Require plausible size (~850–950 MiB) + valid gzip — small HTML error
+        # bodies used to pass curl -f and then fail later as "corrupt gzip".
+        local sz
+        sz="$(wc -c < "${ref_gz}.partial" | tr -d ' ')"
+        if [[ "${sz}" -lt 500000000 ]]; then
+          log "REF_GZ too small (${sz} bytes) from ${url}; retrying"
+          rm -f "${ref_gz}.partial"
+        elif gzip -t "${ref_gz}.partial" 2>/dev/null; then
           mv "${ref_gz}.partial" "${ref_gz}"
-          log "REF_GZ downloaded from ${url}"
+          log "REF_GZ downloaded from ${url} (${sz} bytes)"
           return 0
+        else
+          log "REF_GZ corrupt gzip from ${url}; retrying"
+          rm -f "${ref_gz}.partial"
         fi
-        log "REF_GZ corrupt gzip from ${url}; retrying"
-        rm -f "${ref_gz}.partial"
       else
         log "REF_GZ curl failed (${url} attempt ${attempt})"
       fi
@@ -70,23 +90,25 @@ download_ref_gz() {
   return 1
 }
 
-if [[ ! -f "${ref_gz}" ]]; then
-  if ! download_ref_gz; then
-    log "REF_GZ download failed on all mirrors"
-    exit 1
-  fi
-else
-  log "REF_GZ already present: ${ref_gz}"
-fi
-
-if [[ ! -f "${ref_fa_raw}" ]]; then
-  run_cmd bash -lc "gzip -dc '${ref_gz}' > '${ref_fa_raw}'"
-else
-  log "REF_FASTA_RAW already present: ${ref_fa_raw}"
-fi
-
+# --- Fallback FTP path (only if release did not provide simple.fa) -------------
 if [[ ! -f "${ref_fa}" ]]; then
-  run_cmd python3 - "${ref_fa_raw}" "${ref_fa}" <<'PY'
+  if [[ ! -f "${ref_gz}" ]]; then
+    if ! download_ref_gz; then
+      log "REF_GZ download failed on all mirrors"
+      exit 1
+    fi
+  else
+    log "REF_GZ already present: ${ref_gz}"
+  fi
+
+  if [[ ! -f "${ref_fa_raw}" ]]; then
+    run_cmd bash -lc "gzip -dc '${ref_gz}' > '${ref_fa_raw}'"
+  else
+    log "REF_FASTA_RAW already present: ${ref_fa_raw}"
+  fi
+
+  if [[ ! -f "${ref_fa}" ]]; then
+    run_cmd python3 - "${ref_fa_raw}" "${ref_fa}" <<'PY'
 import pathlib
 import sys
 src = pathlib.Path(sys.argv[1])
@@ -100,6 +122,9 @@ with src.open("r", encoding="utf-8", errors="replace") as fin, dst.open("w", enc
             fout.write(line)
 print(dst)
 PY
+  else
+    log "REF_FASTA_SIMPLE already present: ${ref_fa}"
+  fi
 else
   log "REF_FASTA_SIMPLE already present: ${ref_fa}"
 fi
