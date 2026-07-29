@@ -5,6 +5,12 @@
 # prepare → matrix(shard × engine) → finalize pipeline. Full chr20/21 are further
 # split into ~10 Mb windows (GIAB_HC_WINDOW_BP) so no single shard×engine job
 # needs the entire contig wall-clock budget.
+#
+# Reference handoff: prepare stages hs37d5 once (cached) and ships it in the
+# prepare artifact. HC/finalize set GIAB_STAGE_REF=0 so they never re-curl EBI
+# FTP (26 parallel curls previously burned the entire 6h budget).
+#
+# Full autosomes belong on self-hosted genomewide-validation.yml — not here.
 name: GIAB genomewide equivalence
 
 on:
@@ -98,6 +104,27 @@ jobs:
           mkdir -p giab-bins
           cp -f target/release/gatk-rs target/release/gatk-rs-equiv giab-bins/
 
+      - name: Reject autosomes on GitHub-hosted
+        run: |
+          set -euo pipefail
+          mode="${GIAB_MODE}"
+          if [[ "${mode}" == "autosomes" ]]; then
+            echo "::error::GIAB_MODE=autosomes is not supported on GitHub-hosted runners (disk + 6h hard cap)."
+            echo "Use .github/workflows/genomewide-validation.yml (self-hosted gatk-rs-genomewide)."
+            exit 1
+          fi
+
+      - name: Cache hs37d5 reference
+        uses: actions/cache@v4
+        with:
+          path: |
+            parity/realworld/assets/hs37d5.simple.fa
+            parity/realworld/assets/hs37d5.simple.fa.fai
+            parity/realworld/assets/hs37d5.simple.dict
+          key: hs37d5-simple-v1
+          restore-keys: |
+            hs37d5-simple-
+
       - name: Fetch GIAB truth sets
         run: ./scripts/parity/giab/fetch_giab_truthsets.sh
 
@@ -111,6 +138,10 @@ jobs:
           set -euo pipefail
           ./scripts/parity/giab/run_genomewide_equivalence.sh
           test -f "${GIAB_OUT_ROOT}/shards.json"
+          test -f parity/realworld/assets/hs37d5.simple.fa
+          test -f parity/realworld/assets/hs37d5.simple.fa.fai
+          test -f parity/realworld/assets/hs37d5.simple.dict
+          ls -lh parity/realworld/assets/hs37d5.simple.fa*
           echo "shards=$(cat "${GIAB_OUT_ROOT}/shards.json")" >> "$GITHUB_OUTPUT"
 
       - name: Upload prepare artifacts
@@ -121,6 +152,9 @@ jobs:
             giab-bins/**
             parity/giab/truth/**
             parity/giab/stratifications/**
+            parity/realworld/assets/hs37d5.simple.fa
+            parity/realworld/assets/hs37d5.simple.fa.fai
+            parity/realworld/assets/hs37d5.simple.dict
             parity/giab/runs/ci/SCOPE.txt
             parity/giab/runs/ci/run.env
             parity/giab/runs/ci/intervals.txt
@@ -165,12 +199,17 @@ jobs:
           name: giab-prepare-${{ github.run_id }}
           path: .
 
-      - name: Restore bins onto PATH layout
+      - name: Restore bins + assert shipped reference
         run: |
           set -euo pipefail
           mkdir -p target/release
           cp -f giab-bins/gatk-rs giab-bins/gatk-rs-equiv target/release/
           chmod +x target/release/gatk-rs target/release/gatk-rs-equiv
+          # Must come from prepare artifact — never curl EBI from matrix jobs.
+          test -f parity/realworld/assets/hs37d5.simple.fa
+          test -f parity/realworld/assets/hs37d5.simple.fa.fai
+          test -f parity/realworld/assets/hs37d5.simple.dict
+          ls -lh parity/realworld/assets/hs37d5.simple.fa*
 
       - name: Run HC shard
         env:
@@ -178,7 +217,8 @@ jobs:
           GIAB_HC_SHARDS: ${{ matrix.shard }}
           GIAB_HC_ENGINES: ${{ matrix.engine }}
           GIAB_FETCH_TRUTH: "0"
-          GIAB_STAGE_REF: "1"
+          # Reference is in the prepare artifact; do not re-download from EBI FTP.
+          GIAB_STAGE_REF: "0"
           GIAB_RUST_BIN: ${{ github.workspace }}/target/release/gatk-rs
           GIAB_EQUIV_BIN: ${{ github.workspace }}/target/release/gatk-rs-equiv
           GIAB_SKIP_EQUIV_ENGINE: "1"
@@ -249,12 +289,15 @@ jobs:
           merge-multiple: true
           path: .
 
-      - name: Restore bins
+      - name: Restore bins + assert shipped reference
         run: |
           set -euo pipefail
           mkdir -p target/release
           cp -f giab-bins/gatk-rs giab-bins/gatk-rs-equiv target/release/
           chmod +x target/release/gatk-rs target/release/gatk-rs-equiv
+          test -f parity/realworld/assets/hs37d5.simple.fa
+          test -f parity/realworld/assets/hs37d5.simple.fa.fai
+          test -f parity/realworld/assets/hs37d5.simple.dict
           echo "[giab] shard VCFs present:"
           find parity/giab/runs/ci -type f -name '*.vcf' | sort
 
@@ -264,7 +307,7 @@ jobs:
         env:
           GIAB_PHASE: finalize
           GIAB_FETCH_TRUTH: "0"
-          GIAB_STAGE_REF: "1"
+          GIAB_STAGE_REF: "0"
           GIAB_RUST_BIN: ${{ github.workspace }}/target/release/gatk-rs
           GIAB_EQUIV_BIN: ${{ github.workspace }}/target/release/gatk-rs-equiv
           RTG_BIN: ${{ env.RTG_BIN }}

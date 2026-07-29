@@ -35,7 +35,20 @@ truth_bed_url="${P12P13_TRUTH_BED_URL:-https://ftp-trace.ncbi.nlm.nih.gov/Refere
 truth_bed="${data_dir}/HG001_GRCh37_1_22_v4.2.1_benchmark.bed"
 
 if [[ ! -f "${ref_gz}" ]]; then
-  run_cmd curl -fsSL "${ref_gz_url}" -o "${ref_gz}"
+  # EBI FTP is flaky / rate-limited; retry with backoff (used by GIAB prepare).
+  for attempt in 1 2 3 4 5; do
+    if curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
+      "${ref_gz_url}" -o "${ref_gz}.partial"; then
+      mv "${ref_gz}.partial" "${ref_gz}"
+      break
+    fi
+    rm -f "${ref_gz}.partial"
+    if [[ "${attempt}" -eq 5 ]]; then
+      log "REF_GZ download failed after ${attempt} attempts: ${ref_gz_url}"
+      exit 1
+    fi
+    sleep $((attempt * 10))
+  done
 else
   log "REF_GZ already present: ${ref_gz}"
 fi
