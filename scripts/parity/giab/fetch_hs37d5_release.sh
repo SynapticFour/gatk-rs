@@ -33,7 +33,9 @@ if [[ -f "${ref_fa}" && -f "${ref_fai}" && -f "${ref_dict}" ]]; then
   exit 0
 fi
 
-download "${base}/SHA256SUMS" "${sums}"
+# Use SHA256SUMS.giab-ref (not bare SHA256SUMS): bare name can 404 on CDN after a
+# prior miss during release bootstrap; this matches the on-disk verify name.
+download "${base}/SHA256SUMS.giab-ref" "${sums}"
 download "${base}/hs37d5.simple.fa.gz" "${ref_gz}"
 download "${base}/hs37d5.simple.fa.fai" "${ref_fai}"
 download "${base}/hs37d5.simple.dict" "${ref_dict}"
