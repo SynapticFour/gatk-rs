@@ -202,8 +202,8 @@ jobs:
     - name: Run benchmarks
       run: |
         set -euo pipefail
-        # Criterion packages only (harness = false); libtest rejects --output-format.
-        cargo bench -p gatk-core -p gatk-haplotypecaller -- --output-format bencher \
+        # Criterion targets only (lib.bench=false + harness=false); libtest rejects --output-format.
+        cargo bench -p gatk-core -p gatk-haplotypecaller --benches -- --output-format bencher \
           | tee benchmark-results.txt
 
     - name: Compare with baseline
@@ -212,7 +212,7 @@ jobs:
         cp benchmark-results.txt /tmp/pr-bench.txt
         git checkout origin/main
         cargo build --workspace --release
-        cargo bench -p gatk-core -p gatk-haplotypecaller -- --output-format bencher \
+        cargo bench -p gatk-core -p gatk-haplotypecaller --benches -- --output-format bencher \
           | tee baseline.txt
         git checkout ${{ github.sha }}
         echo "Performance comparison completed (bencher format)"

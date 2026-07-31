@@ -21,6 +21,11 @@ parity_harness = ["dev-dumps"]
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("dev-dumps", "parity_harness"))'] }
 
+# Criterion lives in benches/; disable libtest's implicit lib bench harness so
+# `cargo bench -- --output-format bencher` is not rejected before Criterion runs.
+[lib]
+bench = false
+
 [dependencies]
 # Workspace dependencies
 rust-htslib.workspace = true

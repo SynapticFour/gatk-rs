@@ -10,6 +10,11 @@ rust-version.workspace = true
 [features]
 default = []
 
+# Criterion lives in benches/; disable libtest's implicit lib bench harness so
+# `cargo bench -- --output-format bencher` is not rejected before Criterion runs.
+[lib]
+bench = false
+
 [dependencies]
 # Workspace dependencies
 rayon.workspace = true
@@ -75,4 +80,8 @@ harness = false
 
 [[bench]]
 name = "vcf_benchmarks"
+harness = false
+
+[[bench]]
+name = "macro_benchmarks"
 harness = false
