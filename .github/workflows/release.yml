@@ -221,7 +221,7 @@ jobs:
       run: cargo build --workspace --release
 
     - name: Run performance benchmarks
-      run: cargo bench -p gatk-core -p gatk-haplotypecaller -- --output-format bencher | tee benchmark-results.json
+      run: cargo bench -p gatk-core -p gatk-haplotypecaller --benches -- --output-format bencher | tee benchmark-results.json
 
     - name: Upload benchmark results
       uses: actions/upload-artifact@v7

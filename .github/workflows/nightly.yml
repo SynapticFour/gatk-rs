@@ -103,11 +103,11 @@ jobs:
     - name: Build release
       run: cargo build --workspace --release
 
-    # Criterion-only packages (harness = false). libtest benches reject --output-format.
+    # Criterion targets only (lib.bench=false + harness=false). libtest rejects --output-format.
     - name: Run benchmarks (bencher format for github-action-benchmark)
       run: |
         set -euo pipefail
-        cargo bench -p gatk-core -p gatk-haplotypecaller -- --output-format bencher \
+        cargo bench -p gatk-core -p gatk-haplotypecaller --benches -- --output-format bencher \
           | tee benchmark-output.txt
 
     - name: Store benchmark results
@@ -244,8 +244,8 @@ jobs:
           https://github.com/SynapticFour/gatk-rs/releases/latest/download/benchmark-results.json \
           || echo "No baseline found"
 
-        # Criterion packages only — avoid libtest rejecting --output-format.
-        cargo bench -p gatk-core -p gatk-haplotypecaller -- --output-format bencher \
+        # Criterion targets only — avoid libtest rejecting --output-format.
+        cargo bench -p gatk-core -p gatk-haplotypecaller --benches -- --output-format bencher \
           | tee current.txt
 
         if [[ -s baseline.txt ]] && grep -q 'ns/iter\|bench:' baseline.txt; then
