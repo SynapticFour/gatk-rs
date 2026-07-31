@@ -9,6 +9,8 @@
 # Reference handoff: prepare fetches hs37d5 from GitHub Release giab-ref-v1
 # (CDN), caches it, and ships it in the prepare artifact. HC/finalize set
 # GIAB_STAGE_REF=0 so they never re-curl EBI/NCBI FTP.
+# HC jobs add 16 GiB swap: hosted OOMs often look like "runner shutdown signal"
+# (actions/runner#2468), which killed Rust smoke twice while Java succeeded.
 #
 # Full autosomes belong on self-hosted genomewide-validation.yml — not here.
 name: GIAB genomewide equivalence
@@ -188,6 +190,23 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
           df -h
 
+      # Hosted runners surface OOM as "runner has received a shutdown signal" /
+      # "operation was canceled" (actions/runner#2468), often with no exit 137 in
+      # the step log. 16 GiB swap gives Rust HC headroom beside the ~3 GiB FASTA.
+      - name: Add swap (OOM headroom)
+        run: |
+          set -euo pipefail
+          free -h
+          if ! swapon --show | grep -q .; then
+            sudo fallocate -l 16G /mnt/giab-swapfile || \
+              sudo dd if=/dev/zero of=/mnt/giab-swapfile bs=1M count=16384 status=none
+            sudo chmod 600 /mnt/giab-swapfile
+            sudo mkswap /mnt/giab-swapfile
+            sudo swapon /mnt/giab-swapfile
+          fi
+          swapon --show
+          free -h
+
       - name: Install system deps
         run: |
           sudo apt-get update
@@ -212,6 +231,7 @@ jobs:
           test -f parity/realworld/assets/hs37d5.simple.fa.fai
           test -f parity/realworld/assets/hs37d5.simple.dict
           ls -lh parity/realworld/assets/hs37d5.simple.fa*
+          free -h
 
       - name: Run HC shard
         env:
@@ -224,10 +244,25 @@ jobs:
           GIAB_RUST_BIN: ${{ github.workspace }}/target/release/gatk-rs
           GIAB_EQUIV_BIN: ${{ github.workspace }}/target/release/gatk-rs-equiv
           GIAB_SKIP_EQUIV_ENGINE: "1"
+          # Cap glibc arenas — reduces Linux RSS inflation under Rayon.
+          MALLOC_ARENA_MAX: "2"
         run: |
           set -euo pipefail
           source scripts/parity/lib_pinned_gatk.sh
           ./scripts/parity/giab/run_genomewide_equivalence.sh
+
+      - name: OOM diagnostics on failure
+        if: failure()
+        run: |
+          set +e
+          echo "==== free ===="
+          free -h
+          echo "==== swapon ===="
+          swapon --show
+          echo "==== dmesg OOM ===="
+          dmesg -T 2>/dev/null | grep -iE 'oom|killed process|Out of memory' | tail -n 80
+          echo "==== meminfo (head) ===="
+          head -n 20 /proc/meminfo
 
       - name: Upload shard VCF
         if: always()
