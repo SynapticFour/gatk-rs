@@ -9,8 +9,8 @@
 # Reference handoff: prepare fetches hs37d5 from GitHub Release giab-ref-v1
 # (CDN), caches it, and ships it in the prepare artifact. HC/finalize set
 # GIAB_STAGE_REF=0 so they never re-curl EBI/NCBI FTP.
-# HC jobs add 16 GiB swap: hosted OOMs often look like "runner shutdown signal"
-# (actions/runner#2468), which killed Rust smoke twice while Java succeeded.
+# HC jobs ensure ≥16 GiB swap: hosted OOMs often look like "runner shutdown signal"
+# (actions/runner#2468). Stock ubuntu-latest may already have ~3 GiB — do not skip.
 #
 # Full autosomes belong on self-hosted genomewide-validation.yml — not here.
 name: GIAB genomewide equivalence
@@ -192,20 +192,37 @@ jobs:
 
       # Hosted runners surface OOM as "runner has received a shutdown signal" /
       # "operation was canceled" (actions/runner#2468), often with no exit 137 in
-      # the step log. 16 GiB swap gives Rust HC headroom beside the ~3 GiB FASTA.
-      - name: Add swap (OOM headroom)
+      # the step log. Ensure ≥16 GiB swap (stock images often ship only ~3 GiB).
+      - name: Ensure ≥16 GiB swap (OOM headroom)
         run: |
           set -euo pipefail
           free -h
-          if ! swapon --show | grep -q .; then
-            sudo fallocate -l 16G /mnt/giab-swapfile || \
-              sudo dd if=/dev/zero of=/mnt/giab-swapfile bs=1M count=16384 status=none
+          swapon --show || true
+          # Prefer /proc so we do not skip when a tiny stock /swapfile already exists.
+          swap_kb="$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo)"
+          need_kb=$((16 * 1024 * 1024))
+          if [[ "${swap_kb}" -lt "${need_kb}" ]]; then
+            add_kb=$((need_kb - swap_kb))
+            # Round up to whole MiB for dd/fallocate.
+            add_mb=$(( (add_kb + 1023) / 1024 ))
+            echo "SwapTotal=${swap_kb} kB (<16 GiB); adding ${add_mb} MiB at /mnt/giab-swapfile"
+            sudo rm -f /mnt/giab-swapfile
+            sudo fallocate -l "${add_mb}M" /mnt/giab-swapfile || \
+              sudo dd if=/dev/zero of=/mnt/giab-swapfile bs=1M count="${add_mb}" status=none
             sudo chmod 600 /mnt/giab-swapfile
             sudo mkswap /mnt/giab-swapfile
             sudo swapon /mnt/giab-swapfile
+          else
+            echo "SwapTotal=${swap_kb} kB already ≥16 GiB"
           fi
           swapon --show
           free -h
+          # Soft assert: still under 16 GiB is a hard fail so we notice config drift.
+          swap_kb="$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo)"
+          if [[ "${swap_kb}" -lt "${need_kb}" ]]; then
+            echo "::error::Failed to bring SwapTotal to ≥16 GiB (have ${swap_kb} kB)"
+            exit 1
+          fi
 
       - name: Install system deps
         run: |
