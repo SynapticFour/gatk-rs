@@ -23,7 +23,7 @@ branding will be revisited if requested.
 | **L2** synthetic gates (223/223) + **P12** L3/L4/L5 on `chr2:92300000–92350000` | Genome-wide / full-autosome HC equivalence |
 | Synthetic joint-genotype cohort ladder (**≤100** samples on a tiny interval) | WGS × large-N / GenomicsDB-class joint calling |
 | Scoped algorithm parity with honest waivers (W-H1 / W-H3 / W-L7-FORMAT) | Clinical drop-in, bitwise-identical QUAL/FORMAT everywhere, or a product launch |
-| Equivalence **harness** (GIAB / hap.py / dashboard plumbing) | A **signed** GIAB `ci-subset` or dashboard F1 claim — still **unsigned** |
+| Equivalence **harness** green on GIAB **smoke** (hosted CI, RTG F1 Δ=0 on three ~50 kb windows) | A **signed** GIAB `ci-subset` / full-autosome F1 claim — still **unsigned** |
 
 Authority: [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Historical L6–L14 narratives live on `pre-cleanup-archive` only — not unqualified **Yes** rows here.
 
