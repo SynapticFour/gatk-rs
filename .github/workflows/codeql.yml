@@ -1,13 +1,9 @@
 name: CodeQL
 
 on:
-  push:
-    branches: [main, master]
   schedule:
     - cron: '22 3 * * 1'
-  # pull_request disabled — see pr-check.yml for the PR gate.
   workflow_dispatch:
-
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
