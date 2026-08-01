@@ -54,6 +54,7 @@ env:
   RAYON_NUM_THREADS: "2"
   GATK_DOCKER_IMAGE: us.gcr.io/broad-gatk/gatk:4.4.0.0
   GATK_DOCKER_PLATFORM: linux/amd64
+  HAPPY_DOCKER_IMAGE: jmcdani20/hap.py:v0.3.12
 
 jobs:
   prepare:
@@ -336,7 +337,15 @@ jobs:
             samtools bcftools curl time openjdk-17-jre-headless \
             zlib1g-dev libbz2-dev liblzma-dev pkg-config build-essential
 
-      - name: Install RTG Tools (hap.py fallback for gatk-rs-equiv)
+      - name: Install hap.py (Docker wrap; preferred gatk-rs-equiv engine)
+        run: |
+          set -euo pipefail
+          chmod +x scripts/parity/giab/install_happy_docker_wrap.sh
+          wrap="$(./scripts/parity/giab/install_happy_docker_wrap.sh)"
+          echo "HAPPY_BIN=${wrap}" >> "$GITHUB_ENV"
+          echo "PATH=$(dirname "${wrap}"):${PATH}" >> "$GITHUB_ENV"
+
+      - name: Install RTG Tools (fallback if hap.py unavailable)
         run: |
           set -euo pipefail
           ver="3.12.1"
@@ -410,9 +419,11 @@ jobs:
           GIAB_STAGE_REF: "0"
           GIAB_RUST_BIN: ${{ github.workspace }}/target/release/gatk-rs
           GIAB_EQUIV_BIN: ${{ github.workspace }}/target/release/gatk-rs-equiv
+          HAPPY_BIN: ${{ env.HAPPY_BIN }}
           RTG_BIN: ${{ env.RTG_BIN }}
         run: |
           set -euo pipefail
+          echo "[giab] HAPPY_BIN=${HAPPY_BIN:-<unset>} RTG_BIN=${RTG_BIN:-<unset>}"
           ./scripts/parity/giab/run_genomewide_equivalence.sh
 
       - name: Upload run artifacts
@@ -465,6 +476,59 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: _giab_ci
           destination_dir: giab-ci
+          keep_files: true
+          allow_empty_commit: true
+          user_name: github-actions[bot]
+          user_email: 41898282+github-actions[bot]@users.noreply.github.com
+
+  # Customer-facing Chart.js site (docs/parity-site) — ci-subset+ only; never smoke.
+  publish-parity-site:
+    name: Publish public equivalence site
+    needs: finalize
+    if: >
+      always()
+      && needs.finalize.result == 'success'
+      && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+      && (github.event.inputs.mode || 'ci-subset') != 'smoke'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Download run artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: giab-genomewide-${{ github.run_id }}
+          path: parity/giab/runs/ci
+
+      - name: Update parity-site history + commit
+        env:
+          PARITY_SITE_SOURCE: genomewide
+          PARITY_SITE_RUN_DIR: parity/giab/runs/ci
+          PARITY_SITE_COMMIT: "0"
+          PARITY_SITE_PUSH: "0"
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ci/publish_parity_site.sh
+          ./scripts/ci/publish_parity_site.sh
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/parity-site/data/history.json docs/parity-site/data/latest.json
+          if ! git diff --cached --quiet; then
+            git commit -m "docs(parity-site): GIAB ${{ env.GIAB_MODE }} history (${GITHUB_SHA::12})"
+            git push
+          else
+            echo "[parity-site] no history.json changes"
+          fi
+
+      - name: Deploy public parity-site to GitHub Pages (root)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: docs/parity-site
           keep_files: true
           allow_empty_commit: true
           user_name: github-actions[bot]

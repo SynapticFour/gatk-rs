@@ -56,7 +56,8 @@ Workflow: `.github/workflows/giab-genomewide.yml` (weekly + `workflow_dispatch`)
 - **Reference handoff:** prepare prefers the pinned GitHub Release `giab-ref-v1` (`hs37d5.simple.fa.gz` + fai/dict via `scripts/parity/giab/fetch_hs37d5_release.sh`), caches + uploads the uncompressed FA to HC jobs (`GIAB_STAGE_REF=0`). FTP mirrors are fallback only.  
 - **`GIAB_MODE=autosomes` is rejected** on this workflow — use [`genomewide-validation.yml`](../../../.github/workflows/genomewide-validation.yml) (self-hosted `gatk-rs-genomewide`)  
 - Phases via `GIAB_PHASE=prepare|hc|finalize|all`; filters `GIAB_HC_SHARDS` / `GIAB_HC_ENGINES`  
-- Uploads run artifacts; deploys `dashboard/` to GitHub Pages under `/giab-ci/`
+- Uploads run artifacts; deploys run `dashboard/` to GitHub Pages under `/giab-ci/`
+- Finalize prefers **hap.py** (Docker wrap) with RTG fallback; on green non-`smoke` runs, updates `docs/parity-site/data/history.json` and deploys the public Chart.js site
 
 ### Nightly trio joint E2E (HC → Combine → Genotype → Filter)
 
