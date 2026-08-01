@@ -125,15 +125,98 @@ giab_ci_subset_probe() {
   echo "${chr}:${sample_start}-${end}"
 }
 
+# P12 spine interval used by GIAB smoke (and P12 L* gates).
+GIAB_SMOKE_P12_INTERVAL="2:92300000-92350000"
+
+# Public NA12878_20k_b37 corpus (same evidence class as P12 L* gates).
+GIAB_P12_20K_S3_BASE_URL="${GIAB_P12_20K_S3_BASE_URL:-https://gatk-test-data.s3.amazonaws.com/wgs_bam/NA12878_20k_b37}"
+
+giab_ensure_na12878_20k_bam() {
+  # Download NA12878_20k_b37 into parity/realworld if missing. Prints BAM path on stdout.
+  local repo_root="$1"
+  local data_dir="${GIAB_P12_20K_DIR:-${repo_root}/parity/realworld/na12878_20k_b37}"
+  local bam="${data_dir}/NA12878_20k.b37.bam"
+  local bai="${data_dir}/NA12878_20k.b37.bai"
+  mkdir -p "${data_dir}"
+  if [[ ! -f "${bam}" ]]; then
+    echo "[giab] download NA12878_20k.b37.bam (smoke P12 evidence class)…" >&2
+    curl -fL --retry 3 -o "${bam}.partial" "${GIAB_P12_20K_S3_BASE_URL}/NA12878_20k.b37.bam"
+    mv -f "${bam}.partial" "${bam}"
+  fi
+  if [[ ! -f "${bai}" ]]; then
+    curl -fL --retry 3 -o "${bai}.partial" "${GIAB_P12_20K_S3_BASE_URL}/NA12878_20k.b37.bai"
+    mv -f "${bai}.partial" "${bai}"
+  fi
+  printf '%s\n' "${bam}"
+}
+
+giab_stage_smoke_bam_hybrid() {
+  # Stage smoke BAM: chr20/chr21 from full HG001 30× URL; P12 spine from NA12878_20k.
+  # Full-30× P12 is centromere-scale (~537k reads after positional DS) and is a
+  # benchmark-host gate — not safe on 16 GiB hosted runners.
+  # Args: sample bam_url out_bam repo_root intervals...
+  local sample="$1" bam_url="$2" out_bam="$3" repo_root="$4"
+  shift 4
+  local -a ivs=("$@")
+  local bai_local="${out_bam}.remote.bai"
+  local out_bai="${out_bam}.bai"
+  local tmp_dir normal_bam p12_bam p12_src iv
+  local -a normal_ivs=()
+  local have_p12=0
+  mkdir -p "$(dirname "${out_bam}")"
+  if [[ -f "${out_bam}" && -f "${out_bai}" ]]; then
+    echo "[giab] reuse smoke hybrid BAM ${out_bam}"
+    return 0
+  fi
+  for iv in "${ivs[@]}"; do
+    if [[ "${iv}" == "${GIAB_SMOKE_P12_INTERVAL}" ]]; then
+      have_p12=1
+    else
+      normal_ivs+=("${iv}")
+    fi
+  done
+  tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/giab-smoke-hybrid.XXXXXX")"
+  normal_bam="${tmp_dir}/normal.bam"
+  p12_bam="${tmp_dir}/p12.bam"
+  if [[ "${#normal_ivs[@]}" -gt 0 ]]; then
+    if [[ ! -f "${bai_local}" ]]; then
+      echo "[giab] download BAI for ${sample}…"
+      curl -fL --retry 3 -o "${bai_local}.partial" "${bam_url}.bai"
+      mv -f "${bai_local}.partial" "${bai_local}"
+    fi
+    echo "[giab] slicing remote BAM for ${sample} smoke non-P12 (${#normal_ivs[@]} intervals)…"
+    samtools view -b -X "${bam_url}" "${bai_local}" "${normal_ivs[@]}" > "${normal_bam}"
+  fi
+  if [[ "${have_p12}" -eq 1 ]]; then
+    p12_src="$(giab_ensure_na12878_20k_bam "${repo_root}")"
+    echo "[giab] slicing NA12878_20k for smoke P12 (${GIAB_SMOKE_P12_INTERVAL})…"
+    samtools view -b "${p12_src}" "${GIAB_SMOKE_P12_INTERVAL}" > "${p12_bam}"
+  fi
+  if [[ "${#normal_ivs[@]}" -gt 0 && "${have_p12}" -eq 1 ]]; then
+    samtools merge -f "${out_bam}.partial" "${normal_bam}" "${p12_bam}"
+  elif [[ "${#normal_ivs[@]}" -gt 0 ]]; then
+    mv -f "${normal_bam}" "${out_bam}.partial"
+  elif [[ "${have_p12}" -eq 1 ]]; then
+    mv -f "${p12_bam}" "${out_bam}.partial"
+  else
+    rm -rf "${tmp_dir}"
+    echo "[giab] stage_smoke_bam_hybrid: empty interval list" >&2
+    return 2
+  fi
+  mv -f "${out_bam}.partial" "${out_bam}"
+  samtools index "${out_bam}" "${out_bai}"
+  rm -rf "${tmp_dir}"
+}
+
 giab_build_intervals() {
   # Args: mode → writes interval strings one per line on stdout
   local mode="$1"
   case "${mode}" in
     smoke)
-      # M4 / PR-smoke: small windows only
+      # M4 / PR-smoke: small windows only (P12 spine staged from NA12878_20k; see hybrid BAM)
       echo "20:10000000-10050000"
       echo "21:41200001-41250000"
-      echo "2:92300000-92350000"
+      echo "${GIAB_SMOKE_P12_INTERVAL}"
       ;;
     ci-subset)
       # Practical “genome-wide” for CI: full chr20+chr21 + 50kb probes on other autosomes.
@@ -166,7 +249,7 @@ giab_mode_description() {
   local mode="$1"
   case "${mode}" in
     smoke)
-      echo "SMOKE: three ~50kb windows (chr20/chr21/P12). Not genome-wide."
+      echo "SMOKE: three ~50kb windows (chr20/chr21/P12). P12 reads from NA12878_20k evidence class; chr20/21 from HG001 30×. Full-30× P12 is benchmark-host only. Not genome-wide."
       ;;
     ci-subset)
       echo "CI-SUBSET (default “genome-wide” in this repo): FULL chr20 + FULL chr21 + one 50kb probe on each other autosome. Not all bases of chr1–19/22."

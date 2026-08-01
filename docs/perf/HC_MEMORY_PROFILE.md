@@ -27,6 +27,33 @@ The ~60 GiB “peak memory footprint” on `20:10000000-12000000` was **not** 
 3. **Iterator**: remove unused `span_records` full-span BAM clone.
 4. **PR gate**: [`scripts/ci/check_hc_rss_regression.sh`](../../scripts/ci/check_hc_rss_regression.sh) — always unit bounds + optional HC on the 1 kb bomb window (≤256 MiB).
 
+## Deep-pile / P12 hosted OOM (engineering, 2026-07-31)
+
+GIAB smoke window `2:92300000-92350000` (P12 spine on full HG001 30×) killed hosted Rust HC (`runner has received a shutdown signal`) after RSS climbed ~2.3 GiB → ~15 GiB.
+
+| Finding | Evidence |
+|--------|----------|
+| Positional DS **is** on | Production path uses `WalkerTraversalConfig::gatk_haplotype_caller_production` → cap 50/start |
+| Residual after DS | ~2.1M raw → **~537k kept** (~20k unique starts); mid-window mean depth ~41k× |
+| Not missing Java DS | GATK 4.4 has no extra per-region 1000-read cap; staggered starts defeat per-start caps |
+| Amplification | Shard materializes all post-DS records; Rayon held **N** regions each cloning overlapping BAM reads |
+
+### Fixes landed (parity-preserving)
+
+1. **Sequential large regions** (`run.rs`): regions with ≥8192 reads flush alone (no Rayon siblings) — Java-like one-heavy-region peak shape; **same evidence**.
+2. **Hard refuse** (`MAX_READS_PER_ASSEMBLY_REGION` = 100 000): fail closed like PairHMM oversized DP when a single region still exceeds a safe ceiling — **not** a genotype-contract downsampler.
+3. **RSS unit**: `oversized_assembly_region_read_count_is_refused` in `check_hc_rss_regression.sh`.
+
+### Local proof (2026-08-01, 16 GiB Mac)
+
+| Setup | Result |
+|-------|--------|
+| Full HG001 30× P12, `--threads 4` | Peak-RSS ~2.7 GiB then abnormal exit (macOS peak footprint ≫ RSS) |
+| Full HG001 30× P12, `--threads 1` | **exit 137** (SIGKILL) after ~6 min; max post-DS overlap ~32k reads/500 bp (under 100k refuse) |
+| Post-DS residual | ~537k reads in 50 kb; refuse ceiling does not fire |
+
+**Smoke hygiene:** `GIAB_MODE=smoke` stages P12 from **NA12878_20k** (`giab_stage_smoke_bam_hybrid`); chr20/21 remain HG001 30×. Full-30× P12 stays a benchmark-host / dedicated-RAM gate — no silent force-DS.
+
 ### Post-fix spot checks (this host, RSS watchdog)
 
 | Window | Mode | Peak-RSS | Result |
