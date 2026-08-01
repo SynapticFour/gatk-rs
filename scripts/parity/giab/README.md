@@ -52,7 +52,8 @@ Workflow: `.github/workflows/giab-genomewide.yml` (weekly + `workflow_dispatch`)
 
 - Default: `GIAB_MODE=ci-subset`, `GIAB_SAMPLES=HG001`  
 - **Matrix pipeline** (GitHub-hosted 6 h hard cap): `prepare` → HC jobs per `shard × engine` (360 m each) → `finalize` (concat + hap.py/RTG)  
-- Contig shards are **windowed** (`GIAB_HC_WINDOW_BP`, default 10 Mb) so full chr20/21 do not monopolize a single 6 h job  
+- Contig shards are **windowed** (`GIAB_HC_WINDOW_BP`, default **2 Mb** on hosted CI) so full chr20/21 stay under the 6 h cap **and** Rust HC fits ~16 GiB+swap (10 Mb windows OOMed on HG001 30×)  
+
 - **Reference handoff:** prepare prefers the pinned GitHub Release `giab-ref-v1` (`hs37d5.simple.fa.gz` + fai/dict via `scripts/parity/giab/fetch_hs37d5_release.sh`), caches + uploads the uncompressed FA to HC jobs (`GIAB_STAGE_REF=0`). FTP mirrors are fallback only.  
 - **`GIAB_MODE=autosomes` is rejected** on this workflow — use [`genomewide-validation.yml`](../../../.github/workflows/genomewide-validation.yml) (self-hosted `gatk-rs-genomewide`)  
 - Phases via `GIAB_PHASE=prepare|hc|finalize|all`; filters `GIAB_HC_SHARDS` / `GIAB_HC_ENGINES`  
