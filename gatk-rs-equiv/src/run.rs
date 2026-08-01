@@ -31,11 +31,16 @@ pub fn run(args: RunArgs) -> Result<i32> {
     }
     crate::resources::apply_process_env(threads);
 
-    let java = JavaGatk::resolve(args.java_gatk_jar.clone(), args.java_gatk_bin.clone())?;
     let java_vcf = args.out.join("java.vcf");
     let rust_vcf = args.out.join("rust.vcf");
+    let reuse = args.reuse_vcfs && java_vcf.is_file() && rust_vcf.is_file();
 
-    if !(args.reuse_vcfs && java_vcf.is_file() && rust_vcf.is_file()) {
+    // Finalize / CI scoring ships precomputed VCFs — do not require a Java GATK
+    // install just to resolve the launcher when HC will not run.
+    if reuse {
+        eprintln!("[gatk-rs-equiv] reusing existing java.vcf / rust.vcf");
+    } else {
+        let java = JavaGatk::resolve(args.java_gatk_jar.clone(), args.java_gatk_bin.clone())?;
         hc::run_java_hc(
             &java,
             &args.reference,
@@ -52,8 +57,6 @@ pub fn run(args: RunArgs) -> Result<i32> {
             args.interval.as_deref(),
             threads,
         )?;
-    } else {
-        eprintln!("[gatk-rs-equiv] reusing existing java.vcf / rust.vcf");
     }
 
     let (engine_kind, engine_bin) = engine::select_engine(
@@ -162,13 +165,20 @@ pub fn run(args: RunArgs) -> Result<i32> {
 }
 
 fn validate_inputs(args: &RunArgs) -> Result<()> {
-    for (label, p) in [
-        ("--reference", &args.reference),
-        ("--bam", &args.bam),
-        ("--truth-vcf", &args.truth_vcf),
-        ("--confident-regions", &args.confident_regions),
-        ("--rust-binary", &args.rust_binary),
-    ] {
+    let java_vcf = args.out.join("java.vcf");
+    let rust_vcf = args.out.join("rust.vcf");
+    let reuse = args.reuse_vcfs && java_vcf.is_file() && rust_vcf.is_file();
+
+    let mut required: Vec<(&str, &Path)> = vec![
+        ("--reference", args.reference.as_path()),
+        ("--bam", args.bam.as_path()),
+        ("--truth-vcf", args.truth_vcf.as_path()),
+        ("--confident-regions", args.confident_regions.as_path()),
+    ];
+    if !reuse {
+        required.push(("--rust-binary", args.rust_binary.as_path()));
+    }
+    for (label, p) in required {
         if !p.exists() {
             bail!("{label} not found: {}", p.display());
         }

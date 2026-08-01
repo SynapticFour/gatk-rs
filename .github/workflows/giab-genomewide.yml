@@ -351,10 +351,12 @@ jobs:
             fi
             sleep $((attempt * 5))
           done
-          sudo unzip -q /tmp/rtg.zip -d /opt
-          printf 'y\n' | /opt/rtg-tools-${ver}/rtg version >/dev/null || true
-          echo "/opt/rtg-tools-${ver}" >> "$GITHUB_PATH"
-          echo "RTG_BIN=/opt/rtg-tools-${ver}/rtg" >> "$GITHUB_ENV"
+          # Install under $HOME so RTG can write rtg.cfg ( /opt is not writable ).
+          rm -rf "${HOME}/rtg-tools-${ver}"
+          unzip -q /tmp/rtg.zip -d "${HOME}"
+          printf 'y\n' | "${HOME}/rtg-tools-${ver}/rtg" version >/dev/null
+          echo "${HOME}/rtg-tools-${ver}" >> "$GITHUB_PATH"
+          echo "RTG_BIN=${HOME}/rtg-tools-${ver}/rtg" >> "$GITHUB_ENV"
 
       - name: Download prepare + HC artifacts
         uses: actions/download-artifact@v7
