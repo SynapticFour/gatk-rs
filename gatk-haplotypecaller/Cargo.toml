@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "HaplotypeCaller implementation for GATK-RS"
+description = "GATK4.4-oriented HaplotypeCaller algorithm (gatk-rs; scoped parity gates)"
 rust-version.workspace = true
 
 [features]
