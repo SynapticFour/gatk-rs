@@ -50,8 +50,9 @@ evidence/scripts are restored here. Cite them as historical engineering notes on
 | GIAB **ci-subset** equivalence (HG001 at minimum): \|Rust−Java\| F1 Δ ≤ threshold via `gatk-rs-equiv` | Green `giab-genomewide.yml` with `GIAB_MODE=ci-subset`, artifact + dashboard row | **Not yet signed** |
 | GIAB **ci-subset** on HG001+HG002+HG005 | Same, all three samples | **Not yet signed** |
 | GIAB **full autosomes** (chr1–22) equivalence | `GIAB_MODE=autosomes` green run | **Not yet signed** |
-| Nightly / GIAB Pages dashboard (`docs/EQUIVALENCE_DASHBOARD.md`, `docs/parity-site/data/history.json`) | Successful publish with non-empty `history.json` `runs` | **Not yet signed** — do not lean on dashboard narrative until a signed run lands |
+| Nightly / GIAB Pages dashboard (`docs/EQUIVALENCE_DASHBOARD.md`, `docs/parity-site/data/history.json`) | Green `ci-subset`+ finalize → `publish-parity-site` job writing non-empty `history.json` `runs` (smoke never publishes) | **Not yet signed** — wire exists; waits on first successful non-smoke publish |
 | GIAB **smoke** as a product / genome-adjacent claim | Smoke is PR/infra hygiene (hybrid P12 from NA12878_20k + chr20/21 30×): three ~50 kb windows only | **Not a product claim** — harness is green ([30703069224](https://github.com/SynapticFour/gatk-rs/actions/runs/30703069224)); do **not** cite smoke as `ci-subset` or autosome equivalence |
+| GIAB **full autosomes** on GitHub-hosted runners | Hosted `giab-genomewide.yml` **rejects** `autosomes` (disk + 6 h cap) | Use self-hosted [`.github/workflows/genomewide-validation.yml`](../.github/workflows/genomewide-validation.yml) — see [`docs/ci/SELF_HOSTED_RUNNER_SETUP.md`](ci/SELF_HOSTED_RUNNER_SETUP.md) |
 
 ---
 
