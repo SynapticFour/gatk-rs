@@ -15,6 +15,18 @@ branding will be revisited if requested.
 > [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Trademark and third-party data notes:
 > [`NOTICE.md`](NOTICE.md).
 
+### One screen: what this proves / does not prove
+
+| Proves (on `main`) | Does **not** prove |
+|--------------------|--------------------|
+| Germline spine vs pinned **GATK 4.4**: HC → CombineGVCFs → GenotypeGVCFs → hard `VariantFiltration` | Full GATK4 toolkit (BQSR, VQSR, Mutect2, gCNV/SV, Funcotator, …) |
+| **L2** synthetic gates (223/223) + **P12** L3/L4/L5 on `chr2:92300000–92350000` | Genome-wide / full-autosome HC equivalence |
+| Synthetic joint-genotype cohort ladder (**≤100** samples on a tiny interval) | WGS × large-N / GenomicsDB-class joint calling |
+| Scoped algorithm parity with honest waivers (W-H1 / W-H3 / W-L7-FORMAT) | Clinical drop-in, bitwise-identical QUAL/FORMAT everywhere, or a product launch |
+| Equivalence **harness** (GIAB / hap.py / dashboard plumbing) | A **signed** GIAB `ci-subset` or dashboard F1 claim — still **unsigned** |
+
+Authority: [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Historical L6–L14 narratives live on `pre-cleanup-archive` only — not unqualified **Yes** rows here.
+
 ## Why does this exist?
 
 Nobody asked for this. Here it is anyway: a Rust port of the GATK4
@@ -55,16 +67,15 @@ disappointment — that's the actual experiment working. Open an issue.
 
 **[Equivalence dashboard (GitHub Pages)](https://synapticfour.github.io/gatk-rs/)**
 (source: [`docs/parity-site/`](docs/parity-site/)) — Chart.js view of hap.py
-F1 / precision / recall **once** `nightly-equivalence` /
-`genomewide-validation` have published a run with non-empty metrics.
-Until then the UI shows “No published runs yet” — **no F1 numbers are
-advertised here**. Scope (regions, samples, Java GATK 4.4 pin) is always
-shown with the metrics.
+metrics **only after** a signed publish lands in `history.json`.
+Until then the UI shows “No published runs yet.” Treat the site as
+**instrumentation**, not a product claim — GIAB `ci-subset` is still
+**unsigned** in [`CLAIM_MATRIX`](docs/CLAIM_MATRIX.md).
 
 ## Validated Scope
 
 gatk-rs targets the **germline short-variant** workflow against pinned GATK
-**4.4** — not a full toolkit port:
+**4.4** — a focused experiment, not a toolkit clone:
 
 **HaplotypeCaller → CombineGVCFs → GenotypeGVCFs → VariantFiltration** (hard filters).
 
@@ -84,8 +95,10 @@ scope). Related: [ADR 0002](docs/adr/0002-remove-gatk-tools.md) (no generic
 
 ## What this is
 
-A native Rust workspace with **HaplotypeCaller** as the primary tool, plus the
-post-call helpers above. Algorithm parity work is concentrated on that spine.
+A native Rust workspace focused on **HaplotypeCaller** plus the post-call
+helpers above. Generic BAM/VCF utilities belong in **samtools** / **bcftools**
+([ADR 0002](docs/adr/0002-remove-gatk-tools.md)); leftover utility subcommands
+stay callable for parity harnesses but are hidden from default `--help`.
 
 ### VariantFiltration vs VQSR
 

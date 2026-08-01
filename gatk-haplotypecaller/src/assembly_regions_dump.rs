@@ -672,7 +672,8 @@ mod tests {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../parity/realworld");
         let ref_fa = root.join("assets/hs37d5.simple.fa");
         let bam = root.join("na12878_20k_b37/NA12878_20k.b37.bam");
-        if !bam.exists() {
+        // Realworld assets are staged locally (often only `.fa.gz`); skip when either side missing.
+        if !bam.exists() || !ref_fa.exists() {
             return;
         }
         let dict = SequenceDictionary::from_fasta_path(&ref_fa).unwrap();
