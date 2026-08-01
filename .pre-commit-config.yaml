@@ -1,19 +1,15 @@
+# Canonical commit hook is .githooks/pre-commit (core.hooksPath).
+# This file supports: python3 -m pre_commit run --all-files
+# Keep aligned with .github/workflows/ci.yml
 repos:
   - repo: local
     hooks:
-      - id: cargo-fmt
-        name: cargo fmt
-        entry: cargo fmt --
-        language: system
-        types: [rust]
+      - id: ci-parity
+        name: GitHub CI parity (fmt + clippy + test)
+        entry: scripts/hooks/ci-check.sh
+        language: script
         pass_filenames: false
-      - id: cargo-clippy
-        name: cargo clippy
-        # Lint debt: warn-only, libs/bins only (integration tests need feature gates).
-        entry: cargo clippy --workspace
-        language: system
-        types: [rust]
-        pass_filenames: false
+        always_run: true
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
