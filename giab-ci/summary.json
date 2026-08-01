@@ -5,8 +5,8 @@
     {
       "sample": "HG001",
       "mode": "smoke",
-      "equiv_exit": 2,
-      "gate_passed": false,
+      "equiv_exit": 0,
+      "gate_passed": true,
       "java_perf": {
         "wall_sec": null,
         "max_rss_kb": null
@@ -15,7 +15,290 @@
         "wall_sec": null,
         "max_rss_kb": null
       },
-      "dir": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci/HG001"
+      "dir": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci/HG001",
+      "equiv_results": {
+        "manifest": {
+          "created_utc": "2026-08-01T14:41:22.524003143+00:00",
+          "tool_version": "0.1.0",
+          "engine": "rtg-vcfeval",
+          "reference": "/home/runner/work/gatk-rs/gatk-rs/parity/realworld/assets/hs37d5.simple.fa",
+          "bam": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci/HG001/hc/HG001.smoke.p12_20k.bam",
+          "truth_vcf": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/truth/HG001_GRCh37_1_22_v4.2.1_benchmark.vcf.gz",
+          "confident_regions": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/truth/HG001_GRCh37_1_22_v4.2.1_benchmark.bed",
+          "interval": null,
+          "f1_delta_threshold": 0.02,
+          "java_vcf": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci/HG001/equiv/java.vcf",
+          "rust_vcf": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci/HG001/equiv/rust.vcf",
+          "java_happy_prefix": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci/HG001/equiv/eval/java",
+          "rust_happy_prefix": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci/HG001/equiv/eval/rust",
+          "stratification_beds": {
+            "AllTandemRepeatsandHomopolymers_slop5": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci/HG001/equiv/strat/GRCh37_AllTandemRepeatsandHomopolymers_slop5.bed",
+            "alldifficultregions": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci/HG001/equiv/strat/GRCh37_alldifficultregions.bed",
+            "segdups": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci/HG001/equiv/strat/GRCh37_segdups.bed"
+          }
+        },
+        "java_vs_truth": [
+          {
+            "query_label": "java",
+            "stratum": "*",
+            "snp": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "truth_tp": 0,
+              "truth_fn": 0,
+              "query_fp": 0
+            },
+            "indel": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "truth_tp": 0,
+              "truth_fn": 0,
+              "query_fp": 0
+            },
+            "all": null
+          },
+          {
+            "query_label": "java",
+            "stratum": "AllTandemRepeatsandHomopolymers_slop5",
+            "snp": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "truth_tp": 0,
+              "truth_fn": 0,
+              "query_fp": 0
+            },
+            "indel": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "truth_tp": 0,
+              "truth_fn": 0,
+              "query_fp": 0
+            },
+            "all": null
+          },
+          {
+            "query_label": "java",
+            "stratum": "alldifficultregions",
+            "snp": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "truth_tp": 0,
+              "truth_fn": 0,
+              "query_fp": 0
+            },
+            "indel": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "truth_tp": 0,
+              "truth_fn": 0,
+              "query_fp": 0
+            },
+            "all": null
+          },
+          {
+            "query_label": "java",
+            "stratum": "segdups",
+            "snp": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "truth_tp": 0,
+              "truth_fn": 0,
+              "query_fp": 0
+            },
+            "indel": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "truth_tp": 0,
+              "truth_fn": 0,
+              "query_fp": 0
+            },
+            "all": null
+          }
+        ],
+        "rust_vs_truth": [
+          {
+            "query_label": "rust",
+            "stratum": "*",
+            "snp": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "truth_tp": 0,
+              "truth_fn": 0,
+              "query_fp": 0
+            },
+            "indel": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "truth_tp": 0,
+              "truth_fn": 0,
+              "query_fp": 0
+            },
+            "all": null
+          },
+          {
+            "query_label": "rust",
+            "stratum": "AllTandemRepeatsandHomopolymers_slop5",
+            "snp": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "truth_tp": 0,
+              "truth_fn": 0,
+              "query_fp": 0
+            },
+            "indel": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "truth_tp": 0,
+              "truth_fn": 0,
+              "query_fp": 0
+            },
+            "all": null
+          },
+          {
+            "query_label": "rust",
+            "stratum": "alldifficultregions",
+            "snp": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "truth_tp": 0,
+              "truth_fn": 0,
+              "query_fp": 0
+            },
+            "indel": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "truth_tp": 0,
+              "truth_fn": 0,
+              "query_fp": 0
+            },
+            "all": null
+          },
+          {
+            "query_label": "rust",
+            "stratum": "segdups",
+            "snp": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "truth_tp": 0,
+              "truth_fn": 0,
+              "query_fp": 0
+            },
+            "indel": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "truth_tp": 0,
+              "truth_fn": 0,
+              "query_fp": 0
+            },
+            "all": null
+          }
+        ],
+        "f1_deltas": [
+          {
+            "stratum": "*",
+            "class": "SNP",
+            "java_f1": 0.0,
+            "rust_f1": 0.0,
+            "delta": 0.0,
+            "abs_delta": 0.0,
+            "within_threshold": true
+          },
+          {
+            "stratum": "*",
+            "class": "INDEL",
+            "java_f1": 0.0,
+            "rust_f1": 0.0,
+            "delta": 0.0,
+            "abs_delta": 0.0,
+            "within_threshold": true
+          },
+          {
+            "stratum": "AllTandemRepeatsandHomopolymers_slop5",
+            "class": "SNP",
+            "java_f1": 0.0,
+            "rust_f1": 0.0,
+            "delta": 0.0,
+            "abs_delta": 0.0,
+            "within_threshold": true
+          },
+          {
+            "stratum": "AllTandemRepeatsandHomopolymers_slop5",
+            "class": "INDEL",
+            "java_f1": 0.0,
+            "rust_f1": 0.0,
+            "delta": 0.0,
+            "abs_delta": 0.0,
+            "within_threshold": true
+          },
+          {
+            "stratum": "alldifficultregions",
+            "class": "SNP",
+            "java_f1": 0.0,
+            "rust_f1": 0.0,
+            "delta": 0.0,
+            "abs_delta": 0.0,
+            "within_threshold": true
+          },
+          {
+            "stratum": "alldifficultregions",
+            "class": "INDEL",
+            "java_f1": 0.0,
+            "rust_f1": 0.0,
+            "delta": 0.0,
+            "abs_delta": 0.0,
+            "within_threshold": true
+          },
+          {
+            "stratum": "segdups",
+            "class": "SNP",
+            "java_f1": 0.0,
+            "rust_f1": 0.0,
+            "delta": 0.0,
+            "abs_delta": 0.0,
+            "within_threshold": true
+          },
+          {
+            "stratum": "segdups",
+            "class": "INDEL",
+            "java_f1": 0.0,
+            "rust_f1": 0.0,
+            "delta": 0.0,
+            "abs_delta": 0.0,
+            "within_threshold": true
+          }
+        ],
+        "direct_compare": {
+          "java_sites": 445,
+          "rust_sites": 91,
+          "identical_sites": 0,
+          "allele_match_gt_mismatch": 3,
+          "format_mismatch_same_gt": 81,
+          "java_only": 361,
+          "rust_only": 7
+        },
+        "gate_passed": true,
+        "max_abs_delta": 0.0,
+        "notes": [
+          "Primary equivalence metric is Rust\u2212Java F1 delta (not absolute F1).",
+          "Evaluation uses community engines (hap.py or RTG vcfeval), not in-house VCF heuristics."
+        ]
+      }
     }
   ]
 }
