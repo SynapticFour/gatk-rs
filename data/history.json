@@ -4,7 +4,7 @@
     "java_gatk_version": "4.4.0.0",
     "java_gatk_sha": "2dbc025821bc5f686c423ff332a41e6cef892a77",
     "java_gatk_docker": "us.gcr.io/broad-gatk/gatk:4.4.0.0",
-    "updated_utc": "2026-07-31T12:01:54Z",
+    "updated_utc": "2026-08-01T11:59:43Z",
     "notes": "Updated by nightly-equivalence / genomewide-validation / joint-cohort-scale gates."
   },
   "runs": [
@@ -455,11 +455,11 @@
       ]
     },
     {
-      "id": "nightly-2026-07-31T12:01:53Z",
+      "id": "nightly-2026-08-01T11:59:42Z",
       "workflow": "nightly-equivalence",
-      "generated_utc": "2026-07-31T12:01:53Z",
-      "commit_sha": "2ca6e6ec2303da602a340cb2b45876ac7797d42d",
-      "workflow_run_url": "https://github.com/SynapticFour/gatk-rs/actions/runs/30608422077",
+      "generated_utc": "2026-08-01T11:59:42Z",
+      "commit_sha": "61912b60f982a3a9b9874711e3ae91ce93ece242",
+      "workflow_run_url": "https://github.com/SynapticFour/gatk-rs/actions/runs/30686867507",
       "scope": {
         "kind": "trio_joint_e2e",
         "pipeline": "HaplotypeCaller (GVCF) \u2192 CombineGVCFs \u2192 GenotypeGVCFs \u2192 VariantFiltration",
