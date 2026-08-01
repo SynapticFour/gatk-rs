@@ -27,15 +27,27 @@ pub fn run_vcfeval(
         run_checked(&mut fmt, "rtg format")?;
     }
 
+    // RTG vcfeval requires block-gzipped VCFs (plain `.vcf` → "is not in bgzip format").
+    let query_gz = ensure_bgzip_vcf(
+        input.query_vcf,
+        &PathBuf::from(format!("{}.query.vcf.gz", input.out_prefix.display())),
+    )?;
+    let truth_gz = ensure_bgzip_vcf(
+        input.truth_vcf,
+        &PathBuf::from(format!("{}.truth.vcf.gz", input.out_prefix.display())),
+    )?;
+
     let mut metrics = Vec::new();
     metrics.push(run_one(
         rtg_bin,
-        input,
+        &truth_gz,
+        &query_gz,
         &out_dir,
         input.confident_bed,
         "*",
         query_label,
         &sdf,
+        input.threads,
     )?);
 
     for (name, bed) in input.stratification {
@@ -45,32 +57,117 @@ pub fn run_vcfeval(
         }
         metrics.push(run_one(
             rtg_bin,
-            input,
+            &truth_gz,
+            &query_gz,
             &strat_out,
             bed,
             name,
             query_label,
             &sdf,
+            input.threads,
         )?);
     }
     Ok(metrics)
 }
 
+/// Return a path suitable for RTG `-b`/`-c`: already `.gz`, or a freshly bgzipped copy.
+fn ensure_bgzip_vcf(vcf: &Path, staging_gz: &Path) -> Result<PathBuf> {
+    if looks_gzip_path(vcf) {
+        ensure_vcf_index(vcf)?;
+        return Ok(vcf.to_path_buf());
+    }
+    if let Some(parent) = staging_gz.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    // Prefer bcftools (already on GIAB finalize PATH); fall back to bgzip.
+    if which("bcftools").is_some() {
+        let mut view = Command::new("bcftools");
+        view.args(["view", "-Oz", "-o"]).arg(staging_gz).arg(vcf);
+        run_checked(&mut view, "bcftools view -Oz")?;
+    } else if which("bgzip").is_some() {
+        let out_file = fs::File::create(staging_gz)
+            .with_context(|| format!("create {}", staging_gz.display()))?;
+        let status = Command::new("bgzip")
+            .arg("-c")
+            .arg(vcf)
+            .stdout(out_file)
+            .status()
+            .with_context(|| format!("spawn bgzip for {}", vcf.display()))?;
+        if !status.success() {
+            bail!("bgzip failed for {} ({status})", vcf.display());
+        }
+    } else {
+        bail!(
+            "RTG needs bgzipped VCFs; install bcftools or bgzip to compress {}",
+            vcf.display()
+        );
+    }
+    ensure_vcf_index(staging_gz)?;
+    Ok(staging_gz.to_path_buf())
+}
+
+fn looks_gzip_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("gz"))
+}
+
+fn ensure_vcf_index(vcf_gz: &Path) -> Result<()> {
+    let tbi = PathBuf::from(format!("{}.tbi", vcf_gz.display()));
+    let csi = PathBuf::from(format!("{}.csi", vcf_gz.display()));
+    if tbi.is_file() || csi.is_file() {
+        return Ok(());
+    }
+    if which("bcftools").is_some() {
+        let mut idx = Command::new("bcftools");
+        idx.args(["index", "-f", "-t"]).arg(vcf_gz);
+        run_checked(&mut idx, "bcftools index -t")?;
+        return Ok(());
+    }
+    if which("tabix").is_some() {
+        let mut idx = Command::new("tabix");
+        idx.args(["-f", "-p", "vcf"]).arg(vcf_gz);
+        run_checked(&mut idx, "tabix -p vcf")?;
+        return Ok(());
+    }
+    // RTG often accepts bgzip without an index for small callsets; continue.
+    eprintln!(
+        "[gatk-rs-equiv] warning: no tabix/bcftools index for {} (continuing)",
+        vcf_gz.display()
+    );
+    Ok(())
+}
+
+fn which(name: &str) -> Option<PathBuf> {
+    std::env::var_os("PATH").and_then(|paths| {
+        for dir in std::env::split_paths(&paths) {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+        None
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn run_one(
     rtg_bin: &Path,
-    input: &EvalInput<'_>,
+    truth_vcf: &Path,
+    query_vcf: &Path,
     out_dir: &Path,
     bed: &Path,
     stratum: &str,
     query_label: &str,
     sdf: &Path,
+    threads: u32,
 ) -> Result<TruthMetrics> {
     let mut cmd = Command::new(rtg_bin);
     cmd.arg("vcfeval")
         .arg("-b")
-        .arg(input.truth_vcf)
+        .arg(truth_vcf)
         .arg("-c")
-        .arg(input.query_vcf)
+        .arg(query_vcf)
         .arg("-t")
         .arg(sdf)
         .arg("-e")
@@ -78,7 +175,7 @@ fn run_one(
         .arg("-o")
         .arg(out_dir)
         .arg("--threads")
-        .arg(input.threads.to_string());
+        .arg(threads.to_string());
     run_checked(&mut cmd, "rtg vcfeval")?;
 
     let summary = out_dir.join("summary.txt");
