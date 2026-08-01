@@ -36,6 +36,9 @@ cargo test -p gatk-haplotypecaller --lib kbest_bounds_are_finite_and_tight -- --
 echo "[hc-rss] unit: smith_waterman oversized matrix is refused"
 cargo test -p gatk-haplotypecaller --lib oversized_matrix_is_refused -- --nocapture
 
+echo "[hc-rss] unit: oversized assembly region read count is refused"
+cargo test -p gatk-haplotypecaller --lib oversized_assembly_region_read_count_is_refused -- --nocapture
+
 echo "[hc-rss] building dict_load_probe + gatk-rs (release)"
 cargo build -p gatk-core --release --example dict_load_probe --locked
 cargo build -p gatk-cli --release --locked --bin gatk-rs

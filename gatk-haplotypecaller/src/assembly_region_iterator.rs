@@ -35,6 +35,33 @@ use std::collections::VecDeque;
 use std::io::Write;
 use std::path::Path;
 
+/// Operational safety ceiling on reads retained in one assembly region after positional DS.
+///
+/// GATK 4.4 caps **per alignment start** (default 50), not total depth. Staggered starts
+/// (e.g. centromere / P12 full-30×) can leave hundreds of thousands of reads per region;
+/// PairHMM / cloning then OOMs a 16 GiB host. This refuse matches PairHMM oversized-DP
+/// fail-closed behavior — it is **not** a genotype-contract downsampler.
+pub const MAX_READS_PER_ASSEMBLY_REGION: usize = 100_000;
+
+/// Fail closed when an assembly region retains more reads than
+/// [`MAX_READS_PER_ASSEMBLY_REGION`] (after GATK positional DS).
+pub fn refuse_oversized_assembly_region_reads(
+    contig: &str,
+    start_1based: u64,
+    end_1based: u64,
+    read_count: usize,
+) -> GatkResult<()> {
+    if read_count <= MAX_READS_PER_ASSEMBLY_REGION {
+        return Ok(());
+    }
+    Err(GatkError::algorithm(format!(
+        "assembly region refused oversized read set ({contig}:{start_1based}-{end_1based}, \
+         reads={read_count}, max={MAX_READS_PER_ASSEMBLY_REGION}); \
+         GATK positional DS (max-reads-per-alignment-start) does not bound total depth when \
+         starts are staggered — exclude ultra-deep intervals or use a smaller -L"
+    )))
+}
+
 /// One assembly region handed to downstream `apply` / `callRegion` (GATK `AssemblyRegion` core fields).
 /// # Invariants
 /// Unpadded and extended spans are **1-based inclusive**; extended = start/end ± extension clipped to contig.
@@ -710,6 +737,12 @@ impl AssemblyRegionIterator {
 
     fn finish_pending_region(&mut self, mut region: AssemblyRegion) -> GatkResult<AssemblyRegion> {
         self.fill_region_with_reads(&mut region);
+        refuse_oversized_assembly_region_reads(
+            &region.contig,
+            region.start.get(),
+            region.end.get(),
+            region.reads.len(),
+        )?;
         self.fill_region_with_pileup_data(&mut region);
         if self.cfg.force_active {
             region.is_active = true;
@@ -859,6 +892,30 @@ mod tests {
         ActivityProfileRegion, ActivityProfileState, BandPassActivityProfile,
     };
     use crate::walker::make_read_shards;
+
+    #[test]
+    fn oversized_assembly_region_read_count_is_refused() {
+        assert!(
+            refuse_oversized_assembly_region_reads("2", 1, 100, MAX_READS_PER_ASSEMBLY_REGION)
+                .is_ok()
+        );
+        let err = refuse_oversized_assembly_region_reads(
+            "2",
+            92_300_000,
+            92_350_000,
+            MAX_READS_PER_ASSEMBLY_REGION + 1,
+        )
+        .expect_err("must refuse above ceiling");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("refused oversized read set"),
+            "unexpected message: {msg}"
+        );
+        assert!(
+            msg.contains(&format!("max={MAX_READS_PER_ASSEMBLY_REGION}")),
+            "unexpected message: {msg}"
+        );
+    }
 
     #[test]
     fn assembly_region_from_activity_profile_region() {

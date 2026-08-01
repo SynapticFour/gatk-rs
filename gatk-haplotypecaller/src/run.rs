@@ -40,6 +40,13 @@ use rust_htslib::bam::Read as _;
 use std::path::Path;
 use tracing::info;
 
+/// Regions at or above this read count are flushed alone (no Rayon siblings).
+///
+/// Deep piles after positional DS still clone BAM records into each in-flight region;
+/// parallelizing several such regions amplified Peak-RSS to ~15 GiB on hosted runners.
+/// Sequential processing matches Java's one-heavy-region peak shape without changing evidence.
+const LARGE_REGION_READS_SEQUENTIAL: usize = 8_192;
+
 /// Owned per-region emission batch (Send) for parallel Active-Region processing.
 struct RegionEmitBatch {
     region_index: usize,
@@ -557,6 +564,14 @@ fn assembly_region_variant_records(
                 read_filters,
                 &cfg,
                 |region_index, region| {
+                    // Deep regions: flush any pending peers first, then process alone so
+                    // Peak-RSS stays near one region + shard (not N × cloned read sets).
+                    if region.reads.len() >= LARGE_REGION_READS_SEQUENTIAL {
+                        flush_batch(&mut pending, &mut all_batches)?;
+                        pending.push((region_index, region));
+                        flush_batch(&mut pending, &mut all_batches)?;
+                        return Ok(());
+                    }
                     pending.push((region_index, region));
                     if pending.len() >= batch_limit {
                         flush_batch(&mut pending, &mut all_batches)?;

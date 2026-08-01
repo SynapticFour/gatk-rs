@@ -6,7 +6,7 @@ External-facing runner: download GIAB truth sets, call **Java GATK4** (pinned) a
 
 | Mode | Meaning | Typical use |
 |------|---------|-------------|
-| `smoke` | Three ~50 kb windows (chr20 / chr21 / P12) | M4 laptop / PR sanity |
+| `smoke` | Three ~50 kb windows (chr20 / chr21 / P12). P12 reads staged from **NA12878_20k** (same evidence class as P12 L* gates); chr20/21 from HG001 30×. Full-30× P12 is benchmark-host only (centromere-scale depth after positional DS). | M4 laptop / PR sanity |
 | **`ci-subset` (default)** | **Full chr20 + full chr21** + **one 50 kb probe** on each other autosome (clamped to hs37d5 contig ends; chr19/22 use end-of-contig). HC runs as **matrix shards**: ~10 Mb windows of chr20/21 (`00_chr20_wNN` / `01_chr21_wNN`) plus `02_probes`, each × java/rust — stays under the GitHub-hosted **6 h** job hard cap | Nightly/weekly CI |
 | `chr20-21` | Full chromosomes 20 and 21 only | Intermediate |
 | `autosomes` | Full chr1–22 | Large hosts only — not for 16 GB laptops |

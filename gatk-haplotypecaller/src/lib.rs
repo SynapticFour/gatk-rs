@@ -326,7 +326,8 @@ pub use assembly_pipeline_stages::{
 pub use assembly_region_evaluator::{add_locus_for_smoothed_activity, evaluate_hc_activity_state};
 pub use assembly_region_iterator::{
     load_all_records_for_contig, load_all_records_for_contig_raw, load_records_for_shard_raw,
-    sync_read_qnames, AssemblyRegion, AssemblyRegionIterator, AssemblyRegionIteratorConfig,
+    refuse_oversized_assembly_region_reads, sync_read_qnames, AssemblyRegion,
+    AssemblyRegionIterator, AssemblyRegionIteratorConfig, MAX_READS_PER_ASSEMBLY_REGION,
 };
 pub use assembly_region_trimmer::{
     load_trim_variants_tsv, trim_assembly_region, AssemblyRegionTrimResult, AssemblyRegionTrimmer,

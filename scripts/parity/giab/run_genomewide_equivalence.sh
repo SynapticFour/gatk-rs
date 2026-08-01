@@ -341,8 +341,14 @@ for sample in "$@"; do
       want_shard "${shard_name}" || continue
 
       load_intervals_file "${shard_file}"
-      bam="${sdir}/hc/${sample}.${mode}.${shard_name}.bam"
-      stage_bam_for_interval_list "${sample}" "${bam_url}" "${bam}" "${loaded_intervals[@]}"
+      if [[ "${mode}" == "smoke" ]]; then
+        # Distinct filename so older full-30× P12 smoke slices are not reused.
+        bam="${sdir}/hc/${sample}.${mode}.${shard_name}.p12_20k.bam"
+        giab_stage_smoke_bam_hybrid "${sample}" "${bam_url}" "${bam}" "${repo_root}" "${loaded_intervals[@]}"
+      else
+        bam="${sdir}/hc/${sample}.${mode}.${shard_name}.bam"
+        stage_bam_for_interval_list "${sample}" "${bam_url}" "${bam}" "${loaded_intervals[@]}"
+      fi
 
       java_shard_vcf="${shard_vcf_dir}/java.${shard_name}.vcf"
       rust_shard_vcf="${shard_vcf_dir}/rust.${shard_name}.vcf"
@@ -404,8 +410,13 @@ for sample in "$@"; do
   : > "${rust_time}"
 
   # Equiv may inspect the BAM; stage the full interval union.
-  bam="${sdir}/hc/${sample}.${mode}.bam"
-  stage_bam_for_interval_list "${sample}" "${bam_url}" "${bam}" "${intervals[@]}"
+  if [[ "${mode}" == "smoke" ]]; then
+    bam="${sdir}/hc/${sample}.${mode}.p12_20k.bam"
+    giab_stage_smoke_bam_hybrid "${sample}" "${bam_url}" "${bam}" "${repo_root}" "${intervals[@]}"
+  else
+    bam="${sdir}/hc/${sample}.${mode}.bam"
+    stage_bam_for_interval_list "${sample}" "${bam_url}" "${bam}" "${intervals[@]}"
+  fi
 
   java_perf="$(giab_parse_time_log "${java_time}" 2>/dev/null || echo '{}')"
   rust_perf="$(giab_parse_time_log "${rust_time}" 2>/dev/null || echo '{}')"
