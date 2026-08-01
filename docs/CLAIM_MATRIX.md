@@ -5,7 +5,7 @@ reachable from **`main`**, do not assert it.
 
 **Pinned Java oracle:** GATK **4.4.0.0** — see [`GATK_PINNED.env`](GATK_PINNED.env) and root `GATK_PINNED_SHA`.
 
-**Last updated:** 2026-08-01 (honesty sprint: archive-only L6–L14 demoted; GIAB `ci-subset` still unsigned)
+**Last updated:** 2026-08-01 (GIAB **smoke** finalize scored green on hosted CI; `ci-subset` still unsigned)
 
 ---
 
@@ -21,7 +21,7 @@ reachable from **`main`**, do not assert it.
 | Cluster indel phenotype (Δ=+3) | Algorithm + non-P12 tests; P12 oracle fallback | HC tests + parity harness |
 | Oracle TSV does not gate production emit | Emit admission / sparse rescue | `scripts/parity` oracle audits |
 | `parity_aligned` / legacy bridges off release surface | Needs `cfg(test)` or `--features parity_harness` | `gatk-haplotypecaller` Cargo features |
-| GIAB multi-sample equivalence **harness** | Infrastructure only — does **not** by itself assert callset equivalence | [`scripts/parity/giab/`](../scripts/parity/giab/README.md), `.github/workflows/giab-genomewide.yml` |
+| GIAB multi-sample equivalence **harness** (prepare → HC matrix → finalize + RTG/`gatk-rs-equiv`) | Infrastructure proven end-to-end on hosted CI; does **not** by itself assert genome-adjacent / autosome callset equivalence | [`scripts/parity/giab/`](../scripts/parity/giab/README.md), `.github/workflows/giab-genomewide.yml`; smoke green: [run 30703069224](https://github.com/SynapticFour/gatk-rs/actions/runs/30703069224) (`gate_passed=true`, `max_\|ΔF1\|=0` on three ~50 kb windows) |
 | CombineGVCFs mini REF/ALT/PL parity (incl. different ALT sets → diploid PL remap) | Synthetic 2-sample mini cohort; site `chr1:10` ALT `T,G,<NON_REF>` | `parity/reports/combine_gvcfs_20260724T072518Z.log` (`OK sites=5`); unit gates `ref_confidence_merger::pl_remap_tests` + `combine_gvcfs::tests::t04` |
 | GenotypeGVCFs mini alleles/GT/QUAL parity | Same mini cohort after CombineGVCFs; QUAL ±20.0 | `parity/reports/genotype_gvcfs_20260724T072526Z.log` (`OK sites=1`) |
 | CombineGVCFs → GenotypeGVCFs **cohort scale** (synthetic ladder) | Synthetic N∈{2,10,25,50,100} on chr1 10 kb / 400 SNPs; **recommended ≤ 100 samples** on this gate. Above 100 **untested / not claimed**. No GenomicsDBImport. | `parity/reports/joint_cohort_scale_20260724T184447Z/`; `scripts/parity/run_joint_cohort_scale.sh` |
@@ -51,7 +51,7 @@ evidence/scripts are restored here. Cite them as historical engineering notes on
 | GIAB **ci-subset** on HG001+HG002+HG005 | Same, all three samples | **Not yet signed** |
 | GIAB **full autosomes** (chr1–22) equivalence | `GIAB_MODE=autosomes` green run | **Not yet signed** |
 | Nightly / GIAB Pages dashboard (`docs/EQUIVALENCE_DASHBOARD.md`, `docs/parity-site/data/history.json`) | Successful publish with non-empty `history.json` `runs` | **Not yet signed** — do not lean on dashboard narrative until a signed run lands |
-| GIAB **smoke** as a product claim | Smoke is PR/infra hygiene (hybrid P12 from NA12878_20k + chr20/21 30×), not a truth-equivalence sign-off | **Not a product claim** — even when the workflow is green |
+| GIAB **smoke** as a product / genome-adjacent claim | Smoke is PR/infra hygiene (hybrid P12 from NA12878_20k + chr20/21 30×): three ~50 kb windows only | **Not a product claim** — harness is green ([30703069224](https://github.com/SynapticFour/gatk-rs/actions/runs/30703069224)); do **not** cite smoke as `ci-subset` or autosome equivalence |
 
 ---
 
