@@ -1,31 +1,45 @@
 # Claim matrix — what gatk-rs HaplotypeCaller asserts
 
-**Authority for product claims.** If a claim is not **Yes** here, do not assert it.  
-**Pinned Java oracle:** GATK **4.4.0.0** — see [`GATK_PINNED.env`](GATK_PINNED.env) and root `GATK_PINNED_SHA`.  
-**Last updated:** 2026-07-24 (L2 green; Combine / Genotype / VariantFiltration mini parity green)
+**Authority for product claims.** If a claim is not **Yes** here with evidence
+reachable from **`main`**, do not assert it.
+
+**Pinned Java oracle:** GATK **4.4.0.0** — see [`GATK_PINNED.env`](GATK_PINNED.env) and root `GATK_PINNED_SHA`.
+
+**Last updated:** 2026-08-01 (honesty sprint: archive-only L6–L14 demoted; GIAB `ci-subset` still unsigned)
 
 ---
 
-## Asserted (Yes)
+## Asserted (Yes) — evidence on `main`
 
-| Claim | Scope | Evidence |
-|-------|-------|----------|
-| Production path is `CallRegionArgs::strict_java()` + `assembly-region-v1` | Default CLI HC | `gatk-haplotypecaller` `run.rs` |
-| P12 L3 variant emit parity | `chr2:92300000–92350000`, 66 Java sites, `rust_only=0` | P12 L3 parity scripts / CI |
-| P12 L4 FORMAT parity (algorithmic) | Same interval, 66 sites | P12 L4 parity scripts / CI |
-| P12 L5 gVCF block parity | Same interval | P12 L5 parity scripts / CI |
-| L2 synthetic gates | **223/223 strict** on `2026-07-24T07:00:10Z` (`parity/reports/hc-full-parity-l2/hc_full_parity_l2_20260724T065936Z.log` → `hc_full_parity_l2_canonical.log` / `last_run.log`); `l2_summary.json` 223×`equal=true` | `scripts/parity/run_hc_full_parity_l2.sh` (full-suite run updates `last_run.log`; canonical only on strict green). Permanent isolated gates for the historical May failures: `cargo test -p gatk-haplotypecaller --features parity_harness --test l2_may_regression_gate_test` (`e0-assemble/p5_case1_assemble`, `e2e/p5_indel_chrindel`). Note: the May-17 `last_run.log` (`passed=143 failed=2`) was **older** than the Jul-21 green canonical, not a post-Jul-21 regression. |
-| L6 scale + GIAB truth gate (spine parity + F1 tracks Java) | Eval `2:92000000-92400000`; parity on spine `92300000-92350000` | L6 sign-off gates (archive branch) |
-| L7 dense GIAB + second non-chr2 slice + GT FORMAT hard gate | chr20 dense F1≥0.95; chr21 dense; GT mismatch ≤15% among TPs | L7 sign-off gates (archive branch) |
-| L9–L14 trajectory closure on holdout / soft-PL policy | Dense/holdout F1 gates; P12 66/66; soft PL permanent residual | L9–L14 sign-off gates (archive branch) |
+| Claim | Scope | Evidence on `main` |
+|-------|-------|--------------------|
+| Production path is `CallRegionArgs::strict_java()` + `assembly-region-v1` | Default CLI HC | `gatk-haplotypecaller/src/run.rs` |
+| P12 L3 variant emit parity | `chr2:92300000–92350000`, 66 Java sites, `rust_only=0` | `scripts/parity/run_p12_l3_signoff.sh` (+ P12 tests under `gatk-haplotypecaller/tests/`) |
+| P12 L4 FORMAT parity (algorithmic) | Same interval, 66 sites | `scripts/parity/run_p12_l4_signoff.sh` |
+| P12 L5 gVCF block parity | Same interval | `scripts/parity/run_p12_l5_gvcf.sh` |
+| L2 synthetic gates | **223/223 strict** on `2026-07-24T07:00:10Z` | `parity/reports/hc-full-parity-l2/hc_full_parity_l2_canonical.log` (+ `last_run.log`); `scripts/parity/run_hc_full_parity_l2.sh`; permanent May gates: `cargo test -p gatk-haplotypecaller --features parity_harness --test l2_may_regression_gate_test` |
 | Cluster indel phenotype (Δ=+3) | Algorithm + non-P12 tests; P12 oracle fallback | HC tests + parity harness |
 | Oracle TSV does not gate production emit | Emit admission / sparse rescue | `scripts/parity` oracle audits |
 | `parity_aligned` / legacy bridges off release surface | Needs `cfg(test)` or `--features parity_harness` | `gatk-haplotypecaller` Cargo features |
 | GIAB multi-sample equivalence **harness** | Infrastructure only — does **not** by itself assert callset equivalence | [`scripts/parity/giab/`](../scripts/parity/giab/README.md), `.github/workflows/giab-genomewide.yml` |
-| CombineGVCFs mini REF/ALT/PL parity (incl. different ALT sets → diploid PL remap) | Synthetic 2-sample mini cohort; site `chr1:10` ALT `T,G,<NON_REF>`; SAMPLE1 PL `100,100,100,0,…` / SAMPLE2 PL `90,0,90,…` | `parity/reports/combine_gvcfs_20260724T072518Z.log` (`OK sites=5`); unit gates `ref_confidence_merger::pl_remap_tests` + `combine_gvcfs::tests::t04` |
+| CombineGVCFs mini REF/ALT/PL parity (incl. different ALT sets → diploid PL remap) | Synthetic 2-sample mini cohort; site `chr1:10` ALT `T,G,<NON_REF>` | `parity/reports/combine_gvcfs_20260724T072518Z.log` (`OK sites=5`); unit gates `ref_confidence_merger::pl_remap_tests` + `combine_gvcfs::tests::t04` |
 | GenotypeGVCFs mini alleles/GT/QUAL parity | Same mini cohort after CombineGVCFs; QUAL ±20.0 | `parity/reports/genotype_gvcfs_20260724T072526Z.log` (`OK sites=1`) |
-| CombineGVCFs → GenotypeGVCFs **cohort scale** (synthetic ladder) | Synthetic N∈{2,10,25,50,100} on chr1 10 kb / 400 SNPs (HG002–4 names + SYN###); wall/RSS + Java↔Rust GT compare (allele-identity); **recommended ≤ 100 samples** on this gate. Wall ≈ linear (log-log ~0.91); Peak-RSS ~linear with N (~11→79 MiB for N=2→100; in-memory `read_all_records`). Above 100 **untested / not claimed**. No GenomicsDBImport. hap.py optional (Java=truth) when on PATH. | `parity/reports/joint_cohort_scale_20260724T184447Z/`; `scripts/parity/run_joint_cohort_scale.sh`; dashboard `scope.kind=cohort_joint_scale` (`cohort_size` axis) |
+| CombineGVCFs → GenotypeGVCFs **cohort scale** (synthetic ladder) | Synthetic N∈{2,10,25,50,100} on chr1 10 kb / 400 SNPs; **recommended ≤ 100 samples** on this gate. Above 100 **untested / not claimed**. No GenomicsDBImport. | `parity/reports/joint_cohort_scale_20260724T184447Z/`; `scripts/parity/run_joint_cohort_scale.sh` |
 | VariantFiltration boundary FILTER parity | Synthetic SNP hard-filter boundary sites | `parity/reports/variant_filtration_20260724T072535Z.log` (`OK sites=16` identical FILTER) |
+
+---
+
+## Historical (archive branch only — not “Yes” on `main`)
+
+These narrative gates were signed on branch `pre-cleanup-archive`. They are **not**
+reproducible as first-class product claims from current `main` until their
+evidence/scripts are restored here. Cite them as historical engineering notes only.
+
+| Claim | Former scope | Where to look |
+|-------|--------------|---------------|
+| L6 scale + GIAB truth gate | Eval `2:92000000-92400000`; spine `92300000-92350000` | `pre-cleanup-archive` L6 sign-off |
+| L7 dense GIAB + second non-chr2 slice + GT FORMAT hard gate | chr20/chr21 dense F1 / GT mismatch bands | `pre-cleanup-archive` L7 sign-off |
+| L9–L14 trajectory closure | Dense/holdout F1; P12 66/66; soft-PL residual policy | `pre-cleanup-archive` L9–L14 sign-off |
 
 ---
 
@@ -33,10 +47,11 @@
 
 | Claim | Required evidence | Status |
 |-------|-------------------|--------|
-| GIAB **ci-subset** equivalence (HG001 at minimum): \|Rust−Java\| F1 Δ ≤ threshold via `gatk-rs-equiv` | Weekly workflow artifact + dashboard | **Not yet signed** |
+| GIAB **ci-subset** equivalence (HG001 at minimum): \|Rust−Java\| F1 Δ ≤ threshold via `gatk-rs-equiv` | Green `giab-genomewide.yml` with `GIAB_MODE=ci-subset`, artifact + dashboard row | **Not yet signed** |
 | GIAB **ci-subset** on HG001+HG002+HG005 | Same, all three samples | **Not yet signed** |
 | GIAB **full autosomes** (chr1–22) equivalence | `GIAB_MODE=autosomes` green run | **Not yet signed** |
-| Nightly / GIAB Pages dashboard (`docs/EQUIVALENCE_DASHBOARD.md`, `docs/parity-site/data/history.json`) | Successful `nightly-equivalence.yml` and/or `giab-genomewide.yml` publish with non-empty `history.json` `runs` | **Not yet signed** — `runs: []` (no remote CI yet) |
+| Nightly / GIAB Pages dashboard (`docs/EQUIVALENCE_DASHBOARD.md`, `docs/parity-site/data/history.json`) | Successful publish with non-empty `history.json` `runs` | **Not yet signed** — do not lean on dashboard narrative until a signed run lands |
+| GIAB **smoke** as a product claim | Smoke is PR/infra hygiene (hybrid P12 from NA12878_20k + chr20/21 30×), not a truth-equivalence sign-off | **Not a product claim** — even when the workflow is green |
 
 ---
 
@@ -56,17 +71,18 @@
 
 | Claim | Reality |
 |-------|---------|
-| Genome-wide (full autosomes) GATK 4.4 HaplotypeCaller equivalence | **No** — signed evidence remains P12 + L2 + dense/holdout windows |
+| Genome-wide (full autosomes) GATK 4.4 HaplotypeCaller equivalence | **No** — signed evidence on `main` is P12 + L2 + synthetic joint/filter minis |
 | GIAB `ci-subset` / multi-sample truth equivalence as a product claim | **No (not signed yet)** |
 | Multi-sample joint HC (Java merges `-I` reads) | **No** — each BAM traversed independently |
-| CombineGVCFs / GenotypeGVCFs for **large cohorts** (WGS × N≫100, GenomicsDB-class) | **No** — gatk-rs Combine loads full gVCFs in memory and has no GenomicsDBImport path. Signed synthetic scale gate (20260724T184447Z): **recommended ≤ 100 samples** on 10 kb/400-SNP ladder; N>100 and any WGS×large-N **untested**. Wall ~linear on that ladder, but Peak-RSS already tracks N — same class of reason Java steers large cohorts to GenomicsDBImport. Prefer sharding / external merge for production-scale cohorts. |
+| CombineGVCFs / GenotypeGVCFs for **large cohorts** (WGS × N≫100, GenomicsDB-class) | **No** — gatk-rs Combine loads full gVCFs in memory and has no GenomicsDBImport path. Signed synthetic scale gate: **recommended ≤ 100 samples** on 10 kb/400-SNP ladder |
 | Bitwise-identical QUAL/FORMAT genome-wide | **No** — L4 is P12 66-site lock |
 | Full product feature parity (bamout, DRAGSTR, DRAGEN, `AS_*`, `--assembly-region-out`) | **No** — deferred / scaffold only |
-| VQSR (VariantRecalibrator / ApplyVQSR) | **No** — use `VariantFiltration` hard filters; not an algorithmic VQSR substitute (GATK-aligned small-cohort fallback) |
-| Genome-wide L6 / clinical truth performance | **No** — local windows only until a signed GIAB gate lands |
+| VQSR (VariantRecalibrator / ApplyVQSR) | **No** — use `VariantFiltration` hard filters |
+| Clinical / production drop-in replacement for Broad GATK | **No** — Alpha experiment; limited regions |
+| Genome-wide L6 / clinical truth performance | **No** — archive L6 is not a `main` claim |
 | Java class / source-shape parity as a product goal | **No** — target is **algorithm** parity |
 | `gatk-tools` generic toolkit | **No** — crate **removed** ([ADR 0002](adr/0002-remove-gatk-tools.md)); use samtools/bcftools |
-| Full GATK4 port (BQSR, VQSR, Mutect2, gCNV/SV, Funcotator, …) | **No** — intentional scope boundary ([ADR 0001](adr/0001-scope-boundary.md)) |
+| Full GATK4 port (BQSR, VQSR, Mutect2, gCNV/SV, Funcotator, …) | **No** — intentional scope boundary ([ADR 0001](adr/0001-scope-boundary.md)); **not** a launch target |
 
 ---
 
@@ -75,6 +91,10 @@
 Registry IDs (T3-5 … T5-6) are kept for CI audits; they are **not** product commitments.
 Former **T0-4** (`gatk-tools`) was removed — see [ADR 0002](adr/0002-remove-gatk-tools.md).
 Product scope: [ADR 0001](adr/0001-scope-boundary.md).
+
+Utility CLI (`PrintReads`, `CountReadsInRegion`, `Validate`, …) remains callable for
+parity harnesses but is **hidden from default `--help`** — prefer **samtools** /
+**bcftools** for generic BAM/VCF ops.
 
 | ID | Feature | Production status |
 |----|---------|-------------------|
@@ -86,6 +106,7 @@ Product scope: [ADR 0001](adr/0001-scope-boundary.md).
 | T5-5 | DP reconciliation | Deferred |
 | T5-6 | `--assembly-region-out` | Deferred — use `DumpSmoothedActivity` for analysis |
 | — | VQSR | Not implemented — `VariantFiltration` hard filters only |
+| — | BQSR / Mutect2 / gCNV / Funcotator | Out of scope — do not stub toward a toolkit clone |
 
 ---
 
@@ -93,4 +114,4 @@ Product scope: [ADR 0001](adr/0001-scope-boundary.md).
 
 - External / README: link this file + waivers W-H1 / W-H3 / W-L7-FORMAT; keep the Alpha / non-Broad disclaimer.
 - Code reviews: reject PRs that claim “full GATK parity”, “100% CLI compatibility”, or “bitwise identical outputs” without updating this matrix.
-- Historical L2–L14 sign-off narratives live on branch `pre-cleanup-archive`, not on `main`.
+- Historical L6–L14 sign-off narratives live on branch `pre-cleanup-archive`, not as unqualified **Yes** rows on `main`.

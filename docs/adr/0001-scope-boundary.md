@@ -51,3 +51,6 @@ are out of scope ([ADR 0002](0002-remove-gatk-tools.md): use samtools/bcftools).
   in `CLAIM_MATRIX.md` — not “full GATK4”.
 - Requests for BQSR, VQSR, Mutect2, gCNV/SV, or Funcotator are answered by
   pointing here (and to external tools where appropriate), not by adding stubs.
+- Do **not** polish toward a clinical drop-in, a Broad-shaped toolkit clone, or
+  a launch announcement. Credibility comes from signed gates on `main`, not
+  broader CLI surface.

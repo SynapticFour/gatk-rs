@@ -16,7 +16,7 @@ authors = ["GATK-RS Contributors"]
 license = "Apache-2.0"
 homepage = "https://github.com/SynapticFour/gatk-rs"
 repository = "https://github.com/SynapticFour/gatk-rs"
-description = "A native Rust implementation of the Genome Analysis Toolkit (GATK)"
+description = "Rust-native GATK4 HaplotypeCaller parity experiment (germline short variants; not a full toolkit)"
 rust-version = "1.75"
 
 [workspace.dependencies]

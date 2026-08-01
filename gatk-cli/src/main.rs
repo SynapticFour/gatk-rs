@@ -43,16 +43,17 @@ See NOTICE.md and docs/CLAIM_MATRIX.md.";
     name = "gatk-rs",
     version = env!("CARGO_PKG_VERSION"),
     author = "GATK-RS Contributors",
-    about = "Independent community Rust reimplementation of GATK-style tools (Alpha; scoped HC parity — not Broad GATK)",
+    about = "gatk-rs: Rust-native GATK4 HaplotypeCaller + germline joint/filter spine (Alpha experiment — not Broad GATK)",
     long_about = "gatk-rs is an independent, community-driven reimplementation and is not \
 affiliated with, endorsed by, or supported by the Broad Institute. \
 \"GATK\" is a trademark of the Broad Institute; this project's name and branding \
 will be revisited if requested.\n\n\
-HaplotypeCaller parity is validated on limited genomic regions and fixtures — \
-see docs/CLAIM_MATRIX.md. Not a genome-wide drop-in or \
-bitwise-identical-everywhere claim.\n\n\
-GATK-style CLI flags exist for interoperability with existing pipelines; \
---java-options is accepted for familiarity and does not launch a JVM.",
+Product focus: HaplotypeCaller → CombineGVCFs → GenotypeGVCFs → VariantFiltration \
+against pinned GATK 4.4 on signed scopes in docs/CLAIM_MATRIX.md. \
+Not a full toolkit, clinical drop-in, or genome-wide equivalence claim.\n\n\
+Experimental BAM/region utilities are omitted from default --help (prefer \
+samtools/bcftools; see `gatk-rs --list`). GATK-style flags exist for pipeline \
+familiarity; --java-options does not launch a JVM.",
     after_help = DISCLAIMER_HELP
 )]
 struct Cli {
@@ -161,8 +162,8 @@ enum Tool {
         threads: Option<usize>,
     },
 
-    /// PrintReads - Print reads from SAM/BAM file to output
-    #[command(visible_alias = "PrintReads")]
+    /// PrintReads - Print reads from SAM/BAM file to output (experimental util; prefer samtools)
+    #[command(hide = true, visible_alias = "PrintReads")]
     PrintReads {
         /// Input BAM/SAM file
         #[arg(short = 'I', long)]
@@ -268,8 +269,8 @@ enum Tool {
         output: String,
     },
 
-    /// FilterReads - Apply HC-style ingress read filters and emit filtered SAM/BAM.
-    #[command(visible_alias = "FilterReads")]
+    /// FilterReads - Apply HC-style ingress read filters and emit filtered SAM/BAM (experimental util).
+    #[command(hide = true, visible_alias = "FilterReads")]
     FilterReads {
         /// Input BAM/SAM file
         #[arg(short = 'I', long)]
@@ -300,8 +301,8 @@ enum Tool {
     #[command(name = "--version")]
     Version,
 
-    /// Count A/C/G/T/N bases in the reference over intervals (GATK CountBasesInReference subset).
-    #[command(visible_alias = "CountBasesInReference")]
+    /// Count A/C/G/T/N bases in the reference over intervals (experimental util; prefer samtools faidx).
+    #[command(hide = true, visible_alias = "CountBasesInReference")]
     CountBasesInReference {
         #[arg(short = 'R', long)]
         reference: String,
@@ -309,8 +310,8 @@ enum Tool {
         intervals: Option<String>,
     },
 
-    /// Count reads in one indexed region (BAM+BAI required).
-    #[command(visible_alias = "CountReadsInRegion")]
+    /// Count reads in one indexed region (experimental util; prefer samtools view -c).
+    #[command(hide = true, visible_alias = "CountReadsInRegion")]
     CountReadsInRegion {
         #[arg(short = 'I', long)]
         input: String,
@@ -318,8 +319,8 @@ enum Tool {
         region: String,
     },
 
-    /// List read QNAMEs in one indexed region (BAM+BAI required).
-    #[command(visible_alias = "ListReadsInRegion")]
+    /// List read QNAMEs in one indexed region (experimental util; prefer samtools view).
+    #[command(hide = true, visible_alias = "ListReadsInRegion")]
     ListReadsInRegion {
         #[arg(short = 'I', long)]
         input: String,
@@ -327,8 +328,8 @@ enum Tool {
         region: String,
     },
 
-    /// Validate input files
-    #[command(visible_alias = "Validate")]
+    /// Validate input files (experimental util; prefer Picard/GATK ValidateSamFile externally)
+    #[command(hide = true, visible_alias = "Validate")]
     Validate {
         /// Input file to validate
         input: String,
@@ -342,7 +343,8 @@ enum Tool {
         reference: Option<String>,
     },
 
-    /// Benchmarking commands
+    /// Benchmarking commands (dev/perf harness — not a product surface)
+    #[command(hide = true)]
     Benchmark {
         #[command(flatten)]
         args: BenchmarkingArgs,
@@ -764,30 +766,31 @@ gatk-rs is a native Rust binary and does not start a JVM \
             }
 
             Tool::ListTools => {
-                println!("Available tools:");
-                println!("  HaplotypeCaller        - Call germline SNPs and indels via local re-assembly of haplotypes");
+                println!("Product spine (germline short variants vs GATK 4.4):");
                 println!(
-                    "  CombineGVCFs           - Merge per-sample gVCFs into a multi-sample gVCF"
+                    "  HaplotypeCaller       - Call germline SNPs and indels via local re-assembly"
                 );
                 println!(
-                    "  GenotypeGVCFs          - Joint-genotype a multi-sample gVCF into a cohort VCF"
+                    "  CombineGVCFs          - Merge per-sample gVCFs into a multi-sample gVCF"
+                );
+                println!(
+                    "  GenotypeGVCFs         - Joint-genotype a multi-sample gVCF into a cohort VCF"
                 );
                 println!(
                     "  VariantFiltration     - Hard-filter variants (GATK expressions; not VQSR)"
                 );
                 println!(
-                    "  CountBasesInReference  - Count A/C/G/T/N in the reference over intervals"
+                    "  DumpSmoothedActivity  - Per-base smoothed activity TSV (parity / analysis)"
                 );
-                println!("  CountReadsInRegion     - Count reads in one indexed region");
-                println!("  ListReadsInRegion      - List read names in one indexed region");
-                println!("  PrintReads            - Print reads from SAM/BAM file to output");
-                println!(
-                    "  DumpSmoothedActivity  - Per-base smoothed activity TSV (assembly-region parity)"
-                );
-                println!("  FilterReads           - Apply HC-style ingress read filters");
-                println!("  Validate              - Validate input file formats");
                 println!();
-                println!("More tools will be added as implementation progresses.");
+                println!("Out of scope by design (see docs/adr/0001-scope-boundary.md):");
+                println!("  BQSR, VQSR, Mutect2, gCNV/SV, Funcotator — not planned; do not expect stubs.");
+                println!();
+                println!("Experimental utilities (hidden from --help; prefer samtools/bcftools):");
+                println!("  PrintReads, FilterReads, CountBasesInReference, CountReadsInRegion,");
+                println!("  ListReadsInRegion, Validate, Benchmark");
+                println!();
+                println!("Claims authority: docs/CLAIM_MATRIX.md");
 
                 Ok(())
             }
