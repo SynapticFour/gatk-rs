@@ -103,5 +103,11 @@ if [[ "$oversized" -eq 1 ]]; then
   exit 1
 fi
 
+# 6) lib tests when Rust staged (catches CI test failures early)
+if [[ "$has_rs" -eq 1 ]]; then
+  echo "[pre-commit] cargo test --workspace --lib"
+  cargo test --workspace --lib
+fi
+
 echo "[pre-commit] ok"
 exit 0
