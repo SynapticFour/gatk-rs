@@ -292,12 +292,20 @@ jobs:
           ls -la parity/giab/runs/ci/hc-mem-probe-*.log 2>/dev/null || true
           tail -n 40 parity/giab/runs/ci/hc-mem-probe-*.log 2>/dev/null || true
 
+      - name: Prepare shard VCF upload
+        if: always()
+        run: |
+          # Workspace-root anchor so upload-artifact keeps parity/giab/runs/ci/ prefix
+          # (segments before the first `*` in path globs are otherwise dropped).
+          : > giab-hc-artifact-anchor
+
       - name: Upload shard VCF
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: giab-hc-${{ matrix.shard }}-${{ matrix.engine }}-${{ github.run_id }}
           path: |
+            giab-hc-artifact-anchor
             parity/giab/runs/ci/*/hc/shards/${{ matrix.engine }}.${{ matrix.shard }}.vcf
             parity/giab/runs/ci/*/time/${{ matrix.engine }}.${{ matrix.shard }}.time.txt
             parity/giab/runs/ci/hc-mem-probe-${{ matrix.shard }}-${{ matrix.engine }}.log
@@ -364,8 +372,32 @@ jobs:
           test -f parity/realworld/assets/hs37d5.simple.fa
           test -f parity/realworld/assets/hs37d5.simple.fa.fai
           test -f parity/realworld/assets/hs37d5.simple.dict
+          # Defensive rehome: older HC artifacts (pre-anchor) land at HG001/hc/shards/*.vcf
+          # because upload-artifact drops path segments before the first `*`.
+          mkdir -p parity/giab/runs/ci
+          shopt -s nullglob
+          for shards_dir in */hc/shards; do
+            sample="$(dirname "$(dirname "${shards_dir}")")"
+            case "${sample}" in
+              parity|.|..|giab-bins) continue ;;
+            esac
+            if [[ ! -e "parity/giab/runs/ci/${sample}" ]]; then
+              echo "[giab] rehoming flattened HC artifact tree: ${sample} → parity/giab/runs/ci/"
+              mv "${sample}" parity/giab/runs/ci/
+            fi
+          done
+          for f in hc-mem-probe-*.log; do
+            mv -f "${f}" parity/giab/runs/ci/ 2>/dev/null || true
+          done
           echo "[giab] shard VCFs present:"
-          find parity/giab/runs/ci -type f -name '*.vcf' | sort
+          mapfile -t vcfs < <(find parity/giab/runs/ci -type f -name '*.vcf' | sort)
+          printf '%s\n' "${vcfs[@]:-}"
+          if [[ "${#vcfs[@]}" -eq 0 ]]; then
+            echo "::error::No shard VCFs under parity/giab/runs/ci after artifact download"
+            echo "[giab] *.vcf anywhere under workspace:"
+            find . -type f -name '*.vcf' | head -50
+            exit 1
+          fi
 
       - name: Concat + equivalence gate
         id: giab_run
