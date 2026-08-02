@@ -17,7 +17,7 @@
 # Filters (hc phase):
 #   GIAB_HC_SHARDS=00_chr20_w00      comma-separated shard basenames (empty = all)
 #   GIAB_HC_ENGINES=java|rust|java,rust
-#   GIAB_HC_WINDOW_BP=10000000       window size for splitting full chr20/21 shards
+#   GIAB_HC_WINDOW_BP=2000000        window size for splitting full chr20/21 shards
 #
 # Usage:
 #   GIAB_MODE=smoke GIAB_SAMPLES=HG001 ./scripts/parity/giab/run_genomewide_equivalence.sh
