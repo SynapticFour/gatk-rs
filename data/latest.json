@@ -1,9 +1,9 @@
 {
-  "id": "nightly-2026-08-01T11:59:42Z",
+  "id": "nightly-2026-08-02T12:00:07Z",
   "workflow": "nightly-equivalence",
-  "generated_utc": "2026-08-01T11:59:42Z",
-  "commit_sha": "61912b60f982a3a9b9874711e3ae91ce93ece242",
-  "workflow_run_url": "https://github.com/SynapticFour/gatk-rs/actions/runs/30686867507",
+  "generated_utc": "2026-08-02T12:00:07Z",
+  "commit_sha": "b40eac5620769a27dc838bbd3eb6a4f5b4d079c7",
+  "workflow_run_url": "https://github.com/SynapticFour/gatk-rs/actions/runs/30735091004",
   "scope": {
     "kind": "trio_joint_e2e",
     "pipeline": "HaplotypeCaller (GVCF) \u2192 CombineGVCFs \u2192 GenotypeGVCFs \u2192 VariantFiltration",
