@@ -22,11 +22,12 @@ mod tests {
     use super::*;
     use rust_htslib::bam::record::{Cigar, CigarString};
     use rust_htslib::bam::{HeaderView, Record};
-    use std::rc::Rc;
+    use std::sync::Arc;
 
     fn paired_rec(mate_tid: i32, unmapped: bool, mate_unmapped: bool) -> Record {
         let mut r = Record::new();
-        r.set_header(Rc::new(HeaderView::from_bytes(
+        // rust-htslib 1.x: Record::set_header takes Arc<HeaderView> (was Rc).
+        r.set_header(Arc::new(HeaderView::from_bytes(
             b"@HD\tVN:1.0\n@SQ\tSN:chr1\tLN:1000\n@SQ\tSN:chr2\tLN:1000\n",
         )));
         r.set(
