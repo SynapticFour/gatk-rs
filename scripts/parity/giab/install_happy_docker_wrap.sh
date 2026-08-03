@@ -41,8 +41,11 @@ chmod +x "${happy_wrap}"
 
 if [[ "${HAPPY_SKIP_PULL:-0}" != "1" ]]; then
   echo "[giab-happy] pulling ${happy_image}…" >&2
-  docker pull --platform linux/amd64 "${happy_image}"
+  # docker pull writes progress to stdout — keep stdout clean for callers that
+  # capture the wrapper path (else HAPPY_BIN becomes "v0.3.12: Pulling from…").
+  docker pull --platform linux/amd64 "${happy_image}" >&2
 fi
 
 echo "[giab-happy] wrapper: ${happy_wrap}" >&2
-echo "${happy_wrap}"
+# Sole stdout line: absolute wrapper path (for HAPPY_BIN=… capture).
+printf '%s\n' "${happy_wrap}"

@@ -341,9 +341,15 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x scripts/parity/giab/install_happy_docker_wrap.sh
-          wrap="$(./scripts/parity/giab/install_happy_docker_wrap.sh)"
+          # Known path — do not rely on capturing install script stdout (docker
+          # pull used to leak progress into HAPPY_BIN).
+          export HAPPY_WRAP_DIR="${GITHUB_WORKSPACE}/.giab-happy-bin"
+          ./scripts/parity/giab/install_happy_docker_wrap.sh >/dev/null
+          wrap="${HAPPY_WRAP_DIR}/hap.py"
+          test -x "${wrap}"
           echo "HAPPY_BIN=${wrap}" >> "$GITHUB_ENV"
           echo "PATH=$(dirname "${wrap}"):${PATH}" >> "$GITHUB_ENV"
+          echo "[giab] installed HAPPY_BIN=${wrap}"
 
       - name: Install RTG Tools (fallback if hap.py unavailable)
         run: |
