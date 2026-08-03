@@ -231,7 +231,7 @@ jobs:
 
       - name: Cache Docker images (GATK + hap.py)
         id: docker-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: /tmp/docker-image-cache
           key: pr-check-docker-${{ hashFiles('docs/GATK_PINNED.env') }}-${{ env.HAPPY_DOCKER_IMAGE }}
