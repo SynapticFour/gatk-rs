@@ -267,8 +267,8 @@ giab_mode_description() {
 # Contig-sized shards (full chr20/21) can still burn the GitHub-hosted 6h hard
 # cap at GIAB_THREADS=2; 10 Mb windows keep each shard×engine job smaller.
 giab_hc_window_bp() {
-  # Hosted CI default 2 Mb (10 Mb Rust HC OOMed on HG001 30×); override via env.
-  echo "${GIAB_HC_WINDOW_BP:-2000000}"
+  # Hosted CI default 1 Mb (2 Mb still OOMed some HG001 30× Rust shards); override via env.
+  echo "${GIAB_HC_WINDOW_BP:-1000000}"
 }
 
 # Parse "chr", "chr:start-end" → chrom start end (1-based inclusive).

@@ -3,8 +3,8 @@
 #
 # GitHub-hosted runners hard-cap each job at 6h. HC is therefore split into a
 # prepare → matrix(shard × engine) → finalize pipeline. Full chr20/21 are further
-# split into windows (GIAB_HC_WINDOW_BP). Hosted default is ~2 Mb: 10 Mb windows
-# OOMed Rust HC (~15 GiB RSS → runner shutdown) on ci-subset HG001 30×.
+# split into windows (GIAB_HC_WINDOW_BP). Hosted default is ~1 Mb: 10 Mb and 2 Mb
+# windows still OOMed some Rust HC jobs on HG001 30× (runner shutdown).
 #
 # Reference handoff: prepare fetches hs37d5 from GitHub Release giab-ref-v1
 # (CDN), caches it, and ships it in the prepare artifact. HC/finalize set
@@ -47,8 +47,8 @@ env:
   GIAB_SAMPLES: ${{ github.event.inputs.samples || 'HG001' }}
   GIAB_F1_DELTA_THRESHOLD: ${{ github.event.inputs.f1_delta || '0.02' }}
   GIAB_THREADS: "2"
-  # Split full chr20/21 into ~2 Mb windows (hosted 16 GiB + swap; see #70 / run 30706834026).
-  GIAB_HC_WINDOW_BP: "2000000"
+  # Split full chr20/21 into ~1 Mb windows (2 Mb still OOMed dense Rust shards; run 30758467082).
+  GIAB_HC_WINDOW_BP: "1000000"
   GIAB_OUT_ROOT: ${{ github.workspace }}/parity/giab/runs/ci
   CARGO_BUILD_JOBS: "2"
   RAYON_NUM_THREADS: "2"
