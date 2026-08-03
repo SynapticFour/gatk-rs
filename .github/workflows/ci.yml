@@ -45,7 +45,7 @@ jobs:
 
     - name: Cache Cargo registry (Linux — no target/)
       if: runner.os == 'Linux'
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         # Restoring a fat target/ plus rebuilding tests exhausts ubuntu-latest disk
         # (pr-check uses cache-targets: false for the same reason).
@@ -59,7 +59,7 @@ jobs:
 
     - name: Cache Cargo (macOS/Windows — include target/)
       if: runner.os != 'Linux'
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cargo/registry
@@ -121,7 +121,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cargo/registry
@@ -191,7 +191,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cargo/registry
@@ -247,7 +247,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cargo/registry
@@ -288,7 +288,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cargo/registry
@@ -316,7 +316,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cargo/registry
@@ -423,7 +423,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache Cargo registry
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         # Registry only — caching target/ exhausts ubuntu-latest disk on this long gate.
         path: |
@@ -507,7 +507,7 @@ jobs:
         targets: ${{ matrix.target }}
 
     - name: Cache dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cargo/registry
