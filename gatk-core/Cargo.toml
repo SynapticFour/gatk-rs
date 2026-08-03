@@ -43,7 +43,7 @@ tracing = "0.1"
 smallvec = "1.11"
 bytemuck = "1.14"
 flate2 = "1.0"
-rust-htslib = "0.48"
+rust-htslib = "1.0"
 hts-sys = { workspace = true }
 
 # Benchmarking dependencies
