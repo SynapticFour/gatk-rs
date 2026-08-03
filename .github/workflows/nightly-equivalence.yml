@@ -73,7 +73,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -87,7 +87,7 @@ jobs:
 
       - name: Cache Docker images
         id: docker-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: /tmp/docker-image-cache
           key: nightly-equiv-docker-${{ hashFiles('docs/GATK_PINNED.env') }}-${{ env.HAPPY_DOCKER_IMAGE }}
