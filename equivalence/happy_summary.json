@@ -1,7 +1,7 @@
 {
-  "generated_utc": "2026-08-02T12:00:07Z",
-  "commit_sha": "b40eac5620769a27dc838bbd3eb6a4f5b4d079c7",
-  "run_dir": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/nightly_trio_20260802T061217Z",
+  "generated_utc": "2026-08-03T12:03:13Z",
+  "commit_sha": "50e95d679cb8fd6c139b99ffbe373e6814efb0cb",
+  "run_dir": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/nightly_trio_20260803T061551Z",
   "baseline_path": "docs/equivalence/baseline.json",
   "regression_threshold": 0.02,
   "regions": [
@@ -9,16 +9,6 @@
       "region": "chr20",
       "kind": "chromosome",
       "span_bp": 63025520,
-      "status": "happy_failed",
-      "rust": {},
-      "java": {},
-      "rust_summary_csv": null,
-      "java_summary_csv": null
-    },
-    {
-      "region": "chr21",
-      "kind": "chromosome",
-      "span_bp": 48129895,
       "status": "running",
       "rust": {},
       "java": {},
