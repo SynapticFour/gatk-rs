@@ -233,7 +233,7 @@ jobs:
             zlib1g-dev libbz2-dev liblzma-dev pkg-config build-essential
 
       - name: Download prepare artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: giab-prepare-${{ github.run_id }}
           path: .
@@ -374,7 +374,7 @@ jobs:
           echo "RTG_BIN=${HOME}/rtg-tools-${ver}/rtg" >> "$GITHUB_ENV"
 
       - name: Download prepare + HC artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: giab-*
           merge-multiple: true
