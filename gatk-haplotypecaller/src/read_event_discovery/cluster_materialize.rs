@@ -6,7 +6,7 @@
 /// (see `AssemblyBasedCallerUtils` + `HaplotypeCallerEngine` after `trimTo`).
 pub fn strict_materialize_cluster_haplotype_from_reads(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     contig: &str,
@@ -522,7 +522,7 @@ pub fn materialize_p12_cluster_from_assembly_cigars(
     active_start_1based: u64,
     active_end_1based: u64,
     contig: &str,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     sw: &SwParameters,
 ) -> GatkResult<()> {
     if active_end_1based < P12_CLUSTER_TTC_START

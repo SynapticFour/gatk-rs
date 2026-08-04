@@ -468,11 +468,11 @@ impl GvcfIntervalCollector {
                             "fetch {c}:{run_start}-{run_end} for gap fill: {e}"
                         ))
                     })?;
-                let mut reads: Vec<bam::Record> = Vec::new();
+                let mut reads: Vec<crate::shared_bam::SharedBamRecord> = Vec::new();
                 for res in reader.records() {
                     let rec = res.map_err(|e| GatkError::generic(format!("read BAM: {e}")))?;
                     if passes_hc_read_filters_with_header(&rec, &header, read_filters) {
-                        reads.push(rec);
+                        reads.push(crate::shared_bam::share_record(rec));
                     }
                 }
                 let loci = reference_confidence_loci_for_bam_gap_span(

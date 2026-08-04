@@ -3,6 +3,7 @@
 //! helpers so dense GIAB indels are algorithmically recoverable without contig-2 shaping.
 
 use crate::event_map::VariationEvent;
+use crate::shared_bam::SharedBamRecord;
 use rust_htslib::bam::{self, record::Cigar, record::CigarString};
 
 fn query_subseq(seq: &[u8], start: usize, len: usize) -> Option<&[u8]> {
@@ -13,7 +14,7 @@ fn query_subseq(seq: &[u8], start: usize, len: usize) -> Option<&[u8]> {
 /// Counts reads whose CIGAR encodes the same insertion/deletion at the VCF anchor. Ref AD counts
 /// reads that span the anchor with match ops and no matching indel at that locus.
 pub(crate) fn read_indel_allele_depths_from_cigars(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     event: &VariationEvent,
 ) -> (i32, i32) {
     let ref_bytes = event.ref_allele.as_bytes();

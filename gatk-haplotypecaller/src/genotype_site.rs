@@ -7,7 +7,7 @@ use crate::event_map::VariationEvent;
 use crate::genome_loc::GenomePosition;
 use crate::haplotype::Haplotype;
 use crate::region_read_likelihood::RegionReadLikelihood;
-use rust_htslib::bam::Record;
+use crate::shared_bam::SharedBamRecord;
 
 /// Inputs for region genotyping (active-window EventMap walk).
 /// # Invariants
@@ -23,9 +23,9 @@ use rust_htslib::bam::Record;
 /// Rust-native input bundle for GATK genotyping engine region walk (L7-B3).
 pub struct GenotypeSiteRegion<'a> {
     pub likelihoods: &'a [RegionReadLikelihood],
-    pub likelihood_reads: &'a [Record],
-    pub pileup_reads: &'a [Record],
-    pub supplemental_pileup_reads: Option<&'a [Record]>,
+    pub likelihood_reads: &'a [SharedBamRecord],
+    pub pileup_reads: &'a [SharedBamRecord],
+    pub supplemental_pileup_reads: Option<&'a [SharedBamRecord]>,
     pub haplotypes: &'a [Haplotype],
     pub ref_bytes: &'a [u8],
     pub pad_start_1based: GenomePosition,

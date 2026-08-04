@@ -11,6 +11,7 @@ use crate::read_unclip::{
     hard_clip_to_region, normalize_record_cigar, read_has_positive_cigar_length,
     soft_clip_low_qual_ends, HcSoftclipPolicy,
 };
+use crate::shared_bam::SharedBamRecord;
 use gatk_common::{GatkError, GatkResult};
 use gatk_core::reference::{ReferenceWindowCache, SequenceDictionary};
 use rust_htslib::bam;
@@ -54,7 +55,7 @@ pub fn gatk_min_tail_quality_for_assembly(min_base_quality_score: u8) -> u8 {
 
 /// GATK `AssemblyBasedCallerUtils.finalizeRegion` (soft-clip, low-qual tails, adaptor, padded-span clip, overlap).
 pub fn finalize_region_reads_for_assembly(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     region: &AssemblyRegion,
     correct_overlapping_base_qualities: bool,
     min_tail_quality: u8,
@@ -178,7 +179,7 @@ pub fn materialize_reference_haplotype_for_dump(
 
 /// Production `assembleReads` read set (`finalizeRegion` + optional error correction).
 pub fn assembly_reads_for_production(
-    records: &[bam::Record],
+    records: &[SharedBamRecord],
     region: &AssemblyRegion,
     min_tail_quality: u8,
     correct_overlapping_base_qualities: bool,
@@ -195,14 +196,17 @@ pub fn assembly_reads_for_production(
 
 /// Reads for ASM-1 Java `RegionAssemblyMaterial` parity (`HcFullParityGateDump` uses iterator reads, not `finalizeRegion`).
 #[cfg(any(feature = "dev-dumps", test))]
-pub fn assembly_reads_for_java_materialize_dump(records: &[bam::Record]) -> Vec<AssemblyRead> {
+pub fn assembly_reads_for_java_materialize_dump(records: &[SharedBamRecord]) -> Vec<AssemblyRead> {
     records_to_assembly_reads(records)
 }
 
-pub fn records_to_assembly_reads(records: &[bam::Record]) -> Vec<AssemblyRead> {
+pub fn records_to_assembly_reads<R: std::borrow::Borrow<bam::Record>>(
+    records: &[R],
+) -> Vec<AssemblyRead> {
     records
         .iter()
         .map(|rec| {
+            let rec = rec.borrow();
             let bases: Vec<u8> = rec.seq().as_bytes().to_vec();
             AssemblyRead {
                 bases: String::from_utf8_lossy(&bases).into_owned(),

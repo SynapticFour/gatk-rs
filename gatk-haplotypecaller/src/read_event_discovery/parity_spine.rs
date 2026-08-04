@@ -64,7 +64,7 @@ fn merge_active_and_cluster_events(
 /// Parity spine: read-proven indels missing from assembly EventMap (genome-wide + harness).
 pub fn parity_spine_read_proven_indels(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     sw: &SwParameters,
@@ -290,7 +290,7 @@ pub fn parity_spine_read_proven_indels(
 /// Parity spine: biallelic SNPs from reads when EventMap has no event at that locus (Java `getVariationEvents` gap).
 pub fn parity_spine_read_proven_snps(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     sw: &SwParameters,
@@ -357,7 +357,7 @@ pub fn parity_spine_read_proven_snps(
 /// Back-compat alias.
 pub fn parity_spine_indels_from_reads(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     sw: &SwParameters,

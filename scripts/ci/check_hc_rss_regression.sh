@@ -27,6 +27,9 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${repo_root}/target}"
 HC_RSS_MAX_MIB="${HC_RSS_MAX_MIB:-256}"
 DICT_RSS_MAX_MIB="${DICT_RSS_MAX_MIB:-64}"
 
+echo "[hc-rss] unit: shared_bam Arc share + COW"
+cargo test -p gatk-haplotypecaller --lib shared_bam -- --nocapture
+
 echo "[hc-rss] unit: dictionary_prefers_fai_without_reading_fasta_body"
 cargo test -p gatk-core --lib dictionary_prefers_fai_without_reading_fasta_body -- --nocapture
 

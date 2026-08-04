@@ -127,10 +127,26 @@ impl LoglessScratch {
             self.del.resize(cells, 0.0);
         }
     }
+
+    fn shrink_to_budget(&mut self, max_keep_cells: usize) {
+        if self.prior.capacity() <= max_keep_cells.saturating_mul(2) {
+            return;
+        }
+        *self = Self::new();
+    }
 }
 
 thread_local! {
     static LOGLESS_SCRATCH: RefCell<LoglessScratch> = RefCell::new(LoglessScratch::new());
+}
+
+const LOGLESS_TLS_KEEP_CELLS: usize = 256 * 1024;
+
+/// Release Logless PairHMM TLS scratch after a deep region (see Log10 twin).
+pub fn release_pairhmm_logless_tls_scratch() {
+    LOGLESS_SCRATCH.with(|cell| {
+        cell.borrow_mut().shrink_to_budget(LOGLESS_TLS_KEEP_CELLS);
+    });
 }
 
 /// Log10 P(read | haplotype) via GATK `LoglessPairHMM` (linear DP).

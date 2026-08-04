@@ -115,8 +115,8 @@ pub struct LocusPileupState {
 }
 
 impl LocusPileupState {
-    pub fn from_records(
-        records: &[bam::Record],
+    pub fn from_records<R: std::borrow::Borrow<bam::Record>>(
+        records: &[R],
         header: &bam::HeaderView,
         contig: &str,
         filters: &ReadFilterParams,
@@ -125,8 +125,8 @@ impl LocusPileupState {
     }
 
     /// Untrimmed region reads with fragment-level QNAME dedupe (Java MIN_DP on interior hom-ref blocks).
-    pub fn from_records_qname_deduped(
-        records: &[bam::Record],
+    pub fn from_records_qname_deduped<R: std::borrow::Borrow<bam::Record>>(
+        records: &[R],
         header: &bam::HeaderView,
         contig: &str,
         filters: &ReadFilterParams,
@@ -135,8 +135,8 @@ impl LocusPileupState {
     }
 
     /// Post-`changeEvidence` genotyping reads for active-region RCM (`readsWereRealigned=true`).
-    pub fn from_genotyping_evidence_records(
-        records: &[bam::Record],
+    pub fn from_genotyping_evidence_records<R: std::borrow::Borrow<bam::Record>>(
+        records: &[R],
         header: &bam::HeaderView,
         contig: &str,
         filters: &ReadFilterParams,
@@ -144,8 +144,8 @@ impl LocusPileupState {
         Self::from_records_inner(records, header, contig, filters, true)
     }
 
-    fn from_records_inner(
-        records: &[bam::Record],
+    fn from_records_inner<R: std::borrow::Borrow<bam::Record>>(
+        records: &[R],
         header: &bam::HeaderView,
         contig: &str,
         filters: &ReadFilterParams,
@@ -153,21 +153,21 @@ impl LocusPileupState {
     ) -> Self {
         let mut sorted_indices: Vec<usize> = (0..records.len())
             .filter(|&i| {
-                let rec = &records[i];
+                let rec = records[i].borrow();
                 let rn = String::from_utf8_lossy(header.tid2name(rec.tid() as u32));
                 rn == contig && reference_span0(rec, header, filters).is_some()
             })
             .collect();
         sorted_indices.sort_by(|&a, &b| {
-            let ra = &records[a];
-            let rb = &records[b];
+            let ra = records[a].borrow();
+            let rb = records[b].borrow();
             ra.pos()
                 .cmp(&rb.pos())
                 .then_with(|| ra.qname().cmp(rb.qname()))
         });
         let mut ref_end0 = vec![-1i64; records.len()];
         for &i in &sorted_indices {
-            if let Some((_, r1)) = reference_span0(&records[i], header, filters) {
+            if let Some((_, r1)) = reference_span0(records[i].borrow(), header, filters) {
                 ref_end0[i] = r1;
             }
         }
@@ -184,11 +184,15 @@ impl LocusPileupState {
     }
 
     #[inline]
-    fn hq_soft_clip_cached(&mut self, records: &[bam::Record], idx: usize) -> u32 {
+    fn hq_soft_clip_cached<R: std::borrow::Borrow<bam::Record>>(
+        &mut self,
+        records: &[R],
+        idx: usize,
+    ) -> u32 {
         if let Some(n) = self.hq_soft_clip_cache[idx] {
             return n;
         }
-        let n = crate::hq_soft_clip::count_high_quality_soft_clip_bases_rcm(&records[idx]);
+        let n = crate::hq_soft_clip::count_high_quality_soft_clip_bases_rcm(records[idx].borrow());
         self.hq_soft_clip_cache[idx] = Some(n);
         n
     }
@@ -200,9 +204,9 @@ impl LocusPileupState {
         self.last_pos1 = None;
     }
 
-    pub fn advance_to(
+    pub fn advance_to<R: std::borrow::Borrow<bam::Record>>(
         &mut self,
-        records: &[bam::Record],
+        records: &[R],
         filters: &ReadFilterParams,
         pos1: u64,
     ) -> GatkResult<()> {
@@ -229,9 +233,9 @@ impl LocusPileupState {
         Ok(())
     }
 
-    fn bootstrap_active(
+    fn bootstrap_active<R: std::borrow::Borrow<bam::Record>>(
         &mut self,
-        records: &[bam::Record],
+        records: &[R],
         filters: &ReadFilterParams,
         ref_pos0: i64,
     ) {
@@ -240,9 +244,9 @@ impl LocusPileupState {
         self.ingest_reads_through(records, filters, ref_pos0);
     }
 
-    fn ingest_reads_through(
+    fn ingest_reads_through<R: std::borrow::Borrow<bam::Record>>(
         &mut self,
-        records: &[bam::Record],
+        records: &[R],
         _filters: &ReadFilterParams,
         ref_pos0: i64,
     ) {
@@ -253,7 +257,7 @@ impl LocusPileupState {
                 self.next_sorted += 1;
                 continue;
             }
-            let r0 = records[idx].pos();
+            let r0 = records[idx].borrow().pos();
             if r0 > ref_pos0 {
                 break;
             }
@@ -265,9 +269,9 @@ impl LocusPileupState {
         }
     }
 
-    pub fn pileup_observations(
+    pub fn pileup_observations<R: std::borrow::Borrow<bam::Record>>(
         &mut self,
-        records: &[bam::Record],
+        records: &[R],
         ref_base: u8,
     ) -> GatkResult<Vec<PileupObservation>> {
         let ref_pos0 = self
@@ -283,7 +287,7 @@ impl LocusPileupState {
         for i in 0..self.active.len() {
             let idx = self.active[i];
             let hq = self.hq_soft_clip_cached(records, idx);
-            let rec = &records[idx];
+            let rec = records[idx].borrow();
             if let Some(ref mut seen) = seen_qname {
                 if !seen.insert(rec.qname().to_owned()) {
                     continue;
@@ -304,9 +308,9 @@ impl LocusPileupState {
 
     /// Non-empty per-sample pileups in **pileup visitation order**, matching encounter order from
     /// `ReadPileup#getSamples` on the active read list (excluding empty strata like Java splits).
-    pub fn nonempty_stratified_sample_pileups_ordered(
+    pub fn nonempty_stratified_sample_pileups_ordered<R: std::borrow::Borrow<bam::Record>>(
         &mut self,
-        records: &[bam::Record],
+        records: &[R],
         header_semantics: &ReadHeaderSemantics,
         ref_base: u8,
     ) -> GatkResult<Vec<Vec<PileupObservation>>> {
@@ -319,7 +323,7 @@ impl LocusPileupState {
         for i in 0..self.active.len() {
             let idx = self.active[i];
             let hq = self.hq_soft_clip_cached(records, idx);
-            let rec = &records[idx];
+            let rec = records[idx].borrow();
             let sample = rg_sm_from_record(rec, header_semantics)?;
             if let Some(obs) =
                 pileup_observation_from_record_with_hq(rec, ref_pos0, ref_base, false, hq)?
@@ -351,9 +355,9 @@ impl LocusPileupState {
             .collect())
     }
 
-    pub fn pileup_at(
+    pub fn pileup_at<R: std::borrow::Borrow<bam::Record>>(
         &mut self,
-        records: &[bam::Record],
+        records: &[R],
         filters: &ReadFilterParams,
         pos1: u64,
         ref_base: u8,
@@ -448,15 +452,15 @@ fn rg_sm_from_record(rec: &bam::Record, sem: &ReadHeaderSemantics) -> GatkResult
 /// # Java equivalence
 /// Thin Rust wrapper around LIBS-style pileup for dumps.
 #[derive(Debug)]
-pub struct LocusPileupWalker<'a> {
-    records: &'a [bam::Record],
+pub struct LocusPileupWalker<'a, R: std::borrow::Borrow<bam::Record> = bam::Record> {
+    records: &'a [R],
     filters: &'a ReadFilterParams,
     state: LocusPileupState,
 }
 
-impl<'a> LocusPileupWalker<'a> {
+impl<'a, R: std::borrow::Borrow<bam::Record>> LocusPileupWalker<'a, R> {
     pub fn new(
-        records: &'a [bam::Record],
+        records: &'a [R],
         header: &bam::HeaderView,
         contig: &str,
         filters: &'a ReadFilterParams,

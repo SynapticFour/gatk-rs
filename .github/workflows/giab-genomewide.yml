@@ -264,6 +264,8 @@ jobs:
           GIAB_SKIP_EQUIV_ENGINE: "1"
           # Cap glibc arenas — reduces Linux RSS inflation under Rayon.
           MALLOC_ARENA_MAX: "2"
+          # One assembly region at a time on hosted runners (Peak-RSS; same evidence).
+          GATK_RS_HC_SEQUENTIAL: "1"
           GIAB_MEM_PROBE_LOG: ${{ github.workspace }}/parity/giab/runs/ci/hc-mem-probe-${{ matrix.shard }}-${{ matrix.engine }}.log
           GIAB_MEM_PROBE_SEC: "5"
         run: |

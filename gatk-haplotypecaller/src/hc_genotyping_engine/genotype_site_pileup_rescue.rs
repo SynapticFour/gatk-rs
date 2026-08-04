@@ -5,8 +5,8 @@ impl SitePileupRescue {
     pub(crate) fn try_empty_mapper(
         event: VariationEvent,
         mapping: &AlleleHaplotypeMapping,
-        likelihood_reads: &[Record],
-        pileup_reads: &[Record],
+        likelihood_reads: &[SharedBamRecord],
+        pileup_reads: &[SharedBamRecord],
         haplotypes: &[Haplotype],
         pad_start_1based: u64,
         ref_bytes: &[u8],

@@ -67,7 +67,7 @@ pub fn should_run_pileup_supplement(
 /// A1 pileup supplement (see [`supplement_assembly_pileup_events_from_reads`]).
 pub fn supplement_pileup_events_into_assembly(
     assembly: &mut AssemblyResultSet,
-    reads: &[Record],
+    reads: &[crate::shared_bam::SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     sw: &SwParameters,

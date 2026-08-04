@@ -1,7 +1,7 @@
 {
-  "stamp_utc": "20260724T181512Z",
+  "stamp_utc": "20260804T120757Z",
   "host": "Darwin 25.5.0 arm64",
-  "git_sha": "b5702ba",
+  "git_sha": "7347f88",
   "rustc": "rustc 1.95.0 (59807616e 2026-04-14) (Homebrew)",
   "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21) (Homebrew)",
   "binary": "<release-bin>/gatk-rs",
@@ -24,11 +24,11 @@
       },
       "rust": {
         "binary": "<release-bin>/gatk-rs",
-        "wall_sec": null,
-        "max_rss_kb": 9744,
-        "max_rss_mib": 9.515625,
+        "wall_sec": 0.63,
+        "max_rss_kb": 9712,
+        "max_rss_mib": 9.484375,
         "threads": 1,
-        "cmdline": "<repo>/target/release/gatk-rs HaplotypeCaller -R <repo>/parity/fixtures/reference.fa -I <repo>/parity/fixtures/sample.bam -O <run>/smoke/rust.hc.vcf -L chr1:1-32 --threads 1"
+        "cmdline": "<release-bin>/gatk-rs HaplotypeCaller -R <repo>/parity/fixtures/reference.fa -I <repo>/parity/fixtures/sample.bam -O <run>/smoke/rust.hc.vcf -L chr1:1-32 --threads 1"
       },
       "java": {
         "gatk_version_pin": "4.4.0.0",
@@ -36,39 +36,15 @@
         "docker_image": "us.gcr.io/broad-gatk/gatk:4.4.0.0",
         "java_options": "-Xms1g -Xmx4g",
         "native_pair_hmm_threads": 1,
-        "wall_sec": 4.4,
-        "max_rss_kb": 447988,
-        "max_rss_mib": 437.48828125,
+        "wall_sec": 4.908,
+        "max_rss_kb": 441000,
+        "max_rss_mib": 430.6640625,
         "note": "Peak RSS = max /proc VmHWM (kB) of java|gatk inside Docker when the image lacks GNU time; else GNU time -v on the JVM process."
       },
       "ratio": {
-        "java_over_rust_peak_rss": 45.975779967159276,
-        "rust_fraction_of_java_peak_rss": 0.021750582604891204,
-        "delta_kb": 438244
-      }
-    },
-    {
-      "profile_id": "realistic",
-      "label": "Realistic GIAB-dense multi-Mb window",
-      "marketing_claim_ok": true,
-      "status": "failed",
-      "error": "engine exited non-zero (see docs/perf/runs/20260724T181512Z/realistic/)",
-      "fixture": {
-        "reference": "<repo>/parity/realworld/assets/hs37d5.simple.fa",
-        "bam": "<repo>/parity/realworld/na12878_giab_window_mem_2mb_b37/NA12878_giab_window.b37.bam",
-        "interval": "20:10000000-12000000",
-        "note": "NA12878 GIAB-dense window (default 20:10000000-12000000, 2 Mb). Measurement failed on this host (often OOM on laptops); re-run on dedicated gatk-rs-benchmark."
-      },
-      "rust": {
-        "wall_sec": null,
-        "max_rss_kb": null,
-        "max_rss_mib": null
-      },
-      "java": {
-        "wall_sec": null,
-        "max_rss_kb": null,
-        "max_rss_mib": null,
-        "gatk_version_pin": "4.4.0.0"
+        "java_over_rust_peak_rss": 45.40774299835255,
+        "rust_fraction_of_java_peak_rss": 0.022022675736961452,
+        "delta_kb": 431288
       }
     }
   ],
@@ -80,12 +56,12 @@
   },
   "rust": {
     "binary": "<release-bin>/gatk-rs",
-    "wall_sec": null,
-    "max_rss_kb": 9744,
-    "max_rss_mib": 9.515625,
+    "wall_sec": 0.63,
+    "max_rss_kb": 9712,
+    "max_rss_mib": 9.484375,
     "threads": 1,
-    "cmdline": "<repo>/target/release/gatk-rs HaplotypeCaller -R <repo>/parity/fixtures/reference.fa -I <repo>/parity/fixtures/sample.bam -O <run>/smoke/rust.hc.vcf -L chr1:1-32 --threads 1",
-    "git_sha": "b5702ba",
+    "cmdline": "<release-bin>/gatk-rs HaplotypeCaller -R <repo>/parity/fixtures/reference.fa -I <repo>/parity/fixtures/sample.bam -O <run>/smoke/rust.hc.vcf -L chr1:1-32 --threads 1",
+    "git_sha": "7347f88",
     "build": "cargo build -p gatk-cli --release --locked",
     "rustc": "rustc 1.95.0 (59807616e 2026-04-14) (Homebrew)",
     "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21) (Homebrew)"
@@ -96,14 +72,14 @@
     "docker_image": "us.gcr.io/broad-gatk/gatk:4.4.0.0",
     "java_options": "-Xms1g -Xmx4g",
     "native_pair_hmm_threads": 1,
-    "wall_sec": 4.4,
-    "max_rss_kb": 447988,
-    "max_rss_mib": 437.48828125,
+    "wall_sec": 4.908,
+    "max_rss_kb": 441000,
+    "max_rss_mib": 430.6640625,
     "note": "Peak RSS = max /proc VmHWM (kB) of java|gatk inside Docker when the image lacks GNU time; else GNU time -v on the JVM process."
   },
   "ratio": {
-    "java_over_rust_peak_rss": 45.975779967159276,
-    "rust_fraction_of_java_peak_rss": 0.021750582604891204,
-    "delta_kb": 438244
+    "java_over_rust_peak_rss": 45.40774299835255,
+    "rust_fraction_of_java_peak_rss": 0.022022675736961452,
+    "delta_kb": 431288
   }
 }

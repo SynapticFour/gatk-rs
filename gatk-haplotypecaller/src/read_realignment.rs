@@ -32,8 +32,8 @@ pub fn haplotype_alignment_tiebreak_priority(h: &Haplotype) -> f64 {
 
 /// Realign each read to its highest-likelihood haplotype projected on the padded reference.
 /// GATK order: after `filterAlleles`, before genotyping; `changeEvidence` swaps read objects only.
-pub fn realign_reads_to_best_haplotype(
-    reads: &mut [Record],
+pub fn realign_reads_to_best_haplotype<S: crate::shared_bam::BamRecordSlot>(
+    reads: &mut [S],
     haplotypes: &[Haplotype],
     read_likelihoods: &[RegionReadLikelihood],
     padded_reference_start_1based: u64,
@@ -55,7 +55,8 @@ pub fn realign_reads_to_best_haplotype(
         .collect();
     let mut changed = false;
     let mut best_per_read = vec![ref_idx; reads.len()];
-    for (ri, rec) in reads.iter_mut().enumerate() {
+    for (ri, slot) in reads.iter_mut().enumerate() {
+        let rec = slot.make_mut();
         if rec.is_unmapped() {
             continue;
         }

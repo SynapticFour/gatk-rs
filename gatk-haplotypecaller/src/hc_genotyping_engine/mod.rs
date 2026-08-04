@@ -78,6 +78,7 @@ use crate::read_event_discovery::{
 use crate::read_projection::query_index_at_reference_position;
 use crate::read_unclip::{alignment_end_1based, gatk_soft_start_1based};
 use crate::region_read_likelihood::RegionReadLikelihood;
+use crate::shared_bam::SharedBamRecord;
 use gatk_common::GatkResult;
 use rust_htslib::bam::Record;
 use std::collections::{BTreeMap, BTreeSet};
@@ -777,7 +778,7 @@ pub fn soft_unclipped_read_overlaps_interval(
 
 fn filter_likelihoods_for_variant(
     likelihoods: &[RegionReadLikelihood],
-    reads: &[Record],
+    reads: &[SharedBamRecord],
     event: &VariationEvent,
     start_1based: u64,
     end_1based: u64,
@@ -830,7 +831,7 @@ fn filter_likelihoods_for_variant(
 
 fn likelihood_subset_for_event(
     likelihoods: &[RegionReadLikelihood],
-    reads: &[Record],
+    reads: &[SharedBamRecord],
     event: &VariationEvent,
     config: &HcGenotypingConfig,
     active_start_1based: u64,
@@ -937,7 +938,7 @@ fn likelihood_subset_for_event(
 /// Java fragment: one evidence unit per template; keep the read with best max log10 LL per QNAME.
 fn dedupe_likelihood_subset_by_qname(
     subset: Vec<RegionReadLikelihood>,
-    reads: &[Record],
+    reads: &[SharedBamRecord],
 ) -> Vec<RegionReadLikelihood> {
     let mut qname_to_reads: std::collections::BTreeMap<Vec<u8>, Vec<usize>> =
         std::collections::BTreeMap::new();
@@ -1148,7 +1149,7 @@ fn try_java_sparse_snp_rescue_from_hmm(
 
 /// AD for shaped GL: dedupe by QNAME (Java fragment/template, not per-mate).
 fn read_allele_depths_at_locus_dedupe_qname(
-    reads: &[Record],
+    reads: &[SharedBamRecord],
     event: &VariationEvent,
     pad_start_1based: u64,
 ) -> (i32, i32) {
@@ -1162,8 +1163,8 @@ fn read_allele_depths_at_locus_dedupe_qname(
 /// AD for Java sparse/cluster shaped GL: trimmed pileup (deduped) first, then full-region pileup.
 #[cfg(any(test, feature = "parity_harness"))]
 fn ad_for_java_shaped_genotype(
-    likelihood_reads: &[Record],
-    pileup_reads: &[Record],
+    likelihood_reads: &[SharedBamRecord],
+    pileup_reads: &[SharedBamRecord],
     event: &VariationEvent,
     pad_start_1based: u64,
 ) -> (i32, i32) {
@@ -1174,7 +1175,7 @@ fn ad_for_java_shaped_genotype(
             .saturating_add(event.ref_allele.len().saturating_sub(1) as u64),
     );
     let margin = 2i32;
-    let trimmed: Vec<Record> = likelihood_reads
+    let trimmed: Vec<SharedBamRecord> = likelihood_reads
         .iter()
         .filter(|r| read_overlaps_variant(r, event.start_1based.get(), var_end, margin))
         .cloned()
@@ -1559,7 +1560,7 @@ fn java_gap_sparse_pileup_alt(read_alt_ad: i32, full_pad_alt: i32) -> i32 {
 
 /// QNAMEs with soft-unclipped alt support at the variant locus (92318325).
 pub(crate) fn sparse_softclip_alt_qnames_at_locus(
-    reads: &[Record],
+    reads: &[SharedBamRecord],
     event: &VariationEvent,
     margin: i32,
 ) -> BTreeSet<Vec<u8>> {
@@ -1590,7 +1591,7 @@ pub(crate) fn sparse_softclip_alt_qnames_at_locus(
 
 /// Alignment-overlap reads with alt base at the locus (mid-B outside soft-clip band).
 fn sparse_alignment_alt_qnames_at_locus(
-    reads: &[Record],
+    reads: &[SharedBamRecord],
     event: &VariationEvent,
     margin: i32,
 ) -> BTreeSet<Vec<u8>> {
@@ -1622,8 +1623,8 @@ fn sparse_alignment_alt_qnames_at_locus(
 
 /// Untrimmed pileup has more soft-clip or alignment alt QNAMEs than genotyping pool.
 pub(crate) fn supplement_mid_b_sparse_softclip_alt_reads_for_pairhmm(
-    genotyping_reads: &mut Vec<Record>,
-    supplemental_reads: &[Record],
+    genotyping_reads: &mut Vec<SharedBamRecord>,
+    supplemental_reads: &[SharedBamRecord],
     contig: &str,
     active_start: u64,
     active_end: u64,
@@ -1644,8 +1645,8 @@ pub(crate) fn supplement_mid_b_sparse_softclip_alt_reads_for_pairhmm(
 fn augment_sparse_softclip_subset_from_pileup_qnames(
     subset: Vec<RegionReadLikelihood>,
     likelihoods: &[RegionReadLikelihood],
-    likelihood_reads: &[Record],
-    pileup_src: &[Record],
+    likelihood_reads: &[SharedBamRecord],
+    pileup_src: &[SharedBamRecord],
     event: &VariationEvent,
     margin: i32,
 ) -> Vec<RegionReadLikelihood> {
@@ -1678,8 +1679,8 @@ fn augment_sparse_softclip_subset_from_pileup_qnames(
 fn augment_sparse_alignment_subset_from_pileup_qnames(
     subset: Vec<RegionReadLikelihood>,
     likelihoods: &[RegionReadLikelihood],
-    likelihood_reads: &[Record],
-    pileup_src: &[Record],
+    likelihood_reads: &[SharedBamRecord],
+    pileup_src: &[SharedBamRecord],
     event: &VariationEvent,
     margin: i32,
 ) -> Vec<RegionReadLikelihood> {
@@ -1711,7 +1712,7 @@ fn augment_sparse_alignment_subset_from_pileup_qnames(
 fn augment_sparse_softclip_likelihood_subset(
     subset: Vec<RegionReadLikelihood>,
     likelihoods: &[RegionReadLikelihood],
-    reads: &[Record],
+    reads: &[SharedBamRecord],
     event: &VariationEvent,
     read_alt_ad: i32,
     margin: i32,
@@ -2063,8 +2064,8 @@ fn apply_sparse_shaped_hom_alt_rescue(
 fn repair_strict_java_l4_format(
     gt: RegionGenotypeResult,
     event: &VariationEvent,
-    likelihood_reads: &[Record],
-    pileup_reads: &[Record],
+    likelihood_reads: &[SharedBamRecord],
+    pileup_reads: &[SharedBamRecord],
     read_ref_ad: i32,
     read_alt_ad: i32,
     pad_start_1based: u64,

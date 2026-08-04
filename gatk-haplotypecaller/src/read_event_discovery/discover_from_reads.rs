@@ -3,7 +3,7 @@
 
 /// P12 `92307364 T/C` from reads on the trimmed apply window.
 fn discover_cluster_tc_from_reads(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     apply_bases: &[u8],
     apply_pad: u64,
     active_start: u64,
@@ -74,7 +74,7 @@ fn allele_len_ok(event: &VariationEvent) -> bool {
 
 /// Fast check: reads in the active span carry indels or SNP mismatches (assembly retry trigger).
 pub fn reads_support_variation_in_active_span(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     ref_bases: &[u8],
     pad_start_1based: u64,
     active_start_1based: u64,
@@ -124,7 +124,7 @@ pub fn reads_support_variation_in_active_span(
 }
 
 fn discover_snp_events_from_reads(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     ref_bases: &[u8],
     pad_start_1based: u64,
     active_start_1based: u64,
@@ -242,7 +242,7 @@ fn discover_snp_events_from_reads(
 
 /// Indels from read CIGARs (GATK `EventMap` padding semantics).
 fn discover_indel_events_from_reads(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     ref_bases: &[u8],
     pad_start_1based: u64,
     active_start_1based: u64,
@@ -358,7 +358,7 @@ fn discover_indel_events_from_reads(
 /// Test-only: production uses CIGAR indels + [`synthesize_cluster_motif_insertions`] (GATK `EventMap` path).
 #[cfg(test)]
 fn discover_plug_insertion_events_from_reads(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     ref_bases: &[u8],
     pad_start_1based: u64,
     active_start_1based: u64,
@@ -463,7 +463,7 @@ fn discover_plug_insertion_events_from_reads(
 
 /// Anchor + inserted motif in read (e.g. `A` + `TG` → `ATG` when ref is `AT`).
 fn discover_motif_insertion_events_from_reads(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     ref_bases: &[u8],
     pad_start_1based: u64,
     active_start_1based: u64,

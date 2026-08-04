@@ -3,7 +3,7 @@
 
 pub fn supplement_assembly_events_from_reads(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     sw: &SwParameters,
@@ -21,7 +21,7 @@ pub fn supplement_assembly_events_from_reads(
 /// Back-compat name (P0⁴ CLUSTER-INDEL).
 pub fn supplement_assembly_with_read_indel_events(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     sw: &SwParameters,
@@ -31,7 +31,7 @@ pub fn supplement_assembly_with_read_indel_events(
 
 pub fn supplement_assembly_events_from_reads_with_options(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     sw: &SwParameters,
@@ -239,7 +239,7 @@ pub fn restore_p12_cluster_genotyping_events(
 /// GENOTYPE-EMIT: union strict read SNPs into `variation_events` (no extra haplotypes per SNP).
 pub fn supplement_assembly_snps_from_reads(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     sw: &SwParameters,
@@ -364,7 +364,7 @@ pub fn supplement_assembly_snps_from_reads(
 /// GENOTYPE-EMIT: broaden read discovery → `variation_events` + minimal alt haps (fixes `no_event`).
 pub fn supplement_genotype_emit_events_from_reads(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     sw: &SwParameters,
@@ -622,7 +622,7 @@ pub fn ensure_alt_haplotypes_for_variation_events(
 }
 
 fn pileup_reads_with_alt_allele(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     ref_bases: &[u8],
     pad_start_1based: u64,
     event: &VariationEvent,
@@ -659,7 +659,7 @@ fn pileup_reads_with_alt_allele(
 /// Java sparse BAM: biallelic AD ≥2 alt, or pileup ≥2 reads carrying the alt base.
 pub fn graph_only_read_snp_has_java_sparse_support(
     event: &VariationEvent,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     ref_bases: &[u8],
     pad_start_1based: u64,
 ) -> bool {
@@ -770,7 +770,7 @@ pub fn strict_graph_only_emit_event_has_asm_or_read_support(
 
 fn graph_only_read_snps_for_active_span(
     assembly: &AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     contig: &str,
@@ -857,7 +857,7 @@ pub fn variation_event_on_haplotype_cigars(
 /// Off by default in production ASM-8 path; enable with `P12_GAP_READ_BACKFILL=1` or registry inject.
 pub fn backfill_graph_only_read_proven_gap_snps(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     contig: &str,
@@ -900,7 +900,7 @@ pub fn backfill_graph_only_read_proven_gap_snps(
 /// Materialize read-proven sparse SNPs onto alt haps so strict CIGAR EventMap retains them (Java ASM path).
 pub fn materialize_read_proven_snps_missing_from_cigars(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     contig: &str,
@@ -946,7 +946,7 @@ pub fn materialize_read_proven_snps_missing_from_cigars(
 fn extend_read_snps_with_gap_backfill(
     read_snps: &mut Vec<VariationEvent>,
     assembly: &AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     contig: &str,

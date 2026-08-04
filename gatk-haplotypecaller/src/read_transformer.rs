@@ -6,6 +6,7 @@ use crate::read_downsample::{
     apply_positional_downsampler, GatkJavaRng, PositionalDownsamplerConfig,
 };
 use crate::read_model::{passes_hc_read_filters_with_header, ReadFilterParams};
+use crate::shared_bam::{BamRecordSlot, SharedBamRecord};
 use gatk_common::GatkError;
 use rust_htslib::bam;
 
@@ -57,15 +58,17 @@ impl Default for ShardReadPipelineConfig {
 }
 
 /// In-place strict IUPAC → `N` on read bases (`BaseUtils.convertIUPACtoN(..., true, false)`).
-pub fn apply_iupac_strict_transform(records: &mut [bam::Record]) {
+pub fn apply_iupac_strict_transform<S: BamRecordSlot>(records: &mut [S]) {
     use rust_htslib::bam::record::CigarString;
-    for rec in records.iter_mut() {
+    for slot in records.iter_mut() {
+        let rec = slot.as_record();
         let qname = rec.qname().to_vec();
         let cigar = CigarString(rec.cigar().iter().copied().collect());
         let qual = rec.qual().to_vec();
         let mut seq = rec.seq().as_bytes().to_vec();
         convert_iupac_to_n_strict(&mut seq);
-        rec.set(&qname, Some(&cigar), &seq, qual.as_slice());
+        slot.make_mut()
+            .set(&qname, Some(&cigar), &seq, qual.as_slice());
     }
 }
 
@@ -94,7 +97,7 @@ pub fn load_contig_records_hc_production(
     contig: &str,
     filters: &ReadFilterParams,
     rng: &mut GatkJavaRng,
-) -> Result<(rust_htslib::bam::HeaderView, Vec<bam::Record>), gatk_common::GatkError> {
+) -> Result<(rust_htslib::bam::HeaderView, Vec<SharedBamRecord>), gatk_common::GatkError> {
     use crate::assembly_region_iterator::load_all_records_for_contig_raw;
     use gatk_common::GatkError;
     let (header, mut records) = load_all_records_for_contig_raw(bam_path, contig)
@@ -113,8 +116,8 @@ pub fn load_contig_records_hc_production(
 /// `header`: pass `Some` for Java-identical `WellformedReadFilter` + full chains when
 /// [`ReadFilterParams::resolved_hc_filter_set`] is `Some`; use `None` only in narrow unit tests
 /// with [`ReadFilterParams`] that intentionally do **not** resolve (field-only fallback).
-pub fn apply_shard_read_pipeline(
-    records: &mut Vec<bam::Record>,
+pub fn apply_shard_read_pipeline<S: BamRecordSlot>(
+    records: &mut Vec<S>,
     header: Option<&bam::HeaderView>,
     filters: &ReadFilterParams,
     pipeline: &ShardReadPipelineConfig,
@@ -123,14 +126,14 @@ pub fn apply_shard_read_pipeline(
     if pipeline.apply_iupac_pre_transform {
         apply_iupac_strict_transform(records);
     }
-    records.retain(|rec| match header {
-        Some(h) => passes_hc_read_filters_with_header(rec, h, filters),
+    records.retain(|slot| match header {
+        Some(h) => passes_hc_read_filters_with_header(slot.as_record(), h, filters),
         None => {
             debug_assert!(
                 filters.resolved_hc_filter_set().is_none(),
                 "production pipeline must pass BAM header when filters resolve to a Java chain"
             );
-            crate::read_model::passes_hc_read_filters(rec, filters)
+            crate::read_model::passes_hc_read_filters(slot.as_record(), filters)
         }
     });
     if pipeline.apply_dragen_mapq_transform {

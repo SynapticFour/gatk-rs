@@ -11,8 +11,8 @@ impl GenotypeFinalize {
     pub(crate) fn finalize_site(
         gt: RegionGenotypeResult,
         event: &VariationEvent,
-        likelihood_reads: &[Record],
-        pileup_reads: &[Record],
+        likelihood_reads: &[SharedBamRecord],
+        pileup_reads: &[SharedBamRecord],
         read_ref_ad: i32,
         read_alt_ad: i32,
         pad_start_1based: u64,

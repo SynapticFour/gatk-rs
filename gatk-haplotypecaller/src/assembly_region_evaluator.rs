@@ -13,6 +13,7 @@ use crate::locus_iterator::{pileup_observation_from_record, LocusPileupState};
 use crate::minimal_genotyping::haplotype_caller_activity_profile_state_minimal_genotyping;
 use crate::read_header_semantics::ReadHeaderSemantics;
 use crate::read_model::{passes_hc_read_filters_with_header, ReadFilterParams};
+use crate::shared_bam::SharedBamRecord;
 use gatk_common::GatkResult;
 use rust_htslib::bam;
 
@@ -40,7 +41,7 @@ pub fn evaluate_hc_activity_state(
 /// `force_active` mirrors GATK `--alleles` force-calling overlap at this locus.
 pub fn add_locus_for_smoothed_activity(
     prof: &mut BandPassActivityProfile,
-    records: &[bam::Record],
+    records: &[SharedBamRecord],
     header: &bam::HeaderView,
     header_semantics: &ReadHeaderSemantics,
     contig: &str,
@@ -80,7 +81,7 @@ pub(crate) fn hc_activity_after_locus_advance(
     contig: &str,
     pos1: u64,
     pileup_state: &mut LocusPileupState,
-    records: &[bam::Record],
+    records: &[SharedBamRecord],
     header_semantics: &ReadHeaderSemantics,
     scoring: &HaplotypeCallerActivityScoringParams,
     ref_base: u8,
@@ -144,7 +145,7 @@ pub(crate) fn hc_activity_after_locus_advance(
 }
 
 fn pileup_at_locus(
-    records: &[bam::Record],
+    records: &[SharedBamRecord],
     header: &bam::HeaderView,
     contig: &str,
     pos1: u64,

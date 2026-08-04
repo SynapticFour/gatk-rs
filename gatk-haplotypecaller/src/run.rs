@@ -42,10 +42,34 @@ use tracing::info;
 
 /// Regions at or above this read count are flushed alone (no Rayon siblings).
 ///
-/// Deep piles after positional DS still clone BAM records into each in-flight region;
+/// Deep piles after positional DS still hold BAM records into each in-flight region;
 /// parallelizing several such regions amplified Peak-RSS to ~15 GiB on hosted runners.
 /// Sequential processing matches Java's one-heavy-region peak shape without changing evidence.
-const LARGE_REGION_READS_SEQUENTIAL: usize = 8_192;
+///
+/// Override with `GATK_RS_HC_LARGE_REGION_READS` (usize). `GATK_RS_HC_SEQUENTIAL=1` forces
+/// fully sequential region apply (batch size 1) for 16 GiB hosts.
+const LARGE_REGION_READS_SEQUENTIAL_DEFAULT: usize = 4_096;
+
+fn large_region_reads_sequential() -> usize {
+    std::env::var("GATK_RS_HC_LARGE_REGION_READS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(LARGE_REGION_READS_SEQUENTIAL_DEFAULT)
+}
+
+fn hc_force_sequential_regions() -> bool {
+    matches!(
+        std::env::var("GATK_RS_HC_SEQUENTIAL").as_deref(),
+        Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
+    )
+}
+
+/// Drop PairHMM / SW TLS scratch that grew past region-scale budgets.
+fn release_region_tls_scratch() {
+    crate::pairhmm_log10::release_pairhmm_tls_scratch();
+    crate::pairhmm_logless::release_pairhmm_logless_tls_scratch();
+    crate::smith_waterman::release_sw_tls_scratch();
+}
 
 /// Owned per-region emission batch (Send) for parallel Active-Region processing.
 struct RegionEmitBatch {
@@ -455,6 +479,7 @@ fn assembly_region_variant_records(
                         &mut seen,
                         sample_name,
                     )?;
+                    release_region_tls_scratch();
                     // Keep span metadata for P12 reconcile; drop owned BAM/ref payloads immediately.
                     strip_region_payloads(&mut region);
                     region_shells.push(region);
@@ -509,9 +534,14 @@ fn assembly_region_variant_records(
     } else {
         // H2-5: each `-I` BAM is traversed independently; variant rows are merged.
         // Bound in-flight regions to the Rayon pool size so Peak-RSS cannot grow with
-        // interval length × cloned BAM records (the 2 Mb / ~60 GiB failure mode).
-        let mut all_batches: Vec<RegionEmitBatch> = Vec::new();
-        let batch_limit = rayon::current_num_threads().max(1);
+        // interval length × region read sets (the 2 Mb / ~60 GiB failure mode).
+        // Merge each flush into `records` immediately — do not retain all interval batches.
+        let large_region_reads = large_region_reads_sequential();
+        let batch_limit = if hc_force_sequential_regions() {
+            1
+        } else {
+            rayon::current_num_threads().max(1)
+        };
         for bam in input_bams {
             let bam_path = Path::new(bam);
             let _ = bam::Reader::from_path(bam_path)
@@ -521,40 +551,46 @@ fn assembly_region_variant_records(
             let sample = sample_name.to_string();
             let mut pending: Vec<(usize, AssemblyRegion)> = Vec::with_capacity(batch_limit);
 
-            let flush_batch = |pending: &mut Vec<(usize, AssemblyRegion)>,
-                               all_batches: &mut Vec<RegionEmitBatch>|
-             -> GatkResult<()> {
-                if pending.is_empty() {
-                    return Ok(());
-                }
-                let chunk = std::mem::take(pending);
-                let batches: Vec<RegionEmitBatch> = chunk
-                    .into_par_iter()
-                    .map(|(region_index, region)| {
-                        let reader = bam::Reader::from_path(&bam_path_owned).map_err(|e| {
-                            GatkError::generic(format!("open BAM for region parallel worker: {e}"))
-                        })?;
-                        let header = reader.header().clone();
-                        let mut local_cache = ReferenceWindowCache::new(ref_path.clone(), 4);
-                        process_one_region_vcf(
-                            region_index,
-                            region,
-                            &header,
-                            &dict,
-                            &ref_path,
-                            &args,
-                            *read_filters,
-                            stand_emit_confidence,
-                            emit_mode,
-                            ref_confidence_config,
-                            &mut local_cache,
-                            &sample,
-                        )
-                    })
-                    .collect::<GatkResult<Vec<_>>>()?;
-                all_batches.extend(batches);
-                Ok(())
-            };
+            let flush_batch =
+                |pending: &mut Vec<(usize, AssemblyRegion)>,
+                 records: &mut Vec<VcfRecord>,
+                 seen: &mut std::collections::BTreeSet<(String, u64, String, String)>|
+                 -> GatkResult<()> {
+                    if pending.is_empty() {
+                        return Ok(());
+                    }
+                    let chunk = std::mem::take(pending);
+                    let mut batches: Vec<RegionEmitBatch> = chunk
+                        .into_par_iter()
+                        .map(|(region_index, region)| {
+                            let reader = bam::Reader::from_path(&bam_path_owned).map_err(|e| {
+                                GatkError::generic(format!(
+                                    "open BAM for region parallel worker: {e}"
+                                ))
+                            })?;
+                            let header = reader.header().clone();
+                            let mut local_cache = ReferenceWindowCache::new(ref_path.clone(), 4);
+                            let batch = process_one_region_vcf(
+                                region_index,
+                                region,
+                                &header,
+                                &dict,
+                                &ref_path,
+                                &args,
+                                *read_filters,
+                                stand_emit_confidence,
+                                emit_mode,
+                                ref_confidence_config,
+                                &mut local_cache,
+                                &sample,
+                            )?;
+                            release_region_tls_scratch();
+                            Ok(batch)
+                        })
+                        .collect::<GatkResult<Vec<_>>>()?;
+                    merge_region_emit_batches(&mut batches, records, seen);
+                    Ok(())
+                };
 
             for_each_assembly_region(
                 &dict,
@@ -565,23 +601,22 @@ fn assembly_region_variant_records(
                 &cfg,
                 |region_index, region| {
                     // Deep regions: flush any pending peers first, then process alone so
-                    // Peak-RSS stays near one region + shard (not N × cloned read sets).
-                    if region.reads.len() >= LARGE_REGION_READS_SEQUENTIAL {
-                        flush_batch(&mut pending, &mut all_batches)?;
+                    // Peak-RSS stays near one region + shard (not N × read sets).
+                    if region.reads.len() >= large_region_reads {
+                        flush_batch(&mut pending, &mut records, &mut seen)?;
                         pending.push((region_index, region));
-                        flush_batch(&mut pending, &mut all_batches)?;
+                        flush_batch(&mut pending, &mut records, &mut seen)?;
                         return Ok(());
                     }
                     pending.push((region_index, region));
                     if pending.len() >= batch_limit {
-                        flush_batch(&mut pending, &mut all_batches)?;
+                        flush_batch(&mut pending, &mut records, &mut seen)?;
                     }
                     Ok(())
                 },
             )?;
-            flush_batch(&mut pending, &mut all_batches)?;
+            flush_batch(&mut pending, &mut records, &mut seen)?;
         }
-        merge_region_emit_batches(&mut all_batches, &mut records, &mut seen);
     }
 
     records.sort_by(|a, b| {

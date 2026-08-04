@@ -158,6 +158,7 @@ use crate::genome_loc::GenomePosition;
 use crate::haplotype::Haplotype;
 use crate::haplotype_cigar::{calculate_haplotype_cigar_with_strategy, HaplotypeAssemblyCigar};
 use crate::read_projection::query_index_at_reference_position;
+use crate::shared_bam::SharedBamRecord;
 use crate::smith_waterman::SwOverhangStrategy;
 use gatk_common::GatkResult;
 use rust_htslib::bam::{self, record::Cigar, record::CigarString};
@@ -310,7 +311,7 @@ pub fn genotyping_eligible_event(event: &VariationEvent, graph_events: &[Variati
 
 /// True when strict read discovery finds any variant in the active span (guards `call_none`).
 pub fn active_region_has_read_variation(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     ref_bases: &[u8],
     pad_start_1based: u64,
     active_start_1based: u64,
@@ -394,7 +395,7 @@ fn graph_only_read_snp_discovery_options() -> ReadEventDiscoveryOptions {
 /// ASM-8 graph-only: SNP pileup + hap harvest (no indel-first cap that drops mid-A SNPs).
 pub fn merge_graph_only_strict_read_snps_into_event_map(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     contig: &str,
@@ -549,7 +550,7 @@ pub fn is_sparse_snp_gl_rescue_eligible(event: &VariationEvent) -> bool {
 
 /// Active-region read support for P12 cluster indels (SNP pileup AD is always 0 for indels).
 pub fn p12_cluster_indel_read_support(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     event: &VariationEvent,
     pad_start_1based: u64,
     ref_bases: &[u8],
@@ -605,7 +606,7 @@ pub fn p12_cluster_indel_read_support(
 
 /// Read pileup AD at a biallelic SNP or simple indel locus (ref index 0, alt index 1).
 pub fn read_allele_depths_at_locus(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     event: &VariationEvent,
     pad_start_1based: u64,
 ) -> (i32, i32) {
@@ -647,7 +648,7 @@ pub fn read_allele_depths_at_locus(
 
 /// AD at a SNP locus: one count per QNAME (Java fragment/template, not per-mate).
 pub fn read_allele_depths_at_locus_dedupe_qname(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     event: &VariationEvent,
     pad_start_1based: u64,
 ) -> (i32, i32) {
@@ -688,7 +689,7 @@ pub fn read_allele_depths_at_locus_dedupe_qname(
 
 /// One ref-base and one alt-base read QNAME at a cluster anchor SNP (Java het DP=2 / AD 1,1 class).
 pub fn cluster_anchor_snp_pileup_het_qnames(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     event: &VariationEvent,
     pad_start_1based: u64,
     full_pad_start_1based: u64,
@@ -739,7 +740,7 @@ pub fn cluster_anchor_snp_pileup_het_qnames(
 
 /// Java sparse P12 pileup AD: trim + full assembly pads (92318210 hom-alt uses full_pad pileup).
 pub fn read_allele_depths_p12_java_sparse_pileup(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     event: &VariationEvent,
     apply_bases: &[u8],
     apply_pad: u64,
@@ -817,7 +818,7 @@ include!("supplement_assembly.rs");
 /// L3 strict Java without registry: read SNPs → alt haps → CIGAR EventMap + read backfill.
 pub fn finalize_graph_only_strict_event_map(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     contig: &str,
@@ -1088,7 +1089,7 @@ fn prune_asm8_event_map_to_java_pinned_sites(assembly: &mut AssemblyResultSet) {
 /// Graph-only: CIGAR/cluster events + read-backfill SNPs (discover support ≥2 / strict merge).
 fn prune_graph_only_event_map_to_cigar_or_read_proven(
     assembly: &mut AssemblyResultSet,
-    _reads: &[bam::Record],
+    _reads: &[SharedBamRecord],
     contig: &str,
     read_backfill_snps: &[VariationEvent],
 ) {
@@ -1213,7 +1214,7 @@ pub fn cluster_coupled_events_from_assembly_haplotypes(
 
 /// ASM-8: read-proven cluster indels (`ttct_deletion_read_support`), not ref-motif-only inject.
 pub fn discover_p12_cluster_coupled_events_from_reads(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     ref_bases: &[u8],
     pad_start_1based: u64,
     active_start_1based: u64,
@@ -1324,7 +1325,7 @@ include!("parity_spine.rs");
 /// events, then derive EventMap from hap CIGAR (not list inject).
 pub fn strict_materialize_haplotype_from_reads(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     contig: &str,
@@ -1354,7 +1355,7 @@ pub fn strict_materialize_haplotype_from_reads(
 
 fn strict_materialize_mid_region_haplotype_from_reads(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     contig: &str,
@@ -1501,7 +1502,7 @@ fn ref_allele_matches_at_locus(
 }
 
 fn read_supports_java_gap_snp(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     ref_bases: &[u8],
     pad_start_1based: u64,
     event: &VariationEvent,
@@ -1626,7 +1627,7 @@ pub fn strict_java_p12_cluster_span(active_start_1based: u64, active_end_1based:
 /// Re-attach Phase-E gap SNPs after cluster/CIGAR regen (all spans, not cluster-only).
 pub fn restore_p12_phase_e_genotyping_events(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     contig: &str,
@@ -1758,7 +1759,7 @@ pub fn ensure_p12_mid_a_java_events(
 /// read-strict SNPs missing from hap CIGAR/EventMap (e.g. post-indel tail on trim slice).
 fn merge_read_strict_snps_missing_from_event_map(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     ref_bases: &[u8],
@@ -1910,7 +1911,7 @@ fn snp_event_has_canonical_alt_haplotype_in_mapper(
 /// Materialize biallelic SNP alt haps when reads support the alt but no hap carries it (Java mapper gap).
 pub fn ensure_read_backed_snp_alt_haplotypes(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     sw: &SwParameters,
 ) -> GatkResult<()> {
     let max_snps_per_region: usize = if strict_java_asm8_only_enabled() {
@@ -1967,7 +1968,7 @@ pub fn ensure_read_backed_snp_alt_haplotypes(
 /// Materialize gap SNP alt haps (92305634 G/T) on the trimmed ref window when reads prove them.
 pub fn ensure_phase_e_gap_read_backed_alt_haplotypes(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     contig: &str,
@@ -2114,7 +2115,7 @@ fn apply_anchor_snp_haplotypes(
 /// A1: pileup-style strict SNP/indel discovery → haplotypes for assembly-missed events.
 pub fn supplement_assembly_pileup_events_from_reads(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     sw: &SwParameters,
@@ -2167,7 +2168,7 @@ fn ref_bases_empty(assembly: &AssemblyResultSet) -> bool {
 /// When assembly is reference-only, add read-supported haplotypes and refresh variation events.
 pub fn augment_assembly_with_read_events(
     assembly: &mut AssemblyResultSet,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     sw: &SwParameters,

@@ -25,15 +25,18 @@ use crate::read_header_semantics::ReadHeaderSemantics;
 use crate::read_model::{passes_hc_read_filters_with_header, ReadFilterParams};
 use crate::reference_context::ReferenceContext;
 use crate::region_pileup::RegionPileupLocus;
+use crate::shared_bam::{share_record, SharedBamRecord};
 use crate::walker::ReadShard;
 use gatk_common::{AssemblyRegionConfig, GatkError, GatkResult};
 use gatk_core::reference::{ReferenceWindowCache, SequenceDictionary};
 use rust_htslib::bam;
 use rust_htslib::bam::Read as _;
+use std::borrow::Borrow;
 use std::collections::VecDeque;
 #[cfg(any(feature = "dev-dumps", test))]
 use std::io::Write;
 use std::path::Path;
+use std::sync::Arc;
 
 /// Operational safety ceiling on reads retained in one assembly region after positional DS.
 ///
@@ -86,7 +89,11 @@ pub struct AssemblyRegion {
     pub extended_end: GenomePosition,
     pub extension: u32,
     /// Full alignments overlapping the extended span (GAP-B-01 / B.5.1).
-    pub reads: Vec<bam::Record>,
+    ///
+    /// Shared with the shard-wide read cache and with neighbouring regions that overlap
+    /// the same alignments — Java hands out the same `GATKRead` object, so filling a
+    /// region is a refcount bump rather than a BAM payload copy.
+    pub reads: Vec<SharedBamRecord>,
     /// Sorted unique qnames derived from [`Self::reads`] (parity / legacy dumps).
     pub read_qnames: Vec<String>,
     /// Padded-span reference bases for `apply` (B.5.3).
@@ -141,13 +148,14 @@ pub fn sync_read_qnames(region: &mut AssemblyRegion) {
     region.read_qnames = names;
 }
 
-fn sort_record_indices(records: &[bam::Record]) -> Vec<usize> {
+fn sort_record_indices<R: Borrow<bam::Record>>(records: &[R]) -> Vec<usize> {
     let mut indices: Vec<usize> = (0..records.len()).collect();
     indices.sort_by(|&a, &b| {
-        records[a]
-            .pos()
-            .cmp(&records[b].pos())
-            .then_with(|| records[a].qname().cmp(records[b].qname()))
+        let ra: &bam::Record = records[a].borrow();
+        let rb: &bam::Record = records[b].borrow();
+        ra.pos()
+            .cmp(&rb.pos())
+            .then_with(|| ra.qname().cmp(rb.qname()))
     });
     indices
 }
@@ -364,7 +372,7 @@ impl Default for AssemblyRegionIteratorConfig {
 pub fn load_all_records_for_contig_raw(
     bam_path: &Path,
     contig: &str,
-) -> GatkResult<(bam::HeaderView, Vec<bam::Record>)> {
+) -> GatkResult<(bam::HeaderView, Vec<SharedBamRecord>)> {
     let mut reader = bam::Reader::from_path(bam_path)
         .map_err(|e| GatkError::io_message(format!("open BAM {}: {e}", bam_path.display())))?;
     let header = reader.header().clone();
@@ -376,7 +384,7 @@ pub fn load_all_records_for_contig_raw(
         let rec = res
             .map_err(|e| GatkError::io_message(format!("read BAM {}: {e}", bam_path.display())))?;
         if rec.tid() == tid {
-            out.push(rec);
+            out.push(share_record(rec));
         }
     }
     Ok((header, out))
@@ -387,7 +395,7 @@ pub fn load_all_records_for_contig(
     bam_path: &Path,
     contig: &str,
     filters: &ReadFilterParams,
-) -> GatkResult<(bam::HeaderView, Vec<bam::Record>)> {
+) -> GatkResult<(bam::HeaderView, Vec<SharedBamRecord>)> {
     let (header, mut out) = load_all_records_for_contig_raw(bam_path, contig)?;
     out.retain(|rec| passes_hc_read_filters_with_header(rec, &header, filters));
     Ok((header, out))
@@ -397,7 +405,7 @@ pub fn load_all_records_for_contig(
 pub fn load_records_for_shard_raw(
     bam_path: &Path,
     shard: &ReadShard,
-) -> GatkResult<(bam::HeaderView, Vec<bam::Record>)> {
+) -> GatkResult<(bam::HeaderView, Vec<SharedBamRecord>)> {
     let mut reader = bam::IndexedReader::from_path(bam_path).map_err(|e| {
         GatkError::io_message(format!("open indexed BAM {}: {e}", bam_path.display()))
     })?;
@@ -426,16 +434,16 @@ pub fn load_records_for_shard_raw(
             let rec = res.map_err(|e| {
                 GatkError::io_message(format!("read BAM {}: {e}", bam_path.display()))
             })?;
-            out.push(rec);
+            out.push(share_record(rec));
         }
     }
-    dedupe_records_by_alignment_start(&mut out);
+    dedupe_shared_records_by_alignment_start(&mut out);
     Ok((header, out))
 }
 
 /// One alignment per `(qname, pos, flags)` when padded shard spans overlap.
 /// Preserves first-seen order; keeps both mates (same POS, different `flags`).
-fn dedupe_records_by_alignment_start(records: &mut Vec<bam::Record>) {
+fn dedupe_shared_records_by_alignment_start(records: &mut Vec<SharedBamRecord>) {
     let mut seen = std::collections::HashSet::new();
     records.retain(|rec| seen.insert((rec.qname().to_vec(), rec.pos(), rec.flags())));
 }
@@ -464,7 +472,7 @@ pub struct AssemblyRegionIterator {
     span_start: u64,
     span_end: u64,
     ref_bytes: Vec<u8>,
-    all_records: Vec<bam::Record>,
+    all_records: Vec<SharedBamRecord>,
     header: bam::HeaderView,
     header_semantics: ReadHeaderSemantics,
     profile: BandPassActivityProfile,
@@ -495,7 +503,7 @@ impl AssemblyRegionIterator {
         shard: &ReadShard,
         dictionary: &SequenceDictionary,
         reference_fasta: &Path,
-        all_records: Vec<bam::Record>,
+        all_records: Vec<SharedBamRecord>,
         header: bam::HeaderView,
         read_filters: ReadFilterParams,
         cfg: AssemblyRegionIteratorConfig,
@@ -695,14 +703,60 @@ impl AssemblyRegionIterator {
             let rb = &self.all_records[b];
             ra.qname() == rb.qname() && ra.pos() == rb.pos() && ra.flags() == rb.flags()
         });
-        // CLONE: needed — `AssemblyRegion` owns `bam::Record`s while `all_records` remains
-        // the shard-wide source for overlapping / previous-region reuse. Follow-up: `Arc<Record>`.
+        // Arc clone — shared with shard `all_records` until a region mutates (COW).
         region.reads = indices
             .iter()
-            .map(|&i| self.all_records[i].clone())
+            .map(|&i| Arc::clone(&self.all_records[i]))
             .collect();
         sync_read_qnames(region);
         self.previous_region_indices = indices;
+        self.release_records_before_previous_window(region.extended_start.get());
+    }
+
+    /// Drop Arc refs for shard records that can no longer overlap previous/current regions.
+    /// Peak-RSS then tracks the live previous-region window, not the whole shard.
+    fn release_records_before_previous_window(&mut self, current_extended_start1: u64) {
+        if self.previous_region_indices.is_empty() {
+            return;
+        }
+        let keep_start1 = self
+            .previous_region_indices
+            .iter()
+            .filter_map(|&idx| {
+                let (r0, r1) = self.read_ref_span0[idx];
+                if r1 < 0 {
+                    None
+                } else {
+                    Some((r0 + 1) as u64) // 1-based start approx from 0-based pos
+                }
+            })
+            .min()
+            .unwrap_or(current_extended_start1)
+            .min(current_extended_start1);
+        // Indices still needed for previous-region reuse.
+        let mut keep = vec![false; self.all_records.len()];
+        for &idx in &self.previous_region_indices {
+            if idx < keep.len() {
+                keep[idx] = true;
+            }
+        }
+        for (idx, slot) in self.all_records.iter_mut().enumerate() {
+            if keep[idx] {
+                continue;
+            }
+            let (_r0, r1) = self.read_ref_span0[idx];
+            if r1 < 0 {
+                // Drop filtered placeholders.
+                *slot = share_record(bam::Record::new());
+                continue;
+            }
+            let end1 = r1 as u64; // half-open end → exclusive; treat as past keep_start
+            if end1 < keep_start1 {
+                // Replace with empty record so Arc payload can free when regions drop it.
+                // Keep vector length stable for index maps.
+                *slot = share_record(bam::Record::new());
+            }
+        }
     }
 
     fn fill_region_with_pileup_data(&mut self, region: &mut AssemblyRegion) {
@@ -1032,6 +1086,47 @@ mod tests {
             1,
             "single read must not be duplicated across padded fetches"
         );
+    }
+
+    /// `fillNextAssemblyRegionWithReads` must hand out `Arc` clones of the shard records,
+    /// so peak RSS stays at one shard's payload regardless of how many regions overlap a read.
+    #[test]
+    fn fill_region_shares_shard_records_as_arc_clones() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../parity/fixtures");
+        let ref_fa = root.join("reference.fa");
+        let bam = root.join("sample.bam");
+        let dict = SequenceDictionary::from_fasta_path(&ref_fa).unwrap();
+        let specs = gatk_core::reference::parse_intervals_cli_string(&dict, "chr1:1-25").unwrap();
+        let shards = make_read_shards(&dict, &specs, 5).unwrap();
+        let filters = ReadFilterParams::gatk_standard_hc();
+        let (header, recs) = load_records_for_shard_raw(&bam, &shards[0]).unwrap();
+        // Independent handles on the same allocations, so pointer identity survives the move.
+        let loaded: Vec<SharedBamRecord> = recs.clone();
+        let mut cfg = AssemblyRegionIteratorConfig::gatk_haplotype_caller_defaults();
+        cfg.force_active = true;
+        let mut it =
+            AssemblyRegionIterator::try_new(&shards[0], &dict, &ref_fa, recs, header, filters, cfg)
+                .unwrap();
+        let mut regions = Vec::new();
+        while let Some(r) = it.next_region().unwrap() {
+            regions.push(r);
+        }
+        let region_reads: Vec<&SharedBamRecord> =
+            regions.iter().flat_map(|r| r.reads.iter()).collect();
+        assert!(
+            !region_reads.is_empty(),
+            "fixture shard must yield at least one region read"
+        );
+        for read in region_reads {
+            assert!(
+                loaded.iter().any(|orig| Arc::ptr_eq(orig, read)),
+                "region read must alias a shard record, not be a deep copy"
+            );
+            assert!(
+                Arc::strong_count(read) >= 2,
+                "shard and region must share one allocation"
+            );
+        }
     }
 
     #[test]

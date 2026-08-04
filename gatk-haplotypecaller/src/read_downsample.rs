@@ -1,6 +1,7 @@
 //! GATK `PositionalDownsampler` — cap reads per alignment start.
 //! Reservoir mode matches GATK `ReservoirDownsampler` + `Utils.getRandomGenerator` (seed `47382911`).
 
+use crate::shared_bam::BamRecordSlot;
 use rust_htslib::bam;
 use std::cmp::Ordering;
 #[cfg(any(feature = "dev-dumps", test))]
@@ -191,13 +192,13 @@ fn hash_qname_java(qname: &[u8]) -> i32 {
 }
 
 /// One `ReservoirDownsampler.submit` step (Java `ReservoirDownsampler` + non-random branch).
-fn reservoir_submit_one(
-    buf: &mut Vec<bam::Record>,
+fn reservoir_submit_one<S: BamRecordSlot>(
+    buf: &mut Vec<S>,
     cap: usize,
     cfg: &PositionalDownsamplerConfig,
     rng: &mut GatkJavaRng,
     total_reads_seen: &mut u32,
-    rec: bam::Record,
+    rec: S,
 ) {
     *total_reads_seen = total_reads_seen.saturating_add(1);
     let t = *total_reads_seen;
@@ -206,7 +207,7 @@ fn reservoir_submit_one(
         return;
     }
     let random_slot = if cfg.non_random_downsampling_mode {
-        let h = hash_qname_java(rec.qname());
+        let h = hash_qname_java(rec.as_record().qname());
         (h % t as i32).unsigned_abs()
     } else {
         rng.next_int(t)
@@ -218,19 +219,19 @@ fn reservoir_submit_one(
 
 /// `HcFullParityGateDump.downsamplePositional` semantics for one `TreeMap` bucket (file order preserved).
 /// Consumes owned records from `group` slots (taken via `Option::take`) — no `bam::Record` clones.
-fn downsample_positional_bucket_java_gate(
-    group: &mut [Option<bam::Record>],
+fn downsample_positional_bucket_java_gate<S: BamRecordSlot>(
+    group: &mut [Option<S>],
     header: &bam::HeaderView,
     cap: usize,
     cfg: &PositionalDownsamplerConfig,
     rng: &mut GatkJavaRng,
-) -> Vec<bam::Record> {
+) -> Vec<S> {
     let mut out = Vec::new();
-    let mut reservoir: Vec<bam::Record> = Vec::new();
+    let mut reservoir: Vec<S> = Vec::new();
     let mut total_seen = 0u32;
     for slot in group.iter_mut() {
         let rec = slot.take().expect("downsample bucket record");
-        if read_has_no_assigned_position(&rec, header) {
+        if read_has_no_assigned_position(rec.as_record(), header) {
             out.push(rec);
             continue;
         }
@@ -241,8 +242,8 @@ fn downsample_positional_bucket_java_gate(
 }
 
 /// Reservoir indices (into `group`) matching GATK `ReservoirDownsampler.submit` when **all** reads are reservoir-eligible.
-fn reservoir_keep_indices(
-    group: &[Option<bam::Record>],
+fn reservoir_keep_indices<S: BamRecordSlot>(
+    group: &[Option<S>],
     cap: usize,
     cfg: &PositionalDownsamplerConfig,
     rng: &mut GatkJavaRng,
@@ -257,7 +258,7 @@ fn reservoir_keep_indices(
             continue;
         }
         let random_slot = if cfg.non_random_downsampling_mode {
-            let h = hash_qname_java(rec.qname());
+            let h = hash_qname_java(rec.as_record().qname());
             (h % total_seen as i32).unsigned_abs()
         } else {
             rng.next_int(total_seen)
@@ -272,8 +273,8 @@ fn reservoir_keep_indices(
 /// Filter `records` in coordinate order like GATK `PositionalDownsampler` on a sorted stream.
 /// With `header: Some`, enforces `ReadCoordinateComparator.compareCoordinates` monotonicity (no `cmp == 1`)
 /// and uses coordinate-based run boundaries. With `None`, falls back to `pos`-only grouping (unit tests).
-pub fn apply_positional_downsampler(
-    records: &mut Vec<bam::Record>,
+pub fn apply_positional_downsampler<S: BamRecordSlot>(
+    records: &mut Vec<S>,
     header: Option<&bam::HeaderView>,
     cfg: &PositionalDownsamplerConfig,
     rng: &mut GatkJavaRng,
@@ -284,18 +285,17 @@ pub fn apply_positional_downsampler(
     }
     if let Some(h) = header {
         for w in records.windows(2) {
-            if compare_read_coordinates_java(&w[0], &w[1], h) == 1 {
+            if compare_read_coordinates_java(w[0].as_record(), w[1].as_record(), h) == 1 {
                 return Err(format!(
                     "Reads must be coordinate sorted (earlier read {:?} later read {:?})",
-                    String::from_utf8_lossy(w[0].qname()),
-                    String::from_utf8_lossy(w[1].qname())
+                    String::from_utf8_lossy(w[0].as_record().qname()),
+                    String::from_utf8_lossy(w[1].as_record().qname())
                 ));
             }
         }
     }
     // Take ownership so keep/reservoir paths move records instead of cloning BAM payloads.
-    let mut owned: Vec<Option<bam::Record>> =
-        std::mem::take(records).into_iter().map(Some).collect();
+    let mut owned: Vec<Option<S>> = std::mem::take(records).into_iter().map(Some).collect();
     let mut out = Vec::new();
     let mut i = 0;
     while i < owned.len() {
@@ -303,18 +303,17 @@ pub fn apply_positional_downsampler(
         if let Some(h) = header {
             while j < owned.len()
                 && compare_read_coordinates_java(
-                    owned[i].as_ref().expect("coord record"),
-                    owned[j].as_ref().expect("coord record"),
+                    owned[i].as_ref().expect("coord record").as_record(),
+                    owned[j].as_ref().expect("coord record").as_record(),
                     h,
                 ) == 0
             {
                 j += 1;
             }
             let group = &mut owned[i..j];
-            if group
-                .iter()
-                .all(|r| !read_has_no_assigned_position(r.as_ref().expect("group record"), h))
-            {
+            if group.iter().all(|r| {
+                !read_has_no_assigned_position(r.as_ref().expect("group record").as_record(), h)
+            }) {
                 if group.len() <= cap {
                     for slot in group.iter_mut() {
                         out.push(slot.take().expect("keep record"));
@@ -332,8 +331,8 @@ pub fn apply_positional_downsampler(
             }
         } else {
             while j < owned.len()
-                && owned[j].as_ref().expect("pos record").pos()
-                    == owned[i].as_ref().expect("pos record").pos()
+                && owned[j].as_ref().expect("pos record").as_record().pos()
+                    == owned[i].as_ref().expect("pos record").as_record().pos()
             {
                 j += 1;
             }

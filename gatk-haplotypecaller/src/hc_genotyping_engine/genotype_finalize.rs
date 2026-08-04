@@ -15,8 +15,8 @@ include!("genotype_pipeline.rs");
 fn finalize_strict_java_variation_genotype_parity(
     mut gt: RegionGenotypeResult,
     event: &VariationEvent,
-    likelihood_reads: &[Record],
-    pileup_reads: &[Record],
+    likelihood_reads: &[SharedBamRecord],
+    pileup_reads: &[SharedBamRecord],
     read_ref_ad: i32,
     read_alt_ad: i32,
     pad_start_1based: u64,
@@ -169,8 +169,8 @@ fn finalize_strict_java_variation_genotype_parity(
 fn finish_strict_java_shaped_site_call(
     event: VariationEvent,
     gt: RegionGenotypeResult,
-    likelihood_reads: &[Record],
-    pileup_reads: &[Record],
+    likelihood_reads: &[SharedBamRecord],
+    pileup_reads: &[SharedBamRecord],
     read_ref_ad: i32,
     read_alt_ad: i32,
     pad_start_1based: u64,
@@ -207,8 +207,8 @@ fn finish_strict_java_shaped_site_call(
 fn finalize_strict_java_variation_genotype(
     gt: RegionGenotypeResult,
     event: &VariationEvent,
-    _likelihood_reads: &[Record],
-    _pileup_reads: &[Record],
+    _likelihood_reads: &[SharedBamRecord],
+    _pileup_reads: &[SharedBamRecord],
     _read_ref_ad: i32,
     _read_alt_ad: i32,
     _pad_start_1based: u64,
@@ -273,8 +273,8 @@ fn finalize_strict_java_variation_genotype(
 /// [`GenotypeFinalize::finalize_site`]). Kept for non-strict stored-events + dumps.
 fn post_finalize_strict_java_call(
     mut call: GenotypedSiteCall,
-    pileup_reads: &[Record],
-    supplemental_pileup_reads: Option<&[Record]>,
+    pileup_reads: &[SharedBamRecord],
+    supplemental_pileup_reads: Option<&[SharedBamRecord]>,
     pad_start_1based: u64,
     ref_bases: &[u8],
     config: &HcGenotypingConfig,
@@ -315,7 +315,7 @@ fn finalize_strict_java_genotype_for_emit(
     event: &VariationEvent,
     read_ref_ad: i32,
     read_alt_ad: i32,
-    pileup_reads: &[Record],
+    pileup_reads: &[SharedBamRecord],
     pad_start_1based: u64,
     ref_bases: &[u8],
     config: &HcGenotypingConfig,
@@ -521,7 +521,7 @@ fn parity_emit_rescue_with_read_and_alt_hap(
     _mapping: &AlleleHaplotypeMapping,
     gt: &RegionGenotypeResult,
     haplotypes: &[Haplotype],
-    reads: &[Record],
+    reads: &[SharedBamRecord],
     ref_bytes: &[u8],
     pad_start_1based: u64,
     max_mnp_distance: usize,
@@ -670,7 +670,7 @@ fn event_already_called(calls: &[GenotypedSiteCall], event: &VariationEvent) -> 
 pub fn format_locus_genotype_pl_dump(
     event: &VariationEvent,
     likelihoods: &[RegionReadLikelihood],
-    reads: &[Record],
+    reads: &[SharedBamRecord],
     haplotypes: &[Haplotype],
     ref_bytes: &[u8],
     pad_start_1based: u64,
@@ -771,7 +771,7 @@ pub fn format_locus_genotype_pl_dump(
 pub fn pairhmm_locus_trace_dump(
     event: &VariationEvent,
     likelihoods: &[RegionReadLikelihood],
-    reads: &[Record],
+    reads: &[SharedBamRecord],
     haplotypes: &[Haplotype],
     ref_bytes: &[u8],
     pad_start_1based: u64,
@@ -1076,9 +1076,9 @@ pub fn pairhmm_locus_trace_dump(
 pub fn diagnose_genotype_variation_event(
     event: &VariationEvent,
     likelihoods: &[RegionReadLikelihood],
-    likelihood_reads: &[Record],
-    pileup_reads: &[Record],
-    supplemental_pileup_reads: Option<&[Record]>,
+    likelihood_reads: &[SharedBamRecord],
+    pileup_reads: &[SharedBamRecord],
+    supplemental_pileup_reads: Option<&[SharedBamRecord]>,
     haplotypes: &[Haplotype],
     ref_bytes: &[u8],
     pad_start_1based: u64,
@@ -1125,7 +1125,7 @@ pub fn diagnose_genotype_variation_event(
 fn classify_genotype_reject(
     event: &VariationEvent,
     likelihoods: &[RegionReadLikelihood],
-    reads: &[Record],
+    reads: &[SharedBamRecord],
     haplotypes: &[Haplotype],
     ref_bytes: &[u8],
     pad_start_1based: u64,
@@ -1189,7 +1189,7 @@ include!("genotype_site_pipeline.rs");
 /// only on contig 2 / `chr2`. Elsewhere, alt read evidence + site PL/`passesEmitThreshold` gates decide.
 pub(crate) fn strict_asm8_emit_call_eligible(
     call: &GenotypedSiteCall,
-    region_reads: &[Record],
+    region_reads: &[SharedBamRecord],
     assembly: &crate::assembly_result_set::AssemblyResultSet,
 ) -> bool {
     let event = &call.event;
@@ -1273,7 +1273,7 @@ pub(crate) fn strict_asm8_emit_call_eligible(
 /// Drop calls that cannot pass strict Java VCF emit on full-region read pileup (cuts rust-only).
 pub fn filter_genotyped_calls_for_strict_java_emit(
     calls: &mut Vec<GenotypedSiteCall>,
-    region_reads: &[Record],
+    region_reads: &[SharedBamRecord],
     assembly: &crate::assembly_result_set::AssemblyResultSet,
     config: &HcGenotypingConfig,
 ) -> GatkResult<()> {

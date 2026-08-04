@@ -6,6 +6,7 @@
 
 use crate::cigar::{Cigar, CigarElement, CigarOperator};
 use gatk_common::{GatkError, GatkResult};
+use std::cell::RefCell;
 
 /// GATK `SmithWatermanAlignmentConstants.NEW_SW_PARAMETERS` (haplotype-to-reference).
 #[derive(Debug, Clone, Copy)]
@@ -183,19 +184,85 @@ fn align_uppercase_ready(
         }
     }
 
-    let mut sw = vec![0i32; cells];
-    let mut btrack = vec![0i32; cells];
-    calculate_matrix(
-        reference,
-        alternate,
-        nrow,
-        ncol,
-        &mut sw,
-        &mut btrack,
-        overhang_strategy,
-        parameters,
-    );
-    Ok(calculate_cigar(&sw, &btrack, nrow, ncol, overhang_strategy))
+    SW_SCRATCH.with(|cell| {
+        let mut scratch = cell.borrow_mut();
+        scratch.ensure(cells, nrow, ncol);
+        // Take buffers out so we can mutably borrow both planes without aliasing `scratch`.
+        let mut sw = std::mem::take(&mut scratch.sw);
+        let mut btrack = std::mem::take(&mut scratch.btrack);
+        if sw.len() < cells {
+            sw.resize(cells, 0);
+            btrack.resize(cells, 0);
+        } else {
+            sw[..cells].fill(0);
+            btrack[..cells].fill(0);
+        }
+        calculate_matrix(
+            reference,
+            alternate,
+            nrow,
+            ncol,
+            &mut sw[..cells],
+            &mut btrack[..cells],
+            overhang_strategy,
+            parameters,
+        );
+        let aln = calculate_cigar(
+            &sw[..cells],
+            &btrack[..cells],
+            nrow,
+            ncol,
+            overhang_strategy,
+        );
+        scratch.sw = sw;
+        scratch.btrack = btrack;
+        Ok(aln)
+    })
+}
+
+struct SwScratch {
+    sw: Vec<i32>,
+    btrack: Vec<i32>,
+}
+
+impl SwScratch {
+    fn new() -> Self {
+        Self {
+            sw: Vec::new(),
+            btrack: Vec::new(),
+        }
+    }
+
+    fn ensure(&mut self, cells: usize, nrow: usize, ncol: usize) {
+        let _ = (nrow, ncol); // dimensions carried by cells; kept for call-site clarity
+        if self.sw.len() < cells {
+            self.sw.resize(cells, 0);
+            self.btrack.resize(cells, 0);
+        } else {
+            self.sw[..cells].fill(0);
+            self.btrack[..cells].fill(0);
+        }
+    }
+
+    fn shrink_to_budget(&mut self, max_keep_cells: usize) {
+        if self.sw.capacity() <= max_keep_cells.saturating_mul(2) {
+            return;
+        }
+        *self = Self::new();
+    }
+}
+
+thread_local! {
+    static SW_SCRATCH: RefCell<SwScratch> = RefCell::new(SwScratch::new());
+}
+
+const SW_TLS_KEEP_CELLS: usize = 256 * 1024;
+
+/// Drop oversized Smith-Waterman TLS arenas after a deep region.
+pub fn release_sw_tls_scratch() {
+    SW_SCRATCH.with(|cell| {
+        cell.borrow_mut().shrink_to_budget(SW_TLS_KEEP_CELLS);
+    });
 }
 
 fn calculate_matrix(

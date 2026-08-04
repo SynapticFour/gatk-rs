@@ -29,10 +29,10 @@ fn write_region_header(
     Ok(())
 }
 
-fn write_java_genotype_dump(
+fn write_java_genotype_dump<R: std::borrow::Borrow<rust_htslib::bam::Record>>(
     out: &mut impl Write,
     haplotypes: &[crate::haplotype::Haplotype],
-    reads: &[rust_htslib::bam::Record],
+    reads: &[R],
     max_allele_count: Option<usize>,
 ) -> GatkResult<()> {
     let n_haps = haplotypes.len();

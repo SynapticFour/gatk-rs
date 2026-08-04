@@ -92,6 +92,8 @@ pub mod runtime_config;
 pub mod semantic_trace;
 pub mod seq_graph;
 pub mod seq_kbest_haplotype;
+/// Arc-backed BAM records shared between the shard read cache and assembly regions.
+pub mod shared_bam;
 pub mod smith_waterman;
 pub mod variant_site_hc_annotations;
 pub mod walker;
@@ -455,6 +457,9 @@ pub use region_vcf_emit::{
     HC_PIPELINE_LEGACY_PROVISIONAL, HC_PIPELINE_SCAFFOLD,
 };
 pub use run::run_haplotype_caller;
+pub use shared_bam::{
+    record_make_mut, share_record, share_records, BamRecordSlot, SharedBamRecord,
+};
 pub use walker::{
     make_read_shards, make_read_shards_default_padding, ReadShard,
     GATK_DEFAULT_ASSEMBLY_REGION_PADDING,
