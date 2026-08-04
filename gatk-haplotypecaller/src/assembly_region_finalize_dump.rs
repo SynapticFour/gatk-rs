@@ -114,10 +114,14 @@ pub fn dump_assembly_region_finalize_reads_tsv(
         .map_err(|e| GatkError::generic(format!("open bam: {e}")))?
         .header()
         .clone();
-    let sort_java = |reads: &[bam::Record], phase: &'static str| -> Vec<FinalizeReadRow> {
-        let mut sorted: Vec<&bam::Record> = reads.iter().collect();
+    fn sort_java<R: std::borrow::Borrow<bam::Record>>(
+        reads: &[R],
+        phase: &'static str,
+        header: &bam::HeaderView,
+    ) -> Vec<FinalizeReadRow> {
+        let mut sorted: Vec<&bam::Record> = reads.iter().map(|r| r.borrow()).collect();
         sorted.sort_by(|a, b| {
-            compare_read_coordinates_java(a, b, &header)
+            compare_read_coordinates_java(a, b, header)
                 .cmp(&0)
                 .then_with(|| a.qname().cmp(b.qname()))
         });
@@ -125,9 +129,9 @@ pub fn dump_assembly_region_finalize_reads_tsv(
             .into_iter()
             .map(|r| finalize_read_row(r, phase))
             .collect()
-    };
-    let raw_rows = sort_java(&region.reads, "raw");
-    let fin_rows = sort_java(&finalized, "finalize");
+    }
+    let raw_rows = sort_java(&region.reads, "raw", &header);
+    let fin_rows = sort_java(&finalized, "finalize", &header);
 
     writeln!(out, "region_contig\t{}", region.contig)
         .map_err(|e| GatkError::generic(format!("write: {e}")))?;

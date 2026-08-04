@@ -15,11 +15,12 @@ use gatk_common::{GatkError, GatkResult};
 use std::io::Write;
 
 /// Build per-read haplotype log10 rows like Java `assemblyRegionGenotypeSubset`.
-pub fn parity_java_aligned_read_rows(
-    region_reads: &[rust_htslib::bam::Record],
+pub fn parity_java_aligned_read_rows<R: std::borrow::Borrow<rust_htslib::bam::Record>>(
+    region_reads: &[R],
     haplotypes: &[Haplotype],
 ) -> GatkResult<Vec<ReadLikelihoodRow>> {
-    let mut records: Vec<&rust_htslib::bam::Record> = region_reads.iter().collect();
+    let mut records: Vec<&rust_htslib::bam::Record> =
+        region_reads.iter().map(|r| r.borrow()).collect();
     records.sort_by(|a, b| a.qname().cmp(b.qname()).then_with(|| a.pos().cmp(&b.pos())));
 
     let n_haps = haplotypes.len();

@@ -3,8 +3,8 @@
 #[inline]
 fn maybe_post_finalize_strict_java_call(
     call: GenotypedSiteCall,
-    pileup_reads: &[Record],
-    supplemental_pileup_reads: Option<&[Record]>,
+    pileup_reads: &[SharedBamRecord],
+    supplemental_pileup_reads: Option<&[SharedBamRecord]>,
     pad_start_1based: u64,
     ref_bases: &[u8],
     config: &HcGenotypingConfig,
@@ -25,9 +25,9 @@ fn maybe_post_finalize_strict_java_call(
 /// GATK `HaplotypeCallerGenotypingEngine.assignGenotypeLikelihoods` (active-window event walk).
 pub fn assign_genotype_likelihoods_for_region(
     likelihoods: &[RegionReadLikelihood],
-    likelihood_reads: &[Record],
-    pileup_reads: &[Record],
-    supplemental_pileup_reads: Option<&[Record]>,
+    likelihood_reads: &[SharedBamRecord],
+    pileup_reads: &[SharedBamRecord],
+    supplemental_pileup_reads: Option<&[SharedBamRecord]>,
     haplotypes: &[Haplotype],
     ref_bytes: &[u8],
     pad_start_1based: u64,

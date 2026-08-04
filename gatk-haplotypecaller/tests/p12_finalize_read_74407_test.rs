@@ -94,14 +94,20 @@ fn p12_74407_reverse_finalize_matches_java_cigar() {
         extended_start: GenomePosition::new_1based(92307128),
         extended_end: GenomePosition::new_1based(92307500),
         extension: 100,
-        reads: vec![original.clone()],
+        reads: vec![gatk_haplotypecaller::share_record(original.clone())],
         read_qnames: vec![],
         reference: ReferenceContext::empty(),
         features: FeatureContext::empty(),
         pileup_loci: vec![],
         is_active: true,
     };
-    let finalized = finalize_region_reads_for_assembly(&[original], &region, true, min_tail, false);
+    let finalized = finalize_region_reads_for_assembly(
+        &[gatk_haplotypecaller::share_record(original)],
+        &region,
+        true,
+        min_tail,
+        false,
+    );
     let rev = finalized
         .iter()
         .find(|r| r.flags() & 16 != 0)

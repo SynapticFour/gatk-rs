@@ -1,6 +1,6 @@
 //! GATK `DRAGENMappingQualityReadTransformer` (/ HC `--transform-dragen-mapping-quality`).
 
-use rust_htslib::bam;
+use crate::shared_bam::BamRecordSlot;
 
 /// SAM optional tag for DRAGEN extended mapping quality (`XQ`).
 pub const EXTENDED_MAPPING_QUALITY_TAG: &[u8] = b"XQ";
@@ -23,16 +23,16 @@ pub fn map_dragen_mq_to_phred(val: i32) -> u8 {
 }
 
 /// If `XQ` is present, copy extended MQ into the record's MAPQ field (Java transformer).
-pub fn apply_dragen_mapping_quality_transform(records: &mut [bam::Record]) {
-    for rec in records.iter_mut() {
-        let xq = match rec.aux(EXTENDED_MAPPING_QUALITY_TAG) {
+pub fn apply_dragen_mapping_quality_transform<S: BamRecordSlot>(records: &mut [S]) {
+    for slot in records.iter_mut() {
+        let xq = match slot.as_record().aux(EXTENDED_MAPPING_QUALITY_TAG) {
             Ok(rust_htslib::bam::record::Aux::I32(v)) => v,
             Ok(rust_htslib::bam::record::Aux::U8(v)) => i32::from(v),
             Ok(rust_htslib::bam::record::Aux::U16(v)) => i32::from(v),
             Ok(rust_htslib::bam::record::Aux::U32(v)) => v as i32,
             _ => continue,
         };
-        rec.set_mapq(map_dragen_mq_to_phred(xq));
+        slot.make_mut().set_mapq(map_dragen_mq_to_phred(xq));
     }
 }
 

@@ -51,7 +51,7 @@ fn synthesize_cluster_motif_insertions(
 
 /// Deletions implied by reads that span a ref segment without aligning to it (no `D` in CIGAR).
 fn discover_gap_deletion_events_from_reads(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     ref_bases: &[u8],
     pad_start_1based: u64,
     active_start_1based: u64,
@@ -250,7 +250,7 @@ fn collapse_snps_to_deletions(
 
 /// P12 `TTC/T`: anchor `T` + deleted `TC` (2 bp) when ref slice is `TTC`.
 fn discover_ttct_deletions_from_reads(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     ref_bases: &[u8],
     pad_start_1based: u64,
     active_start_1based: u64,
@@ -332,7 +332,7 @@ fn cluster_ctc_deletion_motif(ref_bases: &[u8], off: usize) -> bool {
 
 /// At least one read shows a gap across `ref[off..off+2]` with anchor `ref[off-1]`.
 pub(crate) fn ttct_deletion_read_support(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     ref_bases: &[u8],
     pad_start_1based: u64,
     off: usize,
@@ -432,7 +432,7 @@ fn read_supports_motif_insertion_at_off(
 
 /// QNAMEs of untrimmed pileup reads with BAM support for P12 cluster coupled indels.
 pub fn p12_cluster_coupled_indel_supporting_read_qnames(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     event: &VariationEvent,
     ref_bases: &[u8],
     pad_start_1based: u64,
@@ -677,7 +677,7 @@ fn merge_read_events(
     out
 }
 pub fn discover_variation_events_from_reads(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     ref_bases: &[u8],
     pad_start_1based: u64,
     active_start_1based: u64,
@@ -695,7 +695,7 @@ pub fn discover_variation_events_from_reads(
     )
 }
 pub fn discover_variation_events_from_reads_with_options(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     ref_bases: &[u8],
     pad_start_1based: u64,
     active_start_1based: u64,

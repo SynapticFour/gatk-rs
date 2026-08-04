@@ -3,7 +3,7 @@
 /// Included into the genotyping engine module (same scope as finalize).
 
 fn sparse_softclip_pileup_alt_at_locus(
-    reads: &[Record],
+    reads: &[SharedBamRecord],
     event: &VariationEvent,
     margin: i32,
 ) -> i32 {
@@ -35,7 +35,7 @@ fn sparse_softclip_pileup_alt_at_locus(
 
 /// Fragment-level soft-clip pileup alt (no QNAME dedupe; Java `92318325` AD=3).
 fn sparse_softclip_pileup_alt_fragments_at_locus(
-    reads: &[Record],
+    reads: &[SharedBamRecord],
     event: &VariationEvent,
     margin: i32,
 ) -> i32 {
@@ -66,7 +66,7 @@ fn sparse_softclip_pileup_alt_fragments_at_locus(
 
 /// Fragment-level pileup AD for strict Java SNPs (dedupe QNAME); per-read for anchors/indels.
 fn read_allele_depths_at_locus_for_genotyping(
-    reads: &[Record],
+    reads: &[SharedBamRecord],
     event: &VariationEvent,
     pad_start_1based: u64,
     config: &HcGenotypingConfig,
@@ -87,8 +87,8 @@ fn read_allele_depths_at_locus_for_genotyping(
 }
 
 pub fn read_allele_depths_for_strict_emit(
-    pileup_reads: &[Record],
-    supplemental_pileup_reads: Option<&[Record]>,
+    pileup_reads: &[SharedBamRecord],
+    supplemental_pileup_reads: Option<&[SharedBamRecord]>,
     event: &VariationEvent,
     pad_start_1based: u64,
     config: &HcGenotypingConfig,
@@ -96,7 +96,7 @@ pub fn read_allele_depths_for_strict_emit(
     full_reference_bases: &[u8],
     full_reference_pad_1based: u64,
 ) -> (i32, i32) {
-    let pileup_ad = |reads: &[Record], pad: u64| -> (i32, i32) {
+    let pileup_ad = |reads: &[SharedBamRecord], pad: u64| -> (i32, i32) {
         read_allele_depths_at_locus_for_genotyping(reads, event, pad, config)
     };
     let (trim_ref, trim_alt) = pileup_ad(pileup_reads, pad_start_1based);
@@ -157,7 +157,7 @@ pub fn read_allele_depths_for_strict_emit(
 /// Java sparse cluster indel: genotype from the single alt-favoring read (DP=1 / AD 0,1 class).
 fn narrow_strict_java_cluster_coupled_indel_subset(
     subset: Vec<RegionReadLikelihood>,
-    likelihood_reads: &[Record],
+    likelihood_reads: &[SharedBamRecord],
     haplotypes: &[Haplotype],
     mapping: &AlleleHaplotypeMapping,
     config: &HcGenotypingConfig,
@@ -209,8 +209,8 @@ fn narrow_strict_java_cluster_coupled_indel_subset(
 /// Cluster anchor SNP het: genotype from pileup-identified ref + alt reads (Java AD 1,1 / DP 2).
 fn narrow_strict_java_cluster_anchor_snp_het_subset(
     subset: Vec<RegionReadLikelihood>,
-    likelihood_reads: &[Record],
-    pileup_reads: &[Record],
+    likelihood_reads: &[SharedBamRecord],
+    pileup_reads: &[SharedBamRecord],
     event: &VariationEvent,
     pad_start_1based: u64,
     full_reference_pad_1based: u64,
@@ -242,7 +242,7 @@ fn narrow_strict_java_cluster_anchor_snp_het_subset(
 
 fn narrow_strict_java_sparse_hom_alt_subset(
     subset: Vec<RegionReadLikelihood>,
-    likelihood_reads: &[Record],
+    likelihood_reads: &[SharedBamRecord],
     haplotypes: &[Haplotype],
     mapping: &AlleleHaplotypeMapping,
     config: &HcGenotypingConfig,
@@ -300,7 +300,7 @@ fn narrow_strict_java_sparse_hom_alt_subset(
 /// Cluster upstream hom-alt: GL from alt-favoring reads only (Java AD 0,3 / informative alt-only).
 fn narrow_strict_java_cluster_upstream_hom_alt_subset(
     subset: Vec<RegionReadLikelihood>,
-    likelihood_reads: &[Record],
+    likelihood_reads: &[SharedBamRecord],
     haplotypes: &[Haplotype],
     mapping: &AlleleHaplotypeMapping,
     config: &HcGenotypingConfig,
@@ -350,9 +350,9 @@ fn narrow_strict_java_cluster_upstream_hom_alt_subset(
 fn try_genotype_variation_event(
     event: VariationEvent,
     likelihoods: &[RegionReadLikelihood],
-    likelihood_reads: &[Record],
-    pileup_reads: &[Record],
-    supplemental_pileup_reads: Option<&[Record]>,
+    likelihood_reads: &[SharedBamRecord],
+    pileup_reads: &[SharedBamRecord],
+    supplemental_pileup_reads: Option<&[SharedBamRecord]>,
     haplotypes: &[Haplotype],
     ref_bytes: &[u8],
     pad_start_1based: u64,
@@ -479,7 +479,7 @@ fn try_genotype_variation_event(
             .unwrap_or(pileup_reads);
         let (_, align_pileup_alt) =
             read_allele_depths_at_locus_for_genotyping(pileup_src, &event, pad_start_1based, config);
-        let has_alignment_evidence_at_locus = |r: &Record| {
+        let has_alignment_evidence_at_locus = |r: &SharedBamRecord| {
             java_alignment_read_covers_variant_base(r, event.start_1based.get(), var_end, margin)
         };
         let softclip_only_pool = !likelihood_reads.iter().any(has_alignment_evidence_at_locus)

@@ -11,7 +11,7 @@ fn dense_ref() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../parity/realworld/assets/hs37d5.simple.fa")
 }
 
-fn load_reads_at(pos: u64) -> Vec<bam::Record> {
+fn load_reads_at(pos: u64) -> Vec<SharedBamRecord> {
     let mut reader = bam::IndexedReader::from_path(dense_bam()).expect("bam");
     let tid = reader.header().tid(b"20").expect("tid") as u32;
     reader
@@ -19,7 +19,7 @@ fn load_reads_at(pos: u64) -> Vec<bam::Record> {
         .expect("fetch");
     let mut out = Vec::new();
     for r in reader.records() {
-        out.push(r.expect("rec"));
+        out.push(crate::shared_bam::share_record(r.expect("rec")));
     }
     out
 }

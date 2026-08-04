@@ -14,6 +14,7 @@ fn plug_ins_handles_short_query_without_panic() {
     rec.set_pos((pad + 2) as i64);
     let cigar = CigarString(vec![Cigar::Match(2)]);
     rec.set(b"r1", Some(&cigar), b"AT", b"??");
+    let rec = crate::shared_bam::share_record(rec);
     let _events = discover_plug_insertion_events_from_reads(
         std::slice::from_ref(&rec),
         &ref_bases,
@@ -37,6 +38,7 @@ fn motif_ins_discovers_atg_after_anchor_a() {
     rec.set_flags(0); // clear default UNMAPPED on bare records
     rec.set_tid(0);
     rec.set_pos((pad + 5) as i64);
+    let rec = crate::shared_bam::share_record(rec);
     let events = discover_motif_insertion_events_from_reads(
         std::slice::from_ref(&rec),
         &ref_bases,
@@ -65,6 +67,7 @@ fn cigar_ins_discovers_atg_after_anchor_a() {
     rec.set_flags(0); // clear default UNMAPPED on bare records
     rec.set_tid(0);
     rec.set_pos((pad + 5) as i64); // 1M aligns ref[6]=A, then 2I before ref[7]=T
+    let rec = crate::shared_bam::share_record(rec);
     let events = discover_indel_events_from_reads(
         std::slice::from_ref(&rec),
         &ref_bases,
@@ -300,7 +303,7 @@ fn dense_giab_insertion_ad_and_discover() {
         if start > 10001600 || start + 200 < 10001400 {
             continue;
         }
-        reads.push(r);
+        reads.push(crate::shared_bam::share_record(r));
         if reads.len() > 500 {
             break;
         }

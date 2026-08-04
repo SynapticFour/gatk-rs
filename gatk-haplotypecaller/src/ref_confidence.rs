@@ -46,6 +46,7 @@ use crate::read_event_discovery::{
     P12_JAVA_SPARSE_HOM_REF_DESERT_START, P12_MID_B_JAVA_SPARSE_END, P12_MID_B_JAVA_SPARSE_START,
 };
 use crate::read_model::ReadFilterParams;
+use crate::shared_bam::SharedBamRecord;
 use gatk_common::GatkResult;
 use gatk_core::reference::{ReferenceWindowCache, SequenceDictionary};
 use rust_htslib::bam;
@@ -179,7 +180,7 @@ pub fn reference_confidence_locus_from_pileup(
 }
 
 /// True when any read's aligned reference span intersects `[start, end]` (1-based inclusive).
-pub fn reads_overlap_closed_span(reads: &[bam::Record], start: u64, end: u64) -> bool {
+pub fn reads_overlap_closed_span(reads: &[SharedBamRecord], start: u64, end: u64) -> bool {
     reads.iter().any(|r| {
         if r.is_unmapped() || r.tid() < 0 {
             return false;
@@ -215,7 +216,7 @@ pub fn hom_ref_cluster_shadow_gap(pos: u64, emitted_variant_starts: &[u64]) -> b
 
 /// Prefer `region.reads` only when genotyping reads fail to cover the assembly span.
 fn prefer_region_reads_when_gt_misaligned(
-    genotyping_reads: &[bam::Record],
+    genotyping_reads: &[SharedBamRecord],
     region: &AssemblyRegion,
     gt_pileup: &[PileupObservation],
     region_pileup: &[PileupObservation],
@@ -398,14 +399,14 @@ pub fn reference_confidence_loci_for_bam_gap_span(
     contig: &str,
     start: u64,
     end: u64,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     header: &bam::HeaderView,
     config: &ReferenceConfidenceConfig,
     read_filters: &ReadFilterParams,
     ref_cache: &mut ReferenceWindowCache,
     dictionary: &SequenceDictionary,
 ) -> GatkResult<Vec<ReferenceConfidenceLocus>> {
-    let overlapping: Vec<bam::Record> = reads
+    let overlapping: Vec<SharedBamRecord> = reads
         .iter()
         .filter(|r| reads_overlap_closed_span(std::slice::from_ref(r), start, end))
         .cloned()
@@ -549,7 +550,7 @@ fn dense_cluster_downstream_sparse_pileup(
 
 /// Java `getPileupsOverReference` for cluster hom-ref bands: prefer genotyping evidence.
 fn cluster_band_hom_ref_pileup(
-    genotyping_reads: &[bam::Record],
+    genotyping_reads: &[SharedBamRecord],
     region: &AssemblyRegion,
     gt_pileup: &[PileupObservation],
     dedup_region: &[PileupObservation],
@@ -610,7 +611,7 @@ fn cluster_band_hom_ref_pileup(
 
 /// Prefer `region.reads` when post-realign genotyping pileup marks alt at interior hom-ref block.
 fn use_region_reads_for_cluster_interior_tail(
-    genotyping_reads: &[bam::Record],
+    genotyping_reads: &[SharedBamRecord],
     region: &AssemblyRegion,
     pos: u64,
     gt_pileup: &[PileupObservation],
@@ -626,7 +627,7 @@ fn use_region_reads_for_cluster_interior_tail(
 /// fallbacks to qname-dedup `region.reads` when post-realign genotyping pileup is misaligned.
 pub fn reference_confidence_loci_for_active_region(
     region: &AssemblyRegion,
-    genotyping_reads: &[bam::Record],
+    genotyping_reads: &[SharedBamRecord],
     first_variant_start: Option<u64>,
     emitted_variant_starts: &[u64],
     header: &bam::HeaderView,
@@ -1016,7 +1017,7 @@ pub fn reference_confidence_loci_for_span_reads(
     contig: &str,
     start: u64,
     end: u64,
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     header: &bam::HeaderView,
     config: &ReferenceConfidenceConfig,
     read_filters: &ReadFilterParams,
@@ -1051,7 +1052,7 @@ pub fn reference_confidence_loci_for_active_call_none(
     {
         return Ok(zero_evidence_reference_confidence_loci_for_region(region));
     }
-    let unpadded_reads: Vec<bam::Record> = region
+    let unpadded_reads: Vec<SharedBamRecord> = region
         .reads
         .iter()
         .filter(|r| {
@@ -1101,7 +1102,7 @@ pub fn reference_confidence_loci_for_region(
     ref_cache: &mut ReferenceWindowCache,
     dictionary: &SequenceDictionary,
 ) -> GatkResult<Vec<ReferenceConfidenceLocus>> {
-    let unpadded_reads: Vec<bam::Record> = region
+    let unpadded_reads: Vec<SharedBamRecord> = region
         .reads
         .iter()
         .filter(|r| {
@@ -1231,6 +1232,7 @@ mod tests {
         rec.set_tid(0);
         // BAM pos is 0-based; region coords below are 1-based closed.
         rec.set_pos(i64::try_from(P12_CLUSTER_INTERIOR_BLOCK_START.saturating_sub(1)).unwrap_or(0));
+        let rec = crate::shared_bam::share_record(rec);
         assert!(!prefer_region_reads_when_gt_misaligned(
             std::slice::from_ref(&rec),
             &band,

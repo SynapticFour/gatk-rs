@@ -47,7 +47,7 @@ evidence/scripts are restored here. Cite them as historical engineering notes on
 
 | Claim | Required evidence | Status |
 |-------|-------------------|--------|
-| GIAB **ci-subset** equivalence (HG001 at minimum): \|Rust−Java\| F1 Δ ≤ threshold via `gatk-rs-equiv` | Green `giab-genomewide.yml` with `GIAB_MODE=ci-subset`, artifact + dashboard row | **Not yet signed** — 10 Mb Rust OOM; 2 Mb improved ([30758467082](https://github.com/SynapticFour/gatk-rs/actions/runs/30758467082): 93 ok / 22 Rust OOM) → shrink to **1 Mb** |
+| GIAB **ci-subset** equivalence (HG001 at minimum): \|Rust−Java\| F1 Δ ≤ threshold via `gatk-rs-equiv` | Green `giab-genomewide.yml` with `GIAB_MODE=ci-subset`, artifact + dashboard row | **Not yet signed** — prior 10→2→1 Mb Rust OOM on dense HG001 30×; memory footprint pass in progress (`SharedBamRecord` / sequential regions / TLS shrink / Air recipe in [`docs/perf/AIR_M4_GIAB_RECIPE.md`](perf/AIR_M4_GIAB_RECIPE.md)) — re-dispatch only after measured RSS proof |
 | GIAB **ci-subset** on HG001+HG002+HG005 | Same, all three samples | **Not yet signed** |
 | GIAB **full autosomes** (chr1–22) equivalence | `GIAB_MODE=autosomes` green run | **Not yet signed** |
 | Nightly / GIAB Pages dashboard (`docs/EQUIVALENCE_DASHBOARD.md`, `docs/parity-site/data/history.json`) | Green `ci-subset`+ finalize → `publish-parity-site` job writing non-empty `history.json` `runs` (smoke never publishes) | **Not yet signed** — wire exists; waits on first successful non-smoke publish |

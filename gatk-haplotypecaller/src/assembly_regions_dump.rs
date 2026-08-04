@@ -58,7 +58,7 @@ pub struct ForceCallingAllelesDump<'a> {
 /// Padded-shard read set + LIBS pileup cursor (Java `HcFullParityGateDump#makeLocusIterator` / `AssemblyRegionIterator`).
 struct ShardActivityWalk {
     header: bam::HeaderView,
-    records: Vec<bam::Record>,
+    records: Vec<crate::shared_bam::SharedBamRecord>,
     semantics: ReadHeaderSemantics,
     pileup_state: LocusPileupState,
 }
@@ -75,7 +75,7 @@ fn open_shard_activity_walk(
         Err(_) => {
             let (header, all_records) =
                 load_contig_records_linear(bam_path, &shard.contig, read_filters, rng)?;
-            let filtered: Vec<bam::Record> = all_records
+            let filtered: Vec<crate::shared_bam::SharedBamRecord> = all_records
                 .into_iter()
                 .filter(|r| {
                     shard.padded_spans.iter().any(|&(rs, re)| {
@@ -586,7 +586,7 @@ pub fn dump_locus_pileup_tsv(
             read_filters,
             &mut rng,
         )?;
-        let filtered: Vec<bam::Record> = all_records
+        let filtered: Vec<crate::shared_bam::SharedBamRecord> = all_records
             .into_iter()
             .filter(|r| {
                 shard.padded_spans.iter().any(|&(rs, re)| {
@@ -651,7 +651,7 @@ pub(crate) fn load_contig_records_linear(
     contig: &str,
     filters: &ReadFilterParams,
     rng: &mut crate::read_downsample::GatkJavaRng,
-) -> GatkResult<(bam::HeaderView, Vec<bam::Record>)> {
+) -> GatkResult<(bam::HeaderView, Vec<crate::shared_bam::SharedBamRecord>)> {
     crate::read_transformer::load_contig_records_hc_production(bam_path, contig, filters, rng)
 }
 

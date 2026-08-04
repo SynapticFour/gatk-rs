@@ -424,8 +424,17 @@ for sample in "$@"; do
   equiv_rc=0
   if [[ "${skip_equiv_engine}" != "1" ]]; then
     mkdir -p "${sdir}/equiv"
-    cp -f "${java_vcf}" "${sdir}/equiv/java.vcf"
-    cp -f "${rust_vcf}" "${sdir}/equiv/rust.vcf"
+    # Prefer hardlink (same inode, no duplex) when possible; fall back to cp.
+    if ! ln -f "${java_vcf}" "${sdir}/equiv/java.vcf" 2>/dev/null; then
+      cp -f "${java_vcf}" "${sdir}/equiv/java.vcf"
+    fi
+    if ! ln -f "${rust_vcf}" "${sdir}/equiv/rust.vcf" 2>/dev/null; then
+      cp -f "${rust_vcf}" "${sdir}/equiv/rust.vcf"
+    fi
+    # After successful concat, drop per-shard VCFs unless retained for debugging.
+    if [[ "${GIAB_KEEP_SHARD_VCFS:-0}" != "1" ]]; then
+      rm -f "${java_shard_vcfs[@]}" "${rust_shard_vcfs[@]}" 2>/dev/null || true
+    fi
     strat_args=()
     mkdir -p "${sdir}/equiv/strat"
     for bedgz in \
@@ -455,6 +464,12 @@ for sample in "$@"; do
       "${strat_args[@]}"
     equiv_rc=$?
     set -e
+
+    # Free finalize BAM + gunzipped strat beds after scoring (Air / limited-HDD recipe).
+    if [[ "${GIAB_KEEP_EQUIV_INTERMEDIATES:-0}" != "1" ]]; then
+      rm -f "${bam}" "${bam}.bai" 2>/dev/null || true
+      rm -rf "${sdir}/equiv/strat" 2>/dev/null || true
+    fi
   else
     echo "[giab] GIAB_SKIP_EQUIV_ENGINE=1 — skipping hap.py/RTG"
   fi

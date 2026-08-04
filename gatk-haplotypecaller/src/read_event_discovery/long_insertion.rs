@@ -29,7 +29,7 @@ fn insertion_is_low_complexity(inserted: &[u8]) -> bool {
 /// 3. left-normalized: last inserted base ≠ anchor (reject tandem-shiftable forms);
 /// 4. reject low-complexity (homopolymer-dominated) insertions.
 fn discover_long_insertion_events_from_reads(
-    reads: &[bam::Record],
+    reads: &[SharedBamRecord],
     ref_bases: &[u8],
     pad_start_1based: u64,
     active_start_1based: u64,
