@@ -6,7 +6,7 @@
 <a href=#6 id=6 data-nosnippet>6</a>/// (see `AssemblyBasedCallerUtils` + `HaplotypeCallerEngine` after `trimTo`).
 <a href=#7 id=7 data-nosnippet>7</a></span><span class="kw">pub fn </span>strict_materialize_cluster_haplotype_from_reads(
 <a href=#8 id=8 data-nosnippet>8</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
-<a href=#9 id=9 data-nosnippet>9</a>    reads: <span class="kw-2">&amp;</span>[bam::Record],
+<a href=#9 id=9 data-nosnippet>9</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#10 id=10 data-nosnippet>10</a>    active_start_1based: u64,
 <a href=#11 id=11 data-nosnippet>11</a>    active_end_1based: u64,
 <a href=#12 id=12 data-nosnippet>12</a>    contig: <span class="kw-2">&amp;</span>str,
@@ -522,7 +522,7 @@
 <a href=#522 id=522 data-nosnippet>522</a>    active_start_1based: u64,
 <a href=#523 id=523 data-nosnippet>523</a>    active_end_1based: u64,
 <a href=#524 id=524 data-nosnippet>524</a>    contig: <span class="kw-2">&amp;</span>str,
-<a href=#525 id=525 data-nosnippet>525</a>    reads: <span class="kw-2">&amp;</span>[bam::Record],
+<a href=#525 id=525 data-nosnippet>525</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#526 id=526 data-nosnippet>526</a>    sw: <span class="kw-2">&amp;</span>SwParameters,
 <a href=#527 id=527 data-nosnippet>527</a>) -&gt; GatkResult&lt;()&gt; {
 <a href=#528 id=528 data-nosnippet>528</a>    <span class="kw">if </span>active_end_1based &lt; P12_CLUSTER_TTC_START

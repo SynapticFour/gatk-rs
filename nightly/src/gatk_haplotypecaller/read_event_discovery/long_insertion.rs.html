@@ -29,7 +29,7 @@
 <a href=#29 id=29 data-nosnippet>29</a>/// 3. left-normalized: last inserted base ≠ anchor (reject tandem-shiftable forms);
 <a href=#30 id=30 data-nosnippet>30</a>/// 4. reject low-complexity (homopolymer-dominated) insertions.
 <a href=#31 id=31 data-nosnippet>31</a></span><span class="kw">fn </span>discover_long_insertion_events_from_reads(
-<a href=#32 id=32 data-nosnippet>32</a>    reads: <span class="kw-2">&amp;</span>[bam::Record],
+<a href=#32 id=32 data-nosnippet>32</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#33 id=33 data-nosnippet>33</a>    ref_bases: <span class="kw-2">&amp;</span>[u8],
 <a href=#34 id=34 data-nosnippet>34</a>    pad_start_1based: u64,
 <a href=#35 id=35 data-nosnippet>35</a>    active_start_1based: u64,

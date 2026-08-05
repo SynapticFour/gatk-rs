@@ -58,7 +58,7 @@
 <a href=#58 id=58 data-nosnippet>58</a><span class="doccomment">/// Padded-shard read set + LIBS pileup cursor (Java `HcFullParityGateDump#makeLocusIterator` / `AssemblyRegionIterator`).
 <a href=#59 id=59 data-nosnippet>59</a></span><span class="kw">struct </span>ShardActivityWalk {
 <a href=#60 id=60 data-nosnippet>60</a>    header: bam::HeaderView,
-<a href=#61 id=61 data-nosnippet>61</a>    records: Vec&lt;bam::Record&gt;,
+<a href=#61 id=61 data-nosnippet>61</a>    records: Vec&lt;<span class="kw">crate</span>::shared_bam::SharedBamRecord&gt;,
 <a href=#62 id=62 data-nosnippet>62</a>    semantics: ReadHeaderSemantics,
 <a href=#63 id=63 data-nosnippet>63</a>    pileup_state: LocusPileupState,
 <a href=#64 id=64 data-nosnippet>64</a>}
@@ -75,7 +75,7 @@
 <a href=#75 id=75 data-nosnippet>75</a>        <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; {
 <a href=#76 id=76 data-nosnippet>76</a>            <span class="kw">let </span>(header, all_records) =
 <a href=#77 id=77 data-nosnippet>77</a>                load_contig_records_linear(bam_path, <span class="kw-2">&amp;</span>shard.contig, read_filters, rng)<span class="question-mark">?</span>;
-<a href=#78 id=78 data-nosnippet>78</a>            <span class="kw">let </span>filtered: Vec&lt;bam::Record&gt; = all_records
+<a href=#78 id=78 data-nosnippet>78</a>            <span class="kw">let </span>filtered: Vec&lt;<span class="kw">crate</span>::shared_bam::SharedBamRecord&gt; = all_records
 <a href=#79 id=79 data-nosnippet>79</a>                .into_iter()
 <a href=#80 id=80 data-nosnippet>80</a>                .filter(|r| {
 <a href=#81 id=81 data-nosnippet>81</a>                    shard.padded_spans.iter().any(|<span class="kw-2">&amp;</span>(rs, re)| {
@@ -586,7 +586,7 @@
 <a href=#586 id=586 data-nosnippet>586</a>            read_filters,
 <a href=#587 id=587 data-nosnippet>587</a>            <span class="kw-2">&amp;mut </span>rng,
 <a href=#588 id=588 data-nosnippet>588</a>        )<span class="question-mark">?</span>;
-<a href=#589 id=589 data-nosnippet>589</a>        <span class="kw">let </span>filtered: Vec&lt;bam::Record&gt; = all_records
+<a href=#589 id=589 data-nosnippet>589</a>        <span class="kw">let </span>filtered: Vec&lt;<span class="kw">crate</span>::shared_bam::SharedBamRecord&gt; = all_records
 <a href=#590 id=590 data-nosnippet>590</a>            .into_iter()
 <a href=#591 id=591 data-nosnippet>591</a>            .filter(|r| {
 <a href=#592 id=592 data-nosnippet>592</a>                shard.padded_spans.iter().any(|<span class="kw-2">&amp;</span>(rs, re)| {
@@ -651,7 +651,7 @@
 <a href=#651 id=651 data-nosnippet>651</a>    contig: <span class="kw-2">&amp;</span>str,
 <a href=#652 id=652 data-nosnippet>652</a>    filters: <span class="kw-2">&amp;</span>ReadFilterParams,
 <a href=#653 id=653 data-nosnippet>653</a>    rng: <span class="kw-2">&amp;mut </span><span class="kw">crate</span>::read_downsample::GatkJavaRng,
-<a href=#654 id=654 data-nosnippet>654</a>) -&gt; GatkResult&lt;(bam::HeaderView, Vec&lt;bam::Record&gt;)&gt; {
+<a href=#654 id=654 data-nosnippet>654</a>) -&gt; GatkResult&lt;(bam::HeaderView, Vec&lt;<span class="kw">crate</span>::shared_bam::SharedBamRecord&gt;)&gt; {
 <a href=#655 id=655 data-nosnippet>655</a>    <span class="kw">crate</span>::read_transformer::load_contig_records_hc_production(bam_path, contig, filters, rng)
 <a href=#656 id=656 data-nosnippet>656</a>}
 <a href=#657 id=657 data-nosnippet>657</a>

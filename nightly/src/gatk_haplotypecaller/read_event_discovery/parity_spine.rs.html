@@ -64,7 +64,7 @@
 <a href=#64 id=64 data-nosnippet>64</a><span class="doccomment">/// Parity spine: read-proven indels missing from assembly EventMap (genome-wide + harness).
 <a href=#65 id=65 data-nosnippet>65</a></span><span class="kw">pub fn </span>parity_spine_read_proven_indels(
 <a href=#66 id=66 data-nosnippet>66</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
-<a href=#67 id=67 data-nosnippet>67</a>    reads: <span class="kw-2">&amp;</span>[bam::Record],
+<a href=#67 id=67 data-nosnippet>67</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#68 id=68 data-nosnippet>68</a>    active_start_1based: u64,
 <a href=#69 id=69 data-nosnippet>69</a>    active_end_1based: u64,
 <a href=#70 id=70 data-nosnippet>70</a>    sw: <span class="kw-2">&amp;</span>SwParameters,
@@ -290,7 +290,7 @@
 <a href=#290 id=290 data-nosnippet>290</a><span class="doccomment">/// Parity spine: biallelic SNPs from reads when EventMap has no event at that locus (Java `getVariationEvents` gap).
 <a href=#291 id=291 data-nosnippet>291</a></span><span class="kw">pub fn </span>parity_spine_read_proven_snps(
 <a href=#292 id=292 data-nosnippet>292</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
-<a href=#293 id=293 data-nosnippet>293</a>    reads: <span class="kw-2">&amp;</span>[bam::Record],
+<a href=#293 id=293 data-nosnippet>293</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#294 id=294 data-nosnippet>294</a>    active_start_1based: u64,
 <a href=#295 id=295 data-nosnippet>295</a>    active_end_1based: u64,
 <a href=#296 id=296 data-nosnippet>296</a>    sw: <span class="kw-2">&amp;</span>SwParameters,
@@ -357,7 +357,7 @@
 <a href=#357 id=357 data-nosnippet>357</a><span class="doccomment">/// Back-compat alias.
 <a href=#358 id=358 data-nosnippet>358</a></span><span class="kw">pub fn </span>parity_spine_indels_from_reads(
 <a href=#359 id=359 data-nosnippet>359</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
-<a href=#360 id=360 data-nosnippet>360</a>    reads: <span class="kw-2">&amp;</span>[bam::Record],
+<a href=#360 id=360 data-nosnippet>360</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#361 id=361 data-nosnippet>361</a>    active_start_1based: u64,
 <a href=#362 id=362 data-nosnippet>362</a>    active_end_1based: u64,
 <a href=#363 id=363 data-nosnippet>363</a>    sw: <span class="kw-2">&amp;</span>SwParameters,

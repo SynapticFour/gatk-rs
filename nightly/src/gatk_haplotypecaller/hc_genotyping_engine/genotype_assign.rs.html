@@ -3,8 +3,8 @@
 <a href=#3 id=3 data-nosnippet>3</a></span><span class="attr">#[inline]
 <a href=#4 id=4 data-nosnippet>4</a></span><span class="kw">fn </span>maybe_post_finalize_strict_java_call(
 <a href=#5 id=5 data-nosnippet>5</a>    call: GenotypedSiteCall,
-<a href=#6 id=6 data-nosnippet>6</a>    pileup_reads: <span class="kw-2">&amp;</span>[Record],
-<a href=#7 id=7 data-nosnippet>7</a>    supplemental_pileup_reads: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>[Record]&gt;,
+<a href=#6 id=6 data-nosnippet>6</a>    pileup_reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
+<a href=#7 id=7 data-nosnippet>7</a>    supplemental_pileup_reads: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>[SharedBamRecord]&gt;,
 <a href=#8 id=8 data-nosnippet>8</a>    pad_start_1based: u64,
 <a href=#9 id=9 data-nosnippet>9</a>    ref_bases: <span class="kw-2">&amp;</span>[u8],
 <a href=#10 id=10 data-nosnippet>10</a>    config: <span class="kw-2">&amp;</span>HcGenotypingConfig,
@@ -25,9 +25,9 @@
 <a href=#25 id=25 data-nosnippet>25</a><span class="doccomment">/// GATK `HaplotypeCallerGenotypingEngine.assignGenotypeLikelihoods` (active-window event walk).
 <a href=#26 id=26 data-nosnippet>26</a></span><span class="kw">pub fn </span>assign_genotype_likelihoods_for_region(
 <a href=#27 id=27 data-nosnippet>27</a>    likelihoods: <span class="kw-2">&amp;</span>[RegionReadLikelihood],
-<a href=#28 id=28 data-nosnippet>28</a>    likelihood_reads: <span class="kw-2">&amp;</span>[Record],
-<a href=#29 id=29 data-nosnippet>29</a>    pileup_reads: <span class="kw-2">&amp;</span>[Record],
-<a href=#30 id=30 data-nosnippet>30</a>    supplemental_pileup_reads: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>[Record]&gt;,
+<a href=#28 id=28 data-nosnippet>28</a>    likelihood_reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
+<a href=#29 id=29 data-nosnippet>29</a>    pileup_reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
+<a href=#30 id=30 data-nosnippet>30</a>    supplemental_pileup_reads: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>[SharedBamRecord]&gt;,
 <a href=#31 id=31 data-nosnippet>31</a>    haplotypes: <span class="kw-2">&amp;</span>[Haplotype],
 <a href=#32 id=32 data-nosnippet>32</a>    ref_bytes: <span class="kw-2">&amp;</span>[u8],
 <a href=#33 id=33 data-nosnippet>33</a>    pad_start_1based: u64,

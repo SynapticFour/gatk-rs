@@ -51,7 +51,7 @@
 <a href=#51 id=51 data-nosnippet>51</a>
 <a href=#52 id=52 data-nosnippet>52</a><span class="doccomment">/// Deletions implied by reads that span a ref segment without aligning to it (no `D` in CIGAR).
 <a href=#53 id=53 data-nosnippet>53</a></span><span class="kw">fn </span>discover_gap_deletion_events_from_reads(
-<a href=#54 id=54 data-nosnippet>54</a>    reads: <span class="kw-2">&amp;</span>[bam::Record],
+<a href=#54 id=54 data-nosnippet>54</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#55 id=55 data-nosnippet>55</a>    ref_bases: <span class="kw-2">&amp;</span>[u8],
 <a href=#56 id=56 data-nosnippet>56</a>    pad_start_1based: u64,
 <a href=#57 id=57 data-nosnippet>57</a>    active_start_1based: u64,
@@ -250,7 +250,7 @@
 <a href=#250 id=250 data-nosnippet>250</a>
 <a href=#251 id=251 data-nosnippet>251</a><span class="doccomment">/// P12 `TTC/T`: anchor `T` + deleted `TC` (2 bp) when ref slice is `TTC`.
 <a href=#252 id=252 data-nosnippet>252</a></span><span class="kw">fn </span>discover_ttct_deletions_from_reads(
-<a href=#253 id=253 data-nosnippet>253</a>    reads: <span class="kw-2">&amp;</span>[bam::Record],
+<a href=#253 id=253 data-nosnippet>253</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#254 id=254 data-nosnippet>254</a>    ref_bases: <span class="kw-2">&amp;</span>[u8],
 <a href=#255 id=255 data-nosnippet>255</a>    pad_start_1based: u64,
 <a href=#256 id=256 data-nosnippet>256</a>    active_start_1based: u64,
@@ -332,7 +332,7 @@
 <a href=#332 id=332 data-nosnippet>332</a>
 <a href=#333 id=333 data-nosnippet>333</a><span class="doccomment">/// At least one read shows a gap across `ref[off..off+2]` with anchor `ref[off-1]`.
 <a href=#334 id=334 data-nosnippet>334</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>ttct_deletion_read_support(
-<a href=#335 id=335 data-nosnippet>335</a>    reads: <span class="kw-2">&amp;</span>[bam::Record],
+<a href=#335 id=335 data-nosnippet>335</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#336 id=336 data-nosnippet>336</a>    ref_bases: <span class="kw-2">&amp;</span>[u8],
 <a href=#337 id=337 data-nosnippet>337</a>    pad_start_1based: u64,
 <a href=#338 id=338 data-nosnippet>338</a>    off: usize,
@@ -432,7 +432,7 @@
 <a href=#432 id=432 data-nosnippet>432</a>
 <a href=#433 id=433 data-nosnippet>433</a><span class="doccomment">/// QNAMEs of untrimmed pileup reads with BAM support for P12 cluster coupled indels.
 <a href=#434 id=434 data-nosnippet>434</a></span><span class="kw">pub fn </span>p12_cluster_coupled_indel_supporting_read_qnames(
-<a href=#435 id=435 data-nosnippet>435</a>    reads: <span class="kw-2">&amp;</span>[bam::Record],
+<a href=#435 id=435 data-nosnippet>435</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#436 id=436 data-nosnippet>436</a>    event: <span class="kw-2">&amp;</span>VariationEvent,
 <a href=#437 id=437 data-nosnippet>437</a>    ref_bases: <span class="kw-2">&amp;</span>[u8],
 <a href=#438 id=438 data-nosnippet>438</a>    pad_start_1based: u64,
@@ -677,7 +677,7 @@
 <a href=#677 id=677 data-nosnippet>677</a>    out
 <a href=#678 id=678 data-nosnippet>678</a>}
 <a href=#679 id=679 data-nosnippet>679</a><span class="kw">pub fn </span>discover_variation_events_from_reads(
-<a href=#680 id=680 data-nosnippet>680</a>    reads: <span class="kw-2">&amp;</span>[bam::Record],
+<a href=#680 id=680 data-nosnippet>680</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#681 id=681 data-nosnippet>681</a>    ref_bases: <span class="kw-2">&amp;</span>[u8],
 <a href=#682 id=682 data-nosnippet>682</a>    pad_start_1based: u64,
 <a href=#683 id=683 data-nosnippet>683</a>    active_start_1based: u64,
@@ -695,7 +695,7 @@
 <a href=#695 id=695 data-nosnippet>695</a>    )
 <a href=#696 id=696 data-nosnippet>696</a>}
 <a href=#697 id=697 data-nosnippet>697</a><span class="kw">pub fn </span>discover_variation_events_from_reads_with_options(
-<a href=#698 id=698 data-nosnippet>698</a>    reads: <span class="kw-2">&amp;</span>[bam::Record],
+<a href=#698 id=698 data-nosnippet>698</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#699 id=699 data-nosnippet>699</a>    ref_bases: <span class="kw-2">&amp;</span>[u8],
 <a href=#700 id=700 data-nosnippet>700</a>    pad_start_1based: u64,
 <a href=#701 id=701 data-nosnippet>701</a>    active_start_1based: u64,

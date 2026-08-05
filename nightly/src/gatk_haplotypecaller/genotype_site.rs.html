@@ -7,7 +7,7 @@
 <a href=#7 id=7 data-nosnippet>7</a><span class="kw">use </span><span class="kw">crate</span>::genome_loc::GenomePosition;
 <a href=#8 id=8 data-nosnippet>8</a><span class="kw">use </span><span class="kw">crate</span>::haplotype::Haplotype;
 <a href=#9 id=9 data-nosnippet>9</a><span class="kw">use </span><span class="kw">crate</span>::region_read_likelihood::RegionReadLikelihood;
-<a href=#10 id=10 data-nosnippet>10</a><span class="kw">use </span>rust_htslib::bam::Record;
+<a href=#10 id=10 data-nosnippet>10</a><span class="kw">use </span><span class="kw">crate</span>::shared_bam::SharedBamRecord;
 <a href=#11 id=11 data-nosnippet>11</a>
 <a href=#12 id=12 data-nosnippet>12</a><span class="doccomment">/// Inputs for region genotyping (active-window EventMap walk).
 <a href=#13 id=13 data-nosnippet>13</a>/// # Invariants
@@ -23,9 +23,9 @@
 <a href=#23 id=23 data-nosnippet>23</a>/// Rust-native input bundle for GATK genotyping engine region walk (L7-B3).
 <a href=#24 id=24 data-nosnippet>24</a></span><span class="kw">pub struct </span>GenotypeSiteRegion&lt;<span class="lifetime">'a</span>&gt; {
 <a href=#25 id=25 data-nosnippet>25</a>    <span class="kw">pub </span>likelihoods: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[RegionReadLikelihood],
-<a href=#26 id=26 data-nosnippet>26</a>    <span class="kw">pub </span>likelihood_reads: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[Record],
-<a href=#27 id=27 data-nosnippet>27</a>    <span class="kw">pub </span>pileup_reads: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[Record],
-<a href=#28 id=28 data-nosnippet>28</a>    <span class="kw">pub </span>supplemental_pileup_reads: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span>[Record]&gt;,
+<a href=#26 id=26 data-nosnippet>26</a>    <span class="kw">pub </span>likelihood_reads: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[SharedBamRecord],
+<a href=#27 id=27 data-nosnippet>27</a>    <span class="kw">pub </span>pileup_reads: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[SharedBamRecord],
+<a href=#28 id=28 data-nosnippet>28</a>    <span class="kw">pub </span>supplemental_pileup_reads: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span>[SharedBamRecord]&gt;,
 <a href=#29 id=29 data-nosnippet>29</a>    <span class="kw">pub </span>haplotypes: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[Haplotype],
 <a href=#30 id=30 data-nosnippet>30</a>    <span class="kw">pub </span>ref_bytes: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[u8],
 <a href=#31 id=31 data-nosnippet>31</a>    <span class="kw">pub </span>pad_start_1based: GenomePosition,

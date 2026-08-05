@@ -67,7 +67,7 @@
 <a href=#67 id=67 data-nosnippet>67</a><span class="doccomment">/// A1 pileup supplement (see [`supplement_assembly_pileup_events_from_reads`]).
 <a href=#68 id=68 data-nosnippet>68</a></span><span class="kw">pub fn </span>supplement_pileup_events_into_assembly(
 <a href=#69 id=69 data-nosnippet>69</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
-<a href=#70 id=70 data-nosnippet>70</a>    reads: <span class="kw-2">&amp;</span>[Record],
+<a href=#70 id=70 data-nosnippet>70</a>    reads: <span class="kw-2">&amp;</span>[<span class="kw">crate</span>::shared_bam::SharedBamRecord],
 <a href=#71 id=71 data-nosnippet>71</a>    active_start_1based: u64,
 <a href=#72 id=72 data-nosnippet>72</a>    active_end_1based: u64,
 <a href=#73 id=73 data-nosnippet>73</a>    sw: <span class="kw-2">&amp;</span>SwParameters,

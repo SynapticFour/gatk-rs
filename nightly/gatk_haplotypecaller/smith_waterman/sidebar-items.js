@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["SwOverhangStrategy"],"fn":["align","align_read_to_best_haplotype"],"struct":["SmithWatermanAlignment","SwParameters"]};
+window.SIDEBAR_ITEMS = {"enum":["SwOverhangStrategy"],"fn":["align","align_read_to_best_haplotype","release_sw_tls_scratch"],"struct":["SmithWatermanAlignment","SwParameters"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["record_make_mut","share_record","share_records"],"trait":["BamRecordSlot"],"type":["SharedBamRecord"]};

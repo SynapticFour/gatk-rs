@@ -114,88 +114,92 @@
 <a href=#114 id=114 data-nosnippet>114</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"open bam: {e}"</span>)))<span class="question-mark">?
 <a href=#115 id=115 data-nosnippet>115</a>        </span>.header()
 <a href=#116 id=116 data-nosnippet>116</a>        .clone();
-<a href=#117 id=117 data-nosnippet>117</a>    <span class="kw">let </span>sort_java = |reads: <span class="kw-2">&amp;</span>[bam::Record], phase: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str| -&gt; Vec&lt;FinalizeReadRow&gt; {
-<a href=#118 id=118 data-nosnippet>118</a>        <span class="kw">let </span><span class="kw-2">mut </span>sorted: Vec&lt;<span class="kw-2">&amp;</span>bam::Record&gt; = reads.iter().collect();
-<a href=#119 id=119 data-nosnippet>119</a>        sorted.sort_by(|a, b| {
-<a href=#120 id=120 data-nosnippet>120</a>            compare_read_coordinates_java(a, b, <span class="kw-2">&amp;</span>header)
-<a href=#121 id=121 data-nosnippet>121</a>                .cmp(<span class="kw-2">&amp;</span><span class="number">0</span>)
-<a href=#122 id=122 data-nosnippet>122</a>                .then_with(|| a.qname().cmp(b.qname()))
-<a href=#123 id=123 data-nosnippet>123</a>        });
-<a href=#124 id=124 data-nosnippet>124</a>        sorted
-<a href=#125 id=125 data-nosnippet>125</a>            .into_iter()
-<a href=#126 id=126 data-nosnippet>126</a>            .map(|r| finalize_read_row(r, phase))
-<a href=#127 id=127 data-nosnippet>127</a>            .collect()
-<a href=#128 id=128 data-nosnippet>128</a>    };
-<a href=#129 id=129 data-nosnippet>129</a>    <span class="kw">let </span>raw_rows = sort_java(<span class="kw-2">&amp;</span>region.reads, <span class="string">"raw"</span>);
-<a href=#130 id=130 data-nosnippet>130</a>    <span class="kw">let </span>fin_rows = sort_java(<span class="kw-2">&amp;</span>finalized, <span class="string">"finalize"</span>);
-<a href=#131 id=131 data-nosnippet>131</a>
-<a href=#132 id=132 data-nosnippet>132</a>    <span class="macro">writeln!</span>(out, <span class="string">"region_contig\t{}"</span>, region.contig)
-<a href=#133 id=133 data-nosnippet>133</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#134 id=134 data-nosnippet>134</a>    <span class="macro">writeln!</span>(out, <span class="string">"region_start\t{}"</span>, region.start.get())
-<a href=#135 id=135 data-nosnippet>135</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#136 id=136 data-nosnippet>136</a>    <span class="macro">writeln!</span>(out, <span class="string">"region_end\t{}"</span>, region.end.get())
+<a href=#117 id=117 data-nosnippet>117</a>    <span class="kw">fn </span>sort_java&lt;R: std::borrow::Borrow&lt;bam::Record&gt;&gt;(
+<a href=#118 id=118 data-nosnippet>118</a>        reads: <span class="kw-2">&amp;</span>[R],
+<a href=#119 id=119 data-nosnippet>119</a>        phase: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
+<a href=#120 id=120 data-nosnippet>120</a>        header: <span class="kw-2">&amp;</span>bam::HeaderView,
+<a href=#121 id=121 data-nosnippet>121</a>    ) -&gt; Vec&lt;FinalizeReadRow&gt; {
+<a href=#122 id=122 data-nosnippet>122</a>        <span class="kw">let </span><span class="kw-2">mut </span>sorted: Vec&lt;<span class="kw-2">&amp;</span>bam::Record&gt; = reads.iter().map(|r| r.borrow()).collect();
+<a href=#123 id=123 data-nosnippet>123</a>        sorted.sort_by(|a, b| {
+<a href=#124 id=124 data-nosnippet>124</a>            compare_read_coordinates_java(a, b, header)
+<a href=#125 id=125 data-nosnippet>125</a>                .cmp(<span class="kw-2">&amp;</span><span class="number">0</span>)
+<a href=#126 id=126 data-nosnippet>126</a>                .then_with(|| a.qname().cmp(b.qname()))
+<a href=#127 id=127 data-nosnippet>127</a>        });
+<a href=#128 id=128 data-nosnippet>128</a>        sorted
+<a href=#129 id=129 data-nosnippet>129</a>            .into_iter()
+<a href=#130 id=130 data-nosnippet>130</a>            .map(|r| finalize_read_row(r, phase))
+<a href=#131 id=131 data-nosnippet>131</a>            .collect()
+<a href=#132 id=132 data-nosnippet>132</a>    }
+<a href=#133 id=133 data-nosnippet>133</a>    <span class="kw">let </span>raw_rows = sort_java(<span class="kw-2">&amp;</span>region.reads, <span class="string">"raw"</span>, <span class="kw-2">&amp;</span>header);
+<a href=#134 id=134 data-nosnippet>134</a>    <span class="kw">let </span>fin_rows = sort_java(<span class="kw-2">&amp;</span>finalized, <span class="string">"finalize"</span>, <span class="kw-2">&amp;</span>header);
+<a href=#135 id=135 data-nosnippet>135</a>
+<a href=#136 id=136 data-nosnippet>136</a>    <span class="macro">writeln!</span>(out, <span class="string">"region_contig\t{}"</span>, region.contig)
 <a href=#137 id=137 data-nosnippet>137</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#138 id=138 data-nosnippet>138</a>    <span class="macro">writeln!</span>(out, <span class="string">"extended_start\t{}"</span>, region.extended_start.get())
+<a href=#138 id=138 data-nosnippet>138</a>    <span class="macro">writeln!</span>(out, <span class="string">"region_start\t{}"</span>, region.start.get())
 <a href=#139 id=139 data-nosnippet>139</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#140 id=140 data-nosnippet>140</a>    <span class="macro">writeln!</span>(out, <span class="string">"extended_end\t{}"</span>, region.extended_end.get())
+<a href=#140 id=140 data-nosnippet>140</a>    <span class="macro">writeln!</span>(out, <span class="string">"region_end\t{}"</span>, region.end.get())
 <a href=#141 id=141 data-nosnippet>141</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#142 id=142 data-nosnippet>142</a>    <span class="macro">writeln!</span>(out, <span class="string">"read_path\tfinalize"</span>).map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#143 id=143 data-nosnippet>143</a>    <span class="macro">writeln!</span>(out, <span class="string">"raw_read_count\t{}"</span>, raw_rows.len())
-<a href=#144 id=144 data-nosnippet>144</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#145 id=145 data-nosnippet>145</a>    <span class="macro">writeln!</span>(out, <span class="string">"finalize_read_count\t{}"</span>, fin_rows.len())
-<a href=#146 id=146 data-nosnippet>146</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#147 id=147 data-nosnippet>147</a>    <span class="kw">if </span>!<span class="macro">matches!</span>(
-<a href=#148 id=148 data-nosnippet>148</a>        call_disposition(region),
-<a href=#149 id=149 data-nosnippet>149</a>        AssemblyRegionCallDisposition::ActiveFull
-<a href=#150 id=150 data-nosnippet>150</a>    ) {
-<a href=#151 id=151 data-nosnippet>151</a>        <span class="macro">writeln!</span>(out, <span class="string">"warn\tregion_inactive_using_reads_for_asm_diagnostic"</span>)
-<a href=#152 id=152 data-nosnippet>152</a>            .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#153 id=153 data-nosnippet>153</a>    }
-<a href=#154 id=154 data-nosnippet>154</a>    <span class="macro">writeln!</span>(
-<a href=#155 id=155 data-nosnippet>155</a>        out,
-<a href=#156 id=156 data-nosnippet>156</a>        <span class="string">"read\tqname\tphase\tflags\tmapq\tstart\tend\tcigar\tseq_len\tunclipped_len\tfragment_length\tunmapped"
-<a href=#157 id=157 data-nosnippet>157</a>    </span>)
-<a href=#158 id=158 data-nosnippet>158</a>    .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#159 id=159 data-nosnippet>159</a>    <span class="kw">for </span>row <span class="kw">in </span>raw_rows.iter().chain(fin_rows.iter()) {
-<a href=#160 id=160 data-nosnippet>160</a>        <span class="macro">writeln!</span>(
-<a href=#161 id=161 data-nosnippet>161</a>            out,
-<a href=#162 id=162 data-nosnippet>162</a>            <span class="string">"read\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}"</span>,
-<a href=#163 id=163 data-nosnippet>163</a>            row.qname,
-<a href=#164 id=164 data-nosnippet>164</a>            row.phase,
-<a href=#165 id=165 data-nosnippet>165</a>            row.flags,
-<a href=#166 id=166 data-nosnippet>166</a>            row.mapq,
-<a href=#167 id=167 data-nosnippet>167</a>            row.start,
-<a href=#168 id=168 data-nosnippet>168</a>            row.end,
-<a href=#169 id=169 data-nosnippet>169</a>            row.cigar,
-<a href=#170 id=170 data-nosnippet>170</a>            row.seq_len,
-<a href=#171 id=171 data-nosnippet>171</a>            row.unclipped_len,
-<a href=#172 id=172 data-nosnippet>172</a>            row.fragment_length,
-<a href=#173 id=173 data-nosnippet>173</a>            row.unmapped
-<a href=#174 id=174 data-nosnippet>174</a>        )
-<a href=#175 id=175 data-nosnippet>175</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#176 id=176 data-nosnippet>176</a>    }
-<a href=#177 id=177 data-nosnippet>177</a>    <span class="prelude-val">Ok</span>(())
-<a href=#178 id=178 data-nosnippet>178</a>}
-<a href=#179 id=179 data-nosnippet>179</a>
-<a href=#180 id=180 data-nosnippet>180</a><span class="doccomment">/// Explicit production finalize path label for assembly-stages (same graph as default finalize).
-<a href=#181 id=181 data-nosnippet>181</a></span><span class="kw">pub fn </span>dump_assembly_region_assembly_stages_finalize_tsv(
-<a href=#182 id=182 data-nosnippet>182</a>    ref_fasta: <span class="kw-2">&amp;</span>Path,
-<a href=#183 id=183 data-nosnippet>183</a>    bam_path: <span class="kw-2">&amp;</span>Path,
-<a href=#184 id=184 data-nosnippet>184</a>    interval_cli: <span class="kw-2">&amp;</span>str,
-<a href=#185 id=185 data-nosnippet>185</a>    padding: u64,
-<a href=#186 id=186 data-nosnippet>186</a>    out: <span class="kw-2">&amp;mut </span><span class="kw">impl </span>Write,
-<a href=#187 id=187 data-nosnippet>187</a>) -&gt; GatkResult&lt;()&gt; {
-<a href=#188 id=188 data-nosnippet>188</a>    <span class="macro">writeln!</span>(out, <span class="string">"read_path\tfinalize"</span>).map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
-<a href=#189 id=189 data-nosnippet>189</a>    <span class="kw">crate</span>::assembly_region_stages_dump::dump_assembly_region_assembly_stages_tsv(
-<a href=#190 id=190 data-nosnippet>190</a>        ref_fasta,
-<a href=#191 id=191 data-nosnippet>191</a>        bam_path,
-<a href=#192 id=192 data-nosnippet>192</a>        interval_cli,
-<a href=#193 id=193 data-nosnippet>193</a>        padding,
-<a href=#194 id=194 data-nosnippet>194</a>        out,
-<a href=#195 id=195 data-nosnippet>195</a>    )
-<a href=#196 id=196 data-nosnippet>196</a>}
-<a href=#197 id=197 data-nosnippet>197</a>
-<a href=#198 id=198 data-nosnippet>198</a><span class="kw">pub fn </span>default_finalize_reads_padding() -&gt; u64 {
-<a href=#199 id=199 data-nosnippet>199</a>    GATK_DEFAULT_ASSEMBLY_REGION_PADDING
+<a href=#142 id=142 data-nosnippet>142</a>    <span class="macro">writeln!</span>(out, <span class="string">"extended_start\t{}"</span>, region.extended_start.get())
+<a href=#143 id=143 data-nosnippet>143</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
+<a href=#144 id=144 data-nosnippet>144</a>    <span class="macro">writeln!</span>(out, <span class="string">"extended_end\t{}"</span>, region.extended_end.get())
+<a href=#145 id=145 data-nosnippet>145</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
+<a href=#146 id=146 data-nosnippet>146</a>    <span class="macro">writeln!</span>(out, <span class="string">"read_path\tfinalize"</span>).map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
+<a href=#147 id=147 data-nosnippet>147</a>    <span class="macro">writeln!</span>(out, <span class="string">"raw_read_count\t{}"</span>, raw_rows.len())
+<a href=#148 id=148 data-nosnippet>148</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
+<a href=#149 id=149 data-nosnippet>149</a>    <span class="macro">writeln!</span>(out, <span class="string">"finalize_read_count\t{}"</span>, fin_rows.len())
+<a href=#150 id=150 data-nosnippet>150</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
+<a href=#151 id=151 data-nosnippet>151</a>    <span class="kw">if </span>!<span class="macro">matches!</span>(
+<a href=#152 id=152 data-nosnippet>152</a>        call_disposition(region),
+<a href=#153 id=153 data-nosnippet>153</a>        AssemblyRegionCallDisposition::ActiveFull
+<a href=#154 id=154 data-nosnippet>154</a>    ) {
+<a href=#155 id=155 data-nosnippet>155</a>        <span class="macro">writeln!</span>(out, <span class="string">"warn\tregion_inactive_using_reads_for_asm_diagnostic"</span>)
+<a href=#156 id=156 data-nosnippet>156</a>            .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
+<a href=#157 id=157 data-nosnippet>157</a>    }
+<a href=#158 id=158 data-nosnippet>158</a>    <span class="macro">writeln!</span>(
+<a href=#159 id=159 data-nosnippet>159</a>        out,
+<a href=#160 id=160 data-nosnippet>160</a>        <span class="string">"read\tqname\tphase\tflags\tmapq\tstart\tend\tcigar\tseq_len\tunclipped_len\tfragment_length\tunmapped"
+<a href=#161 id=161 data-nosnippet>161</a>    </span>)
+<a href=#162 id=162 data-nosnippet>162</a>    .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
+<a href=#163 id=163 data-nosnippet>163</a>    <span class="kw">for </span>row <span class="kw">in </span>raw_rows.iter().chain(fin_rows.iter()) {
+<a href=#164 id=164 data-nosnippet>164</a>        <span class="macro">writeln!</span>(
+<a href=#165 id=165 data-nosnippet>165</a>            out,
+<a href=#166 id=166 data-nosnippet>166</a>            <span class="string">"read\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}"</span>,
+<a href=#167 id=167 data-nosnippet>167</a>            row.qname,
+<a href=#168 id=168 data-nosnippet>168</a>            row.phase,
+<a href=#169 id=169 data-nosnippet>169</a>            row.flags,
+<a href=#170 id=170 data-nosnippet>170</a>            row.mapq,
+<a href=#171 id=171 data-nosnippet>171</a>            row.start,
+<a href=#172 id=172 data-nosnippet>172</a>            row.end,
+<a href=#173 id=173 data-nosnippet>173</a>            row.cigar,
+<a href=#174 id=174 data-nosnippet>174</a>            row.seq_len,
+<a href=#175 id=175 data-nosnippet>175</a>            row.unclipped_len,
+<a href=#176 id=176 data-nosnippet>176</a>            row.fragment_length,
+<a href=#177 id=177 data-nosnippet>177</a>            row.unmapped
+<a href=#178 id=178 data-nosnippet>178</a>        )
+<a href=#179 id=179 data-nosnippet>179</a>        .map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
+<a href=#180 id=180 data-nosnippet>180</a>    }
+<a href=#181 id=181 data-nosnippet>181</a>    <span class="prelude-val">Ok</span>(())
+<a href=#182 id=182 data-nosnippet>182</a>}
+<a href=#183 id=183 data-nosnippet>183</a>
+<a href=#184 id=184 data-nosnippet>184</a><span class="doccomment">/// Explicit production finalize path label for assembly-stages (same graph as default finalize).
+<a href=#185 id=185 data-nosnippet>185</a></span><span class="kw">pub fn </span>dump_assembly_region_assembly_stages_finalize_tsv(
+<a href=#186 id=186 data-nosnippet>186</a>    ref_fasta: <span class="kw-2">&amp;</span>Path,
+<a href=#187 id=187 data-nosnippet>187</a>    bam_path: <span class="kw-2">&amp;</span>Path,
+<a href=#188 id=188 data-nosnippet>188</a>    interval_cli: <span class="kw-2">&amp;</span>str,
+<a href=#189 id=189 data-nosnippet>189</a>    padding: u64,
+<a href=#190 id=190 data-nosnippet>190</a>    out: <span class="kw-2">&amp;mut </span><span class="kw">impl </span>Write,
+<a href=#191 id=191 data-nosnippet>191</a>) -&gt; GatkResult&lt;()&gt; {
+<a href=#192 id=192 data-nosnippet>192</a>    <span class="macro">writeln!</span>(out, <span class="string">"read_path\tfinalize"</span>).map_err(|e| GatkError::generic(<span class="macro">format!</span>(<span class="string">"write: {e}"</span>)))<span class="question-mark">?</span>;
+<a href=#193 id=193 data-nosnippet>193</a>    <span class="kw">crate</span>::assembly_region_stages_dump::dump_assembly_region_assembly_stages_tsv(
+<a href=#194 id=194 data-nosnippet>194</a>        ref_fasta,
+<a href=#195 id=195 data-nosnippet>195</a>        bam_path,
+<a href=#196 id=196 data-nosnippet>196</a>        interval_cli,
+<a href=#197 id=197 data-nosnippet>197</a>        padding,
+<a href=#198 id=198 data-nosnippet>198</a>        out,
+<a href=#199 id=199 data-nosnippet>199</a>    )
 <a href=#200 id=200 data-nosnippet>200</a>}
+<a href=#201 id=201 data-nosnippet>201</a>
+<a href=#202 id=202 data-nosnippet>202</a><span class="kw">pub fn </span>default_finalize_reads_padding() -&gt; u64 {
+<a href=#203 id=203 data-nosnippet>203</a>    GATK_DEFAULT_ASSEMBLY_REGION_PADDING
+<a href=#204 id=204 data-nosnippet>204</a>}
 </code></pre></div></section></main></body></html>

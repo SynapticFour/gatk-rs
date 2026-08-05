@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["ReferenceContext"]};
+window.SIDEBAR_ITEMS = {"struct":["ReferenceContext","SharedBases"]};

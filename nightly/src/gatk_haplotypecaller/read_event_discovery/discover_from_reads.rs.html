@@ -3,7 +3,7 @@
 <a href=#3 id=3 data-nosnippet>3</a>
 <a href=#4 id=4 data-nosnippet>4</a>/// P12 `92307364 T/C` from reads on the trimmed apply window.
 <a href=#5 id=5 data-nosnippet>5</a></span><span class="kw">fn </span>discover_cluster_tc_from_reads(
-<a href=#6 id=6 data-nosnippet>6</a>    reads: <span class="kw-2">&amp;</span>[bam::Record],
+<a href=#6 id=6 data-nosnippet>6</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#7 id=7 data-nosnippet>7</a>    apply_bases: <span class="kw-2">&amp;</span>[u8],
 <a href=#8 id=8 data-nosnippet>8</a>    apply_pad: u64,
 <a href=#9 id=9 data-nosnippet>9</a>    active_start: u64,
@@ -74,7 +74,7 @@
 <a href=#74 id=74 data-nosnippet>74</a>
 <a href=#75 id=75 data-nosnippet>75</a><span class="doccomment">/// Fast check: reads in the active span carry indels or SNP mismatches (assembly retry trigger).
 <a href=#76 id=76 data-nosnippet>76</a></span><span class="kw">pub fn </span>reads_support_variation_in_active_span(
-<a href=#77 id=77 data-nosnippet>77</a>    reads: <span class="kw-2">&amp;</span>[bam::Record],
+<a href=#77 id=77 data-nosnippet>77</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#78 id=78 data-nosnippet>78</a>    ref_bases: <span class="kw-2">&amp;</span>[u8],
 <a href=#79 id=79 data-nosnippet>79</a>    pad_start_1based: u64,
 <a href=#80 id=80 data-nosnippet>80</a>    active_start_1based: u64,
@@ -124,7 +124,7 @@
 <a href=#124 id=124 data-nosnippet>124</a></span>}
 <a href=#125 id=125 data-nosnippet>125</a>
 <a href=#126 id=126 data-nosnippet>126</a><span class="kw">fn </span>discover_snp_events_from_reads(
-<a href=#127 id=127 data-nosnippet>127</a>    reads: <span class="kw-2">&amp;</span>[bam::Record],
+<a href=#127 id=127 data-nosnippet>127</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#128 id=128 data-nosnippet>128</a>    ref_bases: <span class="kw-2">&amp;</span>[u8],
 <a href=#129 id=129 data-nosnippet>129</a>    pad_start_1based: u64,
 <a href=#130 id=130 data-nosnippet>130</a>    active_start_1based: u64,
@@ -242,7 +242,7 @@
 <a href=#242 id=242 data-nosnippet>242</a>
 <a href=#243 id=243 data-nosnippet>243</a><span class="doccomment">/// Indels from read CIGARs (GATK `EventMap` padding semantics).
 <a href=#244 id=244 data-nosnippet>244</a></span><span class="kw">fn </span>discover_indel_events_from_reads(
-<a href=#245 id=245 data-nosnippet>245</a>    reads: <span class="kw-2">&amp;</span>[bam::Record],
+<a href=#245 id=245 data-nosnippet>245</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#246 id=246 data-nosnippet>246</a>    ref_bases: <span class="kw-2">&amp;</span>[u8],
 <a href=#247 id=247 data-nosnippet>247</a>    pad_start_1based: u64,
 <a href=#248 id=248 data-nosnippet>248</a>    active_start_1based: u64,
@@ -358,7 +358,7 @@
 <a href=#358 id=358 data-nosnippet>358</a>/// Test-only: production uses CIGAR indels + [`synthesize_cluster_motif_insertions`] (GATK `EventMap` path).
 <a href=#359 id=359 data-nosnippet>359</a></span><span class="attr">#[cfg(test)]
 <a href=#360 id=360 data-nosnippet>360</a></span><span class="kw">fn </span>discover_plug_insertion_events_from_reads(
-<a href=#361 id=361 data-nosnippet>361</a>    reads: <span class="kw-2">&amp;</span>[bam::Record],
+<a href=#361 id=361 data-nosnippet>361</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#362 id=362 data-nosnippet>362</a>    ref_bases: <span class="kw-2">&amp;</span>[u8],
 <a href=#363 id=363 data-nosnippet>363</a>    pad_start_1based: u64,
 <a href=#364 id=364 data-nosnippet>364</a>    active_start_1based: u64,
@@ -463,7 +463,7 @@
 <a href=#463 id=463 data-nosnippet>463</a>
 <a href=#464 id=464 data-nosnippet>464</a><span class="doccomment">/// Anchor + inserted motif in read (e.g. `A` + `TG` → `ATG` when ref is `AT`).
 <a href=#465 id=465 data-nosnippet>465</a></span><span class="kw">fn </span>discover_motif_insertion_events_from_reads(
-<a href=#466 id=466 data-nosnippet>466</a>    reads: <span class="kw-2">&amp;</span>[bam::Record],
+<a href=#466 id=466 data-nosnippet>466</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#467 id=467 data-nosnippet>467</a>    ref_bases: <span class="kw-2">&amp;</span>[u8],
 <a href=#468 id=468 data-nosnippet>468</a>    pad_start_1based: u64,
 <a href=#469 id=469 data-nosnippet>469</a>    active_start_1based: u64,

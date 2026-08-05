@@ -15,8 +15,8 @@
 <a href=#15 id=15 data-nosnippet>15</a></span><span class="kw">fn </span>finalize_strict_java_variation_genotype_parity(
 <a href=#16 id=16 data-nosnippet>16</a>    <span class="kw-2">mut </span>gt: RegionGenotypeResult,
 <a href=#17 id=17 data-nosnippet>17</a>    event: <span class="kw-2">&amp;</span>VariationEvent,
-<a href=#18 id=18 data-nosnippet>18</a>    likelihood_reads: <span class="kw-2">&amp;</span>[Record],
-<a href=#19 id=19 data-nosnippet>19</a>    pileup_reads: <span class="kw-2">&amp;</span>[Record],
+<a href=#18 id=18 data-nosnippet>18</a>    likelihood_reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
+<a href=#19 id=19 data-nosnippet>19</a>    pileup_reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#20 id=20 data-nosnippet>20</a>    read_ref_ad: i32,
 <a href=#21 id=21 data-nosnippet>21</a>    read_alt_ad: i32,
 <a href=#22 id=22 data-nosnippet>22</a>    pad_start_1based: u64,
@@ -169,8 +169,8 @@
 <a href=#169 id=169 data-nosnippet>169</a></span><span class="kw">fn </span>finish_strict_java_shaped_site_call(
 <a href=#170 id=170 data-nosnippet>170</a>    event: VariationEvent,
 <a href=#171 id=171 data-nosnippet>171</a>    gt: RegionGenotypeResult,
-<a href=#172 id=172 data-nosnippet>172</a>    likelihood_reads: <span class="kw-2">&amp;</span>[Record],
-<a href=#173 id=173 data-nosnippet>173</a>    pileup_reads: <span class="kw-2">&amp;</span>[Record],
+<a href=#172 id=172 data-nosnippet>172</a>    likelihood_reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
+<a href=#173 id=173 data-nosnippet>173</a>    pileup_reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#174 id=174 data-nosnippet>174</a>    read_ref_ad: i32,
 <a href=#175 id=175 data-nosnippet>175</a>    read_alt_ad: i32,
 <a href=#176 id=176 data-nosnippet>176</a>    pad_start_1based: u64,
@@ -207,8 +207,8 @@
 <a href=#207 id=207 data-nosnippet>207</a></span><span class="kw">fn </span>finalize_strict_java_variation_genotype(
 <a href=#208 id=208 data-nosnippet>208</a>    gt: RegionGenotypeResult,
 <a href=#209 id=209 data-nosnippet>209</a>    event: <span class="kw-2">&amp;</span>VariationEvent,
-<a href=#210 id=210 data-nosnippet>210</a>    _likelihood_reads: <span class="kw-2">&amp;</span>[Record],
-<a href=#211 id=211 data-nosnippet>211</a>    _pileup_reads: <span class="kw-2">&amp;</span>[Record],
+<a href=#210 id=210 data-nosnippet>210</a>    _likelihood_reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
+<a href=#211 id=211 data-nosnippet>211</a>    _pileup_reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#212 id=212 data-nosnippet>212</a>    _read_ref_ad: i32,
 <a href=#213 id=213 data-nosnippet>213</a>    _read_alt_ad: i32,
 <a href=#214 id=214 data-nosnippet>214</a>    _pad_start_1based: u64,
@@ -273,8 +273,8 @@
 <a href=#273 id=273 data-nosnippet>273</a>/// [`GenotypeFinalize::finalize_site`]). Kept for non-strict stored-events + dumps.
 <a href=#274 id=274 data-nosnippet>274</a></span><span class="kw">fn </span>post_finalize_strict_java_call(
 <a href=#275 id=275 data-nosnippet>275</a>    <span class="kw-2">mut </span>call: GenotypedSiteCall,
-<a href=#276 id=276 data-nosnippet>276</a>    pileup_reads: <span class="kw-2">&amp;</span>[Record],
-<a href=#277 id=277 data-nosnippet>277</a>    supplemental_pileup_reads: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>[Record]&gt;,
+<a href=#276 id=276 data-nosnippet>276</a>    pileup_reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
+<a href=#277 id=277 data-nosnippet>277</a>    supplemental_pileup_reads: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>[SharedBamRecord]&gt;,
 <a href=#278 id=278 data-nosnippet>278</a>    pad_start_1based: u64,
 <a href=#279 id=279 data-nosnippet>279</a>    ref_bases: <span class="kw-2">&amp;</span>[u8],
 <a href=#280 id=280 data-nosnippet>280</a>    config: <span class="kw-2">&amp;</span>HcGenotypingConfig,
@@ -315,7 +315,7 @@
 <a href=#315 id=315 data-nosnippet>315</a>    event: <span class="kw-2">&amp;</span>VariationEvent,
 <a href=#316 id=316 data-nosnippet>316</a>    read_ref_ad: i32,
 <a href=#317 id=317 data-nosnippet>317</a>    read_alt_ad: i32,
-<a href=#318 id=318 data-nosnippet>318</a>    pileup_reads: <span class="kw-2">&amp;</span>[Record],
+<a href=#318 id=318 data-nosnippet>318</a>    pileup_reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#319 id=319 data-nosnippet>319</a>    pad_start_1based: u64,
 <a href=#320 id=320 data-nosnippet>320</a>    ref_bases: <span class="kw-2">&amp;</span>[u8],
 <a href=#321 id=321 data-nosnippet>321</a>    config: <span class="kw-2">&amp;</span>HcGenotypingConfig,
@@ -521,7 +521,7 @@
 <a href=#521 id=521 data-nosnippet>521</a>    _mapping: <span class="kw-2">&amp;</span>AlleleHaplotypeMapping,
 <a href=#522 id=522 data-nosnippet>522</a>    gt: <span class="kw-2">&amp;</span>RegionGenotypeResult,
 <a href=#523 id=523 data-nosnippet>523</a>    haplotypes: <span class="kw-2">&amp;</span>[Haplotype],
-<a href=#524 id=524 data-nosnippet>524</a>    reads: <span class="kw-2">&amp;</span>[Record],
+<a href=#524 id=524 data-nosnippet>524</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#525 id=525 data-nosnippet>525</a>    ref_bytes: <span class="kw-2">&amp;</span>[u8],
 <a href=#526 id=526 data-nosnippet>526</a>    pad_start_1based: u64,
 <a href=#527 id=527 data-nosnippet>527</a>    max_mnp_distance: usize,
@@ -670,7 +670,7 @@
 <a href=#670 id=670 data-nosnippet>670</a></span><span class="kw">pub fn </span>format_locus_genotype_pl_dump(
 <a href=#671 id=671 data-nosnippet>671</a>    event: <span class="kw-2">&amp;</span>VariationEvent,
 <a href=#672 id=672 data-nosnippet>672</a>    likelihoods: <span class="kw-2">&amp;</span>[RegionReadLikelihood],
-<a href=#673 id=673 data-nosnippet>673</a>    reads: <span class="kw-2">&amp;</span>[Record],
+<a href=#673 id=673 data-nosnippet>673</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#674 id=674 data-nosnippet>674</a>    haplotypes: <span class="kw-2">&amp;</span>[Haplotype],
 <a href=#675 id=675 data-nosnippet>675</a>    ref_bytes: <span class="kw-2">&amp;</span>[u8],
 <a href=#676 id=676 data-nosnippet>676</a>    pad_start_1based: u64,
@@ -771,7 +771,7 @@
 <a href=#771 id=771 data-nosnippet>771</a></span><span class="kw">pub fn </span>pairhmm_locus_trace_dump(
 <a href=#772 id=772 data-nosnippet>772</a>    event: <span class="kw-2">&amp;</span>VariationEvent,
 <a href=#773 id=773 data-nosnippet>773</a>    likelihoods: <span class="kw-2">&amp;</span>[RegionReadLikelihood],
-<a href=#774 id=774 data-nosnippet>774</a>    reads: <span class="kw-2">&amp;</span>[Record],
+<a href=#774 id=774 data-nosnippet>774</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#775 id=775 data-nosnippet>775</a>    haplotypes: <span class="kw-2">&amp;</span>[Haplotype],
 <a href=#776 id=776 data-nosnippet>776</a>    ref_bytes: <span class="kw-2">&amp;</span>[u8],
 <a href=#777 id=777 data-nosnippet>777</a>    pad_start_1based: u64,
@@ -1076,9 +1076,9 @@
 <a href=#1076 id=1076 data-nosnippet>1076</a></span><span class="kw">pub fn </span>diagnose_genotype_variation_event(
 <a href=#1077 id=1077 data-nosnippet>1077</a>    event: <span class="kw-2">&amp;</span>VariationEvent,
 <a href=#1078 id=1078 data-nosnippet>1078</a>    likelihoods: <span class="kw-2">&amp;</span>[RegionReadLikelihood],
-<a href=#1079 id=1079 data-nosnippet>1079</a>    likelihood_reads: <span class="kw-2">&amp;</span>[Record],
-<a href=#1080 id=1080 data-nosnippet>1080</a>    pileup_reads: <span class="kw-2">&amp;</span>[Record],
-<a href=#1081 id=1081 data-nosnippet>1081</a>    supplemental_pileup_reads: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>[Record]&gt;,
+<a href=#1079 id=1079 data-nosnippet>1079</a>    likelihood_reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
+<a href=#1080 id=1080 data-nosnippet>1080</a>    pileup_reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
+<a href=#1081 id=1081 data-nosnippet>1081</a>    supplemental_pileup_reads: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>[SharedBamRecord]&gt;,
 <a href=#1082 id=1082 data-nosnippet>1082</a>    haplotypes: <span class="kw-2">&amp;</span>[Haplotype],
 <a href=#1083 id=1083 data-nosnippet>1083</a>    ref_bytes: <span class="kw-2">&amp;</span>[u8],
 <a href=#1084 id=1084 data-nosnippet>1084</a>    pad_start_1based: u64,
@@ -1125,7 +1125,7 @@
 <a href=#1125 id=1125 data-nosnippet>1125</a><span class="kw">fn </span>classify_genotype_reject(
 <a href=#1126 id=1126 data-nosnippet>1126</a>    event: <span class="kw-2">&amp;</span>VariationEvent,
 <a href=#1127 id=1127 data-nosnippet>1127</a>    likelihoods: <span class="kw-2">&amp;</span>[RegionReadLikelihood],
-<a href=#1128 id=1128 data-nosnippet>1128</a>    reads: <span class="kw-2">&amp;</span>[Record],
+<a href=#1128 id=1128 data-nosnippet>1128</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#1129 id=1129 data-nosnippet>1129</a>    haplotypes: <span class="kw-2">&amp;</span>[Haplotype],
 <a href=#1130 id=1130 data-nosnippet>1130</a>    ref_bytes: <span class="kw-2">&amp;</span>[u8],
 <a href=#1131 id=1131 data-nosnippet>1131</a>    pad_start_1based: u64,
@@ -1189,7 +1189,7 @@
 <a href=#1189 id=1189 data-nosnippet>1189</a>/// only on contig 2 / `chr2`. Elsewhere, alt read evidence + site PL/`passesEmitThreshold` gates decide.
 <a href=#1190 id=1190 data-nosnippet>1190</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>strict_asm8_emit_call_eligible(
 <a href=#1191 id=1191 data-nosnippet>1191</a>    call: <span class="kw-2">&amp;</span>GenotypedSiteCall,
-<a href=#1192 id=1192 data-nosnippet>1192</a>    region_reads: <span class="kw-2">&amp;</span>[Record],
+<a href=#1192 id=1192 data-nosnippet>1192</a>    region_reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#1193 id=1193 data-nosnippet>1193</a>    assembly: <span class="kw-2">&amp;</span><span class="kw">crate</span>::assembly_result_set::AssemblyResultSet,
 <a href=#1194 id=1194 data-nosnippet>1194</a>) -&gt; bool {
 <a href=#1195 id=1195 data-nosnippet>1195</a>    <span class="kw">let </span>event = <span class="kw-2">&amp;</span>call.event;
@@ -1273,7 +1273,7 @@
 <a href=#1273 id=1273 data-nosnippet>1273</a><span class="doccomment">/// Drop calls that cannot pass strict Java VCF emit on full-region read pileup (cuts rust-only).
 <a href=#1274 id=1274 data-nosnippet>1274</a></span><span class="kw">pub fn </span>filter_genotyped_calls_for_strict_java_emit(
 <a href=#1275 id=1275 data-nosnippet>1275</a>    calls: <span class="kw-2">&amp;mut </span>Vec&lt;GenotypedSiteCall&gt;,
-<a href=#1276 id=1276 data-nosnippet>1276</a>    region_reads: <span class="kw-2">&amp;</span>[Record],
+<a href=#1276 id=1276 data-nosnippet>1276</a>    region_reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
 <a href=#1277 id=1277 data-nosnippet>1277</a>    assembly: <span class="kw-2">&amp;</span><span class="kw">crate</span>::assembly_result_set::AssemblyResultSet,
 <a href=#1278 id=1278 data-nosnippet>1278</a>    config: <span class="kw-2">&amp;</span>HcGenotypingConfig,
 <a href=#1279 id=1279 data-nosnippet>1279</a>) -&gt; GatkResult&lt;()&gt; {
