@@ -321,7 +321,10 @@ pub use annotator::{
 };
 pub use assembly::*;
 pub use assembly::{AssemblyGraphPruningParams, AssemblyGraphSummary};
-pub use assembly_based_caller::{assemble_reads, call_region_assemble, AssembleReadsArgs};
+pub use assembly_based_caller::{
+    assemble_reads, assemble_reads_with_finalized, call_region_assemble, AssembleReadsArgs,
+    AssembledRegion,
+};
 pub use assembly_pipeline_stages::{
     CallRegionAssemblyStage, EVENT_MAP_SYNC_AROUND_FILTER_RATIONALE,
 };
@@ -458,7 +461,8 @@ pub use region_vcf_emit::{
 };
 pub use run::run_haplotype_caller;
 pub use shared_bam::{
-    record_make_mut, share_record, share_records, BamRecordSlot, SharedBamRecord,
+    into_unique_records, record_make_mut, share_record, share_records, BamRecordSlot,
+    SharedBamRecord,
 };
 pub use walker::{
     make_read_shards, make_read_shards_default_padding, ReadShard,

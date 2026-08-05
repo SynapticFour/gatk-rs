@@ -42,9 +42,10 @@ pub fn assembly_reference_read(
             .get_interval_bytes(dictionary, &region.contig, pad_start, pad_end)?
             .to_vec()
     };
+    let n = bases.len();
     Ok(AssemblyRead {
-        bases: String::from_utf8_lossy(&bases).into_owned(),
-        base_quals: vec![30; bases.len()],
+        bases,
+        base_quals: vec![30; n],
     })
 }
 
@@ -115,6 +116,45 @@ pub fn finalize_region_reads_for_assembly(
     out
 }
 
+/// Re-clip already-finalized records to a (possibly trimmed) region's padded span.
+///
+/// Softclip / adaptor / overlap-quality correction are **not** re-applied — those ran in
+/// [`finalize_region_reads_for_assembly`]. Only hard-clip-to-region + overlap/unmapped filters + sort.
+pub fn clip_finalized_reads_to_region(
+    reads: &[bam::Record],
+    region: &AssemblyRegion,
+) -> Vec<bam::Record> {
+    let ref_start = region.extended_start.get();
+    let ref_stop = region.extended_end.get();
+    let mut out: Vec<bam::Record> = Vec::new();
+    for original in reads {
+        if original.tid() < 0 || original.is_unmapped() || original.pos() < 0 {
+            continue;
+        }
+        if !read_overlaps_padded_span(original, ref_start, ref_stop) {
+            continue;
+        }
+        let mut read = hard_clip_to_region(original, ref_start, ref_stop);
+        if read.is_unmapped() || !read_has_positive_cigar_length(&read) {
+            continue;
+        }
+        let aln_start = read.pos() + 1;
+        let aln_end = i64::from(alignment_end_1based(&read));
+        if aln_start > aln_end || aln_start > ref_stop as i64 || aln_end < ref_start as i64 {
+            continue;
+        }
+        normalize_record_cigar(&mut read);
+        out.push(read);
+    }
+    out.sort_by(|a, b| {
+        a.tid()
+            .cmp(&b.tid())
+            .then_with(|| a.pos().cmp(&b.pos()))
+            .then_with(|| a.qname().cmp(b.qname()))
+    });
+    out
+}
+
 fn read_overlaps_padded_span(rec: &bam::Record, ref_start: u64, ref_stop: u64) -> bool {
     if rec.tid() < 0 || rec.is_unmapped() || rec.pos() < 0 {
         return false;
@@ -155,7 +195,7 @@ pub fn reference_haplotype_for_assembly_region(
     let (loc_start, _) = padded_reference_loc(region, dictionary);
     let alignment_start = region.extended_start.get().saturating_sub(loc_start) as usize;
     let span_len = (region.extended_end.get() - region.extended_start.get() + 1) as usize;
-    let ref_bytes = reference.bases.as_bytes();
+    let ref_bytes = reference.bases.as_slice();
     let end = (alignment_start + span_len).min(ref_bytes.len());
     let bases = ref_bytes[alignment_start..end].to_vec();
     // CLONE: needed because haplotype constructor takes owned bases.
@@ -209,7 +249,7 @@ pub fn records_to_assembly_reads<R: std::borrow::Borrow<bam::Record>>(
             let rec = rec.borrow();
             let bases: Vec<u8> = rec.seq().as_bytes().to_vec();
             AssemblyRead {
-                bases: String::from_utf8_lossy(&bases).into_owned(),
+                bases,
                 base_quals: rec.qual().to_vec(),
             }
         })

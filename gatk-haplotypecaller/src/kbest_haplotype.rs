@@ -26,7 +26,7 @@ pub struct KBestPath {
 }
 
 impl KBestPath {
-    pub fn bases(&self, graph: &AssemblyGraph) -> String {
+    pub fn bases(&self, graph: &AssemblyGraph) -> Vec<u8> {
         graph.path_bases(self.start, &self.edges)
     }
 }
@@ -78,7 +78,7 @@ impl PathState {
         edges.push((self.last, to));
         let penalty = log_penalty(edge_support, total_outgoing);
         // Each edge appends the last base of the destination kmer (`AssemblyGraph::path_bases`).
-        let add = usize::from(graph.nodes()[to].kmer.chars().last().is_some());
+        let add = usize::from(graph.nodes()[to].kmer.last().is_some());
         Self {
             start: self.start,
             edges,
@@ -246,10 +246,13 @@ fn find_best_haplotypes_inner(
     if max_number_of_haplotypes == 0 {
         return Ok(Vec::new());
     }
-    let graph = if strip_cycles {
-        graph_for_kbest(graph.clone())?
+    // Borrow when possible; only clone for cycle stripping (Phase B: avoid full graph copy).
+    let owned;
+    let graph: &AssemblyGraph = if strip_cycles {
+        owned = graph_for_kbest(graph.clone())?;
+        &owned
     } else {
-        graph.clone()
+        graph
     };
     let source = graph
         .reference_source_vertex()
@@ -263,7 +266,7 @@ fn find_best_haplotypes_inner(
     let mut result = Vec::new();
     let mut heap: BinaryHeap<HeapItem> = BinaryHeap::new();
     for &s in &sources {
-        let path = PathState::new(&graph, s);
+        let path = PathState::new(graph, s);
         heap.push(HeapItem {
             score_bits: path.score.to_bits(),
             tie: path.bases_len,
@@ -310,7 +313,7 @@ fn find_best_haplotypes_inner(
                     if heap.len() >= MAX_KBEST_HEAP_PATHS {
                         break;
                     }
-                    let extended = path.extend(&graph, to, support, total);
+                    let extended = path.extend(graph, to, support, total);
                     heap.push(HeapItem {
                         score_bits: extended.score.to_bits(),
                         tie: extended.bases_len,
@@ -325,7 +328,7 @@ fn find_best_haplotypes_inner(
         b.score
             .partial_cmp(&a.score)
             .unwrap_or(Ordering::Equal)
-            .then_with(|| b.bases(&graph).cmp(&a.bases(&graph)))
+            .then_with(|| b.bases(graph).cmp(&a.bases(graph)))
     });
     Ok(result)
 }
@@ -338,7 +341,7 @@ mod tests {
 
     fn read(seq: &str, q: u8) -> AssemblyRead {
         AssemblyRead {
-            bases: seq.to_string(),
+            bases: seq.as_bytes().to_vec(),
             base_quals: vec![q; seq.len()],
         }
     }
@@ -367,7 +370,7 @@ mod tests {
         let paths = find_best_haplotypes(&graph, 128).unwrap();
         assert!(!paths.is_empty());
         let seqs: HashSet<_> = paths.iter().map(|p| p.bases(&graph)).collect();
-        assert!(seqs.contains("ACGTT"));
+        assert!(seqs.contains(&b"ACGTT".to_vec()));
     }
 
     #[test]

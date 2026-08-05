@@ -133,12 +133,16 @@ fn indel_raw_graph_lists_paths_and_branches() {
             .map(|e| e.to)
             .collect();
         if outs.is_empty() && !graph.is_ref_sink_vertex(v) {
-            eprintln!("non-ref sink node {} kmer={}", v, graph.nodes()[v].kmer);
+            eprintln!(
+                "non-ref sink node {} kmer={}",
+                v,
+                String::from_utf8_lossy(&graph.nodes()[v].kmer)
+            );
         }
     }
     for e in graph.edges_sorted() {
-        let from = &graph.nodes()[e.from].kmer;
-        let to = &graph.nodes()[e.to].kmer;
+        let from = String::from_utf8_lossy(&graph.nodes()[e.from].kmer);
+        let to = String::from_utf8_lossy(&graph.nodes()[e.to].kmer);
         eprintln!(
             "{from} -> {to} support={} ref={}",
             e.support,
@@ -150,10 +154,17 @@ fn indel_raw_graph_lists_paths_and_branches() {
     eprintln!("kbest paths={}", paths.len());
     for p in &paths {
         let seq = p.bases(&graph);
-        eprintln!("  ref={} len={} seq={seq}", p.is_reference, seq.len());
+        eprintln!(
+            "  ref={} len={} seq={}",
+            p.is_reference,
+            seq.len(),
+            String::from_utf8_lossy(&seq)
+        );
     }
 
-    let has_insertion_raw = paths.iter().any(|p| p.bases(&graph).contains("GATCGATACG"));
+    let has_insertion_raw = paths
+        .iter()
+        .any(|p| p.bases(&graph).windows(10).any(|w| w == b"GATCGATACG"));
     eprintln!("raw has insertion substring in kbest: {has_insertion_raw}");
 
     let all = paths_source_to_sink(&graph, 20);
@@ -165,9 +176,10 @@ fn indel_raw_graph_lists_paths_and_branches() {
         }
         let seq = graph.path_bases(p[0], &edges);
         eprintln!(
-            "  dfs[{i}] len={} ins={} seq={seq}",
+            "  dfs[{i}] len={} ins={} seq={}",
             seq.len(),
-            seq.contains("GATCGATACG")
+            seq.windows(10).any(|w| w == b"GATCGATACG"),
+            String::from_utf8_lossy(&seq)
         );
     }
 
@@ -185,7 +197,10 @@ fn indel_raw_graph_lists_paths_and_branches() {
     let after_dangling = find_best_haplotypes(&dangling_only, 128).unwrap();
     eprintln!("after dangling only paths={}", after_dangling.len());
     for p in &after_dangling {
-        eprintln!("  dag seq={}", p.bases(&dangling_only));
+        eprintln!(
+            "  dag seq={}",
+            String::from_utf8_lossy(&p.bases(&dangling_only))
+        );
     }
 
     let args = ReadThreadingAssemblerArgs::default();
@@ -202,9 +217,10 @@ fn indel_raw_graph_lists_paths_and_branches() {
         }
         let seq = prune_only.path_bases(p[0], &edges);
         eprintln!(
-            "  prune[{i}] len={} ins={} seq={seq}",
+            "  prune[{i}] len={} ins={} seq={}",
             seq.len(),
-            seq.contains("GATCGATACG")
+            seq.windows(10).any(|w| w == b"GATCGATACG"),
+            String::from_utf8_lossy(&seq)
         );
     }
 
@@ -224,15 +240,17 @@ fn indel_raw_graph_lists_paths_and_branches() {
     for p in &pruned_paths {
         let seq = p.bases(&pruned);
         eprintln!(
-            "  pruned ref={} len={} seq={seq}",
+            "  pruned ref={} len={} seq={}",
             p.is_reference,
-            seq.len()
+            seq.len(),
+            String::from_utf8_lossy(&seq)
         );
     }
 
-    let has_insertion = pruned_paths
-        .iter()
-        .any(|p| p.bases(&pruned).contains("GATCGATACG") || p.bases(&pruned) == JAVA_INSERTION);
+    let has_insertion = pruned_paths.iter().any(|p| {
+        let seq = p.bases(&pruned);
+        seq.windows(10).any(|w| w == b"GATCGATACG") || seq.as_slice() == JAVA_INSERTION.as_bytes()
+    });
     assert!(
         has_insertion,
         "expected insertion path after dangling recovery; pruned paths={}",
@@ -270,16 +288,20 @@ fn indel_seq_graph_kbest_includes_insertion() {
             eprintln!(
                 "  seq path len={} ins={} seq={seq_s}",
                 bases.len(),
-                seq_s.contains("GATCGATACG")
+                bases.windows(10).any(|w| w == b"GATCGATACG")
             );
         }
         paths.iter().any(|p| {
-            String::from_utf8_lossy(&seq.path_bases_bytes(p.start, &p.edges)).contains("GATCGATACG")
+            seq.path_bases_bytes(p.start, &p.edges)
+                .windows(10)
+                .any(|w| w == b"GATCGATACG")
         })
     } else {
         eprintln!("seq cleanup lost ref sink; checking RT graph kbest");
         let paths = find_best_haplotypes(&graph, 128).unwrap();
-        paths.iter().any(|p| p.bases(&graph).contains("GATCGATACG"))
+        paths
+            .iter()
+            .any(|p| p.bases(&graph).windows(10).any(|w| w == b"GATCGATACG"))
     };
     assert!(
         has_insertion,
@@ -309,7 +331,7 @@ fn indel_try_assemble_k10_extract_keeps_insertion() {
         build_threading_graph_for_haplotype_dump(&reference, &reads, 10, &args, true, false)
             .unwrap()
             .expect("graph");
-    let mut ref_hap = Haplotype::new(reference.bases.as_bytes(), true);
+    let mut ref_hap = Haplotype::new(reference.bases.as_slice(), true);
     let mut ref_cigar = gatk_haplotypecaller::cigar::Cigar::new();
     ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
     ref_hap.cigar = Some(ref_cigar);
@@ -377,10 +399,11 @@ fn indel_production_assembler_emits_java_insertion_haplotype() {
     for h in &result.haplotypes {
         let seq = String::from_utf8_lossy(&h.bases);
         eprintln!(
-            "  ref={} len={} cigar={:?} seq={seq}",
+            "  ref={} len={} cigar={:?} seq={}",
             h.is_reference,
             h.bases.len(),
-            h.cigar.as_ref().map(|c| c.to_gatk_string())
+            h.cigar.as_ref().map(|c| c.to_gatk_string()),
+            seq
         );
     }
     let has_full_insertion = |haps: &[gatk_haplotypecaller::haplotype::Haplotype]| {

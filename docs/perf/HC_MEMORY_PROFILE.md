@@ -26,6 +26,38 @@ Local recipe: [`AIR_M4_GIAB_RECIPE.md`](AIR_M4_GIAB_RECIPE.md). Pre-change ancho
 
 **Do not** re-run 2 Mb realistic / full 30× P12 on this 16 GiB host until dense-window RSS is re-measured with `GATK_RS_HC_SEQUENTIAL=1`. **Do not** dispatch signed `ci-subset` until that proof exists.
 
+## Rust showcase Phase A (ownership) — 2026-08-05
+
+Roadmap: [`RUST_SHOWCASE_ROADMAP.md`](RUST_SHOWCASE_ROADMAP.md).
+
+| Change | Where |
+|--------|--------|
+| Byte-native assembly / kmers (`Vec<u8>`) | `assembly.rs`, `read_threading_graph.rs`, … |
+| Single finalize buffer for assemble + PairHMM | `assembly_based_caller.rs`, `engine.rs` |
+| COW-aware unique ownership before realign | `shared_bam::into_unique_records`, `engine.rs` |
+| Sequential hap scoring under `GATK_RS_HC_SEQUENTIAL=1` | `likelihood_engine.rs` |
+| Optional jemalloc | `gatk-cli` feature `jemalloc` + `MALLOC_CONF` notes in Air recipe |
+
+**Measured 2026-08-05** (Air M4 Darwin arm64, `GATK_RS_HC_SEQUENTIAL=1`, `RAYON_NUM_THREADS=1`, release `gatk-rs` without jemalloc; BAM `parity/realworld/na12878_giab_window_mem_500kb_b37`, ref `hs37d5.simple.fa`):
+
+| Window | Interval | Peak-RSS | Exit |
+|--------|----------|----------|------|
+| bomb | `20:10098500-10099500` | **26.86 MiB** | 0 |
+| 50 kb | `20:10000000-10050000` | **31.50 MiB** | 0 |
+| 100 kb | `20:10000000-10100000` | **2632 MiB** then abort | 1 |
+| 500 kb | `20:10000000-10500000` | skipped after 100 kb failure | — |
+
+Pre-pass anchors (`HC_MEMORY_BASELINE_20260804.md`): bomb ~38 MiB, 50 kb ~114 MiB. **Dense-window Peak-RSS drop is real on bomb/50 kb**; 100 kb still fails on this 16 GiB host — **not** a public claim and **not** a GIAB `ci-subset` sign. Excellence N-7 band freeze PASS.
+
+**Holdout Rust HC sanity (same env, 50 kb windows):**
+
+| Window | Interval | Peak-RSS | Variants | Exit |
+|--------|----------|----------|----------|------|
+| chr21 | `21:41200001-41250000` | 28.27 MiB | 26 | 0 |
+| chr20 holdout | `20:15000000-15050000` | 32.53 MiB | 4 | 0 |
+
+`check_hc_rss_regression.sh` with staged BAM: OK (bomb Peak-RSS 36.6 MiB ≤ 256).
+
 ## A. Trivial smoke — reproducibility reference only
 
 **Label:** Trivial smoke (reproducibility only)  

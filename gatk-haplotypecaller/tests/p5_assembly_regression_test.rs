@@ -45,7 +45,8 @@ fn load_reads_tsv(path: &PathBuf) -> Vec<AssemblyRead> {
             let bases = parts
                 .next()
                 .unwrap_or_else(|| panic!("missing sequence in {}", path.display()))
-                .to_string();
+                .as_bytes()
+                .to_vec();
             let q = parts
                 .next()
                 .unwrap_or_else(|| panic!("missing qual in {}", path.display()))
@@ -62,7 +63,7 @@ fn load_reads_tsv(path: &PathBuf) -> Vec<AssemblyRead> {
 
 fn mk_read(seq: &str, q: u8) -> AssemblyRead {
     AssemblyRead {
-        bases: seq.to_string(),
+        bases: seq.as_bytes().to_vec(),
         base_quals: vec![q; seq.len()],
     }
 }
@@ -77,7 +78,7 @@ fn assemble_candidates(reads: &[AssemblyRead], params: &AssemblyGraphParams) -> 
     graph
         .extract_candidate_haplotypes(params.max_haplotypes, params.max_haplotype_bases)
         .into_iter()
-        .map(|h| (h.sequence, h.support))
+        .map(|h| (String::from_utf8_lossy(&h.sequence).into_owned(), h.support))
         .collect()
 }
 

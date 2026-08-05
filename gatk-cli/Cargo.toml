@@ -11,6 +11,11 @@ rust-version.workspace = true
 name = "gatk-rs"
 path = "src/main.rs"
 
+[features]
+default = []
+# `cargo build -p gatk-cli --release --locked --features jemalloc`
+jemalloc = ["dep:tikv-jemallocator"]
+
 [dependencies]
 # Workspace dependencies
 clap.workspace = true
@@ -32,6 +37,9 @@ gatk-haplotypecaller = { path = "../gatk-haplotypecaller", features = ["dev-dump
 # External dependencies
 colored = "3.1"
 console = "0.16"
+
+# Optional allocator for Peak-RSS (GIAB / dense windows). Off by default.
+tikv-jemallocator = { version = "0.6", optional = true }
 
 # Benchmarking dependencies
 chrono.workspace = true

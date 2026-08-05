@@ -26,7 +26,8 @@ fn load_reads_tsv(path: &PathBuf) -> Vec<AssemblyRead> {
             let bases = parts
                 .next()
                 .unwrap_or_else(|| panic!("missing sequence in {}", path.display()))
-                .to_string();
+                .as_bytes()
+                .to_vec();
             let q = parts
                 .next()
                 .unwrap_or_else(|| panic!("missing qual in {}", path.display()))
@@ -94,8 +95,10 @@ fn p5_assembly_case1_candidates_match_frozen_java_export() {
     graph.cleanup_isolated_nodes();
     let got = graph.extract_candidate_haplotypes(params.max_haplotypes, params.max_haplotype_bases);
 
-    let actual: BTreeSet<(String, u32)> =
-        got.into_iter().map(|h| (h.sequence, h.support)).collect();
+    let actual: BTreeSet<(String, u32)> = got
+        .into_iter()
+        .map(|h| (String::from_utf8_lossy(&h.sequence).into_owned(), h.support))
+        .collect();
     let expected = load_candidates(&expected_path);
 
     assert_eq!(

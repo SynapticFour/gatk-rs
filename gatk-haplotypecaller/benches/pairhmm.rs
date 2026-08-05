@@ -79,26 +79,29 @@ fn bench_pairhmm_logless_simd(c: &mut Criterion) {
         ),
     ];
 
-    for hap_count in [8usize, 32usize, 64usize] {
-        for (name, backend) in backends {
-            group.bench_with_input(
-                BenchmarkId::new(format!("{name}_haps"), hap_count),
-                &hap_count,
-                |b, &n| {
-                    b.iter_batched(
-                        || make_batch(n, 200),
-                        |(read, quals, haps, ins, del, gcp)| {
-                            let refs: Vec<&[u8]> = haps.iter().map(|h| h.as_slice()).collect();
-                            let out = score_read_haps_logless(
-                                backend, &read, &quals, &refs, &ins, &del, &gcp,
-                            )
-                            .unwrap();
-                            assert_eq!(out.len(), n);
-                        },
-                        BatchSize::SmallInput,
-                    )
-                },
-            );
+    // Phenotype classes (read length × hap count), not locus pins.
+    for read_len in [100usize, 200, 300] {
+        for hap_count in [8usize, 32, 64, 128] {
+            for (name, backend) in backends {
+                group.bench_with_input(
+                    BenchmarkId::new(format!("{name}_r{read_len}_h"), hap_count),
+                    &hap_count,
+                    |b, &n| {
+                        b.iter_batched(
+                            || make_batch(n, read_len),
+                            |(read, quals, haps, ins, del, gcp)| {
+                                let refs: Vec<&[u8]> = haps.iter().map(|h| h.as_slice()).collect();
+                                let out = score_read_haps_logless(
+                                    backend, &read, &quals, &refs, &ins, &del, &gcp,
+                                )
+                                .unwrap();
+                                assert_eq!(out.len(), n);
+                            },
+                            BatchSize::SmallInput,
+                        )
+                    },
+                );
+            }
         }
     }
     group.finish();

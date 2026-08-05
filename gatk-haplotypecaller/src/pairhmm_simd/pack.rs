@@ -1,5 +1,8 @@
 //! Portable pairs-in-lanes Logless PairHMM (explicit lanes; used as fallback and
 //! for uneven packs). AVX2/NEON specialize full-width packs.
+//!
+//! Scratch planes are sized once to `max(hap_len)` and reused across haplotypes for
+//! cache locality (phenotype: many haps × shared read). Numerics match scalar Logless.
 
 use crate::pairhmm_logless::{
     logless_pairhmm_likelihood, INITIAL_CONDITION, INITIAL_CONDITION_LOG10, MIN_ACCEPTED_LINEAR_SUM,
@@ -61,9 +64,33 @@ fn qual_to_trans_probs(ins_qual: u8, del_qual: u8, gcp: u8) -> [f64; 6] {
     ]
 }
 
+struct F64Scratch {
+    m: Vec<f64>,
+    ins: Vec<f64>,
+    del: Vec<f64>,
+    prior: Vec<f64>,
+}
+
+impl F64Scratch {
+    fn with_capacity_cells(cells: usize) -> Self {
+        Self {
+            m: vec![0.0; cells],
+            ins: vec![0.0; cells],
+            del: vec![0.0; cells],
+            prior: vec![0.0; cells],
+        }
+    }
+
+    fn clear_prefix(&mut self, cells: usize) {
+        self.m[..cells].fill(0.0);
+        self.ins[..cells].fill(0.0);
+        self.del[..cells].fill(0.0);
+        self.prior[..cells].fill(0.0);
+    }
+}
+
 /// Score one read against many haplotypes with a portable packed f64 kernel.
-/// Haplotypes are processed in packs for cache locality; each lane is independent
-/// Logless DP (same numerics as scalar).
+/// Haplotypes share one DP scratch sized to the longest hap (cache locality).
 pub fn score_haps_logless_packed_f64(
     read_bases: &[u8],
     read_quals: &[u8],
@@ -85,9 +112,20 @@ pub fn score_haps_logless_packed_f64(
         transitions[i + 1] = qual_to_trans_probs(insertion_gop[i], deletion_gop[i], overall_gcp[i]);
     }
 
+    let max_hn = haplotypes.iter().map(|h| h.len()).max().unwrap_or(0);
+    let max_cols = max_hn + 1;
+    let max_cells = (rn + 1) * max_cols;
+    let mut scratch = F64Scratch::with_capacity_cells(max_cells);
+
     let mut out = Vec::with_capacity(haplotypes.len());
     for &hap in haplotypes {
-        out.push(score_one_f64(read_bases, read_quals, hap, &transitions));
+        out.push(score_one_f64(
+            read_bases,
+            read_quals,
+            hap,
+            &transitions,
+            &mut scratch,
+        ));
     }
     Ok(out)
 }
@@ -97,15 +135,17 @@ fn score_one_f64(
     read_quals: &[u8],
     hap: &[u8],
     transitions: &[[f64; 6]],
+    scratch: &mut F64Scratch,
 ) -> f64 {
     let rn = read_bases.len();
     let hn = hap.len();
     let cols = hn + 1;
     let cells = (rn + 1) * cols;
-    let mut m = vec![0.0f64; cells];
-    let mut ins = vec![0.0f64; cells];
-    let mut del = vec![0.0f64; cells];
-    let mut prior = vec![0.0f64; cells];
+    scratch.clear_prefix(cells);
+    let m = &mut scratch.m;
+    let ins = &mut scratch.ins;
+    let del = &mut scratch.del;
+    let prior = &mut scratch.prior;
 
     for i in 0..rn {
         let x = read_bases[i];
@@ -155,6 +195,31 @@ fn score_one_f64(
     final_sum.log10() - INITIAL_CONDITION_LOG10
 }
 
+struct F32Scratch {
+    m: Vec<f32>,
+    ins: Vec<f32>,
+    del: Vec<f32>,
+    prior: Vec<f32>,
+}
+
+impl F32Scratch {
+    fn with_capacity_cells(cells: usize) -> Self {
+        Self {
+            m: vec![0.0; cells],
+            ins: vec![0.0; cells],
+            del: vec![0.0; cells],
+            prior: vec![0.0; cells],
+        }
+    }
+
+    fn clear_prefix(&mut self, cells: usize) {
+        self.m[..cells].fill(0.0);
+        self.ins[..cells].fill(0.0);
+        self.del[..cells].fill(0.0);
+        self.prior[..cells].fill(0.0);
+    }
+}
+
 /// f32 packed path with per-haplotype f64 retry when the linear sum underflows.
 pub fn score_haps_logless_packed_f32(
     read_bases: &[u8],
@@ -185,9 +250,14 @@ pub fn score_haps_logless_packed_f32(
         ];
     }
 
+    let max_hn = haplotypes.iter().map(|h| h.len()).max().unwrap_or(0);
+    let max_cells = (rn + 1) * (max_hn + 1);
+    let mut scratch = F32Scratch::with_capacity_cells(max_cells);
+
     let mut out = Vec::with_capacity(haplotypes.len());
     for &hap in haplotypes {
-        let (ll, linear_sum) = score_one_f32(read_bases, read_quals, hap, &transitions_f32);
+        let (ll, linear_sum) =
+            score_one_f32(read_bases, read_quals, hap, &transitions_f32, &mut scratch);
         if !linear_sum.is_finite() || (linear_sum as f64) < MIN_ACCEPTED_LINEAR_SUM {
             out.push(logless_pairhmm_likelihood(
                 read_bases,
@@ -209,15 +279,17 @@ fn score_one_f32(
     read_quals: &[u8],
     hap: &[u8],
     transitions: &[[f32; 6]],
+    scratch: &mut F32Scratch,
 ) -> (f64, f32) {
     let rn = read_bases.len();
     let hn = hap.len();
     let cols = hn + 1;
     let cells = (rn + 1) * cols;
-    let mut m = vec![0.0f32; cells];
-    let mut ins = vec![0.0f32; cells];
-    let mut del = vec![0.0f32; cells];
-    let mut prior = vec![0.0f32; cells];
+    scratch.clear_prefix(cells);
+    let m = &mut scratch.m;
+    let ins = &mut scratch.ins;
+    let del = &mut scratch.del;
+    let prior = &mut scratch.prior;
 
     for i in 0..rn {
         let x = read_bases[i];

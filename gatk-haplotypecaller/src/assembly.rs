@@ -7,7 +7,8 @@ use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssemblyRead {
-    pub bases: String,
+    /// ASCII ACGTN bases (same bytes as prior `String` path for valid BAM/ref).
+    pub bases: Vec<u8>,
     pub base_quals: Vec<u8>,
 }
 
@@ -88,7 +89,7 @@ pub struct AssemblyGraphSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KmerNode {
     pub id: usize,
-    pub kmer: String,
+    pub kmer: Vec<u8>,
     pub support: u32,
 }
 
@@ -101,7 +102,7 @@ pub struct KmerEdge {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CandidateHaplotype {
-    pub sequence: String,
+    pub sequence: Vec<u8>,
     pub support: u32,
 }
 
@@ -119,7 +120,7 @@ pub struct AssemblyGraph {
     /// Successful dangling merges that carry variation off the ref-spine (ASM-1 → ASM-8).
     pub(crate) dangling_merge_haps: Vec<DanglingMergeHaplotype>,
     nodes: Vec<KmerNode>,
-    kmer_to_id: BTreeMap<String, usize>,
+    kmer_to_id: BTreeMap<Vec<u8>, usize>,
     edges: HashMap<(usize, usize), u32>,
     outgoing: HashMap<usize, BTreeSet<usize>>,
     incoming: HashMap<usize, BTreeSet<usize>>,
@@ -129,7 +130,7 @@ pub struct AssemblyGraph {
     pub(crate) ref_nodes: HashSet<usize>,
     /// First reference kmer (`AbstractReadThreadingGraph.refSource`).
     #[allow(dead_code)] // carried from threading graph for future parity dumps
-    pub(crate) ref_source_kmer: Option<String>,
+    pub(crate) ref_source_kmer: Option<Vec<u8>>,
 }
 
 impl AssemblyGraph {
@@ -145,13 +146,13 @@ impl AssemblyGraph {
     pub(crate) fn from_threading_build(
         kmer_size: usize,
         nodes: Vec<KmerNode>,
-        kmer_to_id: BTreeMap<String, usize>,
+        kmer_to_id: BTreeMap<Vec<u8>, usize>,
         edges: HashMap<(usize, usize), u32>,
         outgoing: HashMap<usize, BTreeSet<usize>>,
         incoming: HashMap<usize, BTreeSet<usize>>,
         ref_edges: HashSet<(usize, usize)>,
         ref_nodes: HashSet<usize>,
-        ref_source_kmer: Option<String>,
+        ref_source_kmer: Option<Vec<u8>>,
     ) -> Self {
         Self {
             kmer_size,
@@ -167,7 +168,7 @@ impl AssemblyGraph {
         }
     }
 
-    pub(crate) fn ensure_node(&mut self, kmer: &str) -> usize {
+    pub(crate) fn ensure_node(&mut self, kmer: &[u8]) -> usize {
         if let Some(id) = self.kmer_to_id.get(kmer) {
             let idx = *id;
             self.nodes[idx].support = self.nodes[idx].support.saturating_add(1);
@@ -176,10 +177,10 @@ impl AssemblyGraph {
         let id = self.nodes.len();
         self.nodes.push(KmerNode {
             id,
-            kmer: kmer.to_string(),
+            kmer: kmer.to_vec(),
             support: 1,
         });
-        self.kmer_to_id.insert(kmer.to_string(), id);
+        self.kmer_to_id.insert(kmer.to_vec(), id);
         id
     }
 
@@ -207,7 +208,7 @@ impl AssemblyGraph {
         &self.nodes
     }
 
-    pub(crate) fn vertex_id_for_kmer(&self, kmer: &str) -> Option<usize> {
+    pub(crate) fn vertex_id_for_kmer(&self, kmer: &[u8]) -> Option<usize> {
         self.kmer_to_id.get(kmer).copied()
     }
 
@@ -306,15 +307,15 @@ impl AssemblyGraph {
     }
 
     /// GATK `Path.getBases` on a k-mer graph path.
-    pub fn path_bases(&self, start: usize, edges: &[(usize, usize)]) -> String {
+    pub fn path_bases(&self, start: usize, edges: &[(usize, usize)]) -> Vec<u8> {
         if edges.is_empty() {
             return self.nodes[start].kmer.clone();
         }
         let first_from = edges[0].0;
         let mut s = self.nodes[first_from].kmer.clone();
         for &(_, to) in edges {
-            if let Some(c) = self.nodes[to].kmer.chars().last() {
-                s.push(c);
+            if let Some(&b) = self.nodes[to].kmer.last() {
+                s.push(b);
             }
         }
         s
@@ -393,7 +394,7 @@ impl AssemblyGraph {
         self.cleanup_isolated_nodes();
     }
 
-    pub(crate) fn kmer_at(&self, id: usize) -> &str {
+    pub(crate) fn kmer_at(&self, id: usize) -> &[u8] {
         &self.nodes[id].kmer
     }
 
@@ -593,7 +594,7 @@ impl AssemblyGraph {
         }
         starts.sort_unstable();
 
-        let mut heap: BinaryHeap<(u32, Reverse<String>)> = BinaryHeap::new();
+        let mut heap: BinaryHeap<(u32, Reverse<Vec<u8>>)> = BinaryHeap::new();
         for s in starts {
             let mut visited = HashSet::new();
             let mut current = self.nodes[s].kmer.clone(); // CLONE: needed — DFS scratch starts as source kmer
@@ -679,11 +680,11 @@ impl AssemblyGraph {
     fn dfs_haplotypes(
         &self,
         node: usize,
-        current: &mut String,
+        current: &mut Vec<u8>,
         support_acc: u32,
         max_bases: usize,
         visited: &mut HashSet<usize>,
-        out: &mut BinaryHeap<(u32, Reverse<String>)>,
+        out: &mut BinaryHeap<(u32, Reverse<Vec<u8>>)>,
     ) {
         if current.len() > max_bases || visited.contains(&node) {
             return;
@@ -703,7 +704,7 @@ impl AssemblyGraph {
         };
         for &to in outs {
             let edge_w = *self.edges.get(&(node, to)).unwrap_or(&0);
-            let next_base = self.nodes[to].kmer.chars().last().unwrap_or('N');
+            let next_base = self.nodes[to].kmer.last().copied().unwrap_or(b'N');
             current.push(next_base);
             self.dfs_haplotypes(
                 to,
@@ -759,7 +760,7 @@ impl AssemblyEngine {
                 .haplotypes
                 .into_iter()
                 .map(|h| CandidateHaplotype {
-                    sequence: h.sequence_string(),
+                    sequence: h.bases,
                     support: h.score.max(0.0) as u32,
                 })
                 .collect());
@@ -783,7 +784,7 @@ mod tests {
 
     fn mk_read(seq: &str, q: u8) -> AssemblyRead {
         AssemblyRead {
-            bases: seq.to_string(),
+            bases: seq.as_bytes().to_vec(),
             base_quals: vec![q; seq.len()],
         }
     }
@@ -978,8 +979,12 @@ mod tests {
             mk_read("AAAAGAAA", 30),
         ];
         let hs = engine.assemble(&reads).unwrap();
-        assert!(hs.iter().any(|h| h.sequence.contains("AAAAC")));
-        assert!(hs.iter().any(|h| h.sequence.contains("AAAAG")));
+        assert!(hs
+            .iter()
+            .any(|h| h.sequence.windows(5).any(|w| w == b"AAAAC")));
+        assert!(hs
+            .iter()
+            .any(|h| h.sequence.windows(5).any(|w| w == b"AAAAG")));
     }
 
     #[test]
@@ -1002,8 +1007,8 @@ mod tests {
         ];
         let hs = engine.assemble(&reads).unwrap();
         // Both branches are above min_edge_weight and should survive cleanup.
-        assert!(hs.iter().any(|h| h.sequence.ends_with('T')));
-        assert!(hs.iter().any(|h| h.sequence.ends_with('A')));
+        assert!(hs.iter().any(|h| h.sequence.ends_with(b"T")));
+        assert!(hs.iter().any(|h| h.sequence.ends_with(b"A")));
     }
 
     #[test]
@@ -1056,7 +1061,7 @@ mod tests {
             seq.push_str("AAAAAAAAAAAAAAAAAAAA");
             reads.push(AssemblyRead {
                 base_quals: vec![30; seq.len()],
-                bases: seq,
+                bases: seq.into_bytes(),
             });
         }
         let hs = engine.assemble(&reads).unwrap();

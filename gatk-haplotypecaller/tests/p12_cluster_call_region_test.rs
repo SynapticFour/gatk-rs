@@ -99,7 +99,7 @@ fn p12_cluster_call_region() {
             build_threading_graph_for_haplotype_dump(&reference, &reads, 85, &asm_args, true, true)
                 .expect("graph")
         {
-            let mut ref_hap = Haplotype::new(reference.bases.as_bytes(), true);
+            let mut ref_hap = Haplotype::new(reference.bases.as_slice(), true);
             let mut ref_cigar = Cigar::new();
             ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
             ref_hap.cigar = Some(ref_cigar);

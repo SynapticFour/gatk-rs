@@ -186,11 +186,11 @@ fn max_weight_chain_index(chains: &[LinearChain], graph: &AssemblyGraph) -> usiz
         .unwrap_or(0)
 }
 
-fn chain_bases(chain: &LinearChain, graph: &AssemblyGraph) -> String {
+fn chain_bases(chain: &LinearChain, graph: &AssemblyGraph) -> Vec<u8> {
     if chain.edges.is_empty() {
-        return String::new();
+        return Vec::new();
     }
-    graph.kmer_at(chain.first).to_string()
+    graph.kmer_at(chain.first).to_vec()
 }
 
 fn adaptive_chains_to_remove(

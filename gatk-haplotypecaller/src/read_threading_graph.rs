@@ -88,14 +88,14 @@ pub struct ReadThreadingGraphBuilder {
     num_pruning_samples: usize,
     /// GATK `pending`: sequences grouped by sample; flush edge multiplicities after each sample.
     pending: IndexMap<String, Vec<SequenceForKmers>>,
-    non_unique_kmers: HashSet<String>,
+    non_unique_kmers: HashSet<Vec<u8>>,
     /// GATK `uniqueKmers`: one vertex per unique kmer only.
-    unique_kmers: BTreeMap<String, usize>,
-    nodes: Vec<String>,
+    unique_kmers: BTreeMap<Vec<u8>, usize>,
+    nodes: Vec<Vec<u8>>,
     edges: HashMap<(usize, usize), ThreadingEdge>,
     edge_is_ref: HashSet<(usize, usize)>,
     ref_nodes: HashSet<usize>,
-    ref_source_kmer: Option<String>,
+    ref_source_kmer: Option<Vec<u8>>,
     /// Neighbor sets are ordered so `extend_chain_by_one` first-match is deterministic.
     outgoing: HashMap<usize, BTreeSet<usize>>,
     incoming: HashMap<usize, BTreeSet<usize>>,
@@ -128,16 +128,12 @@ impl ReadThreadingGraphBuilder {
         }
     }
 
-    fn kmer_at(bases: &[u8], start: usize, k: usize) -> String {
-        // Hot path: assembly bases are ASCII ACGTN; avoid lossy UTF-8 scanning.
-        match std::str::from_utf8(&bases[start..start + k]) {
-            Ok(s) => s.to_owned(),
-            Err(_) => String::from_utf8_lossy(&bases[start..start + k]).into_owned(),
-        }
+    fn kmer_at(bases: &[u8], start: usize, k: usize) -> Vec<u8> {
+        bases[start..start + k].to_vec()
     }
 
-    fn suffix_of_kmer(kmer: &str) -> u8 {
-        kmer.as_bytes().last().copied().unwrap_or(b'N')
+    fn suffix_of_kmer(kmer: &[u8]) -> u8 {
+        kmer.last().copied().unwrap_or(b'N')
     }
 
     fn sequences_from_read(
@@ -147,7 +143,7 @@ impl ReadThreadingGraphBuilder {
     ) -> Vec<SequenceForKmers> {
         let mut out = Vec::new();
         let mut last_good: Option<usize> = None;
-        let bytes = read.bases.as_bytes();
+        let bytes = read.bases.as_slice();
         for end in 0..=bytes.len() {
             let unusable = end == bytes.len()
                 || read.base_quals[end] < min_qual
@@ -229,7 +225,7 @@ impl ReadThreadingGraphBuilder {
         }
     }
 
-    fn is_threading_start(&self, kmer: &str) -> bool {
+    fn is_threading_start(&self, kmer: &[u8]) -> bool {
         if self.start_threading_only_at_existing_vertex {
             self.unique_kmers.contains_key(kmer)
         } else {
@@ -254,19 +250,19 @@ impl ReadThreadingGraphBuilder {
         None
     }
 
-    fn get_unique_kmer_vertex(&self, kmer: &str, allow_ref_source: bool) -> Option<usize> {
+    fn get_unique_kmer_vertex(&self, kmer: &[u8], allow_ref_source: bool) -> Option<usize> {
         if !allow_ref_source && self.ref_source_kmer.as_deref() == Some(kmer) {
             return None;
         }
         self.unique_kmers.get(kmer).copied()
     }
 
-    fn create_vertex(&mut self, kmer: String) -> usize {
+    fn create_vertex(&mut self, kmer: Vec<u8>) -> usize {
         let id = self.nodes.len();
-        // Unique kmers need the string in both `nodes` and `unique_kmers` (HashMap key).
+        // Unique kmers need the bytes in both `nodes` and `unique_kmers` (map key).
         // Non-unique: move into `nodes` only — avoid the prior always-clone-on-push.
         if !self.non_unique_kmers.contains(&kmer) && !self.unique_kmers.contains_key(&kmer) {
-            // CLONE: needed because HashMap key and node storage both own the kmer string.
+            // CLONE: needed because map key and node storage both own the kmer bytes.
             self.unique_kmers.insert(kmer.clone(), id);
         }
         self.nodes.push(kmer);
@@ -292,9 +288,9 @@ impl ReadThreadingGraphBuilder {
     }
 
     fn max_kmer_multiplicity(&self) -> usize {
-        let mut mult: HashMap<&str, usize> = HashMap::new();
+        let mut mult: HashMap<&[u8], usize> = HashMap::new();
         for kmer in &self.nodes {
-            *mult.entry(kmer.as_str()).or_default() += 1;
+            *mult.entry(kmer.as_slice()).or_default() += 1;
         }
         mult.values().copied().max().unwrap_or(0)
     }
@@ -388,7 +384,10 @@ impl ReadThreadingGraphBuilder {
         let kmer = Self::kmer_at(bases, kmer_start, k);
         let next = if let Some(merge) = self.get_unique_kmer_vertex(&kmer, false) {
             if is_ref {
-                panic!("reference threading attempted to merge into unique vertex for kmer {kmer}");
+                panic!(
+                    "reference threading attempted to merge into unique vertex for kmer {}",
+                    String::from_utf8_lossy(&kmer)
+                );
             }
             merge
         } else {
@@ -541,7 +540,7 @@ pub fn reference_has_non_unique_kmers(reference: &AssemblyRead, kmer_size: usize
     if reference.bases.len() < kmer_size {
         return false;
     }
-    let bases = reference.bases.as_bytes();
+    let bases = reference.bases.as_slice();
     let stop = reference.bases.len().saturating_sub(kmer_size);
     let mut seen = HashSet::new();
     for i in 0..=stop {
@@ -579,7 +578,7 @@ mod tests {
 
     fn read(seq: &str, q: u8) -> AssemblyRead {
         AssemblyRead {
-            bases: seq.to_string(),
+            bases: seq.as_bytes().to_vec(),
             base_quals: vec![q; seq.len()],
         }
     }
@@ -613,15 +612,15 @@ mod tests {
             ..Default::default()
         };
         let g = assembly_graph_from_reads_threading(&reads, &params).unwrap();
-        let mut by_pair: HashMap<(String, String), u32> = HashMap::new();
+        let mut by_pair: HashMap<(Vec<u8>, Vec<u8>), u32> = HashMap::new();
         for e in g.edges_sorted() {
             let from = g.nodes()[e.from].kmer.clone();
             let to = g.nodes()[e.to].kmer.clone();
             by_pair.insert((from, to), e.support);
         }
-        assert_eq!(by_pair.get(&("ACG".into(), "CGT".into())), Some(&5));
-        assert_eq!(by_pair.get(&("CGT".into(), "GTT".into())), Some(&3));
-        assert_eq!(by_pair.get(&("CGT".into(), "GTA".into())), Some(&2));
+        assert_eq!(by_pair.get(&(b"ACG".to_vec(), b"CGT".to_vec())), Some(&5));
+        assert_eq!(by_pair.get(&(b"CGT".to_vec(), b"GTT".to_vec())), Some(&3));
+        assert_eq!(by_pair.get(&(b"CGT".to_vec(), b"GTA".to_vec())), Some(&2));
     }
 
     #[test]

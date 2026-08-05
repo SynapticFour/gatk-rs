@@ -18,6 +18,19 @@ use crate::read_threading_assembler::{assemble_from_ref_and_reads, ReadThreading
 use crate::read_threading_assembler::{AssemblyResult, AssemblyStatus};
 use gatk_common::GatkResult;
 use gatk_core::reference::{ReferenceWindowCache, SequenceDictionary};
+use rust_htslib::bam;
+
+/// Assembly product plus the `finalizeRegion` BAM buffer for reuse by PairHMM.
+///
+/// # Ownership
+/// Owns haplotypes/events and the finalized read records from one assemble pass.
+/// # Observable contract
+/// Same haplotypes as [`assemble_reads`]; `finalized_reads` matches
+/// [`finalize_region_reads_for_assembly`] for the input region (softclip/adaptor applied once).
+pub struct AssembledRegion {
+    pub assembly: AssemblyResultSet,
+    pub finalized_reads: Vec<bam::Record>,
+}
 
 /// GATK `AssemblerArgumentCollection` read-error-correction slice.
 /// # Invariants
@@ -137,7 +150,7 @@ pub(crate) fn apply_read_error_correction(
         return Ok(aligned
             .into_iter()
             .map(|a| crate::assembly::AssemblyRead {
-                bases: String::from_utf8_lossy(&a.bases).into_owned(),
+                bases: a.bases,
                 base_quals: a.base_quals,
             })
             .collect());
@@ -159,7 +172,7 @@ fn normalize_production_haplotypes(
     dictionary: &SequenceDictionary,
     strict_java_assembly: bool,
 ) {
-    let full_ref = reference.bases.as_bytes();
+    let full_ref = reference.bases.as_slice();
     let wrong_full_ref_stitch = |h: &crate::haplotype::Haplotype| {
         h.is_reference && h.bases.len() == full_ref.len() && h.bases.as_slice() != full_ref
     };
@@ -194,12 +207,23 @@ fn normalize_production_haplotypes(
 }
 
 /// GATK `AssemblyBasedCallerUtils.assembleReads` (active region path; no forced pileup alleles).
+/// Thin wrapper for dump callers that only need the assembly set.
 pub fn assemble_reads(
     region: &AssemblyRegion,
     dictionary: &SequenceDictionary,
     ref_cache: &mut ReferenceWindowCache,
     args: &AssembleReadsArgs,
 ) -> GatkResult<AssemblyResultSet> {
+    Ok(assemble_reads_with_finalized(region, dictionary, ref_cache, args)?.assembly)
+}
+
+/// `assembleReads` keeping the `finalizeRegion` buffer for PairHMM reuse (A2).
+pub fn assemble_reads_with_finalized(
+    region: &AssemblyRegion,
+    dictionary: &SequenceDictionary,
+    ref_cache: &mut ReferenceWindowCache,
+    args: &AssembleReadsArgs,
+) -> GatkResult<AssembledRegion> {
     let reference = assembly_reference_read(dictionary, ref_cache, region)?;
     let finalized = finalize_region_reads_for_assembly(
         &region.reads,
@@ -211,7 +235,7 @@ pub fn assemble_reads(
     let assembly_reads = apply_read_error_correction(
         &finalized,
         &args.read_error_correction,
-        reference.bases.as_bytes(),
+        reference.bases.as_slice(),
     )?;
     let reads = assembly_reads;
     let (padded_loc_start, _) = padded_reference_loc(region, dictionary);
@@ -254,14 +278,14 @@ pub fn assemble_reads(
         dictionary,
         args.strict_java_assembly,
     );
-    let full_ref = reference.bases.as_bytes();
+    let full_ref = reference.bases.as_slice();
     crate::read_event_discovery::refresh_alt_haplotype_indel_cigars(
         &mut result.haplotypes,
         full_ref,
         padded_loc_start,
         &args.assembler.haplotype_to_reference_sw,
     );
-    let full_ref = reference.bases.as_bytes();
+    let full_ref = reference.bases.as_slice();
     result.haplotypes = collapse_haplotypes_if_configured(
         result.haplotypes,
         args.read_error_correction.flow_assembly_collapse_hmer_size,
@@ -272,7 +296,7 @@ pub fn assemble_reads(
     );
     let mut assembly = AssemblyResultSet::from_assembly_for_calling(
         &result,
-        reference.bases.as_bytes(),
+        reference.bases.as_slice(),
         padded_loc_start,
         &region.contig,
         crate::assembly_result_set::DEFAULT_MAX_MNP_DISTANCE,
@@ -314,7 +338,10 @@ pub fn assemble_reads(
             )?;
         }
     }
-    Ok(assembly)
+    Ok(AssembledRegion {
+        assembly,
+        finalized_reads: finalized,
+    })
 }
 
 /// Engine hook for `HaplotypeCallerEngine.callRegion` assembly slice.
@@ -323,11 +350,13 @@ pub fn call_region_assemble(
     dictionary: &SequenceDictionary,
     ref_cache: &mut ReferenceWindowCache,
     args: &AssembleReadsArgs,
-) -> GatkResult<Option<AssemblyResultSet>> {
+) -> GatkResult<Option<AssembledRegion>> {
     if !region.is_active {
         return Ok(None);
     }
-    Ok(Some(assemble_reads(region, dictionary, ref_cache, args)?))
+    Ok(Some(assemble_reads_with_finalized(
+        region, dictionary, ref_cache, args,
+    )?))
 }
 
 /// Build padded reference + reads for unit tests without a full walker.
