@@ -86,7 +86,7 @@ impl SeqGraph {
         let mut id_map = HashMap::new();
         for (i, node) in graph.nodes().iter().enumerate() {
             let is_source = graph.incoming_count(i) == 0;
-            let seq = additional_sequence(&node.kmer, is_source);
+            let seq = additional_sequence_bytes(&node.kmer, is_source);
             let id = vertices.len();
             vertices.push(SeqVertex { id, sequence: seq });
             id_map.insert(i, id);
@@ -642,10 +642,6 @@ impl SeqGraph {
     }
 }
 
-fn additional_sequence(kmer: &str, is_source: bool) -> Vec<u8> {
-    additional_sequence_bytes(kmer.as_bytes(), is_source)
-}
-
 fn additional_sequence_bytes(seq: &[u8], is_source: bool) -> Vec<u8> {
     if is_source {
         seq.to_vec()
@@ -667,7 +663,7 @@ mod tests {
 
     fn read(seq: &str, q: u8) -> AssemblyRead {
         AssemblyRead {
-            bases: seq.to_string(),
+            bases: seq.as_bytes().to_vec(),
             base_quals: vec![q; seq.len()],
         }
     }
@@ -701,7 +697,7 @@ mod tests {
         let status = seq.cleanup_seq_graph();
         assert!(seq.node_count() > 0, "after cleanup status={status:?}");
         let path = seq.reference_path_bytes().unwrap();
-        assert_eq!(std::str::from_utf8(&path).unwrap(), reference.bases);
+        assert_eq!(path.as_slice(), reference.bases.as_slice());
     }
 
     #[test]

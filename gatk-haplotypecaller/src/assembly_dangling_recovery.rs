@@ -288,9 +288,9 @@ fn path_bases(graph: &AssemblyGraph, path: &[usize], expand_source: bool) -> Vec
     for (idx, &node) in path.iter().enumerate() {
         let kmer = graph.kmer_at(node);
         if expand_source && idx == 0 && graph.is_source(node) {
-            let bytes: Vec<u8> = kmer.as_bytes().iter().rev().copied().collect();
+            let bytes: Vec<u8> = kmer.iter().rev().copied().collect();
             out.extend_from_slice(&bytes);
-        } else if let Some(&b) = kmer.as_bytes().last() {
+        } else if let Some(&b) = kmer.last() {
             out.push(b);
         }
     }
@@ -726,13 +726,13 @@ impl AssemblyGraph {
             if !self.outgoing_nodes(v).is_empty() || self.is_ref_sink(v) {
                 continue;
             }
-            let kmer = self.kmer_at(v).to_string();
+            let kmer = String::from_utf8_lossy(self.kmer_at(v)).into_owned();
             let reason = match self.plan_dangling_tail_merge(v, params) {
                 Ok(plan) => {
                     format!(
                         "ok_merge:{}->{}",
-                        self.kmer_at(plan.from),
-                        self.kmer_at(plan.to)
+                        String::from_utf8_lossy(self.kmer_at(plan.from)),
+                        String::from_utf8_lossy(self.kmer_at(plan.to))
                     )
                 }
                 Err("edge_exists") => "ok_merge:edge_exists".to_string(),
@@ -806,8 +806,8 @@ impl AssemblyGraph {
         self.remove_edge(dangling_source, prev_v);
         alt_path.pop();
 
-        let ref_kmer = self.kmer_at(ref_path[ref_use_idx]).as_bytes();
-        let src_kmer = self.kmer_at(dangling_source).as_bytes();
+        let ref_kmer = self.kmer_at(ref_path[ref_use_idx]);
+        let src_kmer = self.kmer_at(dangling_source);
         let mut seq = Vec::with_capacity(num_nodes_to_extend + src_kmer.len());
         for i in 0..num_nodes_to_extend {
             if i >= ref_kmer.len() {
@@ -825,8 +825,7 @@ impl AssemblyGraph {
             if start + k > seq.len() {
                 return false;
             }
-            let kmer = String::from_utf8_lossy(&seq[start..start + k]).into_owned();
-            let new_v = self.ensure_node(&kmer);
+            let new_v = self.ensure_node(&seq[start..start + k]);
             self.add_edge_support(new_v, prev_v, edge_weight);
             alt_path.push(new_v);
             prev_v = new_v;
@@ -930,12 +929,16 @@ impl AssemblyGraph {
             if self.incoming_count(v) > 0 || self.is_ref_source_vertex(v) {
                 continue;
             }
-            let kmer = self.kmer_at(v).to_string();
+            let kmer = String::from_utf8_lossy(self.kmer_at(v)).into_owned();
             // CLONE: needed because graph fork needs owned duplicate for speculative path.
             let mut g = self.clone();
             let reason = match g.plan_dangling_head_merge(v, params) {
                 Ok((from, to)) => {
-                    format!("ok_merge:{}->{}", self.kmer_at(from), self.kmer_at(to))
+                    format!(
+                        "ok_merge:{}->{}",
+                        String::from_utf8_lossy(self.kmer_at(from)),
+                        String::from_utf8_lossy(self.kmer_at(to))
+                    )
                 }
                 Err(r) => r.to_string(),
             };
@@ -1179,7 +1182,7 @@ mod tests {
 
     fn read(seq: &str, q: u8) -> AssemblyRead {
         AssemblyRead {
-            bases: seq.to_string(),
+            bases: seq.as_bytes().to_vec(),
             base_quals: vec![q; seq.len()],
         }
     }
@@ -1220,13 +1223,13 @@ mod tests {
         let alt_sink = graph
             .nodes()
             .iter()
-            .position(|n| n.kmer == "TCA")
+            .position(|n| n.kmer == b"TCA")
             .expect("TCA sink");
         let path = graph
             .find_path_upwards_to_lca(alt_sink, 2, true)
             .expect("alt path");
-        assert_eq!(graph.kmer_at(path[0]), "ATC");
-        assert_eq!(graph.kmer_at(*path.last().unwrap()), "TCA");
+        assert_eq!(graph.kmer_at(path[0]), b"ATC");
+        assert_eq!(graph.kmer_at(*path.last().unwrap()), b"TCA");
     }
 
     #[test]

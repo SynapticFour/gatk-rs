@@ -26,6 +26,20 @@ Local recipe: [`AIR_M4_GIAB_RECIPE.md`](AIR_M4_GIAB_RECIPE.md). Pre-change ancho
 
 **Do not** re-run 2 Mb realistic / full 30× P12 on this 16 GiB host until dense-window RSS is re-measured with `GATK_RS_HC_SEQUENTIAL=1`. **Do not** dispatch signed `ci-subset` until that proof exists.
 
+## Rust showcase Phase A (ownership) — 2026-08-05
+
+Roadmap: [`RUST_SHOWCASE_ROADMAP.md`](RUST_SHOWCASE_ROADMAP.md).
+
+| Change | Where |
+|--------|--------|
+| Byte-native assembly / kmers (`Vec<u8>`) | `assembly.rs`, `read_threading_graph.rs`, … |
+| Single finalize buffer for assemble + PairHMM | `assembly_based_caller.rs`, `engine.rs` |
+| COW-aware unique ownership before realign | `shared_bam::into_unique_records`, `engine.rs` |
+| Sequential hap scoring under `GATK_RS_HC_SEQUENTIAL=1` | `likelihood_engine.rs` |
+| Optional jemalloc | `gatk-cli` feature `jemalloc` + `MALLOC_CONF` notes in Air recipe |
+
+**Measured this land (no realistic BAM staged):** `check_hc_rss_regression.sh` OK — dict Peak-RSS ≈ 6.0 MiB; bomb/50 kb/100 kb HC Peak-RSS **not** re-recorded (assets missing). Excellence N-7 band freeze PASS. No public Peak-RSS claim from smoke.
+
 ## A. Trivial smoke — reproducibility reference only
 
 **Label:** Trivial smoke (reproducibility only)  

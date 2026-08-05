@@ -26,7 +26,7 @@ pub struct KBestPath {
 }
 
 impl KBestPath {
-    pub fn bases(&self, graph: &AssemblyGraph) -> String {
+    pub fn bases(&self, graph: &AssemblyGraph) -> Vec<u8> {
         graph.path_bases(self.start, &self.edges)
     }
 }
@@ -78,7 +78,7 @@ impl PathState {
         edges.push((self.last, to));
         let penalty = log_penalty(edge_support, total_outgoing);
         // Each edge appends the last base of the destination kmer (`AssemblyGraph::path_bases`).
-        let add = usize::from(graph.nodes()[to].kmer.chars().last().is_some());
+        let add = usize::from(graph.nodes()[to].kmer.last().is_some());
         Self {
             start: self.start,
             edges,
@@ -338,7 +338,7 @@ mod tests {
 
     fn read(seq: &str, q: u8) -> AssemblyRead {
         AssemblyRead {
-            bases: seq.to_string(),
+            bases: seq.as_bytes().to_vec(),
             base_quals: vec![q; seq.len()],
         }
     }
@@ -367,7 +367,7 @@ mod tests {
         let paths = find_best_haplotypes(&graph, 128).unwrap();
         assert!(!paths.is_empty());
         let seqs: HashSet<_> = paths.iter().map(|p| p.bases(&graph)).collect();
-        assert!(seqs.contains("ACGTT"));
+        assert!(seqs.contains(&b"ACGTT".to_vec()));
     }
 
     #[test]

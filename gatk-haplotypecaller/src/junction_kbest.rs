@@ -36,7 +36,7 @@ pub struct JunctionKBestPath {
 }
 
 impl JunctionKBestPath {
-    pub fn bases(&self, graph: &AssemblyGraph) -> String {
+    pub fn bases(&self, graph: &AssemblyGraph) -> Vec<u8> {
         graph.path_bases(self.start, &self.edges)
     }
 }

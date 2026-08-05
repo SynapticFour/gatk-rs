@@ -302,6 +302,8 @@ fn trim_region_bounds(
         new_ext_start.get(),
         min(region.extended_end.get(), padded_end),
     ));
+    // A3: `AssemblyRegion::clone` only bumps Arc/refcount on reads + SharedBases; bounds change
+    // here does not deep-copy BAM payloads. Unique ownership for realign is via into_unique_records.
     let mut out = region.clone();
     out.start = new_start;
     out.end = new_end;

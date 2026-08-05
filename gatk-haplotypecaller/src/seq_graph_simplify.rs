@@ -475,7 +475,7 @@ mod tests {
 
     fn read(seq: &str, q: u8) -> AssemblyRead {
         AssemblyRead {
-            bases: seq.to_string(),
+            bases: seq.as_bytes().to_vec(),
             base_quals: vec![q; seq.len()],
         }
     }

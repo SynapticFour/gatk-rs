@@ -168,6 +168,8 @@ pub fn log10_read_haplotype_likelihood(
 
 /// Score one read against many haplotypes (BQ/PCR prepared once; haplotypes in parallel).
 /// Result order matches `haplotype_bases` (algorithm-identical to sequential scoring).
+/// Under `GATK_RS_HC_SEQUENTIAL=1`, scalar Log10/Logless use a plain iterator (no rayon) so
+/// haplotype score order still matches sequential collect; SIMD path unchanged.
 /// Dispatches on [`HcLikelihoodEngineConfig::implementation`] (FlowBased errors until enabled).
 pub fn score_read_against_haplotypes(
     config: &HcLikelihoodEngineConfig,
@@ -199,26 +201,52 @@ pub fn score_read_against_haplotypes(
         );
     }
     let backend = config.resolved_pair_hmm_backend();
+    let sequential = crate::runtime_config::hc_force_sequential_regions();
     match backend {
         PairHmmBackend::Log10Scalar => {
-            // Parallel across haplotypes; each rayon worker has its own PairHMM TLS scratch.
-            haplotype_bases
-                .par_iter()
-                .map(|hap| {
-                    crate::pairhmm_log10::log10_pairhmm_likelihood(
-                        read_bases, &capped, hap, &ins, &del, &gcp,
-                    )
-                })
-                .collect()
+            if sequential {
+                // Order matches haplotype_bases (algorithm-identical to par_iter collect).
+                haplotype_bases
+                    .iter()
+                    .map(|hap| {
+                        crate::pairhmm_log10::log10_pairhmm_likelihood(
+                            read_bases, &capped, hap, &ins, &del, &gcp,
+                        )
+                    })
+                    .collect()
+            } else {
+                // Parallel across haplotypes; each rayon worker has its own PairHMM TLS scratch.
+                haplotype_bases
+                    .par_iter()
+                    .map(|hap| {
+                        crate::pairhmm_log10::log10_pairhmm_likelihood(
+                            read_bases, &capped, hap, &ins, &del, &gcp,
+                        )
+                    })
+                    .collect()
+            }
         }
-        PairHmmBackend::LoglessScalar => haplotype_bases
-            .par_iter()
-            .map(|hap| {
-                crate::pairhmm_logless::logless_pairhmm_likelihood(
-                    read_bases, &capped, hap, &ins, &del, &gcp,
-                )
-            })
-            .collect(),
+        PairHmmBackend::LoglessScalar => {
+            if sequential {
+                haplotype_bases
+                    .iter()
+                    .map(|hap| {
+                        crate::pairhmm_logless::logless_pairhmm_likelihood(
+                            read_bases, &capped, hap, &ins, &del, &gcp,
+                        )
+                    })
+                    .collect()
+            } else {
+                haplotype_bases
+                    .par_iter()
+                    .map(|hap| {
+                        crate::pairhmm_logless::logless_pairhmm_likelihood(
+                            read_bases, &capped, hap, &ins, &del, &gcp,
+                        )
+                    })
+                    .collect()
+            }
+        }
         // SIMD / packed kernels already batch haplotypes; keep single-threaded here.
         _ => score_read_haps_logless(
             backend,

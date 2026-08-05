@@ -113,7 +113,7 @@ pub fn dump_assembly_region_haplotypes_tsv(
     // after `runLocalAssembly` (SeqGraph `findBestPaths` uses `add(h)` only — scores stay 0).
     // Kmer metadata is 0. Match frozen java_dumps/e2e/*.tsv (scores always 0).
     write_region_meta(out, region, "just_assembled_reference", 0)?;
-    let ref_bases = reference.bases.as_bytes();
+    let ref_bases = reference.bases.as_slice();
     let mut haplotypes = if assembly_set.haplotypes.len() == 1
         && assembly_set.haplotypes[0].is_reference
         && assembly_set.haplotypes[0].bases.as_slice() != ref_bases

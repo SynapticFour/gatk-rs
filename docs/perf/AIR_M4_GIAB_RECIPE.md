@@ -14,6 +14,16 @@ export GIAB_KEEP_EQUIV_INTERMEDIATES=0  # delete union BAM + strat beds after eq
 export GIAB_HC_WINDOW_BP=1000000        # start at 1 Mb; raise only after RSS proof
 ```
 
+### Optional jemalloc (Peak-RSS)
+
+```bash
+cargo build -p gatk-cli --release --locked --features jemalloc
+# Prefer fewer arenas + background purge on 16 GiB hosts:
+export MALLOC_CONF=background_thread:true,dirty_decay_ms:1000,narenas:2
+```
+
+See [`RUST_SHOWCASE_ROADMAP.md`](RUST_SHOWCASE_ROADMAP.md). Measure before claiming wins.
+
 ## Disk hygiene
 
 - Stage reference + truth **once** under `parity/realworld/assets/` / GIAB cache.

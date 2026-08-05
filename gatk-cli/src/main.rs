@@ -2,6 +2,11 @@
 //! GATK-style flags are accepted for pipeline familiarity; this binary is native
 //! Rust and does not launch the Broad GATK JVM.
 
+// Optional jemalloc: lower Peak-RSS fragmentation on long HC runs (feature `jemalloc`).
+#[cfg(feature = "jemalloc")]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 use anyhow::Result;
 use clap::{error::ErrorKind, Parser, Subcommand};
 use gatk_common::{gatk_cli_exit_code, GatkConfig};

@@ -156,7 +156,7 @@ fn record_rt_stage(
     let paths = find_best_haplotypes_for_assembly(graph, args.num_best_haplotypes_per_graph)?;
     let (top_len, top_eq) = paths.first().map_or((0, false), |p| {
         let b = graph.path_bases(p.start, &p.edges);
-        (b.len(), b.as_bytes() == ref_bytes)
+        (b.len(), b.as_slice() == ref_bytes)
     });
     // Java `HcFullParityGateDump.rtStageRow`: extractedHaps/nonRefHaps count KBest paths, not post-SW haps.
     rows.push(AssemblyStageRow {
@@ -276,7 +276,7 @@ fn record_seq_stage(
 }
 
 fn ref_hap_setup(reference: &crate::assembly::AssemblyRead) -> (Haplotype, usize) {
-    let mut ref_hap = Haplotype::new(reference.bases.as_bytes(), true);
+    let mut ref_hap = Haplotype::new(reference.bases.as_slice(), true);
     let mut ref_cigar = Cigar::new();
     ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
     ref_hap.cigar = Some(ref_cigar);
@@ -351,8 +351,8 @@ fn write_rt_kbest_rows(
             score: path.score,
             is_reference: path.is_reference,
             path_len: bases.len(),
-            eq_ref: bases.as_bytes() == ref_bytes,
-            sequence: bases,
+            eq_ref: bases.as_slice() == ref_bytes,
+            sequence: String::from_utf8_lossy(&bases).into_owned(),
         });
     }
     Ok(())
@@ -451,7 +451,7 @@ fn probe_k85_stages(
     const KMER: usize = 85;
     let allow_lc = allow_low_complexity_expanded_kmer(args, true);
     let allow_nu = allow_non_unique_expanded_kmer(args, true);
-    let ref_bytes = reference.bases.as_bytes();
+    let ref_bytes = reference.bases.as_slice();
     let mut rows = Vec::new();
     let mut dangling_meta = None;
     let mut dangling_tail_probes = Vec::new();
@@ -707,7 +707,7 @@ pub fn dump_assembly_region_kbest_paths_tsv(
     }
 
     const MAX_HAPS: usize = 128;
-    let path_rows = kbest_rows_from_snapshots(&snapshots, reference.bases.as_bytes(), MAX_HAPS)?;
+    let path_rows = kbest_rows_from_snapshots(&snapshots, reference.bases.as_slice(), MAX_HAPS)?;
     writeln!(
         out,
         "graph\tstage\tstrip_cycles\trank\tscore\tis_reference\tpath_len\teq_ref\tsequence"

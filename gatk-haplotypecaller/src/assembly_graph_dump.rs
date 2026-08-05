@@ -51,7 +51,8 @@ pub fn load_assembly_reads_tsv(path: &Path) -> GatkResult<Vec<AssemblyRead>> {
         let bases = parts
             .next()
             .ok_or_else(|| GatkError::argument("reads tsv: missing sequence"))?
-            .to_string();
+            .as_bytes()
+            .to_vec();
         let q = parts
             .next()
             .ok_or_else(|| GatkError::argument("reads tsv: missing qual"))?
@@ -79,8 +80,8 @@ pub fn dump_assembly_graph_multi_kmer_edges_tsv(
         .map_err(|e| GatkError::generic(format!("write tsv: {e}")))?;
     for graph in &graphs {
         for e in graph.edges_sorted() {
-            let from = &graph.nodes()[e.from].kmer;
-            let to = &graph.nodes()[e.to].kmer;
+            let from = String::from_utf8_lossy(&graph.nodes()[e.from].kmer);
+            let to = String::from_utf8_lossy(&graph.nodes()[e.to].kmer);
             writeln!(out, "{}\t{from}\t{to}\t{}", graph.kmer_size, e.support)
                 .map_err(|e| GatkError::generic(format!("write tsv: {e}")))?;
         }
@@ -293,8 +294,8 @@ pub fn dump_assembly_graph_edges_tsv(
     writeln!(out, "from_kmer\tto_kmer\tsupport")
         .map_err(|e| GatkError::generic(format!("write tsv: {e}")))?;
     for e in graph.edges_sorted() {
-        let from = &graph.nodes()[e.from].kmer;
-        let to = &graph.nodes()[e.to].kmer;
+        let from = String::from_utf8_lossy(&graph.nodes()[e.from].kmer);
+        let to = String::from_utf8_lossy(&graph.nodes()[e.to].kmer);
         writeln!(out, "{from}\t{to}\t{}", e.support)
             .map_err(|e| GatkError::generic(format!("write tsv: {e}")))?;
     }
@@ -314,11 +315,15 @@ pub fn dump_assembly_haplotype_cigars_tsv(
         .map_err(|e| GatkError::generic(format!("write tsv: {e}")))?;
     for (idx, hap) in haplotypes.iter().enumerate() {
         let cigar =
-            calculate_haplotype_cigar(reference.bases.as_bytes(), hap.bases.as_bytes(), &sw)
+            calculate_haplotype_cigar(reference.bases.as_slice(), hap.bases.as_slice(), &sw)
                 .map(|c| c.to_gatk_string())
                 .unwrap_or_default();
-        writeln!(out, "{idx}\t{}\t{cigar}", hap.bases)
-            .map_err(|e| GatkError::generic(format!("write tsv: {e}")))?;
+        writeln!(
+            out,
+            "{idx}\t{}\t{cigar}",
+            String::from_utf8_lossy(&hap.bases)
+        )
+        .map_err(|e| GatkError::generic(format!("write tsv: {e}")))?;
     }
     Ok(())
 }
@@ -364,7 +369,7 @@ pub(crate) fn sort_haplotypes_java_dump_order(haplotypes: &mut [Haplotype]) {
 pub(crate) fn write_haplotype_rows_with_ref_recovery(
     haplotypes: &[Haplotype],
     ref_bases: &[u8],
-    ref_sequence: &str,
+    ref_sequence: &[u8],
     out: &mut impl Write,
 ) -> GatkResult<()> {
     writeln!(out, "rank\tsequence\tscore\tis_reference\tcigar")
@@ -402,7 +407,7 @@ pub(crate) fn write_haplotype_rows_with_ref_recovery(
         writeln!(
             out,
             "{rank}\t{seq}\t0\ttrue\t{cigar}",
-            seq = ref_sequence,
+            seq = String::from_utf8_lossy(ref_sequence),
             cigar = cigar
         )
         .map_err(|e| GatkError::generic(format!("write tsv: {e}")))?;
@@ -447,7 +452,7 @@ pub fn dump_assembly_kbest_paths_tsv(
         writeln!(
             out,
             "{rank}\t{seq}\t{score}\t{is_ref}",
-            seq = path.bases(&graph),
+            seq = String::from_utf8_lossy(&path.bases(&graph)),
             score = format_score(path.score),
             is_ref = path.is_reference
         )
@@ -576,7 +581,7 @@ pub fn dump_assembly_assemble_tsv(
         .map_err(|e| GatkError::generic(format!("write tsv: {e}")))?;
     writeln!(out, "kmer_size\t{}", result.kmer_size)
         .map_err(|e| GatkError::generic(format!("write tsv: {e}")))?;
-    let ref_bases = reference.bases.as_bytes();
+    let ref_bases = reference.bases.as_slice();
     write_haplotype_rows_with_ref_recovery(&result.haplotypes, ref_bases, &reference.bases, out)
 }
 
@@ -644,7 +649,7 @@ pub fn dump_assembly_junction_haplotypes_tsv(
         writeln!(
             out,
             "{rank}\t{seq}\t{score}\t{is_ref}",
-            seq = path.bases(graph),
+            seq = String::from_utf8_lossy(&path.bases(graph)),
             score = format_score(path.score),
             is_ref = path.is_reference
         )
@@ -674,7 +679,7 @@ fn dump_assembly_haplotypes_with_max(
         recover_heads,
         max_haplotypes,
     );
-    let ref_bases = reference.bases.as_bytes().to_vec();
+    let ref_bases = reference.bases.as_slice().to_vec();
     let Some(graph) = build_threading_graph_for_haplotype_dump(
         &reference, &reads, kmer_size, &args, true, false,
     )?
@@ -751,7 +756,7 @@ pub fn dump_assembly_haplotypes_production_tsv(
     );
     args.ensure_reference_in_result = true;
     let result = assemble_from_ref_and_reads(&reference, &reads, &args)?;
-    let ref_bases = reference.bases.as_bytes();
+    let ref_bases = reference.bases.as_slice();
     write_haplotype_rows_with_ref_recovery(&result.haplotypes, ref_bases, &reference.bases, out)
 }
 

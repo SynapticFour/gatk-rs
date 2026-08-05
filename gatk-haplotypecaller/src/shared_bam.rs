@@ -43,6 +43,18 @@ pub fn share_records(records: Vec<bam::Record>) -> Vec<SharedBamRecord> {
     records.into_iter().map(share_record).collect()
 }
 
+/// Take unique ownership of shared BAM records when possible (no CoW clone if strong_count==1).
+#[inline]
+pub fn into_unique_records(reads: Vec<SharedBamRecord>) -> Vec<bam::Record> {
+    reads
+        .into_iter()
+        .map(|arc| match Arc::try_unwrap(arc) {
+            Ok(rec) => rec,
+            Err(shared) => (*shared).clone(),
+        })
+        .collect()
+}
+
 /// Uniform mutable access for owned or Arc-backed BAM records.
 pub trait BamRecordSlot {
     fn as_record(&self) -> &bam::Record;

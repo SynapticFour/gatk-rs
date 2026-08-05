@@ -164,12 +164,12 @@ struct JunctionTreeGraphBuilder {
     #[allow(dead_code)]
     min_base_quality: u8,
     pending: Vec<SequenceForKmers>,
-    kmer_to_vertex: BTreeMap<String, usize>,
-    nodes: Vec<String>,
+    kmer_to_vertex: BTreeMap<Vec<u8>, usize>,
+    nodes: Vec<Vec<u8>>,
     edges: HashMap<(usize, usize), ThreadingEdge>,
     edge_is_ref: HashSet<(usize, usize)>,
     ref_nodes: HashSet<usize>,
-    ref_source_kmer: Option<String>,
+    ref_source_kmer: Option<Vec<u8>>,
     reference_path: Vec<usize>,
     /// Neighbor sets are ordered so first-match threading is deterministic.
     outgoing: HashMap<usize, BTreeSet<usize>>,
@@ -189,8 +189,8 @@ struct ActiveTreePath {
 #[derive(Clone)]
 struct JtGraphSnapshot {
     kmer_size: usize,
-    nodes: Vec<String>,
-    kmer_to_vertex: BTreeMap<String, usize>,
+    nodes: Vec<Vec<u8>>,
+    kmer_to_vertex: BTreeMap<Vec<u8>, usize>,
     outgoing: HashMap<usize, BTreeSet<usize>>,
     incoming: HashMap<usize, BTreeSet<usize>>,
     reference_sink: Option<usize>,
@@ -310,12 +310,12 @@ impl JunctionThreadingState<'_> {
 }
 
 impl JunctionTreeGraphBuilder {
-    fn kmer_at(bases: &[u8], start: usize, k: usize) -> String {
-        String::from_utf8_lossy(&bases[start..start + k]).to_string()
+    fn kmer_at(bases: &[u8], start: usize, k: usize) -> Vec<u8> {
+        bases[start..start + k].to_vec()
     }
 
-    fn suffix_of_kmer(kmer: &str) -> u8 {
-        kmer.as_bytes().last().copied().unwrap_or(b'N')
+    fn suffix_of_kmer(kmer: &[u8]) -> u8 {
+        kmer.last().copied().unwrap_or(b'N')
     }
 
     fn sequences_from_read(
@@ -328,12 +328,12 @@ impl JunctionTreeGraphBuilder {
         for end in 0..=read.bases.len() {
             let unusable = end == read.bases.len()
                 || read.base_quals[end] < min_qual
-                || !is_base_usable(read.bases.as_bytes()[end]);
+                || !is_base_usable(read.bases[end]);
             if unusable {
                 if let Some(start) = last_good {
                     if end - start >= kmer_size {
                         out.push(SequenceForKmers {
-                            bases: read.bases.as_bytes().to_vec(),
+                            bases: read.bases.to_vec(),
                             start,
                             stop: end,
                             count: 1,
@@ -368,11 +368,11 @@ impl JunctionTreeGraphBuilder {
         None
     }
 
-    fn track_kmer(&mut self, kmer: String, id: usize) {
+    fn track_kmer(&mut self, kmer: Vec<u8>, id: usize) {
         self.kmer_to_vertex.entry(kmer).or_insert(id);
     }
 
-    fn create_vertex(&mut self, kmer: String) -> usize {
+    fn create_vertex(&mut self, kmer: Vec<u8>) -> usize {
         if let Some(&id) = self.kmer_to_vertex.get(&kmer) {
             return id;
         }
@@ -525,7 +525,7 @@ impl JunctionTreeGraphBuilder {
     fn generate_junction_trees(&mut self) {
         assert!(self.built, "build graph before generateJunctionTrees");
         let snap = JtGraphSnapshot::from_builder(self);
-        let symbolic_end_vertex = self.create_vertex(SYMBOLIC_END_KMER.to_string());
+        let symbolic_end_vertex = self.create_vertex(SYMBOLIC_END_KMER.as_bytes().to_vec());
         self.symbolic_end_vertex = Some(symbolic_end_vertex);
         let sink = self
             .reference_sink()
@@ -656,7 +656,7 @@ impl JunctionTreeGraphBuilder {
             self.ref_source_kmer,
         );
         graph.cleanup_isolated_nodes();
-        let ref_kmer_path: Vec<String> = self
+        let ref_kmer_path: Vec<Vec<u8>> = self
             .reference_path
             .iter()
             .map(|&id| self.nodes[id].clone())
@@ -730,11 +730,14 @@ mod tests {
         for v in 0..jt.graph.node_count() {
             let outs = jt.graph.outgoing_nodes(v);
             if outs.len() > 1 {
-                eprintln!("fork@{v} kmer={}", jt.graph.kmer_at(v));
+                eprintln!(
+                    "fork@{v} kmer={}",
+                    String::from_utf8_lossy(jt.graph.kmer_at(v))
+                );
                 for to in outs {
                     eprintln!(
                         "  ->{to} kmer={} sup={} ref={} in_deg={}",
-                        jt.graph.kmer_at(to),
+                        String::from_utf8_lossy(jt.graph.kmer_at(to)),
                         jt.graph.edge_support(v, to).unwrap_or(0),
                         jt.graph.edge_is_ref(v, to),
                         jt.graph.incoming_count(to)
@@ -747,7 +750,11 @@ mod tests {
         }
         let paths = crate::junction_kbest::find_junction_best_haplotypes(&jt, 5, 1, true).unwrap();
         for p in &paths {
-            eprintln!("  path {} score={}", p.bases(&jt.graph), p.score);
+            eprintln!(
+                "  path {} score={}",
+                String::from_utf8_lossy(&p.bases(&jt.graph)),
+                p.score
+            );
         }
         if paths.is_empty() {
             eprintln!(

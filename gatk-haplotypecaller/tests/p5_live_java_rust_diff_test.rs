@@ -107,7 +107,7 @@ fn load_assembly_reads_from_sam(path: &Path) -> Vec<AssemblyRead> {
             }
             let base_quals: Vec<u8> = quals.bytes().map(|b| b.saturating_sub(33)).collect();
             Some(AssemblyRead {
-                bases: bases.to_ascii_uppercase(),
+                bases: bases.to_ascii_uppercase().into_bytes(),
                 base_quals,
             })
         })
@@ -135,7 +135,7 @@ fn rust_candidate_sequences(sam: &Path) -> BTreeSet<String> {
     graph
         .extract_candidate_haplotypes(params.max_haplotypes, params.max_haplotype_bases)
         .into_iter()
-        .map(|h| h.sequence.to_ascii_uppercase())
+        .map(|h| String::from_utf8_lossy(&h.sequence).to_ascii_uppercase())
         .collect()
 }
 

@@ -4,7 +4,8 @@ use crate::active_region::{tile_closed_interval, TraversalTile, DEFAULT_TRAVERSA
 use crate::allele_filtering::{ensure_reference_haplotype, filter_assembly_and_likelihoods};
 use crate::assembly_based_caller::{call_region_assemble, AssembleReadsArgs};
 use crate::assembly_region_finalize::{
-    finalize_region_reads_for_assembly, gatk_min_tail_quality_for_assembly,
+    clip_finalized_reads_to_region, finalize_region_reads_for_assembly,
+    gatk_min_tail_quality_for_assembly,
 };
 use crate::assembly_region_iterator::AssemblyRegion;
 use crate::assembly_region_trimmer::{
@@ -38,6 +39,7 @@ use crate::ref_confidence::{
     ReferenceConfidenceConfig,
 };
 use crate::reference_context::ReferenceContext;
+use crate::shared_bam::{into_unique_records, share_records};
 use gatk_common::{GatkError, GatkResult};
 use gatk_core::reference::{IntervalSpec, ReferenceWindowCache, SequenceDictionary};
 use std::path::Path;
@@ -446,11 +448,13 @@ impl HaplotypeCallerEngine {
         assemble_args.given_alleles = args.given_alleles.clone();
         assemble_args.pileup_detection = args.pileup_detection;
         assemble_args.strict_java_assembly = args.is_java_compatible();
-        let Some(mut untrimmed) =
+        let Some(assembled) =
             call_region_assemble(region, dictionary, &mut ref_cache, &assemble_args)?
         else {
             return Ok(None);
         };
+        let mut untrimmed = assembled.assembly;
+        let assemble_finalized = assembled.finalized_reads;
 
         let ref_hap_u = untrimmed.haplotypes.iter().find(|h| h.is_reference);
         let apply_pad_u = ref_hap_u
@@ -764,6 +768,7 @@ impl HaplotypeCallerEngine {
                 &assembly.haplotypes,
                 &args.likelihood,
                 ll_normalize,
+                Some(&assemble_finalized),
             )?;
             if read_likelihoods.is_empty() {
                 let mut ll_region = region.clone();
@@ -772,11 +777,13 @@ impl HaplotypeCallerEngine {
                     region.start.get(),
                     region.end.get(),
                 );
+                // Different read subset than assemble finalize — re-finalize.
                 read_likelihoods = compute_region_read_likelihoods(
                     &ll_region,
                     &assembly.haplotypes,
                     &args.likelihood,
                     ll_normalize,
+                    None,
                 )?;
                 if !read_likelihoods.is_empty() {
                     region_for_genotyping.reads = ll_region.reads;
@@ -835,13 +842,17 @@ impl HaplotypeCallerEngine {
                     },
                 );
             }
+            // A3: take unique ownership when shard Arc is already unique (no CoW clone).
+            let mut owned_reads =
+                into_unique_records(std::mem::take(&mut region_for_genotyping.reads));
             let (_realigned, best_hap_per_read) = realign_reads_to_best_haplotype(
-                &mut region_for_genotyping.reads,
+                &mut owned_reads,
                 &assembly.haplotypes,
                 &read_likelihoods,
                 assembly.padded_reference_start_1based(),
                 &args.assemble.assembler.haplotype_to_reference_sw,
             )?;
+            region_for_genotyping.reads = share_records(owned_reads);
             read_likelihoods = crate::read_realignment::change_evidence_to_best_haplotype(
                 read_likelihoods,
                 &best_hap_per_read,
@@ -1125,11 +1136,14 @@ impl HaplotypeCallerEngine {
                         &assembly.haplotypes,
                         &args.likelihood,
                         !args.is_strict_java(),
+                        None,
                     )?;
                     if !recomputed.is_empty() {
                         read_likelihoods = recomputed;
+                        let mut owned_reads =
+                            into_unique_records(std::mem::take(&mut ll_region.reads));
                         let (_, best_hap_per_read) = realign_reads_to_best_haplotype(
-                            &mut ll_region.reads,
+                            &mut owned_reads,
                             &assembly.haplotypes,
                             &read_likelihoods,
                             assembly.padded_reference_start_1based(),
@@ -1140,7 +1154,7 @@ impl HaplotypeCallerEngine {
                                 read_likelihoods,
                                 &best_hap_per_read,
                             );
-                        region_for_genotyping.reads = ll_region.reads;
+                        region_for_genotyping.reads = share_records(owned_reads);
                     }
                 }
             }
@@ -1490,13 +1504,16 @@ impl HaplotypeCallerEngine {
                         if !reads.is_empty() {
                             region_for_genotyping.reads = reads;
                         }
+                        let mut owned_reads =
+                            into_unique_records(std::mem::take(&mut region_for_genotyping.reads));
                         let (_, best_hap_per_read) = realign_reads_to_best_haplotype(
-                            &mut region_for_genotyping.reads,
+                            &mut owned_reads,
                             &assembly.haplotypes,
                             &read_likelihoods,
                             assembly.padded_reference_start_1based(),
                             sw,
                         )?;
+                        region_for_genotyping.reads = share_records(owned_reads);
                         read_likelihoods =
                             crate::read_realignment::change_evidence_to_best_haplotype(
                                 read_likelihoods,
@@ -1674,7 +1691,7 @@ impl HaplotypeCallerEngine {
         args: &AssembleReadsArgs,
     ) -> GatkResult<Option<AssemblyResultSet>> {
         let mut ref_cache = ReferenceWindowCache::new(reference_fasta.to_path_buf(), 4);
-        call_region_assemble(region, dictionary, &mut ref_cache, args)
+        Ok(call_region_assemble(region, dictionary, &mut ref_cache, args)?.map(|a| a.assembly))
     }
 
     /// GATK `HaplotypeCallerEngine.shutdown` — native PairHMM teardown hook (J.1.2).
@@ -1715,19 +1732,21 @@ fn refresh_region_read_likelihoods(
     if work.reads.is_empty() {
         return Ok((Vec::new(), Vec::new()));
     }
-    let ll = compute_region_read_likelihoods(&work, haplotypes, config, apply_normalize)?;
+    // Refresh uses a different overlapping subset — re-finalize (no assemble buffer).
+    let ll = compute_region_read_likelihoods(&work, haplotypes, config, apply_normalize, None)?;
     if ll.is_empty() {
         return Ok((ll, work.reads));
     }
+    let mut owned_reads = into_unique_records(std::mem::take(&mut work.reads));
     let (_realigned, best_hap_per_read) = realign_reads_to_best_haplotype(
-        &mut work.reads,
+        &mut owned_reads,
         haplotypes,
         &ll,
         padded_reference_start_1based,
         sw,
     )?;
     let ll = crate::read_realignment::change_evidence_to_best_haplotype(ll, &best_hap_per_read);
-    Ok((ll, work.reads))
+    Ok((ll, share_records(owned_reads)))
 }
 
 /// GATK `--phred-scaled-global-read-mismapping-rate` default 45 → log10 error prob.
@@ -2038,17 +2057,23 @@ fn compute_region_read_likelihoods(
     haplotypes: &[Haplotype],
     config: &HcLikelihoodEngineConfig,
     apply_normalize: bool,
+    pre_finalized: Option<&[rust_htslib::bam::Record]>,
 ) -> GatkResult<Vec<RegionReadLikelihood>> {
     if haplotypes.is_empty() {
         return Ok(Vec::new());
     }
-    let finalized = finalize_region_reads_for_assembly(
-        &region.reads,
-        region,
-        true,
-        gatk_min_tail_quality_for_assembly(10),
-        false,
-    );
+    // A2: reuse assemble `finalizeRegion` buffer when present; else full finalize.
+    let finalized = if let Some(pre) = pre_finalized.filter(|p| !p.is_empty()) {
+        clip_finalized_reads_to_region(pre, region)
+    } else {
+        finalize_region_reads_for_assembly(
+            &region.reads,
+            region,
+            true,
+            gatk_min_tail_quality_for_assembly(10),
+            false,
+        )
+    };
     let active_span = Some((region.start.get(), region.end.get()));
     // Trim/hard-clip can drop sparse-BAM reads that still overlap the active locus (P12 92305634).
     if finalized.is_empty() && !region.reads.is_empty() {

@@ -123,7 +123,7 @@ fn assembly_result_score(
     reference: &AssemblyRead,
     scoring: Option<&AssemblyScoringContext>,
 ) -> u64 {
-    let ref_bytes = reference.bases.as_bytes();
+    let ref_bytes = reference.bases.as_slice();
     let mut score = 0u64;
     if haplotypes_have_indel_cigar(&result.haplotypes) {
         score += 10;
@@ -172,7 +172,7 @@ fn assembly_result_has_phantom_cluster_indels(
     if !haplotypes_have_indel_cigar(&result.haplotypes) {
         return false;
     }
-    let ref_bytes = reference.bases.as_bytes();
+    let ref_bytes = reference.bases.as_slice();
     cluster_coupled_event_count(
         &result.haplotypes,
         ref_bytes,
@@ -255,7 +255,7 @@ pub fn supplement_p12_cluster_coupled_haplotypes(
         return Ok(());
     };
     let pad = ctx.padded_reference_start_1based;
-    let ref_bytes = reference.bases.as_bytes();
+    let ref_bytes = reference.bases.as_slice();
     let sw = &args.haplotype_to_reference_sw;
 
     refresh_alt_haplotype_indel_cigars(&mut result.haplotypes, ref_bytes, pad, sw);
@@ -387,7 +387,7 @@ fn consider_rt_assembly_candidate(
     if let Some(ctx) = args.scoring.as_ref() {
         refresh_alt_haplotype_indel_cigars(
             &mut result.haplotypes,
-            reference.bases.as_bytes(),
+            reference.bases.as_slice(),
             ctx.padded_reference_start_1based,
             &args.haplotype_to_reference_sw,
         );
@@ -420,7 +420,7 @@ fn rt_assembly_best_variation(
         )?;
         if !batch.is_empty() {
             let mut batch = batch;
-            let mut ref_hap = Haplotype::new(reference.bases.as_bytes(), true);
+            let mut ref_hap = Haplotype::new(reference.bases.as_slice(), true);
             let mut ref_cigar = Cigar::new();
             ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
             ref_hap.cigar = Some(ref_cigar);
@@ -657,7 +657,7 @@ pub fn assemble_from_ref_and_reads(
         let result = assemble_from_ref_and_reads_seq_graph(reference, reads, args)?;
         // SeqGraph zip can collapse to a ref-length spine while RT k-best still has variation (P12 ASM-1).
         if matches!(result.status, AssemblyStatus::AssembledSomeVariation)
-            && !haplotypes_have_alt_bases(&result.haplotypes, reference.bases.as_bytes())
+            && !haplotypes_have_alt_bases(&result.haplotypes, reference.bases.as_slice())
             && !haplotypes_have_indel_cigar(&result.haplotypes)
         {
             let mut rt_args = args.clone();
@@ -665,7 +665,7 @@ pub fn assemble_from_ref_and_reads(
             rt_args.remove_paths_not_connected_to_ref = false;
             rt_args.skip_post_dangling_prune = true;
             if let Ok(rt) = assemble_from_ref_and_reads_rt_graph(reference, reads, &rt_args) {
-                if haplotypes_have_alt_bases(&rt.haplotypes, reference.bases.as_bytes())
+                if haplotypes_have_alt_bases(&rt.haplotypes, reference.bases.as_slice())
                     || haplotypes_have_indel_cigar(&rt.haplotypes)
                 {
                     let mut picked = rt;
@@ -678,7 +678,7 @@ pub fn assemble_from_ref_and_reads(
             if ctx.overlaps_p12_cluster() {
                 let coupled = cluster_coupled_event_count(
                     &result.haplotypes,
-                    reference.bases.as_bytes(),
+                    reference.bases.as_slice(),
                     ctx.padded_reference_start_1based,
                     &ctx.contig,
                     ctx.active_start_1based,
@@ -691,7 +691,7 @@ pub fn assemble_from_ref_and_reads(
                     rt_args.skip_post_dangling_prune = true;
                     if let Some(rt) = rt_assembly_best_variation(reference, reads, &rt_args)? {
                         let ctx = args.scoring.as_ref().expect("scoring");
-                        let ref_bytes = reference.bases.as_bytes();
+                        let ref_bytes = reference.bases.as_slice();
                         let rt_score = assembly_result_score(&rt, reference, args.scoring.as_ref());
                         let seq_score =
                             assembly_result_score(&result, reference, args.scoring.as_ref());
@@ -754,7 +754,7 @@ fn assemble_from_ref_and_reads_rt_graph(
                 if prefer_best_variation {
                     let score = assembly_result_score(&result, reference, args.scoring.as_ref());
                     if let Some(ctx) = args.scoring.as_ref() {
-                        let ref_bytes = reference.bases.as_bytes();
+                        let ref_bytes = reference.bases.as_slice();
                         let coupled = cluster_coupled_event_count(
                             &result.haplotypes,
                             ref_bytes,
@@ -817,7 +817,7 @@ fn assemble_from_ref_and_reads_rt_graph(
                         let score =
                             assembly_result_score(&result, reference, args.scoring.as_ref());
                         if let Some(ctx) = args.scoring.as_ref() {
-                            let ref_bytes = reference.bases.as_bytes();
+                            let ref_bytes = reference.bases.as_slice();
                             let coupled = cluster_coupled_event_count(
                                 &result.haplotypes,
                                 ref_bytes,
@@ -880,11 +880,11 @@ fn assemble_from_ref_and_reads_rt_graph(
     });
     supplement_p12_cluster_coupled_haplotypes(&mut fail, reference, reads, args)?;
     if args.scoring.is_some()
-        && !haplotypes_have_alt_bases(&fail.haplotypes, reference.bases.as_bytes())
+        && !haplotypes_have_alt_bases(&fail.haplotypes, reference.bases.as_slice())
         && !haplotypes_have_indel_cigar(&fail.haplotypes)
     {
         if let Some(rt) = rt_assembly_best_variation(reference, reads, args)? {
-            if haplotypes_have_alt_bases(&rt.haplotypes, reference.bases.as_bytes())
+            if haplotypes_have_alt_bases(&rt.haplotypes, reference.bases.as_slice())
                 || haplotypes_have_indel_cigar(&rt.haplotypes)
             {
                 let mut picked = rt;
@@ -966,11 +966,11 @@ fn assemble_from_ref_and_reads_seq_graph(
     let pad = cigar_refresh_pad(args);
     refresh_alt_haplotype_indel_cigars(
         &mut haplotypes,
-        reference.bases.as_bytes(),
+        reference.bases.as_slice(),
         pad,
         &args.haplotype_to_reference_sw,
     );
-    let mut ref_hap = Haplotype::new(reference.bases.as_bytes(), true);
+    let mut ref_hap = Haplotype::new(reference.bases.as_slice(), true);
     let mut ref_cigar = Cigar::new();
     ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
     ref_hap.cigar = Some(ref_cigar);
@@ -982,7 +982,7 @@ fn assemble_from_ref_and_reads_seq_graph(
     let event_maps = haplotypes
         .iter()
         .map(|h| {
-            let ref_hap = Haplotype::new(reference.bases.as_bytes(), true);
+            let ref_hap = Haplotype::new(reference.bases.as_slice(), true);
             EventMap::from_haplotype_and_reference(h, &ref_hap, &ref_hap.bases, 1, 0)
         })
         .collect();
@@ -1131,7 +1131,7 @@ fn probe_seq_graph_kmer_one(
     row.has_ref_sink = seq.reference_sink_vertex().is_some();
     row.ref_path_matches = seq
         .reference_path_bytes()
-        .map(|b| b == reference.bases.as_bytes())
+        .map(|b| b == reference.bases.as_slice())
         .unwrap_or(false);
 
     if status == SeqGraphCleanupStatus::JustAssembledReference {
@@ -1146,7 +1146,7 @@ fn probe_seq_graph_kmer_one(
     let paths = find_best_haplotypes_seq_graph(&seq, args.num_best_haplotypes_per_graph)?;
     row.kbest_paths = paths.len();
 
-    let mut ref_hap = Haplotype::new(reference.bases.as_bytes(), true);
+    let mut ref_hap = Haplotype::new(reference.bases.as_slice(), true);
     let mut ref_cigar = Cigar::new();
     ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
     ref_hap.cigar = Some(ref_cigar);
@@ -1164,7 +1164,7 @@ fn probe_seq_graph_kmer_one(
     if let Some(path) = paths.first() {
         let bases = seq.path_bases_bytes(path.start, &path.edges);
         row.path_bases_len = bases.len();
-        row.path_eq_ref_bases = bases == reference.bases.as_bytes();
+        row.path_eq_ref_bases = bases == reference.bases.as_slice();
     }
     row.outcome = if row.path_eq_ref_bases {
         "variation_graph_kbest_path_is_ref_bases".into()
@@ -1320,7 +1320,7 @@ fn extract_rt_haplotypes_from_built_graph(
     else {
         return Ok(Vec::new());
     };
-    let mut ref_hap = Haplotype::new(reference.bases.as_bytes(), true);
+    let mut ref_hap = Haplotype::new(reference.bases.as_slice(), true);
     let mut ref_cigar = Cigar::new();
     ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
     ref_hap.cigar = Some(ref_cigar);
@@ -1337,13 +1337,13 @@ fn extract_rt_haplotypes_from_built_graph(
         &mut haps,
         &ref_hap,
         &graph.dangling_merge_haps,
-        reference.bases.as_bytes(),
+        reference.bases.as_slice(),
         &args.haplotype_to_reference_sw,
     );
     if let Some(ctx) = args.scoring.as_ref() {
         refresh_alt_haplotype_indel_cigars(
             &mut haps,
-            reference.bases.as_bytes(),
+            reference.bases.as_slice(),
             ctx.padded_reference_start_1based,
             &args.haplotype_to_reference_sw,
         );
@@ -1378,7 +1378,7 @@ pub fn merge_rt_kbest_pre_remove_paths_at_kmer(
     haplotypes: &mut Vec<Haplotype>,
     only_kmer: Option<usize>,
 ) -> GatkResult<()> {
-    let ref_bytes = reference.bases.as_bytes();
+    let ref_bytes = reference.bases.as_slice();
     let mut ref_hap = Haplotype::new(ref_bytes, true);
     let mut ref_cigar = Cigar::new();
     ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
@@ -1411,7 +1411,7 @@ pub fn merge_rt_kbest_pre_remove_paths_at_kmer(
         if let Some(ctx) = args.scoring.as_ref() {
             refresh_alt_haplotype_indel_cigars(
                 &mut batch,
-                reference.bases.as_bytes(),
+                reference.bases.as_slice(),
                 ctx.padded_reference_start_1based,
                 &args.haplotype_to_reference_sw,
             );
@@ -1446,7 +1446,7 @@ fn discover_haplotypes_from_seq_graphs(
     reference: &AssemblyRead,
     args: &ReadThreadingAssemblerArgs,
 ) -> GatkResult<Vec<Haplotype>> {
-    let mut ref_hap = Haplotype::new(reference.bases.as_bytes(), true);
+    let mut ref_hap = Haplotype::new(reference.bases.as_slice(), true);
     let mut ref_cigar = Cigar::new();
     ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
     ref_hap.cigar = Some(ref_cigar);
@@ -1557,7 +1557,7 @@ fn try_assemble_kmer(
         return Ok(None);
     };
 
-    let mut ref_hap = Haplotype::new(reference.bases.as_bytes(), true);
+    let mut ref_hap = Haplotype::new(reference.bases.as_slice(), true);
     let mut ref_cigar = Cigar::new();
     ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
     ref_hap.cigar = Some(ref_cigar);
@@ -1575,7 +1575,7 @@ fn try_assemble_kmer(
         &mut haplotypes,
         &ref_hap,
         &graph.dangling_merge_haps,
-        reference.bases.as_bytes(),
+        reference.bases.as_slice(),
         &args.haplotype_to_reference_sw,
     );
     if args.ensure_reference_in_result {
@@ -1584,7 +1584,7 @@ fn try_assemble_kmer(
     merge_rt_kbest_pre_remove_paths(reference, reads, args, &[], &mut haplotypes)?;
     refresh_alt_haplotype_indel_cigars(
         &mut haplotypes,
-        reference.bases.as_bytes(),
+        reference.bases.as_slice(),
         1,
         &args.haplotype_to_reference_sw,
     );
@@ -1810,7 +1810,7 @@ fn just_reference_result(kmer_size: usize, reference: &AssemblyRead) -> Assembly
     AssemblyResult {
         status: AssemblyStatus::JustAssembledReference,
         kmer_size,
-        haplotypes: vec![Haplotype::new(reference.bases.as_bytes(), true)],
+        haplotypes: vec![Haplotype::new(reference.bases.as_slice(), true)],
         event_maps: vec![EventMap::default()],
     }
 }
@@ -1873,7 +1873,7 @@ pub fn audit_kbest_extract(
     let mut seen: HashSet<(Vec<u8>, bool)> = HashSet::new();
     let mut rows = Vec::new();
     for (path_index, path) in paths.iter().enumerate() {
-        let bases = path.bases(graph).into_bytes();
+        let bases = path.bases(graph);
         // CLONE: needed because owned composite key for dedup/lookup.
         let key = (bases.clone(), path.is_reference);
         let eq_ref_bases = bases.as_slice() == ref_bytes.as_slice();
@@ -1919,7 +1919,7 @@ pub fn extract_haplotypes_from_kbest_paths(
     let mut seen: HashSet<(Vec<u8>, bool)> = HashSet::new();
 
     for path in paths {
-        let bases = path.bases(graph).into_bytes();
+        let bases = path.bases(graph);
         // CLONE: needed because owned composite key for dedup/lookup.
         let key = (bases.clone(), path.is_reference);
         if seen.contains(&key) {
@@ -1961,7 +1961,7 @@ mod tests {
 
     fn read(seq: &str, q: u8) -> AssemblyRead {
         AssemblyRead {
-            bases: seq.to_string(),
+            bases: seq.as_bytes().to_vec(),
             base_quals: vec![q; seq.len()],
         }
     }
