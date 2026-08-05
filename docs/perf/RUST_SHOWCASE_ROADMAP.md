@@ -74,9 +74,14 @@ export GATK_RS_HC_SEQUENTIAL=1 RAYON_NUM_THREADS=1
 
 | Check | Result |
 |-------|--------|
-| `scripts/ci/check_hc_rss_regression.sh` | OK (unit + dict Peak-RSS); HC bomb window skipped when realistic BAM/ref not staged |
-| Excellence N-2 / N-5 / N-7 | PASS (env allowlist; unwrap ratchet; P12 band freeze untouched) |
-| Dense bomb / 50 kb / 100 kb / 500 kb Peak-RSS | **Pending** — requires staged `parity/realworld/...` BAM + `hs37d5.simple.fa`; record numbers in [`HC_MEMORY_PROFILE.md`](HC_MEMORY_PROFILE.md) only after measurement |
-| GIAB `ci-subset` | Still **unsigned** in [`CLAIM_MATRIX.md`](../CLAIM_MATRIX.md) |
+| `scripts/ci/check_hc_rss_regression.sh` | OK — bomb Peak-RSS 36.6 MiB with staged BAM |
+| Excellence N-2 / N-5 / N-7 | PASS |
+| Dense bomb / 50 kb / 100 kb / 500 kb Peak-RSS | **Measured 2026-08-05** — bomb 26.86 MiB / 50 kb 31.50 MiB (OK); 100 kb ~2.6 GiB abort; 500 kb skipped — see [`HC_MEMORY_PROFILE.md`](HC_MEMORY_PROFILE.md) |
+| Holdout chr21 + chr20 offset | Rust HC OK (~28–33 MiB); no P12 pins deleted |
+| GIAB `ci-subset` | Still **unsigned** — **do not re-dispatch** until 100 kb+ dense survival |
 
-Holdout windows (chr21 + chr20 offset) stay under L8/L9 signoff scripts; do not delete P12-scoped pins from Phase A ownership work.
+### Phase B (landed with measured A wins on bomb/50 kb)
+
+- Packed Logless DP scratch reuse; Criterion phenotype matrix; SIMD vs scalar phenotype test.
+- K-best borrows graph when cycle-strip is off.
+- **Default PairHMM remains Log10.**

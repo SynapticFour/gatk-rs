@@ -72,6 +72,50 @@ fn simd_matches_scalar_logless_on_synthetic_suite() {
     let _ = best_simd_backend();
 }
 
+/// Phenotype-class differential: read lengths 100–300 and hap packs 8–128
+/// (showcase Phase B; not locus pins).
+#[test]
+fn simd_matches_scalar_on_read_len_hap_count_phenotypes() {
+    let backend = resolve_pair_hmm_impl(PairHmmImpl::Simd);
+    let policy = PairHmmFpPolicy {
+        abs_epsilon: 1e-9,
+        rel_epsilon: 1e-8,
+    };
+    let mut cases = 0usize;
+    for &read_len in &[100usize, 200, 300] {
+        for &hap_count in &[8usize, 32, 64, 128] {
+            let read = bases_pattern(read_len, 7);
+            let (quals, ins, del, gcp) = parity_quals(read_len);
+            let haps: Vec<Vec<u8>> = (0..hap_count)
+                .map(|k| {
+                    let mut h = bases_pattern(read_len + (k % 5), 11 + k as u64);
+                    if k % 4 == 0 && !h.is_empty() {
+                        h[0] = b'G';
+                    }
+                    h
+                })
+                .collect();
+            let hap_refs: Vec<&[u8]> = haps.iter().map(|h| h.as_slice()).collect();
+            let simd = score_read_haps_logless(backend, &read, &quals, &hap_refs, &ins, &del, &gcp)
+                .expect("simd phenotype");
+            assert_eq!(simd.len(), hap_count);
+            for (i, hap) in hap_refs.iter().enumerate() {
+                let scalar = logless_pairhmm_likelihood(&read, &quals, hap, &ins, &del, &gcp)
+                    .expect("scalar phenotype");
+                assert!(
+                    pairhmm_fp_eq(simd[i], scalar, policy)
+                        || (simd[i].is_infinite() && scalar.is_infinite()),
+                    "phenotype rn={read_len} haps={hap_count} i={i}: simd={} scalar={}",
+                    simd[i],
+                    scalar
+                );
+                cases += 1;
+            }
+        }
+    }
+    assert!(cases >= 8 + 32 + 64 + 128, "got {cases}");
+}
+
 #[test]
 fn logless_and_log10_both_finite_same_rank_order() {
     // Logless vs Log10 are different engines (Java likewise). Absolute Δ can be

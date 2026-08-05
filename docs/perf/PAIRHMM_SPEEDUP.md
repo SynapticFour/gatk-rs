@@ -39,6 +39,17 @@ but is **not** the HC default until a signed GIAB/hap.py run shows no F1 regress
 Unit gate (SIMD vs scalar Logless):  
 `cargo test -p gatk-haplotypecaller --test pairhmm_simd_vs_scalar_test`
 
+Criterion phenotype matrix (read 100/200/300 × hap 8/32/64/128):  
+`cargo bench -p gatk-haplotypecaller --bench pairhmm --locked -- pairhmm_logless_simd`
+
+Smith-Waterman TLS scratch is **bounded** and contig-scale matrices are **refused**
+(`smith_waterman::oversized_matrix_is_refused`) — Peak-RSS safety, not a downsampler.
+
+## Phase B note (2026-08-05)
+
+Packed Logless reuses DP scratch across haplotypes; k-best borrows the graph when
+cycle-stripping is off. Default PairHMM remains Log10.
+
 ## HC smoke (fixture)
 
 ```bash

@@ -38,7 +38,25 @@ Roadmap: [`RUST_SHOWCASE_ROADMAP.md`](RUST_SHOWCASE_ROADMAP.md).
 | Sequential hap scoring under `GATK_RS_HC_SEQUENTIAL=1` | `likelihood_engine.rs` |
 | Optional jemalloc | `gatk-cli` feature `jemalloc` + `MALLOC_CONF` notes in Air recipe |
 
-**Measured this land (no realistic BAM staged):** `check_hc_rss_regression.sh` OK — dict Peak-RSS ≈ 6.0 MiB; bomb/50 kb/100 kb HC Peak-RSS **not** re-recorded (assets missing). Excellence N-7 band freeze PASS. No public Peak-RSS claim from smoke.
+**Measured 2026-08-05** (Air M4 Darwin arm64, `GATK_RS_HC_SEQUENTIAL=1`, `RAYON_NUM_THREADS=1`, release `gatk-rs` without jemalloc; BAM `parity/realworld/na12878_giab_window_mem_500kb_b37`, ref `hs37d5.simple.fa`):
+
+| Window | Interval | Peak-RSS | Exit |
+|--------|----------|----------|------|
+| bomb | `20:10098500-10099500` | **26.86 MiB** | 0 |
+| 50 kb | `20:10000000-10050000` | **31.50 MiB** | 0 |
+| 100 kb | `20:10000000-10100000` | **2632 MiB** then abort | 1 |
+| 500 kb | `20:10000000-10500000` | skipped after 100 kb failure | — |
+
+Pre-pass anchors (`HC_MEMORY_BASELINE_20260804.md`): bomb ~38 MiB, 50 kb ~114 MiB. **Dense-window Peak-RSS drop is real on bomb/50 kb**; 100 kb still fails on this 16 GiB host — **not** a public claim and **not** a GIAB `ci-subset` sign. Excellence N-7 band freeze PASS.
+
+**Holdout Rust HC sanity (same env, 50 kb windows):**
+
+| Window | Interval | Peak-RSS | Variants | Exit |
+|--------|----------|----------|----------|------|
+| chr21 | `21:41200001-41250000` | 28.27 MiB | 26 | 0 |
+| chr20 holdout | `20:15000000-15050000` | 32.53 MiB | 4 | 0 |
+
+`check_hc_rss_regression.sh` with staged BAM: OK (bomb Peak-RSS 36.6 MiB ≤ 256).
 
 ## A. Trivial smoke — reproducibility reference only
 
