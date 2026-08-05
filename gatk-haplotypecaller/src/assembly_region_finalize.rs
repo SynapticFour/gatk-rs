@@ -124,35 +124,47 @@ pub fn clip_finalized_reads_to_region(
     reads: &[bam::Record],
     region: &AssemblyRegion,
 ) -> Vec<bam::Record> {
+    let mut owned = reads.to_vec();
+    clip_finalized_reads_in_place(&mut owned, region);
+    owned
+}
+
+/// Consume-and-clip path for the assemble `finalizeRegion` buffer (no second full copy when
+/// most reads already lie inside the genotyping/padded span).
+pub fn clip_finalized_reads_in_place(reads: &mut Vec<bam::Record>, region: &AssemblyRegion) {
     let ref_start = region.extended_start.get();
     let ref_stop = region.extended_end.get();
-    let mut out: Vec<bam::Record> = Vec::new();
-    for original in reads {
+    reads.retain_mut(|original| {
         if original.tid() < 0 || original.is_unmapped() || original.pos() < 0 {
-            continue;
+            return false;
         }
         if !read_overlaps_padded_span(original, ref_start, ref_stop) {
-            continue;
+            return false;
         }
-        let mut read = hard_clip_to_region(original, ref_start, ref_stop);
-        if read.is_unmapped() || !read_has_positive_cigar_length(&read) {
-            continue;
+        let aln_start = original.pos() + 1;
+        let aln_end = i64::from(alignment_end_1based(original));
+        let needs_clip = aln_start < ref_start as i64 || aln_end > ref_stop as i64;
+        if needs_clip {
+            let clipped = hard_clip_to_region(original, ref_start, ref_stop);
+            if clipped.is_unmapped() || !read_has_positive_cigar_length(&clipped) {
+                return false;
+            }
+            let aln_start = clipped.pos() + 1;
+            let aln_end = i64::from(alignment_end_1based(&clipped));
+            if aln_start > aln_end || aln_start > ref_stop as i64 || aln_end < ref_start as i64 {
+                return false;
+            }
+            *original = clipped;
         }
-        let aln_start = read.pos() + 1;
-        let aln_end = i64::from(alignment_end_1based(&read));
-        if aln_start > aln_end || aln_start > ref_stop as i64 || aln_end < ref_start as i64 {
-            continue;
-        }
-        normalize_record_cigar(&mut read);
-        out.push(read);
-    }
-    out.sort_by(|a, b| {
+        normalize_record_cigar(original);
+        true
+    });
+    reads.sort_by(|a, b| {
         a.tid()
             .cmp(&b.tid())
             .then_with(|| a.pos().cmp(&b.pos()))
             .then_with(|| a.qname().cmp(b.qname()))
     });
-    out
 }
 
 fn read_overlaps_padded_span(rec: &bam::Record, ref_start: u64, ref_stop: u64) -> bool {

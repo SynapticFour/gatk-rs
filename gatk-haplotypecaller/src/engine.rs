@@ -4,7 +4,7 @@ use crate::active_region::{tile_closed_interval, TraversalTile, DEFAULT_TRAVERSA
 use crate::allele_filtering::{ensure_reference_haplotype, filter_assembly_and_likelihoods};
 use crate::assembly_based_caller::{call_region_assemble, AssembleReadsArgs};
 use crate::assembly_region_finalize::{
-    clip_finalized_reads_to_region, finalize_region_reads_for_assembly,
+    clip_finalized_reads_in_place, finalize_region_reads_for_assembly,
     gatk_min_tail_quality_for_assembly,
 };
 use crate::assembly_region_iterator::AssemblyRegion;
@@ -39,7 +39,7 @@ use crate::ref_confidence::{
     ReferenceConfidenceConfig,
 };
 use crate::reference_context::ReferenceContext;
-use crate::shared_bam::{into_unique_records, share_records};
+use crate::shared_bam::share_records;
 use gatk_common::{GatkError, GatkResult};
 use gatk_core::reference::{IntervalSpec, ReferenceWindowCache, SequenceDictionary};
 use std::path::Path;
@@ -768,7 +768,7 @@ impl HaplotypeCallerEngine {
                 &assembly.haplotypes,
                 &args.likelihood,
                 ll_normalize,
-                Some(&assemble_finalized),
+                Some(assemble_finalized),
             )?;
             if read_likelihoods.is_empty() {
                 let mut ll_region = region.clone();
@@ -842,17 +842,14 @@ impl HaplotypeCallerEngine {
                     },
                 );
             }
-            // A3: take unique ownership when shard Arc is already unique (no CoW clone).
-            let mut owned_reads =
-                into_unique_records(std::mem::take(&mut region_for_genotyping.reads));
+            // A3: realign via Arc COW (`BamRecordSlot`) — no deep clone of every BAM payload.
             let (_realigned, best_hap_per_read) = realign_reads_to_best_haplotype(
-                &mut owned_reads,
+                region_for_genotyping.reads.as_mut_slice(),
                 &assembly.haplotypes,
                 &read_likelihoods,
                 assembly.padded_reference_start_1based(),
                 &args.assemble.assembler.haplotype_to_reference_sw,
             )?;
-            region_for_genotyping.reads = share_records(owned_reads);
             read_likelihoods = crate::read_realignment::change_evidence_to_best_haplotype(
                 read_likelihoods,
                 &best_hap_per_read,
@@ -1140,10 +1137,8 @@ impl HaplotypeCallerEngine {
                     )?;
                     if !recomputed.is_empty() {
                         read_likelihoods = recomputed;
-                        let mut owned_reads =
-                            into_unique_records(std::mem::take(&mut ll_region.reads));
                         let (_, best_hap_per_read) = realign_reads_to_best_haplotype(
-                            &mut owned_reads,
+                            ll_region.reads.as_mut_slice(),
                             &assembly.haplotypes,
                             &read_likelihoods,
                             assembly.padded_reference_start_1based(),
@@ -1154,7 +1149,7 @@ impl HaplotypeCallerEngine {
                                 read_likelihoods,
                                 &best_hap_per_read,
                             );
-                        region_for_genotyping.reads = share_records(owned_reads);
+                        region_for_genotyping.reads = ll_region.reads;
                     }
                 }
             }
@@ -1504,16 +1499,13 @@ impl HaplotypeCallerEngine {
                         if !reads.is_empty() {
                             region_for_genotyping.reads = reads;
                         }
-                        let mut owned_reads =
-                            into_unique_records(std::mem::take(&mut region_for_genotyping.reads));
                         let (_, best_hap_per_read) = realign_reads_to_best_haplotype(
-                            &mut owned_reads,
+                            region_for_genotyping.reads.as_mut_slice(),
                             &assembly.haplotypes,
                             &read_likelihoods,
                             assembly.padded_reference_start_1based(),
                             sw,
                         )?;
-                        region_for_genotyping.reads = share_records(owned_reads);
                         read_likelihoods =
                             crate::read_realignment::change_evidence_to_best_haplotype(
                                 read_likelihoods,
@@ -1737,16 +1729,15 @@ fn refresh_region_read_likelihoods(
     if ll.is_empty() {
         return Ok((ll, work.reads));
     }
-    let mut owned_reads = into_unique_records(std::mem::take(&mut work.reads));
     let (_realigned, best_hap_per_read) = realign_reads_to_best_haplotype(
-        &mut owned_reads,
+        work.reads.as_mut_slice(),
         haplotypes,
         &ll,
         padded_reference_start_1based,
         sw,
     )?;
     let ll = crate::read_realignment::change_evidence_to_best_haplotype(ll, &best_hap_per_read);
-    Ok((ll, share_records(owned_reads)))
+    Ok((ll, work.reads))
 }
 
 /// GATK `--phred-scaled-global-read-mismapping-rate` default 45 → log10 error prob.
@@ -2057,14 +2048,15 @@ fn compute_region_read_likelihoods(
     haplotypes: &[Haplotype],
     config: &HcLikelihoodEngineConfig,
     apply_normalize: bool,
-    pre_finalized: Option<&[rust_htslib::bam::Record]>,
+    pre_finalized: Option<Vec<rust_htslib::bam::Record>>,
 ) -> GatkResult<Vec<RegionReadLikelihood>> {
     if haplotypes.is_empty() {
         return Ok(Vec::new());
     }
-    // A2: reuse assemble `finalizeRegion` buffer when present; else full finalize.
-    let finalized = if let Some(pre) = pre_finalized.filter(|p| !p.is_empty()) {
-        clip_finalized_reads_to_region(pre, region)
+    // A2: consume assemble finalize buffer when present (clip in place — no second owned copy).
+    let finalized = if let Some(mut pre) = pre_finalized.filter(|p| !p.is_empty()) {
+        clip_finalized_reads_in_place(&mut pre, region);
+        pre
     } else {
         finalize_region_reads_for_assembly(
             &region.reads,

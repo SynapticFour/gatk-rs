@@ -153,7 +153,8 @@ fn align_uppercase_ready(
     // thrash a 16 GiB laptop for minutes even when the DP matrix is never allocated.
     // Contig × ~read-length grids are ~60 GiB on hs37d5 chr20 (realistic-window OOM).
     const MAX_SW_DIM: usize = 100_000;
-    const MAX_SW_CELLS: usize = 50_000_000;
+    // Match PairHMM: refuse before multi-GiB TLS high-water on 16 GiB hosts.
+    const MAX_SW_CELLS: usize = 8_000_000;
     let nrow = reference.len() + 1;
     let ncol = alternate.len() + 1;
     let cells = nrow.saturating_mul(ncol);

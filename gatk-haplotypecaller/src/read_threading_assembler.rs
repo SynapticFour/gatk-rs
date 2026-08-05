@@ -906,8 +906,42 @@ fn assemble_from_ref_and_reads_seq_graph(
     kmer_sizes.sort_unstable();
     kmer_sizes.dedup();
 
-    let mut variation_graphs: Vec<(SeqGraph, usize)> = Vec::new();
+    let mut variation_kmers: Vec<usize> = Vec::new();
     let mut last_just_ref: Option<AssemblyResult> = None;
+    let mut haplotypes = Vec::new();
+    let mut seen: HashSet<(Vec<u8>, bool)> = HashSet::new();
+
+    let mut ref_hap = Haplotype::new(reference.bases.as_slice(), true);
+    let mut ref_cigar = Cigar::new();
+    ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
+    ref_hap.cigar = Some(ref_cigar);
+    let ref_cigar_len = ref_hap.cigar.as_ref().unwrap().reference_length();
+
+    let ingest_seq_graph = |seq: SeqGraph,
+                            kmer: usize,
+                            variation_kmers: &mut Vec<usize>,
+                            haplotypes: &mut Vec<Haplotype>,
+                            seen: &mut HashSet<(Vec<u8>, bool)>,
+                            ref_hap: &Haplotype|
+     -> GatkResult<()> {
+        variation_kmers.push(kmer);
+        let paths = find_best_haplotypes_seq_graph(&seq, args.num_best_haplotypes_per_graph)?;
+        let mut batch = extract_haplotypes_from_seq_kbest_paths(
+            &paths,
+            &seq,
+            kmer,
+            ref_hap,
+            ref_cigar_len,
+            &args.haplotype_to_reference_sw,
+        )?;
+        for h in batch.drain(..) {
+            let key = (h.bases.clone(), h.is_reference);
+            if seen.insert(key) {
+                haplotypes.push(h);
+            }
+        }
+        Ok(())
+    };
 
     for &kmer_size in &kmer_sizes {
         if let Some((seq, status, kmer)) = try_build_seq_graph_kmer(
@@ -920,7 +954,14 @@ fn assemble_from_ref_and_reads_seq_graph(
         )? {
             match status {
                 SeqGraphCleanupStatus::AssembledSomeVariation => {
-                    variation_graphs.push((seq, kmer));
+                    ingest_seq_graph(
+                        seq,
+                        kmer,
+                        &mut variation_kmers,
+                        &mut haplotypes,
+                        &mut seen,
+                        &ref_hap,
+                    )?;
                 }
                 SeqGraphCleanupStatus::JustAssembledReference => {
                     last_just_ref = Some(just_reference_result(kmer, reference));
@@ -929,7 +970,7 @@ fn assemble_from_ref_and_reads_seq_graph(
         }
     }
 
-    if variation_graphs.is_empty() && !args.dont_increase_kmer_sizes_for_cycles {
+    if variation_kmers.is_empty() && !args.dont_increase_kmer_sizes_for_cycles {
         let mut kmer_size = *kmer_sizes.last().unwrap_or(&25) + 10;
         for iter in 1..=6 {
             let last = iter == 6;
@@ -943,7 +984,14 @@ fn assemble_from_ref_and_reads_seq_graph(
             )? {
                 match status {
                     SeqGraphCleanupStatus::AssembledSomeVariation => {
-                        variation_graphs.push((seq, kmer));
+                        ingest_seq_graph(
+                            seq,
+                            kmer,
+                            &mut variation_kmers,
+                            &mut haplotypes,
+                            &mut seen,
+                            &ref_hap,
+                        )?;
                     }
                     SeqGraphCleanupStatus::JustAssembledReference => {
                         last_just_ref = Some(just_reference_result(kmer, reference));
@@ -954,15 +1002,14 @@ fn assemble_from_ref_and_reads_seq_graph(
         }
     }
 
-    if variation_graphs.is_empty() {
+    if variation_kmers.is_empty() {
         return Ok(last_just_ref.unwrap_or_else(|| {
             just_reference_result(kmer_sizes.first().copied().unwrap_or(10), reference)
         }));
     }
 
-    let min_kmer = variation_graphs.iter().map(|(_, k)| *k).min().unwrap_or(10);
-    let mut haplotypes = discover_haplotypes_from_seq_graphs(&variation_graphs, reference, args)?;
-    merge_rt_kbest_pre_remove_paths(reference, reads, args, &variation_graphs, &mut haplotypes)?;
+    let min_kmer = variation_kmers.iter().copied().min().unwrap_or(10);
+    merge_rt_kbest_pre_remove_paths(reference, reads, args, &variation_kmers, &mut haplotypes)?;
     let pad = cigar_refresh_pad(args);
     refresh_alt_haplotype_indel_cigars(
         &mut haplotypes,
@@ -970,10 +1017,6 @@ fn assemble_from_ref_and_reads_seq_graph(
         pad,
         &args.haplotype_to_reference_sw,
     );
-    let mut ref_hap = Haplotype::new(reference.bases.as_slice(), true);
-    let mut ref_cigar = Cigar::new();
-    ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
-    ref_hap.cigar = Some(ref_cigar);
     if args.ensure_reference_in_result {
         ensure_reference_haplotype(&mut haplotypes, &ref_hap);
     }
@@ -1236,12 +1279,10 @@ fn haplotypes_have_indel_cigar(haplotypes: &[Haplotype]) -> bool {
 
 fn kmer_sizes_for_rt_merge(
     args: &ReadThreadingAssemblerArgs,
-    variation_graphs: &[(SeqGraph, usize)],
+    variation_kmers: &[usize],
 ) -> Vec<usize> {
     let mut sizes: Vec<usize> = args.kmer_sizes.clone();
-    for (_, k) in variation_graphs {
-        sizes.push(*k);
-    }
+    sizes.extend_from_slice(variation_kmers);
     if !args.dont_increase_kmer_sizes_for_cycles {
         let mut kmer = *sizes.last().unwrap_or(&25) + 10;
         for _ in 1..=6 {
@@ -1356,14 +1397,14 @@ pub fn merge_rt_kbest_pre_remove_paths(
     reference: &AssemblyRead,
     reads: &[AssemblyRead],
     args: &ReadThreadingAssemblerArgs,
-    variation_graphs: &[(SeqGraph, usize)],
+    variation_kmers: &[usize],
     haplotypes: &mut Vec<Haplotype>,
 ) -> GatkResult<()> {
     merge_rt_kbest_pre_remove_paths_at_kmer(
         reference,
         reads,
         args,
-        variation_graphs,
+        variation_kmers,
         haplotypes,
         None,
     )
@@ -1374,7 +1415,7 @@ pub fn merge_rt_kbest_pre_remove_paths_at_kmer(
     reference: &AssemblyRead,
     reads: &[AssemblyRead],
     args: &ReadThreadingAssemblerArgs,
-    variation_graphs: &[(SeqGraph, usize)],
+    variation_kmers: &[usize],
     haplotypes: &mut Vec<Haplotype>,
     only_kmer: Option<usize>,
 ) -> GatkResult<()> {
@@ -1390,7 +1431,7 @@ pub fn merge_rt_kbest_pre_remove_paths_at_kmer(
         .collect();
     let configured: HashSet<usize> = args.kmer_sizes.iter().copied().collect();
 
-    for kmer_size in kmer_sizes_for_rt_merge(args, variation_graphs) {
+    for kmer_size in kmer_sizes_for_rt_merge(args, variation_kmers) {
         if only_kmer.is_some_and(|k| kmer_size != k) {
             continue;
         }
@@ -1435,44 +1476,10 @@ pub fn supplement_haplotypes_from_rt_kbest(
     reference: &AssemblyRead,
     reads: &[AssemblyRead],
     args: &ReadThreadingAssemblerArgs,
-    variation_graphs: &[(SeqGraph, usize)],
+    variation_kmers: &[usize],
     haplotypes: &mut Vec<Haplotype>,
 ) -> GatkResult<()> {
-    merge_rt_kbest_pre_remove_paths(reference, reads, args, variation_graphs, haplotypes)
-}
-
-fn discover_haplotypes_from_seq_graphs(
-    graphs: &[(SeqGraph, usize)],
-    reference: &AssemblyRead,
-    args: &ReadThreadingAssemblerArgs,
-) -> GatkResult<Vec<Haplotype>> {
-    let mut ref_hap = Haplotype::new(reference.bases.as_slice(), true);
-    let mut ref_cigar = Cigar::new();
-    ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
-    ref_hap.cigar = Some(ref_cigar);
-    let ref_cigar_len = ref_hap.cigar.as_ref().unwrap().reference_length();
-
-    let mut haplotypes = Vec::new();
-    let mut seen = HashSet::new();
-    for (graph, kmer) in graphs {
-        let paths = find_best_haplotypes_seq_graph(graph, args.num_best_haplotypes_per_graph)?;
-        let mut batch = extract_haplotypes_from_seq_kbest_paths(
-            &paths,
-            graph,
-            *kmer,
-            &ref_hap,
-            ref_cigar_len,
-            &args.haplotype_to_reference_sw,
-        )?;
-        for h in batch.drain(..) {
-            // CLONE: needed because owned composite key for dedup/lookup.
-            let key = (h.bases.clone(), h.is_reference);
-            if seen.insert(key) {
-                haplotypes.push(h);
-            }
-        }
-    }
-    Ok(haplotypes)
+    merge_rt_kbest_pre_remove_paths(reference, reads, args, variation_kmers, haplotypes)
 }
 
 pub fn extract_haplotypes_from_seq_kbest_paths(
