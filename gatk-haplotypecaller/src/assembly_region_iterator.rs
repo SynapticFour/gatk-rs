@@ -25,7 +25,7 @@ use crate::read_header_semantics::ReadHeaderSemantics;
 use crate::read_model::{passes_hc_read_filters_with_header, ReadFilterParams};
 use crate::reference_context::ReferenceContext;
 use crate::region_pileup::RegionPileupLocus;
-use crate::shared_bam::{share_record, SharedBamRecord};
+use crate::shared_bam::{empty_shared_record, share_record, SharedBamRecord};
 use crate::walker::ReadShard;
 use gatk_common::{AssemblyRegionConfig, GatkError, GatkResult};
 use gatk_core::reference::{ReferenceWindowCache, SequenceDictionary};
@@ -746,15 +746,15 @@ impl AssemblyRegionIterator {
             }
             let (_r0, r1) = self.read_ref_span0[idx];
             if r1 < 0 {
-                // Drop filtered placeholders.
-                *slot = share_record(bam::Record::new());
+                // Drop filtered placeholders onto the process-wide empty sentinel.
+                *slot = empty_shared_record();
                 continue;
             }
             let end1 = r1 as u64; // half-open end → exclusive; treat as past keep_start
             if end1 < keep_start1 {
-                // Replace with empty record so Arc payload can free when regions drop it.
-                // Keep vector length stable for index maps.
-                *slot = share_record(bam::Record::new());
+                // Drop payload Arc when regions no longer reference it; reuse one empty
+                // sentinel so progressive release does not allocate per freed index.
+                *slot = empty_shared_record();
             }
         }
     }

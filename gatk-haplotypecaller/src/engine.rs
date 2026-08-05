@@ -5,7 +5,6 @@ use crate::allele_filtering::{ensure_reference_haplotype, filter_assembly_and_li
 use crate::assembly_based_caller::{call_region_assemble, AssembleReadsArgs};
 use crate::assembly_region_finalize::{
     finalize_region_reads_for_assembly, gatk_min_tail_quality_for_assembly,
-    records_to_assembly_reads,
 };
 use crate::assembly_region_iterator::AssemblyRegion;
 use crate::assembly_region_trimmer::{
@@ -1772,9 +1771,9 @@ fn retain_marginal_sparse_softclip_read(
 }
 
 /// When static filter drops every read, retain all marginal soft-clip reads in the active span.
-fn retain_marginal_sparse_softclip_likelihoods(
+fn retain_marginal_sparse_softclip_likelihoods<R: std::borrow::Borrow<rust_htslib::bam::Record>>(
     ll: &[RegionReadLikelihood],
-    reads: &[crate::shared_bam::SharedBamRecord],
+    reads: &[R],
     active_span: Option<(u64, u64)>,
 ) -> Vec<RegionReadLikelihood> {
     let Some((active_start, active_end)) = active_span else {
@@ -1789,6 +1788,7 @@ fn retain_marginal_sparse_softclip_likelihoods(
         let Some(rec) = reads.get(read_idx) else {
             continue;
         };
+        let rec = rec.borrow();
         let best = ll
             .iter()
             .filter(|e| e.read_index.get() == read_idx)
@@ -1876,9 +1876,11 @@ fn normalize_region_read_likelihoods(
 }
 
 /// Java `AlleleLikelihoods.filterPoorlyModeledEvidence` (static threshold, dynamic off).
-fn filter_poorly_modeled_region_read_likelihoods(
+fn filter_poorly_modeled_region_read_likelihoods<
+    R: std::borrow::Borrow<rust_htslib::bam::Record>,
+>(
     ll: &[RegionReadLikelihood],
-    reads: &[crate::shared_bam::SharedBamRecord],
+    reads: &[R],
     active_span: Option<(u64, u64)>,
 ) -> Vec<RegionReadLikelihood> {
     if ll.is_empty() {
@@ -1890,6 +1892,7 @@ fn filter_poorly_modeled_region_read_likelihoods(
         let Some(rec) = reads.get(read_idx) else {
             continue;
         };
+        let rec = rec.borrow();
         let best = ll
             .iter()
             .filter(|e| e.read_index.get() == read_idx)
@@ -1924,9 +1927,11 @@ fn filter_poorly_modeled_region_read_likelihoods(
 }
 
 /// When every read fails the static threshold, Java may still keep P12 upstream marginal evidence.
-fn retain_marginal_cluster_upstream_likelihoods(
+fn retain_marginal_cluster_upstream_likelihoods<
+    R: std::borrow::Borrow<rust_htslib::bam::Record>,
+>(
     ll: &[RegionReadLikelihood],
-    reads: &[crate::shared_bam::SharedBamRecord],
+    reads: &[R],
 ) -> Vec<RegionReadLikelihood> {
     if ll.is_empty() {
         return Vec::new();
@@ -1937,6 +1942,7 @@ fn retain_marginal_cluster_upstream_likelihoods(
         let Some(rec) = reads.get(read_idx) else {
             continue;
         };
+        let rec = rec.borrow();
         let best = ll
             .iter()
             .filter(|e| e.read_index.get() == read_idx)
@@ -1956,9 +1962,9 @@ fn retain_marginal_cluster_upstream_likelihoods(
         .collect()
 }
 
-fn filter_normalized_region_read_likelihoods(
+fn filter_normalized_region_read_likelihoods<R: std::borrow::Borrow<rust_htslib::bam::Record>>(
     ll: &[RegionReadLikelihood],
-    reads: &[crate::shared_bam::SharedBamRecord],
+    reads: &[R],
     active_span: Option<(u64, u64)>,
 ) -> Vec<RegionReadLikelihood> {
     let filtered = filter_poorly_modeled_region_read_likelihoods(ll, reads, active_span);
@@ -1977,9 +1983,9 @@ fn filter_normalized_region_read_likelihoods(
     Vec::new()
 }
 
-fn post_process_pairhmm_likelihoods(
+fn post_process_pairhmm_likelihoods<R: std::borrow::Borrow<rust_htslib::bam::Record>>(
     mut ll: Vec<RegionReadLikelihood>,
-    reads: &[crate::shared_bam::SharedBamRecord],
+    reads: &[R],
     haplotypes: &[Haplotype],
     apply_normalize: bool,
     active_span: Option<(u64, u64)>,
@@ -1991,6 +1997,40 @@ fn post_process_pairhmm_likelihoods(
     let eligible = pairhmm_eligible_haplotype_indices(haplotypes);
     normalize_region_read_likelihoods(&mut ll, &eligible);
     filter_normalized_region_read_likelihoods(&ll, reads, active_span)
+}
+
+/// Score PairHMM from BAM records without `AssemblyRead` / UTF-8 `String` rematerialization.
+///
+/// # Observable contract
+/// Same finalizeRegion evidence and PairHMM inputs as the prior `records_to_assembly_reads` path
+/// (BAM seq/qual bytes are ASCII ACGTN — identical to `String::from_utf8_lossy` for valid records).
+fn score_pairhmm_from_records<R: std::borrow::Borrow<rust_htslib::bam::Record>>(
+    reads: &[R],
+    haplotypes: &[Haplotype],
+    config: &HcLikelihoodEngineConfig,
+) -> GatkResult<Vec<RegionReadLikelihood>> {
+    let eligible = pairhmm_eligible_haplotype_indices(haplotypes);
+    // L12-A3: zero-copy hap membership for PairHMM (no post-prune `Vec<u8>` rematerialize).
+    let hap_refs: Vec<&[u8]> = eligible
+        .iter()
+        .map(|&hi| haplotypes[hi].bases.as_slice())
+        .collect();
+    let mut out = Vec::with_capacity(reads.len() * eligible.len());
+    for (ri, rec) in reads.iter().enumerate() {
+        let rec = rec.borrow();
+        // One BAM packed-seq decode; no intermediate UTF-8 String.
+        let bases = rec.seq().as_bytes();
+        let scores =
+            score_read_against_haplotypes(config, &bases, rec.qual(), rec.mapq(), &hap_refs)?;
+        for (score_i, &hi) in eligible.iter().enumerate() {
+            out.push(RegionReadLikelihood {
+                read_index: crate::bio_ids::ReadIndex::new(ri),
+                haplotype_index: crate::bio_ids::HaplotypeIndex::new(hi),
+                log10_likelihood: scores[score_i],
+            });
+        }
+    }
+    Ok(out)
 }
 
 fn compute_region_read_likelihoods(
@@ -2009,43 +2049,25 @@ fn compute_region_read_likelihoods(
         gatk_min_tail_quality_for_assembly(10),
         false,
     );
+    let active_span = Some((region.start.get(), region.end.get()));
     // Trim/hard-clip can drop sparse-BAM reads that still overlap the active locus (P12 92305634).
-    let work_reads = if finalized.is_empty() && !region.reads.is_empty() {
-        region.reads.clone()
-    } else {
-        crate::shared_bam::share_records(finalized)
-    };
-    let reads = records_to_assembly_reads(&work_reads);
-    let eligible = pairhmm_eligible_haplotype_indices(haplotypes);
-    // L12-A3: zero-copy hap membership for PairHMM (no post-prune `Vec<u8>` rematerialize).
-    let hap_refs: Vec<&[u8]> = eligible
-        .iter()
-        .map(|&hi| haplotypes[hi].bases.as_slice())
-        .collect();
-    let mut out = Vec::with_capacity(work_reads.len() * eligible.len());
-    for (ri, (rec, read)) in work_reads.iter().zip(reads.iter()).enumerate() {
-        let mapq = rec.mapq();
-        let scores = score_read_against_haplotypes(
-            config,
-            read.bases.as_bytes(),
-            &read.base_quals,
-            mapq,
-            &hap_refs,
-        )?;
-        for (score_i, &hi) in eligible.iter().enumerate() {
-            out.push(RegionReadLikelihood {
-                read_index: crate::bio_ids::ReadIndex::new(ri),
-                haplotype_index: crate::bio_ids::HaplotypeIndex::new(hi),
-                log10_likelihood: scores[score_i],
-            });
-        }
+    if finalized.is_empty() && !region.reads.is_empty() {
+        let out = score_pairhmm_from_records(region.reads.as_slice(), haplotypes, config)?;
+        return Ok(post_process_pairhmm_likelihoods(
+            out,
+            region.reads.as_slice(),
+            haplotypes,
+            apply_normalize,
+            active_span,
+        ));
     }
+    let out = score_pairhmm_from_records(&finalized, haplotypes, config)?;
     Ok(post_process_pairhmm_likelihoods(
         out,
-        &work_reads,
+        &finalized,
         haplotypes,
         apply_normalize,
-        Some((region.start.get(), region.end.get())),
+        active_span,
     ))
 }
 

@@ -8,14 +8,27 @@
 //! Callers that rewrite CIGAR/bases/MAPQ must use [`record_make_mut`] / [`BamRecordSlot::make_mut`].
 
 use rust_htslib::bam;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 /// Arc-backed BAM record. [`Clone`] is cheap; mutate via [`record_make_mut`].
 pub type SharedBamRecord = Arc<bam::Record>;
 
+/// Process-wide empty placeholder for progressive shard release.
+/// Replacing spent slots with this sentinel (instead of `Arc::new(Record::new())` per index)
+/// avoids allocating millions of tiny empty records while keeping index maps stable.
+static EMPTY_SHARED_BAM: OnceLock<SharedBamRecord> = OnceLock::new();
+
 #[inline]
 pub fn share_record(rec: bam::Record) -> SharedBamRecord {
     Arc::new(rec)
+}
+
+/// Cheap clone of the shared empty BAM placeholder (see [`EMPTY_SHARED_BAM`]).
+#[inline]
+pub fn empty_shared_record() -> SharedBamRecord {
+    EMPTY_SHARED_BAM
+        .get_or_init(|| Arc::new(bam::Record::new()))
+        .clone()
 }
 
 /// Unique mutable access (copy-on-write when still shared with the shard).
@@ -81,6 +94,14 @@ mod tests {
         record_make_mut(&mut b).set_pos(7);
         assert!(!Arc::ptr_eq(&a, &b));
         assert_eq!(b.pos(), 7);
+        assert_eq!(a.pos(), -1);
+    }
+
+    #[test]
+    fn empty_shared_record_is_one_sentinel() {
+        let a = empty_shared_record();
+        let b = empty_shared_record();
+        assert!(Arc::ptr_eq(&a, &b));
         assert_eq!(a.pos(), -1);
     }
 }

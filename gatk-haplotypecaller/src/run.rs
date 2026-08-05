@@ -50,20 +50,6 @@ use tracing::info;
 /// fully sequential region apply (batch size 1) for 16 GiB hosts.
 const LARGE_REGION_READS_SEQUENTIAL_DEFAULT: usize = 4_096;
 
-fn large_region_reads_sequential() -> usize {
-    std::env::var("GATK_RS_HC_LARGE_REGION_READS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(LARGE_REGION_READS_SEQUENTIAL_DEFAULT)
-}
-
-fn hc_force_sequential_regions() -> bool {
-    matches!(
-        std::env::var("GATK_RS_HC_SEQUENTIAL").as_deref(),
-        Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
-    )
-}
-
 /// Drop PairHMM / SW TLS scratch that grew past region-scale budgets.
 fn release_region_tls_scratch() {
     crate::pairhmm_log10::release_pairhmm_tls_scratch();
@@ -536,8 +522,10 @@ fn assembly_region_variant_records(
         // Bound in-flight regions to the Rayon pool size so Peak-RSS cannot grow with
         // interval length × region read sets (the 2 Mb / ~60 GiB failure mode).
         // Merge each flush into `records` immediately — do not retain all interval batches.
-        let large_region_reads = large_region_reads_sequential();
-        let batch_limit = if hc_force_sequential_regions() {
+        let large_region_reads = crate::runtime_config::large_region_reads_sequential(
+            LARGE_REGION_READS_SEQUENTIAL_DEFAULT,
+        );
+        let batch_limit = if crate::runtime_config::hc_force_sequential_regions() {
             1
         } else {
             rayon::current_num_threads().max(1)

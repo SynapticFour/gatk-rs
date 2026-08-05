@@ -23,6 +23,11 @@ pub struct ExecutionConfig {
     pub activate_output_opt_out: bool,
     /// `GATK_RS_HC_LEGACY_PROVISIONAL=1` — rejected (Sprint B removal).
     pub legacy_provisional: bool,
+    /// `GATK_RS_HC_SEQUENTIAL=1` — force assembly-region apply batch size 1 (Peak-RSS).
+    pub sequential_regions: bool,
+    /// `GATK_RS_HC_LARGE_REGION_READS` — flush a region alone at/above this read count.
+    /// `None` → caller default (`run.rs` `LARGE_REGION_READS_SEQUENTIAL_DEFAULT`).
+    pub large_region_reads: Option<usize>,
 }
 
 /// Diagnostics that must never change emit/genotype results.
@@ -74,6 +79,10 @@ impl RuntimeConfig {
                 scaffold_output: env_truthy("GATK_RS_HC_SCAFFOLD_OUTPUT"),
                 activate_output_opt_out: env_is("GATK_RS_HC_ACTIVATE_OUTPUT", &["0", "false"]),
                 legacy_provisional: env_truthy("GATK_RS_HC_LEGACY_PROVISIONAL"),
+                sequential_regions: env_truthy("GATK_RS_HC_SEQUENTIAL"),
+                large_region_reads: std::env::var("GATK_RS_HC_LARGE_REGION_READS")
+                    .ok()
+                    .and_then(|s| s.parse().ok()),
             },
             debug: DebugConfig {
                 strict_cluster_debug: env_truthy("GATK_RS_STRICT_CLUSTER_DEBUG"),
@@ -103,4 +112,17 @@ fn env_is(name: &str, values: &[&str]) -> bool {
 /// Process-wide debug helpers (cheap; reads env each call — dump/debug only).
 pub fn strict_cluster_debug_enabled() -> bool {
     RuntimeConfig::from_env().debug.strict_cluster_debug
+}
+
+/// `GATK_RS_HC_SEQUENTIAL=1` — force one assembly region at a time (16 GiB hosts).
+pub fn hc_force_sequential_regions() -> bool {
+    RuntimeConfig::from_env().execution.sequential_regions
+}
+
+/// Region read-count at which apply flushes alone. Override via `GATK_RS_HC_LARGE_REGION_READS`.
+pub fn large_region_reads_sequential(default: usize) -> usize {
+    RuntimeConfig::from_env()
+        .execution
+        .large_region_reads
+        .unwrap_or(default)
 }
