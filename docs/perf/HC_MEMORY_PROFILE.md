@@ -49,6 +49,18 @@ Roadmap: [`RUST_SHOWCASE_ROADMAP.md`](RUST_SHOWCASE_ROADMAP.md).
 
 Pre-pass anchors (`HC_MEMORY_BASELINE_20260804.md`): bomb ~38 MiB, 50 kb ~114 MiB. **Dense-window Peak-RSS drop is real on bomb/50 kb**; 100 kb still fails on this 16 GiB host — **not** a public claim and **not** a GIAB `ci-subset` sign. Excellence N-7 band freeze PASS.
 
+### 100 kb follow-up (`perf/fix-100kb-rss`, 2026-08-05 evening)
+
+Ownership + DP fail-closed land (clip-in-place, SharedBam realign, 8 M PairHMM/SW cell cap, stream SeqGraphs, sequential BAM header share). Resource-limited re-measure (`nice -n 15`, `CARGO_BUILD_JOBS=1`):
+
+| Window | Peak-RSS | Exit | Notes |
+|--------|----------|------|-------|
+| bomb | 38.97 MiB | 0 | OK |
+| 50 kb | 48.58 MiB | 0 | OK (higher than morning run; still ≪ pre-pass 114 MiB) |
+| 100 kb | **~136 MiB live RSS** after 10 min | stopped | No longer climbs to ~2.6 GiB; CPU-bound on 1001 tiles — do **not** finish on a multitasking 16 GiB Air; re-run overnight / dedicated host before signing GIAB |
+
+**Do not** dispatch `ci-subset` until a clean 100 kb (and then 500 kb) exit 0 with recorded Peak-RSS.
+
 **Holdout Rust HC sanity (same env, 50 kb windows):**
 
 | Window | Interval | Peak-RSS | Variants | Exit |

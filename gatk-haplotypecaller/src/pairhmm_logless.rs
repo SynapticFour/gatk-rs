@@ -114,7 +114,7 @@ impl LoglessScratch {
         let cells = rows * cols;
         // Contig-scale dimensions previously ballooned Peak-RSS / footprint to tens of GiB.
         debug_assert!(
-            rn <= 100_000 && hn <= 100_000 && cells <= 50_000_000,
+            rn <= 100_000 && hn <= 100_000 && cells <= 8_000_000,
             "Logless PairHMM scratch ensure called with contig-scale dims rn={rn} hn={hn}"
         );
         if self.transition.len() < rows {
@@ -172,7 +172,7 @@ pub fn logless_pairhmm_likelihood(
         return Ok(0.0);
     }
     const MAX_PAIRHMM_DIM: usize = 100_000;
-    const MAX_PAIRHMM_CELLS: usize = 50_000_000;
+    const MAX_PAIRHMM_CELLS: usize = 8_000_000;
     let cells = (rn + 1).saturating_mul(hn + 1);
     if rn > MAX_PAIRHMM_DIM || hn > MAX_PAIRHMM_DIM || cells > MAX_PAIRHMM_CELLS {
         return Err(GatkError::algorithm(format!(
