@@ -113,7 +113,7 @@
 <a href=#113 id=113 data-nosnippet>113</a>    // after `runLocalAssembly` (SeqGraph `findBestPaths` uses `add(h)` only — scores stay 0).
 <a href=#114 id=114 data-nosnippet>114</a>    // Kmer metadata is 0. Match frozen java_dumps/e2e/*.tsv (scores always 0).
 <a href=#115 id=115 data-nosnippet>115</a>    </span>write_region_meta(out, region, <span class="string">"just_assembled_reference"</span>, <span class="number">0</span>)<span class="question-mark">?</span>;
-<a href=#116 id=116 data-nosnippet>116</a>    <span class="kw">let </span>ref_bases = reference.bases.as_bytes();
+<a href=#116 id=116 data-nosnippet>116</a>    <span class="kw">let </span>ref_bases = reference.bases.as_slice();
 <a href=#117 id=117 data-nosnippet>117</a>    <span class="kw">let </span><span class="kw-2">mut </span>haplotypes = <span class="kw">if </span>assembly_set.haplotypes.len() == <span class="number">1
 <a href=#118 id=118 data-nosnippet>118</a>        </span>&amp;&amp; assembly_set.haplotypes[<span class="number">0</span>].is_reference
 <a href=#119 id=119 data-nosnippet>119</a>        &amp;&amp; assembly_set.haplotypes[<span class="number">0</span>].bases.as_slice() != ref_bases

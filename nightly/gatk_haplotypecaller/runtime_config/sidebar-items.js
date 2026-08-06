@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["strict_cluster_debug_enabled"],"struct":["DebugConfig","ExecutionConfig","RuntimeConfig"]};
+window.SIDEBAR_ITEMS = {"fn":["hc_force_sequential_regions","large_region_reads_sequential","strict_cluster_debug_enabled"],"struct":["DebugConfig","ExecutionConfig","RuntimeConfig"]};

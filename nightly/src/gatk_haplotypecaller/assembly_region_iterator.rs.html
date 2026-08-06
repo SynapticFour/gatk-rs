@@ -25,7 +25,7 @@
 <a href=#25 id=25 data-nosnippet>25</a><span class="kw">use </span><span class="kw">crate</span>::read_model::{passes_hc_read_filters_with_header, ReadFilterParams};
 <a href=#26 id=26 data-nosnippet>26</a><span class="kw">use </span><span class="kw">crate</span>::reference_context::ReferenceContext;
 <a href=#27 id=27 data-nosnippet>27</a><span class="kw">use </span><span class="kw">crate</span>::region_pileup::RegionPileupLocus;
-<a href=#28 id=28 data-nosnippet>28</a><span class="kw">use </span><span class="kw">crate</span>::shared_bam::{share_record, SharedBamRecord};
+<a href=#28 id=28 data-nosnippet>28</a><span class="kw">use </span><span class="kw">crate</span>::shared_bam::{empty_shared_record, share_record, SharedBamRecord};
 <a href=#29 id=29 data-nosnippet>29</a><span class="kw">use </span><span class="kw">crate</span>::walker::ReadShard;
 <a href=#30 id=30 data-nosnippet>30</a><span class="kw">use </span>gatk_common::{AssemblyRegionConfig, GatkError, GatkResult};
 <a href=#31 id=31 data-nosnippet>31</a><span class="kw">use </span>gatk_core::reference::{ReferenceWindowCache, SequenceDictionary};
@@ -746,15 +746,15 @@
 <a href=#746 id=746 data-nosnippet>746</a>            }
 <a href=#747 id=747 data-nosnippet>747</a>            <span class="kw">let </span>(_r0, r1) = <span class="self">self</span>.read_ref_span0[idx];
 <a href=#748 id=748 data-nosnippet>748</a>            <span class="kw">if </span>r1 &lt; <span class="number">0 </span>{
-<a href=#749 id=749 data-nosnippet>749</a>                <span class="comment">// Drop filtered placeholders.
-<a href=#750 id=750 data-nosnippet>750</a>                </span><span class="kw-2">*</span>slot = share_record(bam::Record::new());
+<a href=#749 id=749 data-nosnippet>749</a>                <span class="comment">// Drop filtered placeholders onto the process-wide empty sentinel.
+<a href=#750 id=750 data-nosnippet>750</a>                </span><span class="kw-2">*</span>slot = empty_shared_record();
 <a href=#751 id=751 data-nosnippet>751</a>                <span class="kw">continue</span>;
 <a href=#752 id=752 data-nosnippet>752</a>            }
 <a href=#753 id=753 data-nosnippet>753</a>            <span class="kw">let </span>end1 = r1 <span class="kw">as </span>u64; <span class="comment">// half-open end → exclusive; treat as past keep_start
 <a href=#754 id=754 data-nosnippet>754</a>            </span><span class="kw">if </span>end1 &lt; keep_start1 {
-<a href=#755 id=755 data-nosnippet>755</a>                <span class="comment">// Replace with empty record so Arc payload can free when regions drop it.
-<a href=#756 id=756 data-nosnippet>756</a>                // Keep vector length stable for index maps.
-<a href=#757 id=757 data-nosnippet>757</a>                </span><span class="kw-2">*</span>slot = share_record(bam::Record::new());
+<a href=#755 id=755 data-nosnippet>755</a>                <span class="comment">// Drop payload Arc when regions no longer reference it; reuse one empty
+<a href=#756 id=756 data-nosnippet>756</a>                // sentinel so progressive release does not allocate per freed index.
+<a href=#757 id=757 data-nosnippet>757</a>                </span><span class="kw-2">*</span>slot = empty_shared_record();
 <a href=#758 id=758 data-nosnippet>758</a>            }
 <a href=#759 id=759 data-nosnippet>759</a>        }
 <a href=#760 id=760 data-nosnippet>760</a>    }

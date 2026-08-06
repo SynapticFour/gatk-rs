@@ -123,7 +123,7 @@
 <a href=#123 id=123 data-nosnippet>123</a>    reference: <span class="kw-2">&amp;</span>AssemblyRead,
 <a href=#124 id=124 data-nosnippet>124</a>    scoring: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>AssemblyScoringContext&gt;,
 <a href=#125 id=125 data-nosnippet>125</a>) -&gt; u64 {
-<a href=#126 id=126 data-nosnippet>126</a>    <span class="kw">let </span>ref_bytes = reference.bases.as_bytes();
+<a href=#126 id=126 data-nosnippet>126</a>    <span class="kw">let </span>ref_bytes = reference.bases.as_slice();
 <a href=#127 id=127 data-nosnippet>127</a>    <span class="kw">let </span><span class="kw-2">mut </span>score = <span class="number">0u64</span>;
 <a href=#128 id=128 data-nosnippet>128</a>    <span class="kw">if </span>haplotypes_have_indel_cigar(<span class="kw-2">&amp;</span>result.haplotypes) {
 <a href=#129 id=129 data-nosnippet>129</a>        score += <span class="number">10</span>;
@@ -172,7 +172,7 @@
 <a href=#172 id=172 data-nosnippet>172</a>    <span class="kw">if </span>!haplotypes_have_indel_cigar(<span class="kw-2">&amp;</span>result.haplotypes) {
 <a href=#173 id=173 data-nosnippet>173</a>        <span class="kw">return </span><span class="bool-val">false</span>;
 <a href=#174 id=174 data-nosnippet>174</a>    }
-<a href=#175 id=175 data-nosnippet>175</a>    <span class="kw">let </span>ref_bytes = reference.bases.as_bytes();
+<a href=#175 id=175 data-nosnippet>175</a>    <span class="kw">let </span>ref_bytes = reference.bases.as_slice();
 <a href=#176 id=176 data-nosnippet>176</a>    cluster_coupled_event_count(
 <a href=#177 id=177 data-nosnippet>177</a>        <span class="kw-2">&amp;</span>result.haplotypes,
 <a href=#178 id=178 data-nosnippet>178</a>        ref_bytes,
@@ -255,7 +255,7 @@
 <a href=#255 id=255 data-nosnippet>255</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
 <a href=#256 id=256 data-nosnippet>256</a>    };
 <a href=#257 id=257 data-nosnippet>257</a>    <span class="kw">let </span>pad = ctx.padded_reference_start_1based;
-<a href=#258 id=258 data-nosnippet>258</a>    <span class="kw">let </span>ref_bytes = reference.bases.as_bytes();
+<a href=#258 id=258 data-nosnippet>258</a>    <span class="kw">let </span>ref_bytes = reference.bases.as_slice();
 <a href=#259 id=259 data-nosnippet>259</a>    <span class="kw">let </span>sw = <span class="kw-2">&amp;</span>args.haplotype_to_reference_sw;
 <a href=#260 id=260 data-nosnippet>260</a>
 <a href=#261 id=261 data-nosnippet>261</a>    refresh_alt_haplotype_indel_cigars(<span class="kw-2">&amp;mut </span>result.haplotypes, ref_bytes, pad, sw);
@@ -387,7 +387,7 @@
 <a href=#387 id=387 data-nosnippet>387</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(ctx) = args.scoring.as_ref() {
 <a href=#388 id=388 data-nosnippet>388</a>        refresh_alt_haplotype_indel_cigars(
 <a href=#389 id=389 data-nosnippet>389</a>            <span class="kw-2">&amp;mut </span>result.haplotypes,
-<a href=#390 id=390 data-nosnippet>390</a>            reference.bases.as_bytes(),
+<a href=#390 id=390 data-nosnippet>390</a>            reference.bases.as_slice(),
 <a href=#391 id=391 data-nosnippet>391</a>            ctx.padded_reference_start_1based,
 <a href=#392 id=392 data-nosnippet>392</a>            <span class="kw-2">&amp;</span>args.haplotype_to_reference_sw,
 <a href=#393 id=393 data-nosnippet>393</a>        );
@@ -420,7 +420,7 @@
 <a href=#420 id=420 data-nosnippet>420</a>        )<span class="question-mark">?</span>;
 <a href=#421 id=421 data-nosnippet>421</a>        <span class="kw">if </span>!batch.is_empty() {
 <a href=#422 id=422 data-nosnippet>422</a>            <span class="kw">let </span><span class="kw-2">mut </span>batch = batch;
-<a href=#423 id=423 data-nosnippet>423</a>            <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(reference.bases.as_bytes(), <span class="bool-val">true</span>);
+<a href=#423 id=423 data-nosnippet>423</a>            <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(reference.bases.as_slice(), <span class="bool-val">true</span>);
 <a href=#424 id=424 data-nosnippet>424</a>            <span class="kw">let </span><span class="kw-2">mut </span>ref_cigar = Cigar::new();
 <a href=#425 id=425 data-nosnippet>425</a>            ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
 <a href=#426 id=426 data-nosnippet>426</a>            ref_hap.cigar = <span class="prelude-val">Some</span>(ref_cigar);
@@ -657,7 +657,7 @@
 <a href=#657 id=657 data-nosnippet>657</a>        <span class="kw">let </span>result = assemble_from_ref_and_reads_seq_graph(reference, reads, args)<span class="question-mark">?</span>;
 <a href=#658 id=658 data-nosnippet>658</a>        <span class="comment">// SeqGraph zip can collapse to a ref-length spine while RT k-best still has variation (P12 ASM-1).
 <a href=#659 id=659 data-nosnippet>659</a>        </span><span class="kw">if </span><span class="macro">matches!</span>(result.status, AssemblyStatus::AssembledSomeVariation)
-<a href=#660 id=660 data-nosnippet>660</a>            &amp;&amp; !haplotypes_have_alt_bases(<span class="kw-2">&amp;</span>result.haplotypes, reference.bases.as_bytes())
+<a href=#660 id=660 data-nosnippet>660</a>            &amp;&amp; !haplotypes_have_alt_bases(<span class="kw-2">&amp;</span>result.haplotypes, reference.bases.as_slice())
 <a href=#661 id=661 data-nosnippet>661</a>            &amp;&amp; !haplotypes_have_indel_cigar(<span class="kw-2">&amp;</span>result.haplotypes)
 <a href=#662 id=662 data-nosnippet>662</a>        {
 <a href=#663 id=663 data-nosnippet>663</a>            <span class="kw">let </span><span class="kw-2">mut </span>rt_args = args.clone();
@@ -665,7 +665,7 @@
 <a href=#665 id=665 data-nosnippet>665</a>            rt_args.remove_paths_not_connected_to_ref = <span class="bool-val">false</span>;
 <a href=#666 id=666 data-nosnippet>666</a>            rt_args.skip_post_dangling_prune = <span class="bool-val">true</span>;
 <a href=#667 id=667 data-nosnippet>667</a>            <span class="kw">if let </span><span class="prelude-val">Ok</span>(rt) = assemble_from_ref_and_reads_rt_graph(reference, reads, <span class="kw-2">&amp;</span>rt_args) {
-<a href=#668 id=668 data-nosnippet>668</a>                <span class="kw">if </span>haplotypes_have_alt_bases(<span class="kw-2">&amp;</span>rt.haplotypes, reference.bases.as_bytes())
+<a href=#668 id=668 data-nosnippet>668</a>                <span class="kw">if </span>haplotypes_have_alt_bases(<span class="kw-2">&amp;</span>rt.haplotypes, reference.bases.as_slice())
 <a href=#669 id=669 data-nosnippet>669</a>                    || haplotypes_have_indel_cigar(<span class="kw-2">&amp;</span>rt.haplotypes)
 <a href=#670 id=670 data-nosnippet>670</a>                {
 <a href=#671 id=671 data-nosnippet>671</a>                    <span class="kw">let </span><span class="kw-2">mut </span>picked = rt;
@@ -678,7 +678,7 @@
 <a href=#678 id=678 data-nosnippet>678</a>            <span class="kw">if </span>ctx.overlaps_p12_cluster() {
 <a href=#679 id=679 data-nosnippet>679</a>                <span class="kw">let </span>coupled = cluster_coupled_event_count(
 <a href=#680 id=680 data-nosnippet>680</a>                    <span class="kw-2">&amp;</span>result.haplotypes,
-<a href=#681 id=681 data-nosnippet>681</a>                    reference.bases.as_bytes(),
+<a href=#681 id=681 data-nosnippet>681</a>                    reference.bases.as_slice(),
 <a href=#682 id=682 data-nosnippet>682</a>                    ctx.padded_reference_start_1based,
 <a href=#683 id=683 data-nosnippet>683</a>                    <span class="kw-2">&amp;</span>ctx.contig,
 <a href=#684 id=684 data-nosnippet>684</a>                    ctx.active_start_1based,
@@ -691,7 +691,7 @@
 <a href=#691 id=691 data-nosnippet>691</a>                    rt_args.skip_post_dangling_prune = <span class="bool-val">true</span>;
 <a href=#692 id=692 data-nosnippet>692</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(rt) = rt_assembly_best_variation(reference, reads, <span class="kw-2">&amp;</span>rt_args)<span class="question-mark">? </span>{
 <a href=#693 id=693 data-nosnippet>693</a>                        <span class="kw">let </span>ctx = args.scoring.as_ref().expect(<span class="string">"scoring"</span>);
-<a href=#694 id=694 data-nosnippet>694</a>                        <span class="kw">let </span>ref_bytes = reference.bases.as_bytes();
+<a href=#694 id=694 data-nosnippet>694</a>                        <span class="kw">let </span>ref_bytes = reference.bases.as_slice();
 <a href=#695 id=695 data-nosnippet>695</a>                        <span class="kw">let </span>rt_score = assembly_result_score(<span class="kw-2">&amp;</span>rt, reference, args.scoring.as_ref());
 <a href=#696 id=696 data-nosnippet>696</a>                        <span class="kw">let </span>seq_score =
 <a href=#697 id=697 data-nosnippet>697</a>                            assembly_result_score(<span class="kw-2">&amp;</span>result, reference, args.scoring.as_ref());
@@ -754,7 +754,7 @@
 <a href=#754 id=754 data-nosnippet>754</a>                <span class="kw">if </span>prefer_best_variation {
 <a href=#755 id=755 data-nosnippet>755</a>                    <span class="kw">let </span>score = assembly_result_score(<span class="kw-2">&amp;</span>result, reference, args.scoring.as_ref());
 <a href=#756 id=756 data-nosnippet>756</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(ctx) = args.scoring.as_ref() {
-<a href=#757 id=757 data-nosnippet>757</a>                        <span class="kw">let </span>ref_bytes = reference.bases.as_bytes();
+<a href=#757 id=757 data-nosnippet>757</a>                        <span class="kw">let </span>ref_bytes = reference.bases.as_slice();
 <a href=#758 id=758 data-nosnippet>758</a>                        <span class="kw">let </span>coupled = cluster_coupled_event_count(
 <a href=#759 id=759 data-nosnippet>759</a>                            <span class="kw-2">&amp;</span>result.haplotypes,
 <a href=#760 id=760 data-nosnippet>760</a>                            ref_bytes,
@@ -817,7 +817,7 @@
 <a href=#817 id=817 data-nosnippet>817</a>                        <span class="kw">let </span>score =
 <a href=#818 id=818 data-nosnippet>818</a>                            assembly_result_score(<span class="kw-2">&amp;</span>result, reference, args.scoring.as_ref());
 <a href=#819 id=819 data-nosnippet>819</a>                        <span class="kw">if let </span><span class="prelude-val">Some</span>(ctx) = args.scoring.as_ref() {
-<a href=#820 id=820 data-nosnippet>820</a>                            <span class="kw">let </span>ref_bytes = reference.bases.as_bytes();
+<a href=#820 id=820 data-nosnippet>820</a>                            <span class="kw">let </span>ref_bytes = reference.bases.as_slice();
 <a href=#821 id=821 data-nosnippet>821</a>                            <span class="kw">let </span>coupled = cluster_coupled_event_count(
 <a href=#822 id=822 data-nosnippet>822</a>                                <span class="kw-2">&amp;</span>result.haplotypes,
 <a href=#823 id=823 data-nosnippet>823</a>                                ref_bytes,
@@ -880,11 +880,11 @@
 <a href=#880 id=880 data-nosnippet>880</a>    });
 <a href=#881 id=881 data-nosnippet>881</a>    supplement_p12_cluster_coupled_haplotypes(<span class="kw-2">&amp;mut </span>fail, reference, reads, args)<span class="question-mark">?</span>;
 <a href=#882 id=882 data-nosnippet>882</a>    <span class="kw">if </span>args.scoring.is_some()
-<a href=#883 id=883 data-nosnippet>883</a>        &amp;&amp; !haplotypes_have_alt_bases(<span class="kw-2">&amp;</span>fail.haplotypes, reference.bases.as_bytes())
+<a href=#883 id=883 data-nosnippet>883</a>        &amp;&amp; !haplotypes_have_alt_bases(<span class="kw-2">&amp;</span>fail.haplotypes, reference.bases.as_slice())
 <a href=#884 id=884 data-nosnippet>884</a>        &amp;&amp; !haplotypes_have_indel_cigar(<span class="kw-2">&amp;</span>fail.haplotypes)
 <a href=#885 id=885 data-nosnippet>885</a>    {
 <a href=#886 id=886 data-nosnippet>886</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(rt) = rt_assembly_best_variation(reference, reads, args)<span class="question-mark">? </span>{
-<a href=#887 id=887 data-nosnippet>887</a>            <span class="kw">if </span>haplotypes_have_alt_bases(<span class="kw-2">&amp;</span>rt.haplotypes, reference.bases.as_bytes())
+<a href=#887 id=887 data-nosnippet>887</a>            <span class="kw">if </span>haplotypes_have_alt_bases(<span class="kw-2">&amp;</span>rt.haplotypes, reference.bases.as_slice())
 <a href=#888 id=888 data-nosnippet>888</a>                || haplotypes_have_indel_cigar(<span class="kw-2">&amp;</span>rt.haplotypes)
 <a href=#889 id=889 data-nosnippet>889</a>            {
 <a href=#890 id=890 data-nosnippet>890</a>                <span class="kw">let </span><span class="kw-2">mut </span>picked = rt;
@@ -966,11 +966,11 @@
 <a href=#966 id=966 data-nosnippet>966</a>    <span class="kw">let </span>pad = cigar_refresh_pad(args);
 <a href=#967 id=967 data-nosnippet>967</a>    refresh_alt_haplotype_indel_cigars(
 <a href=#968 id=968 data-nosnippet>968</a>        <span class="kw-2">&amp;mut </span>haplotypes,
-<a href=#969 id=969 data-nosnippet>969</a>        reference.bases.as_bytes(),
+<a href=#969 id=969 data-nosnippet>969</a>        reference.bases.as_slice(),
 <a href=#970 id=970 data-nosnippet>970</a>        pad,
 <a href=#971 id=971 data-nosnippet>971</a>        <span class="kw-2">&amp;</span>args.haplotype_to_reference_sw,
 <a href=#972 id=972 data-nosnippet>972</a>    );
-<a href=#973 id=973 data-nosnippet>973</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(reference.bases.as_bytes(), <span class="bool-val">true</span>);
+<a href=#973 id=973 data-nosnippet>973</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(reference.bases.as_slice(), <span class="bool-val">true</span>);
 <a href=#974 id=974 data-nosnippet>974</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_cigar = Cigar::new();
 <a href=#975 id=975 data-nosnippet>975</a>    ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
 <a href=#976 id=976 data-nosnippet>976</a>    ref_hap.cigar = <span class="prelude-val">Some</span>(ref_cigar);
@@ -982,7 +982,7 @@
 <a href=#982 id=982 data-nosnippet>982</a>    <span class="kw">let </span>event_maps = haplotypes
 <a href=#983 id=983 data-nosnippet>983</a>        .iter()
 <a href=#984 id=984 data-nosnippet>984</a>        .map(|h| {
-<a href=#985 id=985 data-nosnippet>985</a>            <span class="kw">let </span>ref_hap = Haplotype::new(reference.bases.as_bytes(), <span class="bool-val">true</span>);
+<a href=#985 id=985 data-nosnippet>985</a>            <span class="kw">let </span>ref_hap = Haplotype::new(reference.bases.as_slice(), <span class="bool-val">true</span>);
 <a href=#986 id=986 data-nosnippet>986</a>            EventMap::from_haplotype_and_reference(h, <span class="kw-2">&amp;</span>ref_hap, <span class="kw-2">&amp;</span>ref_hap.bases, <span class="number">1</span>, <span class="number">0</span>)
 <a href=#987 id=987 data-nosnippet>987</a>        })
 <a href=#988 id=988 data-nosnippet>988</a>        .collect();
@@ -1131,7 +1131,7 @@
 <a href=#1131 id=1131 data-nosnippet>1131</a>    row.has_ref_sink = seq.reference_sink_vertex().is_some();
 <a href=#1132 id=1132 data-nosnippet>1132</a>    row.ref_path_matches = seq
 <a href=#1133 id=1133 data-nosnippet>1133</a>        .reference_path_bytes()
-<a href=#1134 id=1134 data-nosnippet>1134</a>        .map(|b| b == reference.bases.as_bytes())
+<a href=#1134 id=1134 data-nosnippet>1134</a>        .map(|b| b == reference.bases.as_slice())
 <a href=#1135 id=1135 data-nosnippet>1135</a>        .unwrap_or(<span class="bool-val">false</span>);
 <a href=#1136 id=1136 data-nosnippet>1136</a>
 <a href=#1137 id=1137 data-nosnippet>1137</a>    <span class="kw">if </span>status == SeqGraphCleanupStatus::JustAssembledReference {
@@ -1146,7 +1146,7 @@
 <a href=#1146 id=1146 data-nosnippet>1146</a>    <span class="kw">let </span>paths = find_best_haplotypes_seq_graph(<span class="kw-2">&amp;</span>seq, args.num_best_haplotypes_per_graph)<span class="question-mark">?</span>;
 <a href=#1147 id=1147 data-nosnippet>1147</a>    row.kbest_paths = paths.len();
 <a href=#1148 id=1148 data-nosnippet>1148</a>
-<a href=#1149 id=1149 data-nosnippet>1149</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(reference.bases.as_bytes(), <span class="bool-val">true</span>);
+<a href=#1149 id=1149 data-nosnippet>1149</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(reference.bases.as_slice(), <span class="bool-val">true</span>);
 <a href=#1150 id=1150 data-nosnippet>1150</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_cigar = Cigar::new();
 <a href=#1151 id=1151 data-nosnippet>1151</a>    ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
 <a href=#1152 id=1152 data-nosnippet>1152</a>    ref_hap.cigar = <span class="prelude-val">Some</span>(ref_cigar);
@@ -1164,7 +1164,7 @@
 <a href=#1164 id=1164 data-nosnippet>1164</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(path) = paths.first() {
 <a href=#1165 id=1165 data-nosnippet>1165</a>        <span class="kw">let </span>bases = seq.path_bases_bytes(path.start, <span class="kw-2">&amp;</span>path.edges);
 <a href=#1166 id=1166 data-nosnippet>1166</a>        row.path_bases_len = bases.len();
-<a href=#1167 id=1167 data-nosnippet>1167</a>        row.path_eq_ref_bases = bases == reference.bases.as_bytes();
+<a href=#1167 id=1167 data-nosnippet>1167</a>        row.path_eq_ref_bases = bases == reference.bases.as_slice();
 <a href=#1168 id=1168 data-nosnippet>1168</a>    }
 <a href=#1169 id=1169 data-nosnippet>1169</a>    row.outcome = <span class="kw">if </span>row.path_eq_ref_bases {
 <a href=#1170 id=1170 data-nosnippet>1170</a>        <span class="string">"variation_graph_kbest_path_is_ref_bases"</span>.into()
@@ -1320,7 +1320,7 @@
 <a href=#1320 id=1320 data-nosnippet>1320</a>    </span><span class="kw">else </span>{
 <a href=#1321 id=1321 data-nosnippet>1321</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(Vec::new());
 <a href=#1322 id=1322 data-nosnippet>1322</a>    };
-<a href=#1323 id=1323 data-nosnippet>1323</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(reference.bases.as_bytes(), <span class="bool-val">true</span>);
+<a href=#1323 id=1323 data-nosnippet>1323</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(reference.bases.as_slice(), <span class="bool-val">true</span>);
 <a href=#1324 id=1324 data-nosnippet>1324</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_cigar = Cigar::new();
 <a href=#1325 id=1325 data-nosnippet>1325</a>    ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
 <a href=#1326 id=1326 data-nosnippet>1326</a>    ref_hap.cigar = <span class="prelude-val">Some</span>(ref_cigar);
@@ -1337,13 +1337,13 @@
 <a href=#1337 id=1337 data-nosnippet>1337</a>        <span class="kw-2">&amp;mut </span>haps,
 <a href=#1338 id=1338 data-nosnippet>1338</a>        <span class="kw-2">&amp;</span>ref_hap,
 <a href=#1339 id=1339 data-nosnippet>1339</a>        <span class="kw-2">&amp;</span>graph.dangling_merge_haps,
-<a href=#1340 id=1340 data-nosnippet>1340</a>        reference.bases.as_bytes(),
+<a href=#1340 id=1340 data-nosnippet>1340</a>        reference.bases.as_slice(),
 <a href=#1341 id=1341 data-nosnippet>1341</a>        <span class="kw-2">&amp;</span>args.haplotype_to_reference_sw,
 <a href=#1342 id=1342 data-nosnippet>1342</a>    );
 <a href=#1343 id=1343 data-nosnippet>1343</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(ctx) = args.scoring.as_ref() {
 <a href=#1344 id=1344 data-nosnippet>1344</a>        refresh_alt_haplotype_indel_cigars(
 <a href=#1345 id=1345 data-nosnippet>1345</a>            <span class="kw-2">&amp;mut </span>haps,
-<a href=#1346 id=1346 data-nosnippet>1346</a>            reference.bases.as_bytes(),
+<a href=#1346 id=1346 data-nosnippet>1346</a>            reference.bases.as_slice(),
 <a href=#1347 id=1347 data-nosnippet>1347</a>            ctx.padded_reference_start_1based,
 <a href=#1348 id=1348 data-nosnippet>1348</a>            <span class="kw-2">&amp;</span>args.haplotype_to_reference_sw,
 <a href=#1349 id=1349 data-nosnippet>1349</a>        );
@@ -1378,7 +1378,7 @@
 <a href=#1378 id=1378 data-nosnippet>1378</a>    haplotypes: <span class="kw-2">&amp;mut </span>Vec&lt;Haplotype&gt;,
 <a href=#1379 id=1379 data-nosnippet>1379</a>    only_kmer: <span class="prelude-ty">Option</span>&lt;usize&gt;,
 <a href=#1380 id=1380 data-nosnippet>1380</a>) -&gt; GatkResult&lt;()&gt; {
-<a href=#1381 id=1381 data-nosnippet>1381</a>    <span class="kw">let </span>ref_bytes = reference.bases.as_bytes();
+<a href=#1381 id=1381 data-nosnippet>1381</a>    <span class="kw">let </span>ref_bytes = reference.bases.as_slice();
 <a href=#1382 id=1382 data-nosnippet>1382</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(ref_bytes, <span class="bool-val">true</span>);
 <a href=#1383 id=1383 data-nosnippet>1383</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_cigar = Cigar::new();
 <a href=#1384 id=1384 data-nosnippet>1384</a>    ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
@@ -1411,7 +1411,7 @@
 <a href=#1411 id=1411 data-nosnippet>1411</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(ctx) = args.scoring.as_ref() {
 <a href=#1412 id=1412 data-nosnippet>1412</a>            refresh_alt_haplotype_indel_cigars(
 <a href=#1413 id=1413 data-nosnippet>1413</a>                <span class="kw-2">&amp;mut </span>batch,
-<a href=#1414 id=1414 data-nosnippet>1414</a>                reference.bases.as_bytes(),
+<a href=#1414 id=1414 data-nosnippet>1414</a>                reference.bases.as_slice(),
 <a href=#1415 id=1415 data-nosnippet>1415</a>                ctx.padded_reference_start_1based,
 <a href=#1416 id=1416 data-nosnippet>1416</a>                <span class="kw-2">&amp;</span>args.haplotype_to_reference_sw,
 <a href=#1417 id=1417 data-nosnippet>1417</a>            );
@@ -1446,7 +1446,7 @@
 <a href=#1446 id=1446 data-nosnippet>1446</a>    reference: <span class="kw-2">&amp;</span>AssemblyRead,
 <a href=#1447 id=1447 data-nosnippet>1447</a>    args: <span class="kw-2">&amp;</span>ReadThreadingAssemblerArgs,
 <a href=#1448 id=1448 data-nosnippet>1448</a>) -&gt; GatkResult&lt;Vec&lt;Haplotype&gt;&gt; {
-<a href=#1449 id=1449 data-nosnippet>1449</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(reference.bases.as_bytes(), <span class="bool-val">true</span>);
+<a href=#1449 id=1449 data-nosnippet>1449</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(reference.bases.as_slice(), <span class="bool-val">true</span>);
 <a href=#1450 id=1450 data-nosnippet>1450</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_cigar = Cigar::new();
 <a href=#1451 id=1451 data-nosnippet>1451</a>    ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
 <a href=#1452 id=1452 data-nosnippet>1452</a>    ref_hap.cigar = <span class="prelude-val">Some</span>(ref_cigar);
@@ -1557,7 +1557,7 @@
 <a href=#1557 id=1557 data-nosnippet>1557</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>);
 <a href=#1558 id=1558 data-nosnippet>1558</a>    };
 <a href=#1559 id=1559 data-nosnippet>1559</a>
-<a href=#1560 id=1560 data-nosnippet>1560</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(reference.bases.as_bytes(), <span class="bool-val">true</span>);
+<a href=#1560 id=1560 data-nosnippet>1560</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(reference.bases.as_slice(), <span class="bool-val">true</span>);
 <a href=#1561 id=1561 data-nosnippet>1561</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_cigar = Cigar::new();
 <a href=#1562 id=1562 data-nosnippet>1562</a>    ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
 <a href=#1563 id=1563 data-nosnippet>1563</a>    ref_hap.cigar = <span class="prelude-val">Some</span>(ref_cigar);
@@ -1575,7 +1575,7 @@
 <a href=#1575 id=1575 data-nosnippet>1575</a>        <span class="kw-2">&amp;mut </span>haplotypes,
 <a href=#1576 id=1576 data-nosnippet>1576</a>        <span class="kw-2">&amp;</span>ref_hap,
 <a href=#1577 id=1577 data-nosnippet>1577</a>        <span class="kw-2">&amp;</span>graph.dangling_merge_haps,
-<a href=#1578 id=1578 data-nosnippet>1578</a>        reference.bases.as_bytes(),
+<a href=#1578 id=1578 data-nosnippet>1578</a>        reference.bases.as_slice(),
 <a href=#1579 id=1579 data-nosnippet>1579</a>        <span class="kw-2">&amp;</span>args.haplotype_to_reference_sw,
 <a href=#1580 id=1580 data-nosnippet>1580</a>    );
 <a href=#1581 id=1581 data-nosnippet>1581</a>    <span class="kw">if </span>args.ensure_reference_in_result {
@@ -1584,7 +1584,7 @@
 <a href=#1584 id=1584 data-nosnippet>1584</a>    merge_rt_kbest_pre_remove_paths(reference, reads, args, <span class="kw-2">&amp;</span>[], <span class="kw-2">&amp;mut </span>haplotypes)<span class="question-mark">?</span>;
 <a href=#1585 id=1585 data-nosnippet>1585</a>    refresh_alt_haplotype_indel_cigars(
 <a href=#1586 id=1586 data-nosnippet>1586</a>        <span class="kw-2">&amp;mut </span>haplotypes,
-<a href=#1587 id=1587 data-nosnippet>1587</a>        reference.bases.as_bytes(),
+<a href=#1587 id=1587 data-nosnippet>1587</a>        reference.bases.as_slice(),
 <a href=#1588 id=1588 data-nosnippet>1588</a>        <span class="number">1</span>,
 <a href=#1589 id=1589 data-nosnippet>1589</a>        <span class="kw-2">&amp;</span>args.haplotype_to_reference_sw,
 <a href=#1590 id=1590 data-nosnippet>1590</a>    );
@@ -1810,7 +1810,7 @@
 <a href=#1810 id=1810 data-nosnippet>1810</a>    AssemblyResult {
 <a href=#1811 id=1811 data-nosnippet>1811</a>        status: AssemblyStatus::JustAssembledReference,
 <a href=#1812 id=1812 data-nosnippet>1812</a>        kmer_size,
-<a href=#1813 id=1813 data-nosnippet>1813</a>        haplotypes: <span class="macro">vec!</span>[Haplotype::new(reference.bases.as_bytes(), <span class="bool-val">true</span>)],
+<a href=#1813 id=1813 data-nosnippet>1813</a>        haplotypes: <span class="macro">vec!</span>[Haplotype::new(reference.bases.as_slice(), <span class="bool-val">true</span>)],
 <a href=#1814 id=1814 data-nosnippet>1814</a>        event_maps: <span class="macro">vec!</span>[EventMap::default()],
 <a href=#1815 id=1815 data-nosnippet>1815</a>    }
 <a href=#1816 id=1816 data-nosnippet>1816</a>}
@@ -1873,7 +1873,7 @@
 <a href=#1873 id=1873 data-nosnippet>1873</a>    <span class="kw">let </span><span class="kw-2">mut </span>seen: HashSet&lt;(Vec&lt;u8&gt;, bool)&gt; = HashSet::new();
 <a href=#1874 id=1874 data-nosnippet>1874</a>    <span class="kw">let </span><span class="kw-2">mut </span>rows = Vec::new();
 <a href=#1875 id=1875 data-nosnippet>1875</a>    <span class="kw">for </span>(path_index, path) <span class="kw">in </span>paths.iter().enumerate() {
-<a href=#1876 id=1876 data-nosnippet>1876</a>        <span class="kw">let </span>bases = path.bases(graph).into_bytes();
+<a href=#1876 id=1876 data-nosnippet>1876</a>        <span class="kw">let </span>bases = path.bases(graph);
 <a href=#1877 id=1877 data-nosnippet>1877</a>        <span class="comment">// CLONE: needed because owned composite key for dedup/lookup.
 <a href=#1878 id=1878 data-nosnippet>1878</a>        </span><span class="kw">let </span>key = (bases.clone(), path.is_reference);
 <a href=#1879 id=1879 data-nosnippet>1879</a>        <span class="kw">let </span>eq_ref_bases = bases.as_slice() == ref_bytes.as_slice();
@@ -1919,7 +1919,7 @@
 <a href=#1919 id=1919 data-nosnippet>1919</a>    <span class="kw">let </span><span class="kw-2">mut </span>seen: HashSet&lt;(Vec&lt;u8&gt;, bool)&gt; = HashSet::new();
 <a href=#1920 id=1920 data-nosnippet>1920</a>
 <a href=#1921 id=1921 data-nosnippet>1921</a>    <span class="kw">for </span>path <span class="kw">in </span>paths {
-<a href=#1922 id=1922 data-nosnippet>1922</a>        <span class="kw">let </span>bases = path.bases(graph).into_bytes();
+<a href=#1922 id=1922 data-nosnippet>1922</a>        <span class="kw">let </span>bases = path.bases(graph);
 <a href=#1923 id=1923 data-nosnippet>1923</a>        <span class="comment">// CLONE: needed because owned composite key for dedup/lookup.
 <a href=#1924 id=1924 data-nosnippet>1924</a>        </span><span class="kw">let </span>key = (bases.clone(), path.is_reference);
 <a href=#1925 id=1925 data-nosnippet>1925</a>        <span class="kw">if </span>seen.contains(<span class="kw-2">&amp;</span>key) {
@@ -1961,7 +1961,7 @@
 <a href=#1961 id=1961 data-nosnippet>1961</a>
 <a href=#1962 id=1962 data-nosnippet>1962</a>    <span class="kw">fn </span>read(seq: <span class="kw-2">&amp;</span>str, q: u8) -&gt; AssemblyRead {
 <a href=#1963 id=1963 data-nosnippet>1963</a>        AssemblyRead {
-<a href=#1964 id=1964 data-nosnippet>1964</a>            bases: seq.to_string(),
+<a href=#1964 id=1964 data-nosnippet>1964</a>            bases: seq.as_bytes().to_vec(),
 <a href=#1965 id=1965 data-nosnippet>1965</a>            base_quals: <span class="macro">vec!</span>[q; seq.len()],
 <a href=#1966 id=1966 data-nosnippet>1966</a>        }
 <a href=#1967 id=1967 data-nosnippet>1967</a>    }

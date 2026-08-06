@@ -156,7 +156,7 @@
 <a href=#156 id=156 data-nosnippet>156</a>    <span class="kw">let </span>paths = find_best_haplotypes_for_assembly(graph, args.num_best_haplotypes_per_graph)<span class="question-mark">?</span>;
 <a href=#157 id=157 data-nosnippet>157</a>    <span class="kw">let </span>(top_len, top_eq) = paths.first().map_or((<span class="number">0</span>, <span class="bool-val">false</span>), |p| {
 <a href=#158 id=158 data-nosnippet>158</a>        <span class="kw">let </span>b = graph.path_bases(p.start, <span class="kw-2">&amp;</span>p.edges);
-<a href=#159 id=159 data-nosnippet>159</a>        (b.len(), b.as_bytes() == ref_bytes)
+<a href=#159 id=159 data-nosnippet>159</a>        (b.len(), b.as_slice() == ref_bytes)
 <a href=#160 id=160 data-nosnippet>160</a>    });
 <a href=#161 id=161 data-nosnippet>161</a>    <span class="comment">// Java `HcFullParityGateDump.rtStageRow`: extractedHaps/nonRefHaps count KBest paths, not post-SW haps.
 <a href=#162 id=162 data-nosnippet>162</a>    </span>rows.push(AssemblyStageRow {
@@ -276,7 +276,7 @@
 <a href=#276 id=276 data-nosnippet>276</a>}
 <a href=#277 id=277 data-nosnippet>277</a>
 <a href=#278 id=278 data-nosnippet>278</a><span class="kw">fn </span>ref_hap_setup(reference: <span class="kw-2">&amp;</span><span class="kw">crate</span>::assembly::AssemblyRead) -&gt; (Haplotype, usize) {
-<a href=#279 id=279 data-nosnippet>279</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(reference.bases.as_bytes(), <span class="bool-val">true</span>);
+<a href=#279 id=279 data-nosnippet>279</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(reference.bases.as_slice(), <span class="bool-val">true</span>);
 <a href=#280 id=280 data-nosnippet>280</a>    <span class="kw">let </span><span class="kw-2">mut </span>ref_cigar = Cigar::new();
 <a href=#281 id=281 data-nosnippet>281</a>    ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
 <a href=#282 id=282 data-nosnippet>282</a>    ref_hap.cigar = <span class="prelude-val">Some</span>(ref_cigar);
@@ -351,8 +351,8 @@
 <a href=#351 id=351 data-nosnippet>351</a>            score: path.score,
 <a href=#352 id=352 data-nosnippet>352</a>            is_reference: path.is_reference,
 <a href=#353 id=353 data-nosnippet>353</a>            path_len: bases.len(),
-<a href=#354 id=354 data-nosnippet>354</a>            eq_ref: bases.as_bytes() == ref_bytes,
-<a href=#355 id=355 data-nosnippet>355</a>            sequence: bases,
+<a href=#354 id=354 data-nosnippet>354</a>            eq_ref: bases.as_slice() == ref_bytes,
+<a href=#355 id=355 data-nosnippet>355</a>            sequence: String::from_utf8_lossy(<span class="kw-2">&amp;</span>bases).into_owned(),
 <a href=#356 id=356 data-nosnippet>356</a>        });
 <a href=#357 id=357 data-nosnippet>357</a>    }
 <a href=#358 id=358 data-nosnippet>358</a>    <span class="prelude-val">Ok</span>(())
@@ -451,7 +451,7 @@
 <a href=#451 id=451 data-nosnippet>451</a>    <span class="kw">const </span>KMER: usize = <span class="number">85</span>;
 <a href=#452 id=452 data-nosnippet>452</a>    <span class="kw">let </span>allow_lc = allow_low_complexity_expanded_kmer(args, <span class="bool-val">true</span>);
 <a href=#453 id=453 data-nosnippet>453</a>    <span class="kw">let </span>allow_nu = allow_non_unique_expanded_kmer(args, <span class="bool-val">true</span>);
-<a href=#454 id=454 data-nosnippet>454</a>    <span class="kw">let </span>ref_bytes = reference.bases.as_bytes();
+<a href=#454 id=454 data-nosnippet>454</a>    <span class="kw">let </span>ref_bytes = reference.bases.as_slice();
 <a href=#455 id=455 data-nosnippet>455</a>    <span class="kw">let </span><span class="kw-2">mut </span>rows = Vec::new();
 <a href=#456 id=456 data-nosnippet>456</a>    <span class="kw">let </span><span class="kw-2">mut </span>dangling_meta = <span class="prelude-val">None</span>;
 <a href=#457 id=457 data-nosnippet>457</a>    <span class="kw">let </span><span class="kw-2">mut </span>dangling_tail_probes = Vec::new();
@@ -707,7 +707,7 @@
 <a href=#707 id=707 data-nosnippet>707</a>    }
 <a href=#708 id=708 data-nosnippet>708</a>
 <a href=#709 id=709 data-nosnippet>709</a>    <span class="kw">const </span>MAX_HAPS: usize = <span class="number">128</span>;
-<a href=#710 id=710 data-nosnippet>710</a>    <span class="kw">let </span>path_rows = kbest_rows_from_snapshots(<span class="kw-2">&amp;</span>snapshots, reference.bases.as_bytes(), MAX_HAPS)<span class="question-mark">?</span>;
+<a href=#710 id=710 data-nosnippet>710</a>    <span class="kw">let </span>path_rows = kbest_rows_from_snapshots(<span class="kw-2">&amp;</span>snapshots, reference.bases.as_slice(), MAX_HAPS)<span class="question-mark">?</span>;
 <a href=#711 id=711 data-nosnippet>711</a>    <span class="macro">writeln!</span>(
 <a href=#712 id=712 data-nosnippet>712</a>        out,
 <a href=#713 id=713 data-nosnippet>713</a>        <span class="string">"graph\tstage\tstrip_cycles\trank\tscore\tis_reference\tpath_len\teq_ref\tsequence"
