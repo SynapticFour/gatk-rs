@@ -114,7 +114,7 @@
 <a href=#114 id=114 data-nosnippet>114</a>        <span class="kw">let </span>cells = rows * cols;
 <a href=#115 id=115 data-nosnippet>115</a>        <span class="comment">// Contig-scale dimensions previously ballooned Peak-RSS / footprint to tens of GiB.
 <a href=#116 id=116 data-nosnippet>116</a>        </span><span class="macro">debug_assert!</span>(
-<a href=#117 id=117 data-nosnippet>117</a>            rn &lt;= <span class="number">100_000 </span>&amp;&amp; hn &lt;= <span class="number">100_000 </span>&amp;&amp; cells &lt;= <span class="number">50_000_000</span>,
+<a href=#117 id=117 data-nosnippet>117</a>            rn &lt;= <span class="number">100_000 </span>&amp;&amp; hn &lt;= <span class="number">100_000 </span>&amp;&amp; cells &lt;= <span class="number">8_000_000</span>,
 <a href=#118 id=118 data-nosnippet>118</a>            <span class="string">"Logless PairHMM scratch ensure called with contig-scale dims rn={rn} hn={hn}"
 <a href=#119 id=119 data-nosnippet>119</a>        </span>);
 <a href=#120 id=120 data-nosnippet>120</a>        <span class="kw">if </span><span class="self">self</span>.transition.len() &lt; rows {
@@ -172,7 +172,7 @@
 <a href=#172 id=172 data-nosnippet>172</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="number">0.0</span>);
 <a href=#173 id=173 data-nosnippet>173</a>    }
 <a href=#174 id=174 data-nosnippet>174</a>    <span class="kw">const </span>MAX_PAIRHMM_DIM: usize = <span class="number">100_000</span>;
-<a href=#175 id=175 data-nosnippet>175</a>    <span class="kw">const </span>MAX_PAIRHMM_CELLS: usize = <span class="number">50_000_000</span>;
+<a href=#175 id=175 data-nosnippet>175</a>    <span class="kw">const </span>MAX_PAIRHMM_CELLS: usize = <span class="number">8_000_000</span>;
 <a href=#176 id=176 data-nosnippet>176</a>    <span class="kw">let </span>cells = (rn + <span class="number">1</span>).saturating_mul(hn + <span class="number">1</span>);
 <a href=#177 id=177 data-nosnippet>177</a>    <span class="kw">if </span>rn &gt; MAX_PAIRHMM_DIM || hn &gt; MAX_PAIRHMM_DIM || cells &gt; MAX_PAIRHMM_CELLS {
 <a href=#178 id=178 data-nosnippet>178</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(GatkError::algorithm(<span class="macro">format!</span>(
