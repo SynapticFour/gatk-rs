@@ -59,8 +59,8 @@ impl AssemblyScoringContext {
             && self.active_start_1based <= P12_CLUSTER_TTC_START.saturating_add(3)
     }
 
-    /// NA12878 P12 L3/L4 validation slice (`chr2:92300000–92350000`). Peak early-stop must
-    /// not apply here — the named Peak spike is on chr20 dense evidence, not this interval.
+    /// NA12878 P12 L3/L4 validation slice (chr2 ~50 kb spine around 92.3 Mb). Peak early-stop
+    /// must not apply here — the named Peak spike is on chr20 dense evidence, not this interval.
     pub fn overlaps_p12_l_gate_interval(&self) -> bool {
         let c = self.contig.as_str();
         (c == "2" || c == "chr2")
@@ -259,9 +259,11 @@ fn filter_phantom_cluster_indel_haplotypes(
 /// Observable contract: under `strict_java`, `scoring` is set for every region. Walking every
 /// configured+expanded k-mer to completion genome-wide dominated Peak-RSS on bushy non-P12
 /// loci (e.g. NA12878 `20:10098169-10098441`). Non-P12 still tries the full k-mer list but
-/// **early-stops** after the first alt haplotype set, or four consecutive empty RT extracts.
-/// Expanded coupled-event injection remains P12-window-only. SeqGraph assembly already merges
-/// the minimum variation k-mer via [`merge_rt_kbest_pre_remove_paths_at_kmer`].
+/// **early-stops** after the first alt haplotype set (Peak-RSS on bushy non-P12 loci such as
+/// NA12878 `20:10098169-10098441`). Empty k-mer streaks do **not** abort — L2 tiny fixtures
+/// often need later k-mers before the first alt. Expanded coupled-event injection remains
+/// P12-window-only. SeqGraph assembly already merges the minimum variation k-mer via
+/// [`merge_rt_kbest_pre_remove_paths_at_kmer`].
 pub fn supplement_p12_cluster_coupled_haplotypes(
     result: &mut AssemblyResult,
     reference: &AssemblyRead,
@@ -320,19 +322,14 @@ pub fn supplement_p12_cluster_coupled_haplotypes(
             "rt_supplement_kmer",
             &format!("kmer={kmer_size}"),
         );
-        // Observable contract: Java `findBestPaths` runs on the graph after
-        // `removePathsNotConnectedToRef`. `before_remove_paths` keeps off-spine branches for
-        // P12 coupled bridges only — genome-wide it yields paths=0 + dangling fragments that
-        // normalize drops (chr21 recall collapse) and dominates Peak-RSS on bushy loci.
-        let mut batch = if p12 {
-            extract_rt_haplotypes_before_remove_paths(
-                reference, reads, args, kmer_size, allow_lc, allow_nu,
-            )?
-        } else {
-            extract_rt_haplotypes_after_remove_paths(
-                reference, reads, args, kmer_size, allow_lc, allow_nu,
-            )?
-        };
+        // Observable contract: Java `findBestPaths` runs after `removePathsNotConnectedToRef`,
+        // but historical RT merge used `before_remove_paths` and L2 `g2-subset-live` (tiny
+        // synthetic regions) still needs those off-spine branches — `after_remove` alone yields
+        // haplotype_count=1 (ref only) vs Java 2–4. Non-P12 Peak is capped by early-stop below
+        // (stop once alts appear), not by switching extract mode.
+        let mut batch = extract_rt_haplotypes_before_remove_paths(
+            reference, reads, args, kmer_size, allow_lc, allow_nu,
+        )?;
         refresh_alt_haplotype_indel_cigars(&mut batch, ref_bytes, pad, sw);
         crate::smith_waterman::release_sw_tls_scratch();
         let haps_before = result.haplotypes.len();
@@ -352,8 +349,10 @@ pub fn supplement_p12_cluster_coupled_haplotypes(
             let has_alts =
                 result.haplotypes.iter().any(|h| !h.is_reference) && result.haplotypes.len() > 1;
             // Peak-RSS: stop once we have alts (further expanded k-mers on bushy loci like
-            // NA12878 `20:10098169` climb to multi-GiB), or after four empty extracts.
-            if has_alts || empty_streak >= 4 {
+            // NA12878 `20:10098169` climb to multi-GiB). Do **not** early-stop on empty
+            // streaks — tiny L2 fixtures often need later k-mers before the first alt appears
+            // (`g2-subset-live` haplotype_count=1 regression when empty_streak>=4 aborted).
+            if has_alts {
                 crate::runtime_config::rss_trace_checkpoint(
                     "rt_supplement_early_stop",
                     &format!(
@@ -1105,17 +1104,12 @@ fn assemble_from_ref_and_reads_seq_graph(
             haplotypes.len()
         ),
     );
-    // Java `AssemblyResultSet` RT supplement uses the minimum variation k-mer graph only —
-    // iterating every configured/expanded k-mer rebuilds bushy RT graphs and dominates Peak-RSS
-    // (e.g. NA12878 `20:10098169-10098441`).
-    merge_rt_kbest_pre_remove_paths_at_kmer(
-        reference,
-        reads,
-        args,
-        &variation_kmers,
-        &mut haplotypes,
-        Some(min_kmer),
-    )?;
+    // Observable contract: walk configured + variation + expanded RT k-mers (pre-Peak).
+    // Min-kmer-only merge (Peak cut) left L2 `g2-subset-live` at haplotype_count=1 because the
+    // alt bubble often appears at a non-min k-mer (e.g. k=10) while min variation k-mer is
+    // ref-only. Peak-RSS on bushy loci is gated by early-stop once alts appear inside
+    // [`merge_rt_kbest_pre_remove_paths_at_kmer`], not by dropping the walk.
+    merge_rt_kbest_pre_remove_paths(reference, reads, args, &variation_kmers, &mut haplotypes)?;
     crate::runtime_config::rss_trace_checkpoint(
         "after_merge_rt",
         &format!("haps={}", haplotypes.len()),
@@ -1563,15 +1557,15 @@ pub fn merge_rt_kbest_pre_remove_paths(
     variation_kmers: &[usize],
     haplotypes: &mut Vec<Haplotype>,
 ) -> GatkResult<()> {
-    // Prefer Java minimum-variation-kmer when the caller supplied variation kmers.
-    let only = variation_kmers.iter().copied().min();
+    // Full configured+variation+expanded walk (pre-Peak). Peak-RSS is gated by early-stop
+    // once alt+ref are present inside [`merge_rt_kbest_pre_remove_paths_at_kmer`].
     merge_rt_kbest_pre_remove_paths_at_kmer(
         reference,
         reads,
         args,
         variation_kmers,
         haplotypes,
-        only,
+        None,
     )
 }
 
@@ -1611,11 +1605,11 @@ pub fn merge_rt_kbest_pre_remove_paths_at_kmer(
         } else {
             allow_non_unique_configured_kmer(args)
         };
-        // Java `findBestPaths` runs after `removePathsNotConnectedToRef`. The historical
-        // `before_remove_paths` extract here kept bushy off-spine branches (Peak + chr21
-        // undercall). P12 coupled bridges still use before-remove in
-        // `supplement_p12_cluster_coupled_haplotypes` only.
-        let mut batch = extract_rt_haplotypes_after_remove_paths(
+        // Match Java-oriented historical merge and L2 `g2-subset-live`: before-remove keeps
+        // off-spine alt branches that after-remove drops on tiny synthetic graphs.
+        // Peak-RSS on bushy non-P12 loci is gated by early-stop once alts appear (below),
+        // not by switching extract mode here.
+        let mut batch = extract_rt_haplotypes_before_remove_paths(
             reference, reads, args, kmer_size, allow_lc, allow_nu,
         )?;
         if let Some(ctx) = args.scoring.as_ref() {
@@ -1632,6 +1626,17 @@ pub fn merge_rt_kbest_pre_remove_paths_at_kmer(
             if seen.insert(key) {
                 haplotypes.push(h);
             }
+        }
+        // Peak-RSS: once we have alt+ref, further expanded k-mers on bushy loci dominate RSS.
+        // L2 tiny fixtures often need a later/earlier k-mer than `min(variation)` before alts
+        // appear — so only stop after success, never after empty extracts alone.
+        if only_kmer.is_none() && haplotypes.iter().any(|h| !h.is_reference) && haplotypes.len() > 1
+        {
+            crate::runtime_config::rss_trace_checkpoint(
+                "merge_rt_early_stop",
+                &format!("kmer={kmer_size} haps={}", haplotypes.len()),
+            );
+            break;
         }
     }
     if args.ensure_reference_in_result {
