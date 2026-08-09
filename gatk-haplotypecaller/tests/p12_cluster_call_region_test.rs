@@ -104,7 +104,7 @@ fn p12_cluster_call_region() {
             ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
             ref_hap.cigar = Some(ref_cigar);
             let ref_cigar_len = ref_hap.cigar.as_ref().unwrap().reference_length();
-            let paths = find_best_haplotypes_for_assembly(&graph, 128).expect("kbest");
+            let (paths, graph) = find_best_haplotypes_for_assembly(graph, 128).expect("kbest");
             eprintln!("cigar_ex\tkbest_paths={}", paths.len());
             for row in audit_kbest_extract(
                 &paths,

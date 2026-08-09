@@ -39,8 +39,13 @@ impl KBestPath {
 const MAX_KBEST_HEAP_PATHS: usize = 1_024;
 
 /// Cap on edges in a single in-flight path. Cyclic graphs otherwise let `edges` grow
-/// without bound → GiB-scale PathStates. Assembly regions are hundreds of bp.
-const MAX_KBEST_PATH_EDGES: usize = 256;
+/// without bound → GiB-scale PathStates.
+///
+/// Must clear padded HC spans (active + ~500 bp each side → often 1–2 kb of k-mers,
+/// i.e. ≫256 edges). Cap 256 zeroed k-best on normal GIAB windows (chr21 recall
+/// collapse: `paths=0` everywhere, dangling fragments only). Cyclic wander remains
+/// bounded by heap / expansion caps and per-vertex visit limits.
+const MAX_KBEST_PATH_EDGES: usize = 4_096;
 
 #[derive(Debug, Clone)]
 struct PathState {
@@ -126,16 +131,17 @@ impl PartialEq for HeapItem {
 impl Eq for HeapItem {}
 
 /// Remove cycle edges / dead vertices (GATK `KBestHaplotypeFinder.removeCyclesIfNecessary`).
-pub fn graph_for_kbest(mut graph: AssemblyGraph) -> GatkResult<AssemblyGraph> {
+///
+/// On failure returns the **original** graph in [`Err`] so callers can fall back to a
+/// preserving search without `graph.clone()` (Peak-RSS on bushy cyclic loci).
+pub fn graph_for_kbest(mut graph: AssemblyGraph) -> Result<AssemblyGraph, AssemblyGraph> {
     if !graph.has_cycle() {
         return Ok(graph);
     }
     let sources: Vec<usize> = graph.reference_source_vertex().into_iter().collect();
     let sinks: Vec<usize> = graph.reference_sink_vertex().into_iter().collect();
     if sources.is_empty() || sinks.is_empty() {
-        return Err(GatkError::algorithm(
-            "kbest: missing reference source or sink for cycle removal",
-        ));
+        return Err(graph);
     }
     let sink_set: HashSet<usize> = sinks.into_iter().collect();
     let mut edges_to_remove = HashSet::new();
@@ -154,13 +160,8 @@ pub fn graph_for_kbest(mut graph: AssemblyGraph) -> GatkResult<AssemblyGraph> {
             found_path = true;
         }
     }
-    if !found_path {
-        return Err(GatkError::algorithm(
-            "kbest: no path from source to sink after cycle analysis",
-        ));
-    }
-    if edges_to_remove.is_empty() && vertices_to_remove.is_empty() {
-        return Err(GatkError::algorithm("kbest: cannot remove cycles"));
+    if !found_path || (edges_to_remove.is_empty() && vertices_to_remove.is_empty()) {
+        return Err(graph);
     }
     for (f, t) in edges_to_remove {
         graph.remove_edge(f, t);
@@ -225,17 +226,33 @@ pub fn find_best_haplotypes_preserving_cycles(
 /// full topology (P12) and could grow the k-best frontier without bound on bushy
 /// loci (e.g. NA12878 `20:10098169`); try cycle removal first, then fall back to the
 /// capped preserving search.
+///
+/// Takes ownership so cycle stripping does not `graph.clone()` (Peak-RSS on bushy loci).
 pub fn find_best_haplotypes_for_assembly(
-    graph: &AssemblyGraph,
+    graph: AssemblyGraph,
     max_number_of_haplotypes: usize,
-) -> GatkResult<Vec<KBestPath>> {
-    if !graph.has_cycle() {
-        return find_best_haplotypes_inner(graph, max_number_of_haplotypes, false);
-    }
-    match graph_for_kbest(graph.clone()) {
-        Ok(acyclic) => find_best_haplotypes_inner(&acyclic, max_number_of_haplotypes, false),
-        Err(_) => find_best_haplotypes_preserving_cycles(graph, max_number_of_haplotypes),
-    }
+) -> GatkResult<(Vec<KBestPath>, AssemblyGraph)> {
+    let graph = match graph_for_kbest(graph) {
+        Ok(acyclic) => acyclic,
+        Err(cyclic) => {
+            crate::runtime_config::rss_trace_checkpoint(
+                "kbest_cyclic_preserve",
+                &format!("nodes={}", cyclic.nodes().len()),
+            );
+            cyclic
+        }
+    };
+    crate::runtime_config::rss_trace_checkpoint(
+        "kbest_begin",
+        &format!(
+            "nodes={} max_haps={}",
+            graph.nodes().len(),
+            max_number_of_haplotypes
+        ),
+    );
+    let paths = find_best_haplotypes_inner(&graph, max_number_of_haplotypes, false)?;
+    crate::runtime_config::rss_trace_checkpoint("kbest_done", &format!("paths={}", paths.len()));
+    Ok((paths, graph))
 }
 
 fn find_best_haplotypes_inner(
@@ -246,10 +263,13 @@ fn find_best_haplotypes_inner(
     if max_number_of_haplotypes == 0 {
         return Ok(Vec::new());
     }
-    // Borrow when possible; only clone for cycle stripping (Phase B: avoid full graph copy).
+    // Borrow when possible; only clone for cycle stripping (find_best_haplotypes public API).
     let owned;
     let graph: &AssemblyGraph = if strip_cycles {
-        owned = graph_for_kbest(graph.clone())?;
+        owned = match graph_for_kbest(graph.clone()) {
+            Ok(g) => g,
+            Err(g) => g, // preserve cyclic topology when strip fails
+        };
         &owned
     } else {
         graph
@@ -294,6 +314,16 @@ fn find_best_haplotypes_inner(
         }
         if path.edges.len() >= MAX_KBEST_PATH_EDGES || expansions >= MAX_KBEST_EXPANSIONS {
             continue;
+        }
+        if expansions > 0 && expansions % 5_000 == 0 {
+            crate::runtime_config::rss_trace_checkpoint(
+                "kbest_expand",
+                &format!(
+                    "expansions={expansions} heap={} results={}",
+                    heap.len(),
+                    result.len()
+                ),
+            );
         }
         // If the frontier is already saturated, only accept sinks (above); do not expand.
         if heap.len() >= MAX_KBEST_HEAP_PATHS {
@@ -376,11 +406,11 @@ mod tests {
     #[test]
     fn kbest_bounds_are_finite_and_tight() {
         assert!(MAX_KBEST_HEAP_PATHS <= 4_096);
-        assert!(MAX_KBEST_PATH_EDGES <= 1_024);
+        assert!(MAX_KBEST_PATH_EDGES <= 8_192);
         // Worst-case edge storage alone stays well under 100 MiB.
         let worst_edge_bytes = MAX_KBEST_HEAP_PATHS
             .saturating_mul(MAX_KBEST_PATH_EDGES)
             .saturating_mul(std::mem::size_of::<(usize, usize)>());
-        assert!(worst_edge_bytes < 32 * 1024 * 1024);
+        assert!(worst_edge_bytes < 128 * 1024 * 1024);
     }
 }

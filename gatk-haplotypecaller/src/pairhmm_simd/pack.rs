@@ -7,7 +7,7 @@
 use crate::pairhmm_logless::{
     logless_pairhmm_likelihood, INITIAL_CONDITION, INITIAL_CONDITION_LOG10, MIN_ACCEPTED_LINEAR_SUM,
 };
-use gatk_common::GatkResult;
+use gatk_common::{GatkError, GatkResult};
 
 const MATCH_TO_MATCH: usize = 0;
 const INDEL_TO_MATCH: usize = 1;
@@ -114,7 +114,16 @@ pub fn score_haps_logless_packed_f64(
 
     let max_hn = haplotypes.iter().map(|h| h.len()).max().unwrap_or(0);
     let max_cols = max_hn + 1;
-    let max_cells = (rn + 1) * max_cols;
+    let max_cells = (rn + 1).saturating_mul(max_cols);
+    // Match scalar PairHMM fail-closed caps (Peak-RSS on 16 GiB hosts).
+    const MAX_PAIRHMM_DIM: usize = 100_000;
+    const MAX_PAIRHMM_CELLS: usize = 8_000_000;
+    if rn > MAX_PAIRHMM_DIM || max_hn > MAX_PAIRHMM_DIM || max_cells > MAX_PAIRHMM_CELLS {
+        return Err(GatkError::algorithm(format!(
+            "PairHMM packed-f64 refused oversized DP (read_len={rn}, max_hap_len={max_hn}, cells={max_cells}); \
+             inputs must be assembly-region scale, not contig scale"
+        )));
+    }
     let mut scratch = F64Scratch::with_capacity_cells(max_cells);
 
     let mut out = Vec::with_capacity(haplotypes.len());
@@ -251,7 +260,15 @@ pub fn score_haps_logless_packed_f32(
     }
 
     let max_hn = haplotypes.iter().map(|h| h.len()).max().unwrap_or(0);
-    let max_cells = (rn + 1) * (max_hn + 1);
+    let max_cells = (rn + 1).saturating_mul(max_hn + 1);
+    const MAX_PAIRHMM_DIM: usize = 100_000;
+    const MAX_PAIRHMM_CELLS: usize = 8_000_000;
+    if rn > MAX_PAIRHMM_DIM || max_hn > MAX_PAIRHMM_DIM || max_cells > MAX_PAIRHMM_CELLS {
+        return Err(GatkError::algorithm(format!(
+            "PairHMM packed-f32 refused oversized DP (read_len={rn}, max_hap_len={max_hn}, cells={max_cells}); \
+             inputs must be assembly-region scale, not contig scale"
+        )));
+    }
     let mut scratch = F32Scratch::with_capacity_cells(max_cells);
 
     let mut out = Vec::with_capacity(haplotypes.len());

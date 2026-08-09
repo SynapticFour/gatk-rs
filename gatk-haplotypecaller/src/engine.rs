@@ -437,8 +437,23 @@ impl HaplotypeCallerEngine {
     }
 
     /// `HaplotypeCallerEngine.callRegion` — inactive → `None`; else assembly + PairHMM slice.
+    ///
+    /// Clones the region (cheap Arc read list) so dump/test callers can pass `&AssemblyRegion`.
+    /// Production sequential walk uses [`Self::call_region_mut`] to avoid the Arc dual during finalize.
     pub fn call_region(
         region: &AssemblyRegion,
+        dictionary: &SequenceDictionary,
+        reference_fasta: &Path,
+        args: &CallRegionArgs,
+    ) -> GatkResult<Option<CallRegionOutcome>> {
+        let mut owned = region.clone();
+        Self::call_region_mut(&mut owned, dictionary, reference_fasta, args)
+    }
+
+    /// Like [`Self::call_region`] but takes `&mut` so assemble can `into_unique` without a
+    /// second deep BAM copy when previous-region pins were cleared.
+    pub fn call_region_mut(
+        region: &mut AssemblyRegion,
         dictionary: &SequenceDictionary,
         reference_fasta: &Path,
         args: &CallRegionArgs,
@@ -453,6 +468,30 @@ impl HaplotypeCallerEngine {
         else {
             return Ok(None);
         };
+        if crate::runtime_config::hc_rss_trace_enabled() {
+            let rss = crate::runtime_config::current_rss_mib()
+                .map(|v| format!("{v:.1}"))
+                .unwrap_or_else(|| "?".into());
+            eprintln!(
+                "HC_RSS_TRACE phase=after_assemble region={}:{}-{} haps={} finalized={} rss_MiB={}",
+                region.contig,
+                region.start.get(),
+                region.end.get(),
+                assembled.assembly.haplotypes.len(),
+                assembled.finalized_reads.len(),
+                rss
+            );
+        }
+        crate::runtime_config::rss_trace_set_locus(
+            &region.contig,
+            region.start.get(),
+            region.end.get(),
+            &format!(
+                "after_assemble haps={} finalized={}",
+                assembled.assembly.haplotypes.len(),
+                assembled.finalized_reads.len()
+            ),
+        );
         let mut untrimmed = assembled.assembly;
         let assemble_finalized = assembled.finalized_reads;
 
@@ -762,6 +801,17 @@ impl HaplotypeCallerEngine {
                     2,
                 );
             }
+            // Assemble / EventMap used SW heavily — drop SW TLS before PairHMM so peaks
+            // do not stack (observable likelihoods unchanged).
+            crate::smith_waterman::release_sw_tls_scratch();
+            crate::runtime_config::rss_trace_checkpoint(
+                "before_pairhmm",
+                &format!(
+                    "haps={} finalized={}",
+                    assembly.haplotypes.len(),
+                    assemble_finalized.len()
+                ),
+            );
             let ll_normalize = !args.is_strict_java();
             read_likelihoods = compute_region_read_likelihoods(
                 &region_for_genotyping,
@@ -770,6 +820,20 @@ impl HaplotypeCallerEngine {
                 ll_normalize,
                 Some(assemble_finalized),
             )?;
+            if crate::runtime_config::hc_rss_trace_enabled() {
+                let rss = crate::runtime_config::current_rss_mib()
+                    .map(|v| format!("{v:.1}"))
+                    .unwrap_or_else(|| "?".into());
+                eprintln!(
+                    "HC_RSS_TRACE phase=after_pairhmm region={}:{}-{} geno_reads={} ll_rows={} rss_MiB={}",
+                    region.contig,
+                    region.start.get(),
+                    region.end.get(),
+                    region_for_genotyping.reads.len(),
+                    read_likelihoods.len(),
+                    rss
+                );
+            }
             if read_likelihoods.is_empty() {
                 let mut ll_region = region.clone();
                 ll_region.reads = reads_overlapping_active_span(
@@ -842,6 +906,9 @@ impl HaplotypeCallerEngine {
                     },
                 );
             }
+            // Drop PairHMM TLS before realign SW so DP arenas do not stack with SW.
+            crate::pairhmm_log10::release_pairhmm_tls_scratch();
+            crate::pairhmm_logless::release_pairhmm_logless_tls_scratch();
             // A3: realign via Arc COW (`BamRecordSlot`) — no deep clone of every BAM payload.
             let (_realigned, best_hap_per_read) = realign_reads_to_best_haplotype(
                 region_for_genotyping.reads.as_mut_slice(),
@@ -854,6 +921,7 @@ impl HaplotypeCallerEngine {
                 read_likelihoods,
                 &best_hap_per_read,
             );
+            crate::smith_waterman::release_sw_tls_scratch();
         }
         let ref_hap = assembly.haplotypes.iter().find(|h| h.is_reference);
         let apply_pad = ref_hap
@@ -1682,8 +1750,9 @@ impl HaplotypeCallerEngine {
         reference_fasta: &Path,
         args: &AssembleReadsArgs,
     ) -> GatkResult<Option<AssemblyResultSet>> {
+        let mut owned = region.clone();
         let mut ref_cache = ReferenceWindowCache::new(reference_fasta.to_path_buf(), 4);
-        Ok(call_region_assemble(region, dictionary, &mut ref_cache, args)?.map(|a| a.assembly))
+        Ok(call_region_assemble(&mut owned, dictionary, &mut ref_cache, args)?.map(|a| a.assembly))
     }
 
     /// GATK `HaplotypeCallerEngine.shutdown` — native PairHMM teardown hook (J.1.2).

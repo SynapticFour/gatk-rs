@@ -11,7 +11,7 @@ use crate::read_unclip::{
     hard_clip_to_region, normalize_record_cigar, read_has_positive_cigar_length,
     soft_clip_low_qual_ends, HcSoftclipPolicy,
 };
-use crate::shared_bam::SharedBamRecord;
+use crate::shared_bam::{into_unique_records, SharedBamRecord};
 use gatk_common::{GatkError, GatkResult};
 use gatk_core::reference::{ReferenceWindowCache, SequenceDictionary};
 use rust_htslib::bam;
@@ -62,12 +62,50 @@ pub fn finalize_region_reads_for_assembly(
     min_tail_quality: u8,
     soft_clip_low_quality_ends: bool,
 ) -> Vec<bam::Record> {
+    // Prefer unique ownership before softclip so we do not keep Arc payloads + owned
+    // intermediates for the whole region when strong_count==1 (detach-on-fill path).
+    finalize_region_reads_for_assembly_owned(
+        reads.to_vec(),
+        region,
+        correct_overlapping_base_qualities,
+        min_tail_quality,
+        soft_clip_low_quality_ends,
+    )
+}
+
+/// Consume shared reads (via [`into_unique_records`]) then finalize.
+pub fn finalize_region_reads_for_assembly_owned(
+    reads: Vec<SharedBamRecord>,
+    region: &AssemblyRegion,
+    correct_overlapping_base_qualities: bool,
+    min_tail_quality: u8,
+    soft_clip_low_quality_ends: bool,
+) -> Vec<bam::Record> {
+    let owned = into_unique_records(reads);
+    finalize_owned_bam_records(
+        owned,
+        region,
+        correct_overlapping_base_qualities,
+        min_tail_quality,
+        soft_clip_low_quality_ends,
+    )
+}
+
+/// Softclip / adaptor / overlap finalize on already-owned BAM records.
+pub(crate) fn finalize_owned_bam_records(
+    reads: Vec<bam::Record>,
+    region: &AssemblyRegion,
+    correct_overlapping_base_qualities: bool,
+    min_tail_quality: u8,
+    soft_clip_low_quality_ends: bool,
+) -> Vec<bam::Record> {
     let policy = HcSoftclipPolicy::haplotype_caller_defaults();
     let ref_start = region.extended_start.get();
     let ref_stop = region.extended_end.get();
-    let mut out: Vec<bam::Record> = Vec::new();
+    let mut out: Vec<bam::Record> = Vec::with_capacity(reads.len());
     for original in reads {
-        let mut read = apply_hc_softclip_pre_step(original, &policy).0;
+        let mut read = apply_hc_softclip_pre_step(&original, &policy).0;
+        drop(original);
         if read.tid() < 0 || read.is_unmapped() || read.pos() < 0 {
             continue;
         }

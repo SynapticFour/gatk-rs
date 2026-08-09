@@ -461,8 +461,8 @@ pub use region_vcf_emit::{
 };
 pub use run::run_haplotype_caller;
 pub use shared_bam::{
-    into_unique_records, record_make_mut, share_record, share_records, BamRecordSlot,
-    SharedBamRecord,
+    empty_shared_record, empty_shared_record_ref, into_unique_records, is_empty_shared_record,
+    record_make_mut, share_record, share_records, BamRecordSlot, SharedBamRecord,
 };
 pub use walker::{
     make_read_shards, make_read_shards_default_padding, ReadShard,

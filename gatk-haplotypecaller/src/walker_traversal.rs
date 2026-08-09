@@ -202,6 +202,10 @@ pub fn into_assembly_regions(walk: WalkerTraversal) -> Vec<AssemblyRegion> {
 /// Unlike [`collect_assembly_regions`] / [`into_assembly_regions`], this does **not** retain
 /// prior regions (and their owned BAM record clones) for the whole interval — peak memory stays
 /// near one shard's `all_records` plus the in-flight region(s) the callback holds.
+///
+/// Peak-RSS: clears the iterator's previous-region Arc pin before the callback so
+/// `finalizeRegion` can `into_unique` without a second deep BAM copy, then commits the
+/// region's reads afterward for GATK overlap reuse on the next fill.
 pub fn for_each_assembly_region<F>(
     dictionary: &SequenceDictionary,
     interval_specs: &[IntervalSpec],
@@ -212,7 +216,7 @@ pub fn for_each_assembly_region<F>(
     mut on_region: F,
 ) -> GatkResult<()>
 where
-    F: FnMut(usize, AssemblyRegion) -> GatkResult<()>,
+    F: FnMut(usize, &mut AssemblyRegion) -> GatkResult<()>,
 {
     let read_shards = make_read_shards(dictionary, interval_specs, cfg.assembly_region_padding)?;
     let mut iterator_cfg = cfg.iterator.clone();
@@ -240,8 +244,11 @@ where
             *read_filters,
             iterator_cfg.clone(),
         )?;
-        while let Some(region) = iter.next_region()? {
-            on_region(region_index, region)?;
+        while let Some(mut region) = iter.next_region()? {
+            // Drop fill-time previous pin so region.reads are uniquely owned during callRegion.
+            iter.clear_previous_region_reads();
+            on_region(region_index, &mut region)?;
+            iter.commit_previous_region_reads(std::mem::take(&mut region.reads));
             region_index += 1;
         }
     }

@@ -977,6 +977,11 @@ impl ReferenceWindowCache {
                     return Ok(seq.as_slice());
                 }
             }
+            // Missing/unusable .fai: whole-contig cache can be multi-GiB (Peak-RSS).
+            eprintln!(
+                "gatk-core: ReferenceWindowCache loading whole contig {canon} ({contig_len} bp) \
+                 without usable .fai — Peak-RSS risk; provide a samtools .fai beside the FASTA"
+            );
         }
         if !self.contig_cache.contains_key(&canon) {
             while self.contig_cache.len() >= self.capacity {

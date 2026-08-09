@@ -128,10 +128,7 @@ impl LoglessScratch {
         }
     }
 
-    fn shrink_to_budget(&mut self, max_keep_cells: usize) {
-        if self.prior.capacity() <= max_keep_cells.saturating_mul(2) {
-            return;
-        }
+    fn clear(&mut self) {
         *self = Self::new();
     }
 }
@@ -140,12 +137,10 @@ thread_local! {
     static LOGLESS_SCRATCH: RefCell<LoglessScratch> = RefCell::new(LoglessScratch::new());
 }
 
-const LOGLESS_TLS_KEEP_CELLS: usize = 256 * 1024;
-
-/// Release Logless PairHMM TLS scratch after a deep region (see Log10 twin).
+/// Release Logless PairHMM TLS scratch (full drop).
 pub fn release_pairhmm_logless_tls_scratch() {
     LOGLESS_SCRATCH.with(|cell| {
-        cell.borrow_mut().shrink_to_budget(LOGLESS_TLS_KEEP_CELLS);
+        cell.borrow_mut().clear();
     });
 }
 

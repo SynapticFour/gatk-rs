@@ -245,10 +245,7 @@ impl SwScratch {
         }
     }
 
-    fn shrink_to_budget(&mut self, max_keep_cells: usize) {
-        if self.sw.capacity() <= max_keep_cells.saturating_mul(2) {
-            return;
-        }
+    fn clear(&mut self) {
         *self = Self::new();
     }
 }
@@ -257,12 +254,10 @@ thread_local! {
     static SW_SCRATCH: RefCell<SwScratch> = RefCell::new(SwScratch::new());
 }
 
-const SW_TLS_KEEP_CELLS: usize = 256 * 1024;
-
-/// Drop oversized Smith-Waterman TLS arenas after a deep region.
+/// Drop Smith-Waterman TLS arenas (full drop).
 pub fn release_sw_tls_scratch() {
     SW_SCRATCH.with(|cell| {
-        cell.borrow_mut().shrink_to_budget(SW_TLS_KEEP_CELLS);
+        cell.borrow_mut().clear();
     });
 }
 

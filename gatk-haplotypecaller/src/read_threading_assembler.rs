@@ -244,7 +244,15 @@ fn filter_phantom_cluster_indel_haplotypes(
     });
 }
 
-/// ASM-2/7/8: merge RT k-best (pre-`remove_paths`), refresh CIGARs; P12 cluster coupled hap when complete.
+/// ASM-2/7/8: refresh CIGARs; merge RT k-best (pre-`remove_paths`); on the P12 cluster,
+/// also inject coupled haplotypes.
+///
+/// Observable contract: under `strict_java`, `scoring` is set for every region. Walking every
+/// configured+expanded k-mer to completion genome-wide dominated Peak-RSS on bushy non-P12
+/// loci (e.g. NA12878 `20:10098169-10098441`). Non-P12 still tries the full k-mer list but
+/// **early-stops** after the first alt haplotype set, or four consecutive empty RT extracts.
+/// Expanded coupled-event injection remains P12-window-only. SeqGraph assembly already merges
+/// the minimum variation k-mer via [`merge_rt_kbest_pre_remove_paths_at_kmer`].
 pub fn supplement_p12_cluster_coupled_haplotypes(
     result: &mut AssemblyResult,
     reference: &AssemblyRead,
@@ -259,28 +267,65 @@ pub fn supplement_p12_cluster_coupled_haplotypes(
     let sw = &args.haplotype_to_reference_sw;
 
     refresh_alt_haplotype_indel_cigars(&mut result.haplotypes, ref_bytes, pad, sw);
+    crate::smith_waterman::release_sw_tls_scratch();
 
     let mut seen: HashSet<(Vec<u8>, bool)> = result
         .haplotypes
         .iter()
         .map(|h| (h.bases.clone(), h.is_reference))
         .collect();
+
+    let p12 = ctx.overlaps_p12_cluster();
+    // P12: full configured+expanded list for coupled bridges.
+    // Non-P12: same list, but fruitless / first-alt early-stop below (Peak-RSS).
     let critical_kmers: Vec<usize> = kmer_sizes_for_rt_merge(args, &[]);
+
+    crate::runtime_config::rss_trace_checkpoint(
+        if p12 {
+            "p12_supplement_begin"
+        } else {
+            "rt_supplement_begin"
+        },
+        &format!(
+            "haps={} kmers={}",
+            result.haplotypes.len(),
+            critical_kmers.len()
+        ),
+    );
+
+    let mut empty_streak = 0usize;
     for kmer_size in critical_kmers {
-        let allow_lc = if args.kmer_sizes.contains(&kmer_size) {
+        let is_configured = args.kmer_sizes.contains(&kmer_size);
+        let allow_lc = if is_configured {
             allow_low_complexity_configured_kmer(args)
         } else {
             allow_low_complexity_expanded_kmer(args, true)
         };
-        let allow_nu = if args.kmer_sizes.contains(&kmer_size) {
+        let allow_nu = if is_configured {
             allow_non_unique_configured_kmer(args)
         } else {
             allow_non_unique_expanded_kmer(args, true)
         };
-        let mut batch = extract_rt_haplotypes_before_remove_paths(
-            reference, reads, args, kmer_size, allow_lc, allow_nu,
-        )?;
+        crate::runtime_config::rss_trace_checkpoint(
+            "rt_supplement_kmer",
+            &format!("kmer={kmer_size}"),
+        );
+        // Observable contract: Java `findBestPaths` runs on the graph after
+        // `removePathsNotConnectedToRef`. `before_remove_paths` keeps off-spine branches for
+        // P12 coupled bridges only — genome-wide it yields paths=0 + dangling fragments that
+        // normalize drops (chr21 recall collapse) and dominates Peak-RSS on bushy loci.
+        let mut batch = if p12 {
+            extract_rt_haplotypes_before_remove_paths(
+                reference, reads, args, kmer_size, allow_lc, allow_nu,
+            )?
+        } else {
+            extract_rt_haplotypes_after_remove_paths(
+                reference, reads, args, kmer_size, allow_lc, allow_nu,
+            )?
+        };
         refresh_alt_haplotype_indel_cigars(&mut batch, ref_bytes, pad, sw);
+        crate::smith_waterman::release_sw_tls_scratch();
+        let haps_before = result.haplotypes.len();
         for h in batch {
             // CLONE: needed because owned composite key for dedup/lookup.
             let key = (h.bases.clone(), h.is_reference);
@@ -288,14 +333,36 @@ pub fn supplement_p12_cluster_coupled_haplotypes(
                 result.haplotypes.push(h);
             }
         }
+        if result.haplotypes.len() == haps_before {
+            empty_streak += 1;
+        } else {
+            empty_streak = 0;
+        }
+        if !p12 {
+            let has_alts =
+                result.haplotypes.iter().any(|h| !h.is_reference) && result.haplotypes.len() > 1;
+            // Peak-RSS: stop once we have alts (further expanded k-mers on bushy loci like
+            // NA12878 `20:10098169` climb to multi-GiB), or after four empty extracts.
+            if has_alts || empty_streak >= 4 {
+                crate::runtime_config::rss_trace_checkpoint(
+                    "rt_supplement_early_stop",
+                    &format!(
+                        "kmer={kmer_size} has_alts={has_alts} empty_streak={empty_streak} haps={}",
+                        result.haplotypes.len()
+                    ),
+                );
+                break;
+            }
+        }
     }
 
     refresh_alt_haplotype_indel_cigars(&mut result.haplotypes, ref_bytes, pad, sw);
+    crate::smith_waterman::release_sw_tls_scratch();
     if result.haplotypes.iter().any(|h| !h.is_reference) && result.haplotypes.len() > 1 {
         result.status = AssemblyStatus::AssembledSomeVariation;
     }
 
-    if !ctx.overlaps_p12_cluster() {
+    if !p12 {
         return Ok(());
     }
 
@@ -925,7 +992,15 @@ fn assemble_from_ref_and_reads_seq_graph(
                             ref_hap: &Haplotype|
      -> GatkResult<()> {
         variation_kmers.push(kmer);
+        crate::runtime_config::rss_trace_checkpoint(
+            "seq_kbest_begin",
+            &format!("kmer={kmer} seq_nodes={}", seq.node_count()),
+        );
         let paths = find_best_haplotypes_seq_graph(&seq, args.num_best_haplotypes_per_graph)?;
+        crate::runtime_config::rss_trace_checkpoint(
+            "seq_kbest_done",
+            &format!("kmer={kmer} paths={}", paths.len()),
+        );
         let mut batch = extract_haplotypes_from_seq_kbest_paths(
             &paths,
             &seq,
@@ -934,6 +1009,8 @@ fn assemble_from_ref_and_reads_seq_graph(
             ref_cigar_len,
             &args.haplotype_to_reference_sw,
         )?;
+        drop(seq); // Peak-RSS: free SeqGraph before next kmer / PairHMM
+        crate::smith_waterman::release_sw_tls_scratch();
         for h in batch.drain(..) {
             let key = (h.bases.clone(), h.is_reference);
             if seen.insert(key) {
@@ -1009,7 +1086,30 @@ fn assemble_from_ref_and_reads_seq_graph(
     }
 
     let min_kmer = variation_kmers.iter().copied().min().unwrap_or(10);
-    merge_rt_kbest_pre_remove_paths(reference, reads, args, &variation_kmers, &mut haplotypes)?;
+    crate::runtime_config::rss_trace_checkpoint(
+        "before_merge_rt",
+        &format!(
+            "variation_kmers={} min_kmer={} haps={}",
+            variation_kmers.len(),
+            min_kmer,
+            haplotypes.len()
+        ),
+    );
+    // Java `AssemblyResultSet` RT supplement uses the minimum variation k-mer graph only —
+    // iterating every configured/expanded k-mer rebuilds bushy RT graphs and dominates Peak-RSS
+    // (e.g. NA12878 `20:10098169-10098441`).
+    merge_rt_kbest_pre_remove_paths_at_kmer(
+        reference,
+        reads,
+        args,
+        &variation_kmers,
+        &mut haplotypes,
+        Some(min_kmer),
+    )?;
+    crate::runtime_config::rss_trace_checkpoint(
+        "after_merge_rt",
+        &format!("haps={}", haplotypes.len()),
+    );
     let pad = cigar_refresh_pad(args);
     refresh_alt_haplotype_indel_cigars(
         &mut haplotypes,
@@ -1017,6 +1117,7 @@ fn assemble_from_ref_and_reads_seq_graph(
         pad,
         &args.haplotype_to_reference_sw,
     );
+    crate::smith_waterman::release_sw_tls_scratch();
     if args.ensure_reference_in_result {
         ensure_reference_haplotype(&mut haplotypes, &ref_hap);
     }
@@ -1090,7 +1191,16 @@ fn try_build_seq_graph_kmer(
     else {
         return Ok(None);
     };
+    crate::runtime_config::rss_trace_checkpoint(
+        "seq_rt_built",
+        &format!(
+            "kmer={kmer_size} nodes={} edges={}",
+            graph.node_count(),
+            graph.edge_count()
+        ),
+    );
     let mut seq = SeqGraph::from_assembly_graph(&graph);
+    drop(graph); // Peak-RSS: free RT graph before SeqGraph cleanup / k-best
     seq.clean_non_ref_paths();
     // GATK `assembleKmerGraphsAndHaplotypeCall`: only graphs with ASSEMBLED_SOME_VARIATION enter `nonRefSeqGraphs`.
     let status = seq.cleanup_seq_graph();
@@ -1103,6 +1213,14 @@ fn try_build_seq_graph_kmer(
     if seq.reference_source_vertex().is_none() || seq.reference_sink_vertex().is_none() {
         return Ok(None);
     }
+    crate::runtime_config::rss_trace_checkpoint(
+        "seq_ready",
+        &format!(
+            "kmer={kmer_size} seq_nodes={} seq_edges={}",
+            seq.node_count(),
+            seq.edge_count()
+        ),
+    );
     Ok(Some((seq, status, kmer_size)))
 }
 
@@ -1349,6 +1467,10 @@ fn extract_rt_haplotypes_from_built_graph(
         local_args.remove_paths_not_connected_to_ref = false;
         local_args.skip_post_dangling_prune = true;
     }
+    crate::runtime_config::rss_trace_checkpoint(
+        "rt_graph_build_begin",
+        &format!("kmer={kmer_size} before_remove_paths={before_remove_paths}"),
+    );
     let Some(graph) = build_threading_graph_core(
         reference,
         reads,
@@ -1359,14 +1481,41 @@ fn extract_rt_haplotypes_from_built_graph(
         false,
     )?
     else {
+        crate::runtime_config::rss_trace_checkpoint(
+            "rt_graph_build_none",
+            &format!("kmer={kmer_size}"),
+        );
         return Ok(Vec::new());
     };
+    crate::runtime_config::rss_trace_checkpoint(
+        "rt_graph_built",
+        &format!(
+            "kmer={kmer_size} nodes={} edges={}",
+            graph.node_count(),
+            graph.edge_count()
+        ),
+    );
+    // Peak-RSS: bushy RT graphs (seen climbing past ~800 MiB on NA12878 20:10098169) —
+    // skip k-best rather than expand a multi-GiB frontier. Normal HC regions here are ~1–2 k nodes.
+    const MAX_RT_SUPPLEMENT_NODES: usize = 8_000;
+    if graph.node_count() > MAX_RT_SUPPLEMENT_NODES {
+        crate::runtime_config::rss_trace_checkpoint(
+            "rt_graph_skip_huge",
+            &format!(
+                "kmer={kmer_size} nodes={} cap={MAX_RT_SUPPLEMENT_NODES}",
+                graph.node_count()
+            ),
+        );
+        drop(graph);
+        return Ok(Vec::new());
+    }
     let mut ref_hap = Haplotype::new(reference.bases.as_slice(), true);
     let mut ref_cigar = Cigar::new();
     ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
     ref_hap.cigar = Some(ref_cigar);
     let ref_cigar_len = ref_hap.cigar.as_ref().unwrap().reference_length();
-    let paths = find_best_haplotypes_for_assembly(&graph, args.num_best_haplotypes_per_graph)?;
+    let (paths, graph) =
+        find_best_haplotypes_for_assembly(graph, args.num_best_haplotypes_per_graph)?;
     let mut haps = extract_haplotypes_from_kbest_paths(
         &paths,
         &graph,
@@ -1381,6 +1530,9 @@ fn extract_rt_haplotypes_from_built_graph(
         reference.bases.as_slice(),
         &args.haplotype_to_reference_sw,
     );
+    // Peak-RSS: release RT graph before SW cigar refresh / caller PairHMM.
+    drop(graph);
+    crate::smith_waterman::release_sw_tls_scratch();
     if let Some(ctx) = args.scoring.as_ref() {
         refresh_alt_haplotype_indel_cigars(
             &mut haps,
@@ -1388,6 +1540,7 @@ fn extract_rt_haplotypes_from_built_graph(
             ctx.padded_reference_start_1based,
             &args.haplotype_to_reference_sw,
         );
+        crate::smith_waterman::release_sw_tls_scratch();
     }
     Ok(haps)
 }
@@ -1400,13 +1553,15 @@ pub fn merge_rt_kbest_pre_remove_paths(
     variation_kmers: &[usize],
     haplotypes: &mut Vec<Haplotype>,
 ) -> GatkResult<()> {
+    // Prefer Java minimum-variation-kmer when the caller supplied variation kmers.
+    let only = variation_kmers.iter().copied().min();
     merge_rt_kbest_pre_remove_paths_at_kmer(
         reference,
         reads,
         args,
         variation_kmers,
         haplotypes,
-        None,
+        only,
     )
 }
 
@@ -1446,7 +1601,11 @@ pub fn merge_rt_kbest_pre_remove_paths_at_kmer(
         } else {
             allow_non_unique_configured_kmer(args)
         };
-        let mut batch = extract_rt_haplotypes_before_remove_paths(
+        // Java `findBestPaths` runs after `removePathsNotConnectedToRef`. The historical
+        // `before_remove_paths` extract here kept bushy off-spine branches (Peak + chr21
+        // undercall). P12 coupled bridges still use before-remove in
+        // `supplement_p12_cluster_coupled_haplotypes` only.
+        let mut batch = extract_rt_haplotypes_after_remove_paths(
             reference, reads, args, kmer_size, allow_lc, allow_nu,
         )?;
         if let Some(ctx) = args.scoring.as_ref() {
@@ -1570,7 +1729,8 @@ fn try_assemble_kmer(
     ref_hap.cigar = Some(ref_cigar);
     let ref_cigar_len = ref_hap.cigar.as_ref().unwrap().reference_length();
 
-    let paths = find_best_haplotypes_for_assembly(&graph, args.num_best_haplotypes_per_graph)?;
+    let (paths, graph) =
+        find_best_haplotypes_for_assembly(graph, args.num_best_haplotypes_per_graph)?;
     let mut haplotypes = extract_haplotypes_from_kbest_paths(
         &paths,
         &graph,
@@ -1585,6 +1745,7 @@ fn try_assemble_kmer(
         reference.bases.as_slice(),
         &args.haplotype_to_reference_sw,
     );
+    drop(graph);
     if args.ensure_reference_in_result {
         ensure_reference_haplotype(&mut haplotypes, &ref_hap);
     }

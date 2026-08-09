@@ -95,7 +95,7 @@ fn main() {
                     region.reads.len(),
                     region.reference.bases.len()
                 );
-                let set = assemble_reads(&region, &dict, &mut ref_cache, &assemble_args)?;
+                let set = assemble_reads(region, &dict, &mut ref_cache, &assemble_args)?;
                 let mut region_max_hap = 0usize;
                 for h in &set.haplotypes {
                     region_max_hap = region_max_hap.max(h.bases.len());

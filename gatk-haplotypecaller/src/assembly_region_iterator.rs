@@ -25,7 +25,9 @@ use crate::read_header_semantics::ReadHeaderSemantics;
 use crate::read_model::{passes_hc_read_filters_with_header, ReadFilterParams};
 use crate::reference_context::ReferenceContext;
 use crate::region_pileup::RegionPileupLocus;
-use crate::shared_bam::{empty_shared_record, share_record, SharedBamRecord};
+use crate::shared_bam::{
+    empty_shared_record, is_empty_shared_record, share_record, SharedBamRecord,
+};
 use crate::walker::ReadShard;
 use gatk_common::{AssemblyRegionConfig, GatkError, GatkResult};
 use gatk_core::reference::{ReferenceWindowCache, SequenceDictionary};
@@ -41,10 +43,11 @@ use std::sync::Arc;
 /// Operational safety ceiling on reads retained in one assembly region after positional DS.
 ///
 /// GATK 4.4 caps **per alignment start** (default 50), not total depth. Staggered starts
-/// (e.g. centromere / P12 full-30×) can leave hundreds of thousands of reads per region;
-/// PairHMM / cloning then OOMs a 16 GiB host. This refuse matches PairHMM oversized-DP
-/// fail-closed behavior — it is **not** a genotype-contract downsampler.
-pub const MAX_READS_PER_ASSEMBLY_REGION: usize = 100_000;
+/// (e.g. centromere / P12 full-30×) can leave tens of thousands of reads per region;
+/// finalize + shard Arc residency then Peak-RSS OOMs a 16 GiB host (measured ~3 GiB spikes
+/// on NA12878 `20:10000000-10100000`). Cap is fail-closed Peak-RSS hygiene — **not** a
+/// genotype-contract downsampler. Was 100 000; tightened after 100 kb overnight jetsam.
+pub const MAX_READS_PER_ASSEMBLY_REGION: usize = 10_000;
 
 /// Fail closed when an assembly region retains more reads than
 /// [`MAX_READS_PER_ASSEMBLY_REGION`] (after GATK positional DS).
@@ -489,8 +492,9 @@ pub struct AssemblyRegionIterator {
     /// GATK `readCache` — indices of reads not yet assigned to a region.
     read_cache: VecDeque<usize>,
     ingest_cursor: usize,
-    /// GATK `previousRegionReads` as indices into [`Self::all_records`] (R4-1: no BAM clones).
-    previous_region_indices: Vec<usize>,
+    /// GATK `previousRegionReads` as owned shared records (detached from `all_records`).
+    /// Keeps Peak-RSS off the whole-shard pin while preserving overlap reuse.
+    previous_region_reads: Vec<SharedBamRecord>,
     /// Cached half-open reference spans `(r0, r1)` per `all_records` index (`r1 < 0` = filtered out).
     read_ref_span0: Vec<(i64, i64)>,
     /// GATK `pendingAlignmentData` when [`AssemblyRegionIteratorConfig::track_pileups`].
@@ -570,7 +574,7 @@ impl AssemblyRegionIterator {
             sorted_record_indices,
             read_cache: VecDeque::new(),
             ingest_cursor: 0,
-            previous_region_indices: Vec::new(),
+            previous_region_reads: Vec::new(),
             read_ref_span0,
             pending_pileups: if track_pileups {
                 Some(VecDeque::new())
@@ -671,89 +675,95 @@ impl AssemblyRegionIterator {
     }
 
     /// GATK `fillNextAssemblyRegionWithReads`.
+    ///
+    /// Detach-on-fill: payloads move out of `all_records` into `region.reads` (and a
+    /// previous-region reuse list). Shard slots become empty sentinels so Peak-RSS is
+    /// not shard∪region∪finalize.
     fn fill_region_with_reads(&mut self, region: &mut AssemblyRegion) {
-        let mut indices = Vec::new();
-        for &idx in &self.previous_region_indices {
-            if self.idx_overlaps_closed(idx, region.extended_start.get(), region.extended_end.get())
-            {
-                indices.push(idx);
+        let ext_start = region.extended_start.get();
+        let ext_end = region.extended_end.get();
+        let mut reads: Vec<SharedBamRecord> = Vec::new();
+
+        // Previous-region reuse — move overlapping owned payloads (no all_records pin).
+        let prev = std::mem::take(&mut self.previous_region_reads);
+        for rec in prev {
+            if is_empty_shared_record(&rec) {
+                continue;
+            }
+            if Self::shared_overlaps_closed(&rec, ext_start, ext_end) {
+                reads.push(rec);
             }
         }
+
         while let Some(&idx) = self.read_cache.front() {
-            if self.idx_strictly_after_closed(idx, region.extended_end.get()) {
+            if self.idx_strictly_after_closed(idx, ext_end) {
                 break;
             }
             self.read_cache.pop_front();
-            if self.idx_overlaps_closed(idx, region.extended_start.get(), region.extended_end.get())
-            {
-                indices.push(idx);
+            if self.idx_overlaps_closed(idx, ext_start, ext_end) {
+                let rec = std::mem::replace(&mut self.all_records[idx], empty_shared_record());
+                if !is_empty_shared_record(&rec) {
+                    reads.push(rec);
+                }
             }
         }
-        indices.sort_by(|&a, &b| {
-            let ra = &self.all_records[a];
-            let rb = &self.all_records[b];
-            ra.pos()
-                .cmp(&rb.pos())
-                .then_with(|| ra.qname().cmp(rb.qname()))
-                .then_with(|| ra.flags().cmp(&rb.flags()))
+
+        reads.sort_by(|a, b| {
+            a.pos()
+                .cmp(&b.pos())
+                .then_with(|| a.qname().cmp(b.qname()))
+                .then_with(|| a.flags().cmp(&b.flags()))
         });
         // GATK keeps both mates when they share POS; dedup only identical alignments.
-        indices.dedup_by(|&mut a, &mut b| {
-            let ra = &self.all_records[a];
-            let rb = &self.all_records[b];
-            ra.qname() == rb.qname() && ra.pos() == rb.pos() && ra.flags() == rb.flags()
+        reads.dedup_by(|a, b| {
+            a.qname() == b.qname() && a.pos() == b.pos() && a.flags() == b.flags()
         });
-        // Arc clone — shared with shard `all_records` until a region mutates (COW).
-        region.reads = indices
-            .iter()
-            .map(|&i| Arc::clone(&self.all_records[i]))
-            .collect();
+
+        region.reads = reads;
         sync_read_qnames(region);
-        self.previous_region_indices = indices;
-        self.release_records_before_previous_window(region.extended_start.get());
+        // Pin previous immediately for direct `next_region()` drain consumers.
+        // [`crate::walker_traversal::for_each_assembly_region`] clears this before
+        // `callRegion` and re-commits after, so Peak-RSS is not region∪previous during assemble.
+        self.previous_region_reads = region.reads.iter().cloned().collect();
+        self.release_records_before_previous_window(ext_start);
     }
 
-    /// Drop Arc refs for shard records that can no longer overlap previous/current regions.
-    /// Peak-RSS then tracks the live previous-region window, not the whole shard.
+    /// Drop the previous-region Arc pin (unique `region.reads` for finalize/`into_unique`).
+    pub fn clear_previous_region_reads(&mut self) {
+        self.previous_region_reads.clear();
+    }
+
+    /// Commit reads for the next region's overlap reuse (after `callRegion` finishes).
+    pub fn commit_previous_region_reads(&mut self, reads: Vec<SharedBamRecord>) {
+        self.previous_region_reads = reads;
+    }
+
+    #[inline]
+    fn shared_overlaps_closed(rec: &SharedBamRecord, start1: u64, end1: u64) -> bool {
+        let r0 = rec.pos();
+        let r1 = rec.cigar().end_pos();
+        if r1 <= r0 {
+            return false;
+        }
+        let (i0, i1) = crate::read_binding::closed_interval_1based_to_ref_span0(start1, end1);
+        crate::read_binding::half_open_overlaps(r0, r1, i0, i1)
+    }
+
+    /// Drop Arc refs for shard records that can no longer overlap the advancing wavefront.
+    /// Previous-region payloads live in `previous_region_reads`, not `all_records`.
     fn release_records_before_previous_window(&mut self, current_extended_start1: u64) {
-        if self.previous_region_indices.is_empty() {
-            return;
-        }
-        let keep_start1 = self
-            .previous_region_indices
-            .iter()
-            .filter_map(|&idx| {
-                let (r0, r1) = self.read_ref_span0[idx];
-                if r1 < 0 {
-                    None
-                } else {
-                    Some((r0 + 1) as u64) // 1-based start approx from 0-based pos
-                }
-            })
-            .min()
-            .unwrap_or(current_extended_start1)
-            .min(current_extended_start1);
-        // Indices still needed for previous-region reuse.
-        let mut keep = vec![false; self.all_records.len()];
-        for &idx in &self.previous_region_indices {
-            if idx < keep.len() {
-                keep[idx] = true;
-            }
-        }
+        let wavefront = current_extended_start1;
         for (idx, slot) in self.all_records.iter_mut().enumerate() {
-            if keep[idx] {
+            if is_empty_shared_record(slot) {
                 continue;
             }
             let (_r0, r1) = self.read_ref_span0[idx];
             if r1 < 0 {
-                // Drop filtered placeholders onto the process-wide empty sentinel.
                 *slot = empty_shared_record();
                 continue;
             }
-            let end1 = r1 as u64; // half-open end → exclusive; treat as past keep_start
-            if end1 < keep_start1 {
-                // Drop payload Arc when regions no longer reference it; reuse one empty
-                // sentinel so progressive release does not allocate per freed index.
+            let end1 = r1 as u64;
+            if end1 <= wavefront {
                 *slot = empty_shared_record();
             }
         }
@@ -815,7 +825,7 @@ impl AssemblyRegionIterator {
             out.extended_end.get(),
             self.cfg.feature_sources.as_ref(),
         );
-        // `previous_region_indices` already updated in `fill_region_with_reads`.
+        // `previous_region_reads` already updated in `fill_region_with_reads`.
         crate::semantic_trace::emit_active_region(&out);
         Ok(out)
     }

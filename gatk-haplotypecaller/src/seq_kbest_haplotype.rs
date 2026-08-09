@@ -8,7 +8,7 @@ use std::collections::{BinaryHeap, HashSet};
 
 /// Same bound as the read-threading k-best finder — see `kbest_haplotype`.
 const MAX_KBEST_HEAP_PATHS: usize = 1_024;
-const MAX_KBEST_PATH_EDGES: usize = 256;
+const MAX_KBEST_PATH_EDGES: usize = 4_096;
 
 #[derive(Debug, Clone)]
 struct PathState {

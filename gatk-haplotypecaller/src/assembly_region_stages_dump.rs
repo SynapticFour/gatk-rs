@@ -153,7 +153,8 @@ fn record_rt_stage(
     let spine = assembly_ref_spine_vertices(graph);
     let (spine_n, branch_on_spine, non_ref_on_spine) = assembly_spine_metrics(graph, &spine);
     let (branch_all, non_ref_all) = assembly_whole_graph_metrics(graph);
-    let paths = find_best_haplotypes_for_assembly(graph, args.num_best_haplotypes_per_graph)?;
+    let (paths, _) =
+        find_best_haplotypes_for_assembly(graph.clone(), args.num_best_haplotypes_per_graph)?;
     let (top_len, top_eq) = paths.first().map_or((0, false), |p| {
         let b = graph.path_bases(p.start, &p.edges);
         (b.len(), b.as_slice() == ref_bytes)

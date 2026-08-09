@@ -194,12 +194,8 @@ impl PairHmmScratch {
         }
     }
 
-    /// Drop oversized TLS capacity so Peak-RSS can fall after a deep region.
-    /// Keeps a modest high-water mark to avoid thrashing on typical region sizes.
-    fn shrink_to_budget(&mut self, max_keep_cells: usize) {
-        if self.prior.capacity() <= max_keep_cells.saturating_mul(2) {
-            return;
-        }
+    /// Drop all TLS capacity so Peak-RSS can fall after a deep region.
+    fn clear(&mut self) {
         *self = Self::new();
     }
 }
@@ -208,14 +204,11 @@ thread_local! {
     static PAIRHMM_SCRATCH: RefCell<PairHmmScratch> = RefCell::new(PairHmmScratch::new());
 }
 
-/// Soft ceiling retained after [`release_pairhmm_tls_scratch`] (cells across DP planes).
-const PAIRHMM_TLS_KEEP_CELLS: usize = 256 * 1024;
-
-/// Release PairHMM Log10 TLS scratch when it grew past a modest region-scale budget.
-/// Call after finishing an assembly region (or when Peak-RSS pressure is high).
+/// Release PairHMM Log10 TLS scratch (full drop — soft keep caused multi-hundred-MiB sticky RSS).
+/// Call after finishing an assembly region, or between SW-heavy and PairHMM-heavy phases.
 pub fn release_pairhmm_tls_scratch() {
     PAIRHMM_SCRATCH.with(|cell| {
-        cell.borrow_mut().shrink_to_budget(PAIRHMM_TLS_KEEP_CELLS);
+        cell.borrow_mut().clear();
     });
 }
 

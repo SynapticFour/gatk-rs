@@ -51,6 +51,8 @@ pub struct DebugConfig {
     /// `GATK_RS_SEMANTIC_TRACE=<path>` — observe-only NDJSON semantic checkpoints.
     /// Never changes genotype/emit results; see `semantic_trace` module.
     pub semantic_trace_path: Option<String>,
+    /// `GATK_RS_HC_RSS_TRACE=1` — per-region Peak-RSS diagnostics (logging only).
+    pub rss_trace: bool,
 }
 
 /// Full runtime config. Prefer [`RuntimeConfig::from_env`] at process edges.
@@ -90,6 +92,7 @@ impl RuntimeConfig {
                 semantic_trace_path: std::env::var("GATK_RS_SEMANTIC_TRACE")
                     .ok()
                     .filter(|p| !p.is_empty() && p != "0" && !p.eq_ignore_ascii_case("off")),
+                rss_trace: env_truthy("GATK_RS_HC_RSS_TRACE"),
             },
         }
     }
@@ -125,4 +128,176 @@ pub fn large_region_reads_sequential(default: usize) -> usize {
         .execution
         .large_region_reads
         .unwrap_or(default)
+}
+
+/// `GATK_RS_HC_RSS_TRACE=1` — log per-region RSS (observe-only; no genotype effect).
+pub fn hc_rss_trace_enabled() -> bool {
+    RuntimeConfig::from_env().debug.rss_trace
+}
+
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Mutex, Once, OnceLock};
+
+static RSS_TRACE_LOCUS: OnceLock<Mutex<String>> = OnceLock::new();
+static RSS_SAMPLER_STARTED: Once = Once::new();
+static RSS_SAMPLER_STOP: AtomicBool = AtomicBool::new(false);
+/// High-water RSS (MiB × 10) seen by the background sampler while TRACE is on.
+static RSS_TRACE_PEAK_X10: AtomicU64 = AtomicU64::new(0);
+
+fn rss_trace_locus_lock() -> &'static Mutex<String> {
+    RSS_TRACE_LOCUS.get_or_init(|| Mutex::new(String::new()))
+}
+
+/// Set the in-flight locus label for mid-phase RSS samples (observe-only).
+pub fn rss_trace_set_locus(contig: &str, start: u64, end: u64, detail: &str) {
+    if !hc_rss_trace_enabled() {
+        return;
+    }
+    if let Ok(mut s) = rss_trace_locus_lock().lock() {
+        s.clear();
+        use std::fmt::Write as _;
+        let _ = write!(s, "{contig}:{start}-{end}");
+        if !detail.is_empty() {
+            let _ = write!(s, " {detail}");
+        }
+    }
+    ensure_rss_sampler();
+}
+
+/// Clear the in-flight locus label after a region finishes.
+pub fn rss_trace_clear_locus() {
+    if !hc_rss_trace_enabled() {
+        return;
+    }
+    if let Ok(mut s) = rss_trace_locus_lock().lock() {
+        s.clear();
+    }
+}
+
+/// Log a named phase RSS sample when `GATK_RS_HC_RSS_TRACE=1`.
+pub fn rss_trace_checkpoint(phase: &str, detail: &str) {
+    if !hc_rss_trace_enabled() {
+        return;
+    }
+    ensure_rss_sampler();
+    let rss = current_rss_mib()
+        .map(|v| format!("{v:.1}"))
+        .unwrap_or_else(|| "?".into());
+    let locus = rss_trace_locus_lock()
+        .lock()
+        .map(|s| s.clone())
+        .unwrap_or_default();
+    if detail.is_empty() {
+        eprintln!("HC_RSS_TRACE phase={phase} locus={locus} rss_MiB={rss}");
+    } else {
+        eprintln!("HC_RSS_TRACE phase={phase} locus={locus} {detail} rss_MiB={rss}");
+    }
+}
+
+fn ensure_rss_sampler() {
+    RSS_SAMPLER_STARTED.call_once(|| {
+        RSS_SAMPLER_STOP.store(false, Ordering::Relaxed);
+        std::thread::Builder::new()
+            .name("hc-rss-trace".into())
+            .spawn(|| {
+                let mut last_logged_mib = 0.0f64;
+                while !RSS_SAMPLER_STOP.load(Ordering::Relaxed) {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    let Some(rss) = current_rss_mib() else {
+                        continue;
+                    };
+                    let x10 = (rss * 10.0) as u64;
+                    RSS_TRACE_PEAK_X10.fetch_max(x10, Ordering::Relaxed);
+                    // Log when crossing ~800 MiB or every ~200 MiB thereafter.
+                    if rss >= 800.0 && (last_logged_mib < 800.0 || rss >= last_logged_mib + 200.0) {
+                        let locus = rss_trace_locus_lock()
+                            .lock()
+                            .map(|s| s.clone())
+                            .unwrap_or_default();
+                        eprintln!(
+                            "HC_RSS_TRACE sample locus={locus} rss_MiB={rss:.1} peak_MiB={:.1}",
+                            x10 as f64 / 10.0
+                        );
+                        last_logged_mib = rss;
+                    }
+                }
+            })
+            .ok();
+    });
+}
+
+/// Best-effort current process RSS in MiB (macOS/Linux). `None` if unavailable.
+pub fn current_rss_mib() -> Option<f64> {
+    #[cfg(target_os = "macos")]
+    {
+        // Prefer mach task info (no fork/`ps`); fall back to `ps`.
+        if let Some(mib) = macos_task_rss_mib() {
+            return Some(mib);
+        }
+        let out = std::process::Command::new("ps")
+            .args(["-o", "rss=", "-p"])
+            .arg(std::process::id().to_string())
+            .output()
+            .ok()?;
+        let s = String::from_utf8_lossy(&out.stdout);
+        let kb: f64 = s.trim().replace(',', "").parse().ok()?;
+        return Some(kb / 1024.0);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let status = std::fs::read_to_string("/proc/self/status").ok()?;
+        for line in status.lines() {
+            if let Some(rest) = line.strip_prefix("VmRSS:") {
+                let kb: f64 = rest.split_whitespace().next()?.parse().ok()?;
+                return Some(kb / 1024.0);
+            }
+        }
+        return None;
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        None
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_task_rss_mib() -> Option<f64> {
+    // mach_task_basic_info.resident_size is bytes.
+    #[repr(C)]
+    struct MachTaskBasicInfo {
+        virtual_size: u64,
+        resident_size: u64,
+        resident_size_max: u64,
+        user_time: [u32; 2],
+        system_time: [u32; 2],
+        policy: i32,
+        suspend_count: i32,
+    }
+    const MACH_TASK_BASIC_INFO: u32 = 20;
+    const MACH_TASK_BASIC_INFO_COUNT: u32 =
+        (std::mem::size_of::<MachTaskBasicInfo>() / std::mem::size_of::<u32>()) as u32;
+    extern "C" {
+        fn mach_task_self() -> u32;
+        fn task_info(
+            target_task: u32,
+            flavor: u32,
+            task_info_out: *mut u32,
+            task_info_outCnt: *mut u32,
+        ) -> i32;
+    }
+    let mut info = std::mem::MaybeUninit::<MachTaskBasicInfo>::uninit();
+    let mut count = MACH_TASK_BASIC_INFO_COUNT;
+    let kr = unsafe {
+        task_info(
+            mach_task_self(),
+            MACH_TASK_BASIC_INFO,
+            info.as_mut_ptr() as *mut u32,
+            &mut count,
+        )
+    };
+    if kr != 0 {
+        return None;
+    }
+    let info = unsafe { info.assume_init() };
+    Some(info.resident_size as f64 / (1024.0 * 1024.0))
 }

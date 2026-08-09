@@ -50,11 +50,21 @@ use tracing::info;
 /// fully sequential region apply (batch size 1) for 16 GiB hosts.
 const LARGE_REGION_READS_SEQUENTIAL_DEFAULT: usize = 4_096;
 
-/// Drop PairHMM / SW TLS scratch that grew past region-scale budgets.
-fn release_region_tls_scratch() {
+/// Drop PairHMM / SW TLS scratch after a region (or between SW-heavy and PairHMM-heavy phases).
+/// Full clear — soft high-water keep left sticky multi-hundred-MiB RSS on dense windows.
+pub(crate) fn release_region_tls_scratch() {
     crate::pairhmm_log10::release_pairhmm_tls_scratch();
     crate::pairhmm_logless::release_pairhmm_logless_tls_scratch();
     crate::smith_waterman::release_sw_tls_scratch();
+}
+
+/// Same as [`release_region_tls_scratch`], broadcast onto every Rayon pool thread.
+/// Needed when haplotype scoring used `par_iter` (worker TLS is invisible to the caller).
+pub(crate) fn release_region_tls_scratch_all_threads() {
+    release_region_tls_scratch();
+    rayon::broadcast(|_| {
+        release_region_tls_scratch();
+    });
 }
 
 #[inline]
@@ -419,6 +429,13 @@ fn assembly_region_variant_records(
     given_alleles_vcf: Option<String>,
     pair_hmm_impl: crate::pairhmm_simd::PairHmmImpl,
 ) -> GatkResult<Vec<VcfRecord>> {
+    if crate::runtime_config::hc_rss_trace_enabled() {
+        eprintln!(
+            "HC_RSS_TRACE enabled sequential={} (observe-only)",
+            crate::runtime_config::hc_force_sequential_regions()
+        );
+        crate::runtime_config::rss_trace_checkpoint("run_start", "");
+    }
     let dict = SequenceDictionary::from_fasta_path(reference_fasta)?;
     let cfg = WalkerTraversalConfig::gatk_haplotype_caller_production(
         GATK_DEFAULT_ASSEMBLY_REGION_PADDING,
@@ -453,9 +470,9 @@ fn assembly_region_variant_records(
                 bam_path,
                 read_filters,
                 &cfg,
-                |_idx, mut region| {
+                |_idx, region| {
                     process_one_region_gvcf(
-                        &region,
+                        region,
                         &header,
                         &dict,
                         reference_fasta,
@@ -472,8 +489,8 @@ fn assembly_region_variant_records(
                     )?;
                     release_region_tls_scratch();
                     // Keep span metadata for P12 reconcile; drop owned BAM/ref payloads immediately.
-                    strip_region_payloads(&mut region);
-                    region_shells.push(region);
+                    strip_region_payloads(region);
+                    region_shells.push(region.clone());
                     Ok(())
                 },
             )?;
@@ -562,10 +579,10 @@ fn assembly_region_variant_records(
                             GatkError::generic("sequential HC missing shared BAM header")
                         })?;
                         let mut out = Vec::with_capacity(chunk.len());
-                        for (region_index, region) in chunk {
+                        for (region_index, mut region) in chunk {
                             let batch = process_one_region_vcf(
                                 region_index,
-                                region,
+                                &mut region,
                                 header,
                                 &dict,
                                 &ref_path,
@@ -582,9 +599,9 @@ fn assembly_region_variant_records(
                         }
                         out
                     } else {
-                        chunk
+                        let out = chunk
                             .into_par_iter()
-                            .map(|(region_index, region)| {
+                            .map(|(region_index, mut region)| {
                                 let reader =
                                     bam::Reader::from_path(&bam_path_owned).map_err(|e| {
                                         GatkError::generic(format!(
@@ -596,7 +613,7 @@ fn assembly_region_variant_records(
                                     ReferenceWindowCache::new(ref_path.clone(), 4);
                                 let batch = process_one_region_vcf(
                                     region_index,
-                                    region,
+                                    &mut region,
                                     &header,
                                     &dict,
                                     &ref_path,
@@ -608,10 +625,14 @@ fn assembly_region_variant_records(
                                     &mut local_cache,
                                     &sample,
                                 )?;
+                                // Clears this worker's TLS; broadcast below clears siblings
+                                // that may have grown PairHMM arenas during hap scoring.
                                 release_region_tls_scratch();
                                 Ok(batch)
                             })
-                            .collect::<GatkResult<Vec<_>>>()?
+                            .collect::<GatkResult<Vec<_>>>()?;
+                        release_region_tls_scratch_all_threads();
+                        out
                     };
                     merge_region_emit_batches(&mut batches, records, seen);
                     Ok(())
@@ -625,15 +646,41 @@ fn assembly_region_variant_records(
                 read_filters,
                 &cfg,
                 |region_index, region| {
+                    // Sequential: process in place so previous-region Arc pin stays cleared
+                    // during callRegion (for_each commits reads after this returns).
+                    if sequential {
+                        let header = header_seq.as_ref().ok_or_else(|| {
+                            GatkError::generic("sequential HC missing shared BAM header")
+                        })?;
+                        let batch = process_one_region_vcf(
+                            region_index,
+                            region,
+                            header,
+                            &dict,
+                            &ref_path,
+                            &args,
+                            *read_filters,
+                            stand_emit_confidence,
+                            emit_mode,
+                            ref_confidence_config,
+                            &mut ref_cache,
+                            &sample,
+                        )?;
+                        release_region_tls_scratch();
+                        merge_region_emit_batches(&mut vec![batch], &mut records, &mut seen);
+                        return Ok(());
+                    }
                     // Deep regions: flush any pending peers first, then process alone so
                     // Peak-RSS stays near one region + shard (not N × read sets).
                     if region.reads.len() >= large_region_reads {
                         flush_batch(&mut pending, &mut records, &mut seen, &mut ref_cache)?;
-                        pending.push((region_index, region));
+                        pending.push((region_index, region.clone()));
                         flush_batch(&mut pending, &mut records, &mut seen, &mut ref_cache)?;
+                        region.reads.clear();
                         return Ok(());
                     }
-                    pending.push((region_index, region));
+                    pending.push((region_index, region.clone()));
+                    region.reads.clear();
                     if pending.len() >= batch_limit {
                         flush_batch(&mut pending, &mut records, &mut seen, &mut ref_cache)?;
                     }
@@ -655,7 +702,7 @@ fn assembly_region_variant_records(
 /// Process one AssemblyRegion for standard VCF emit (no shared GVCF collector).
 fn process_one_region_vcf(
     region_index: usize,
-    region: AssemblyRegion,
+    region: &mut AssemblyRegion,
     header: &bam::HeaderView,
     dict: &SequenceDictionary,
     reference_fasta: &Path,
@@ -669,13 +716,20 @@ fn process_one_region_vcf(
 ) -> GatkResult<RegionEmitBatch> {
     let contig = region.contig.clone();
     let start = region.start.get();
+    let end = region.end.get();
+    let n_reads = region.reads.len();
+    crate::runtime_config::rss_trace_set_locus(&contig, start, end, &format!("reads={n_reads}"));
+    let rss_before = crate::runtime_config::hc_rss_trace_enabled()
+        .then(crate::runtime_config::current_rss_mib)
+        .flatten();
+    let t0 = std::time::Instant::now();
     let mut local_records = Vec::new();
     let mut local_seen = std::collections::BTreeSet::new();
 
-    match call_disposition(&region) {
+    match call_disposition(region) {
         AssemblyRegionCallDisposition::InactiveReferenceFastPath => {
             let outcome = HaplotypeCallerEngine::call_region_inactive_reference(
-                &region,
+                region,
                 header,
                 dict,
                 reference_fasta,
@@ -683,7 +737,7 @@ fn process_one_region_vcf(
                 &read_filters,
                 ref_confidence_config,
             )?;
-            crate::semantic_trace::emit_inactive_rcm(&region, outcome.loci.len());
+            crate::semantic_trace::emit_inactive_rcm(region, outcome.loci.len());
             let mut batch = crate::semantic_trace::is_enabled().then(Vec::new);
             for rec in inactive_reference_model_to_vcf_records(
                 &outcome,
@@ -699,16 +753,16 @@ fn process_one_region_vcf(
                 push_deduped_vcf(&mut local_records, &mut local_seen, rec);
             }
             if let Some(b) = batch.as_ref() {
-                crate::semantic_trace::emit_vcf_emission(Some(&region), b);
+                crate::semantic_trace::emit_vcf_emission(Some(region), b);
             }
         }
         AssemblyRegionCallDisposition::ActiveFull => {
             if let Some(outcome) =
-                HaplotypeCallerEngine::call_region(&region, dict, reference_fasta, args)?
+                HaplotypeCallerEngine::call_region_mut(region, dict, reference_fasta, args)?
             {
                 let mut emitted = crate::semantic_trace::is_enabled().then(Vec::new);
                 for rec in try_emit_call_region_variants(
-                    &region,
+                    region,
                     &outcome,
                     sample_name,
                     stand_emit_confidence,
@@ -720,10 +774,10 @@ fn process_one_region_vcf(
                     push_deduped_vcf(&mut local_records, &mut local_seen, rec);
                 }
                 if let Some(e) = emitted.as_ref() {
-                    crate::semantic_trace::emit_vcf_emission(Some(&region), e);
+                    crate::semantic_trace::emit_vcf_emission(Some(region), e);
                 }
                 for rec in crate::reference_vcf_emit::active_region_gvcf_reference_records(
-                    &region,
+                    region,
                     &outcome,
                     emit_mode,
                     stand_emit_confidence,
@@ -740,6 +794,22 @@ fn process_one_region_vcf(
         }
     }
 
+    if crate::runtime_config::hc_rss_trace_enabled() {
+        let rss_after = crate::runtime_config::current_rss_mib();
+        let ms = t0.elapsed().as_millis();
+        let before_s = rss_before
+            .map(|v| format!("{v:.1}"))
+            .unwrap_or_else(|| "?".into());
+        let after_s = rss_after
+            .map(|v| format!("{v:.1}"))
+            .unwrap_or_else(|| "?".into());
+        // eprintln so Peak diagnosis works even when tracing subscriber filters targets.
+        eprintln!(
+            "HC_RSS_TRACE region={contig}:{start}-{end} reads={n_reads} rss_before_MiB={before_s} rss_after_MiB={after_s} wall_ms={ms}"
+        );
+    }
+    crate::runtime_config::rss_trace_clear_locus();
+
     Ok(RegionEmitBatch {
         region_index,
         contig,
@@ -750,7 +820,7 @@ fn process_one_region_vcf(
 
 /// Sequential GVCF region processing (shared collector; not parallelized in v1).
 fn process_one_region_gvcf(
-    region: &AssemblyRegion,
+    region: &mut AssemblyRegion,
     header: &bam::HeaderView,
     dict: &SequenceDictionary,
     reference_fasta: &Path,
@@ -781,7 +851,7 @@ fn process_one_region_gvcf(
         }
         AssemblyRegionCallDisposition::ActiveFull => {
             let Some(outcome) =
-                HaplotypeCallerEngine::call_region(region, dict, reference_fasta, args)?
+                HaplotypeCallerEngine::call_region_mut(region, dict, reference_fasta, args)?
             else {
                 let loci = reference_confidence_loci_for_active_call_none(
                     region,

@@ -2,7 +2,7 @@
 
 use crate::assembly::AssemblyRead;
 use crate::assembly_region_finalize::{
-    assembly_reference_read, finalize_region_reads_for_assembly,
+    assembly_reference_read, finalize_region_reads_for_assembly_owned,
     gatk_min_tail_quality_for_assembly, padded_reference_loc, records_to_assembly_reads,
     reference_haplotype_for_assembly_region,
 };
@@ -214,23 +214,37 @@ pub fn assemble_reads(
     ref_cache: &mut ReferenceWindowCache,
     args: &AssembleReadsArgs,
 ) -> GatkResult<AssemblyResultSet> {
-    Ok(assemble_reads_with_finalized(region, dictionary, ref_cache, args)?.assembly)
+    let mut owned = region.clone();
+    Ok(assemble_reads_with_finalized(&mut owned, dictionary, ref_cache, args)?.assembly)
 }
 
 /// `assembleReads` keeping the `finalizeRegion` buffer for PairHMM reuse (A2).
 pub fn assemble_reads_with_finalized(
-    region: &AssemblyRegion,
+    region: &mut AssemblyRegion,
     dictionary: &SequenceDictionary,
     ref_cache: &mut ReferenceWindowCache,
     args: &AssembleReadsArgs,
 ) -> GatkResult<AssembledRegion> {
     let reference = assembly_reference_read(dictionary, ref_cache, region)?;
-    let finalized = finalize_region_reads_for_assembly(
-        &region.reads,
+    crate::runtime_config::rss_trace_checkpoint(
+        "before_finalize",
+        &format!("reads={}", region.reads.len()),
+    );
+    // Peak-RSS: take unique Arcs (for_each cleared previous-region pin), unwrap without
+    // deep-copy, re-share untrimmed for genotyping, then softclip the owned buffer once.
+    let arcs = std::mem::take(&mut region.reads);
+    let owned = crate::shared_bam::into_unique_records(arcs);
+    region.reads = crate::shared_bam::share_records(owned.iter().map(|r| r.clone()).collect());
+    let finalized = crate::assembly_region_finalize::finalize_owned_bam_records(
+        owned,
         region,
         args.correct_overlapping_base_qualities,
         gatk_min_tail_quality_for_assembly(args.assembler.min_base_quality),
         false,
+    );
+    crate::runtime_config::rss_trace_checkpoint(
+        "after_finalize",
+        &format!("finalized={}", finalized.len()),
     );
     let assembly_reads = apply_read_error_correction(
         &finalized,
@@ -346,7 +360,7 @@ pub fn assemble_reads_with_finalized(
 
 /// Engine hook for `HaplotypeCallerEngine.callRegion` assembly slice.
 pub fn call_region_assemble(
-    region: &AssemblyRegion,
+    region: &mut AssemblyRegion,
     dictionary: &SequenceDictionary,
     ref_cache: &mut ReferenceWindowCache,
     args: &AssembleReadsArgs,

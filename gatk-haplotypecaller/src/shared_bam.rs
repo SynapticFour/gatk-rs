@@ -23,12 +23,22 @@ pub fn share_record(rec: bam::Record) -> SharedBamRecord {
     Arc::new(rec)
 }
 
+/// Process-wide empty placeholder reference (no clone).
+#[inline]
+pub fn empty_shared_record_ref() -> &'static SharedBamRecord {
+    EMPTY_SHARED_BAM.get_or_init(|| Arc::new(bam::Record::new()))
+}
+
 /// Cheap clone of the shared empty BAM placeholder (see [`EMPTY_SHARED_BAM`]).
 #[inline]
 pub fn empty_shared_record() -> SharedBamRecord {
-    EMPTY_SHARED_BAM
-        .get_or_init(|| Arc::new(bam::Record::new()))
-        .clone()
+    empty_shared_record_ref().clone()
+}
+
+/// True when `rec` is the progressive-release empty sentinel (not a real alignment).
+#[inline]
+pub fn is_empty_shared_record(rec: &SharedBamRecord) -> bool {
+    Arc::ptr_eq(rec, empty_shared_record_ref())
 }
 
 /// Unique mutable access (copy-on-write when still shared with the shard).
