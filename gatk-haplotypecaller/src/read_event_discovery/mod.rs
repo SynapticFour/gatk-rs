@@ -1541,6 +1541,9 @@ pub const P12_PHASE_E_GAP_SNPS: &[(u64, &str, &str)] = &[
     (92318210, "A", "G"),
     (92325193, "C", "T"),
     (92325205, "G", "A"),
+    // Downstream cluster gradation end (Java PL 55,0,21); RT k-best often omits this sparse
+    // tail when co-assembled with denser upstream gap-tail hets — keep for trim + backfill.
+    (92325268, "C", "T"),
 ];
 
 pub fn is_p12_phase_e_gap_event(event: &VariationEvent) -> bool {

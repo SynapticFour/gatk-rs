@@ -525,6 +525,24 @@ impl HaplotypeCallerEngine {
                 sw,
             )?;
         }
+        // Pre-trim downstream gap-tail only: 92325268 (and sibling hets in the downstream
+        // cluster) must enter `trim_variants` or trim clips them when RT k-best only encodes
+        // denser upstream alleles. Do **not** run full P12 gap backfill here — that expands
+        // mid-A trim windows and regresses 923164xx emits.
+        if args.is_strict_java()
+            && crate::read_event_discovery::strict_java_asm8_only_enabled()
+            && !crate::read_event_discovery::p12_java_event_registry_enabled()
+            && region.end.get() >= crate::java_hc_site_semantics::DOWNSTREAM_CLUSTER_START
+            && region.start.get() <= crate::java_hc_site_semantics::DOWNSTREAM_CLUSTER_GRADATION_END
+        {
+            crate::read_event_discovery::backfill_graph_only_read_proven_gap_snps(
+                &mut untrimmed,
+                &region.reads,
+                region.start.get(),
+                region.end.get(),
+                &region.contig,
+            );
+        }
         let ref_ctx = ReferenceContext::from_interval(
             dictionary,
             &mut ref_cache,

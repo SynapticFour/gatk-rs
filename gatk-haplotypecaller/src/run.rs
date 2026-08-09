@@ -676,11 +676,13 @@ fn assembly_region_variant_records(
                         flush_batch(&mut pending, &mut records, &mut seen, &mut ref_cache)?;
                         pending.push((region_index, region.clone()));
                         flush_batch(&mut pending, &mut records, &mut seen, &mut ref_cache)?;
-                        region.reads.clear();
+                        // Do not clear `region.reads` here — `for_each_assembly_region` commits
+                        // them into previous-region reuse after this callback returns. Clearing
+                        // starved later fills (detach-on-fill already emptied `all_records`).
                         return Ok(());
                     }
                     pending.push((region_index, region.clone()));
-                    region.reads.clear();
+                    // Leave `region.reads` for previous-region commit (Arc-shared with pending).
                     if pending.len() >= batch_limit {
                         flush_batch(&mut pending, &mut records, &mut seen, &mut ref_cache)?;
                     }

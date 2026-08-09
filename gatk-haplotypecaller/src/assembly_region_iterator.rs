@@ -676,12 +676,15 @@ impl AssemblyRegionIterator {
 
     /// GATK `fillNextAssemblyRegionWithReads`.
     ///
-    /// Detach-on-fill: payloads move out of `all_records` into `region.reads` (and a
-    /// previous-region reuse list). Shard slots become empty sentinels so Peak-RSS is
-    /// not shard∪region∪finalize.
+    /// Peak-safe ownership: detach shard slots only for reads whose reference end is at or
+    /// before the current locus wavefront (activity/LIBS already consumed them). Reads that
+    /// still cover later loci stay pinned in `all_records` via [`Arc::clone`] so per-locus
+    /// activity scoring does not see empty sentinels (P12 mid-B second peak / emit gate).
     fn fill_region_with_reads(&mut self, region: &mut AssemblyRegion) {
         let ext_start = region.extended_start.get();
         let ext_end = region.extended_end.get();
+        // `next_region` scores `pos` then polls; at fill time `next_pos` is still that locus.
+        let locus_wavefront = self.next_pos.unwrap_or(ext_end);
         let mut reads: Vec<SharedBamRecord> = Vec::new();
 
         // Previous-region reuse — move overlapping owned payloads (no all_records pin).
@@ -701,9 +704,21 @@ impl AssemblyRegionIterator {
             }
             self.read_cache.pop_front();
             if self.idx_overlaps_closed(idx, ext_start, ext_end) {
-                let rec = std::mem::replace(&mut self.all_records[idx], empty_shared_record());
-                if !is_empty_shared_record(&rec) {
-                    reads.push(rec);
+                let (_r0, r1) = self.read_ref_span0[idx];
+                if r1 < 0 {
+                    continue;
+                }
+                // `r1` is half-open 0-based exclusive end; equals 1-based exclusive end.
+                let end1 = r1 as u64;
+                if end1 <= locus_wavefront {
+                    // No later locus can observe this read — detach for Peak / into_unique.
+                    let rec = std::mem::replace(&mut self.all_records[idx], empty_shared_record());
+                    if !is_empty_shared_record(&rec) {
+                        reads.push(rec);
+                    }
+                } else if !is_empty_shared_record(&self.all_records[idx]) {
+                    // Still needed for activity pileups beyond this region's padded end.
+                    reads.push(Arc::clone(&self.all_records[idx]));
                 }
             }
         }
@@ -725,7 +740,9 @@ impl AssemblyRegionIterator {
         // [`crate::walker_traversal::for_each_assembly_region`] clears this before
         // `callRegion` and re-commits after, so Peak-RSS is not region∪previous during assemble.
         self.previous_region_reads = region.reads.iter().cloned().collect();
-        self.release_records_before_previous_window(ext_start);
+        // Release shard pins that can no longer affect activity (locus wavefront), not merely
+        // the region's extended start — matches detach rule above.
+        self.release_records_before_previous_window(locus_wavefront);
     }
 
     /// Drop the previous-region Arc pin (unique `region.reads` for finalize/`into_unique`).
