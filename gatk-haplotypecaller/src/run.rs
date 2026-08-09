@@ -23,7 +23,8 @@ use crate::reference_vcf_emit::{
     GvcfIntervalCollector,
 };
 use crate::region_vcf_emit::{
-    try_emit_call_region_variants, HC_PIPELINE_ASSEMBLY_REGION_V1, HC_PIPELINE_SCAFFOLD,
+    populate_hc_vcf_header_schema, try_emit_call_region_variants, HC_PIPELINE_ASSEMBLY_REGION_V1,
+    HC_PIPELINE_SCAFFOLD,
 };
 use crate::runtime_config::RuntimeConfig;
 use crate::walker::GATK_DEFAULT_ASSEMBLY_REGION_PADDING;
@@ -263,6 +264,9 @@ pub fn run_haplotype_caller(config: &GatkConfig) -> GatkResult<()> {
             header
                 .other_headers
                 .push(("GATK_RS_HC_GVCF".to_string(), "1".to_string()));
+        } else {
+            // VCF mode: declare INFO/FORMAT used by region emit (hap.py vcfcheck).
+            populate_hc_vcf_header_schema(&mut header);
         }
     }
 
