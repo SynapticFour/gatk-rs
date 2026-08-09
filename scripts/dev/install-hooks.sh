@@ -10,10 +10,11 @@ if [[ ! -d .git ]]; then
   exit 1
 fi
 
-if [[ ! -x .githooks/pre-commit ]]; then
-  chmod +x .githooks/pre-commit
-fi
+chmod +x .githooks/pre-commit .githooks/pre-push 2>/dev/null || true
 
 git config core.hooksPath .githooks
 echo "core.hooksPath=$(git config --get core.hooksPath)"
-echo "Pre-commit hook installed. Next commit will run fmt/clippy/ratchets/size checks."
+echo "Hooks installed:"
+echo "  pre-commit — fmt, clippy (affected crates), ratchets, doc links, size, lib tests"
+echo "  pre-push   — fmt + cargo clippy --workspace (matches CI lint gate)"
+echo "Do not use --no-verify unless intentional; CI will still enforce the same checks."

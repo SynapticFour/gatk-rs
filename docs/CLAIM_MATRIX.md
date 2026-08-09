@@ -5,7 +5,7 @@ reachable from **`main`**, do not assert it.
 
 **Pinned Java oracle:** GATK **4.4.0.0** — see [`GATK_PINNED.env`](GATK_PINNED.env) and root `GATK_PINNED_SHA`.
 
-**Last updated:** 2026-08-05 (showcase #83 merged; 100 kb Peak-RSS no longer ~2.6 GiB OOM under sequential — ~136 MiB live — but full exit-0 + 500 kb still owed before `ci-subset`)
+**Last updated:** 2026-08-09 (PR #85 Peak-cut + call-rate restore: 500 kb Peak ~196 MiB exit 0; P12 L3/L4 66/66; holdout FORMAT/F1 PASS — `ci-subset` redispatch unblocked after merge)
 
 ---
 
@@ -47,7 +47,7 @@ evidence/scripts are restored here. Cite them as historical engineering notes on
 
 | Claim | Required evidence | Status |
 |-------|-------------------|--------|
-| GIAB **ci-subset** equivalence (HG001 at minimum): \|Rust−Java\| F1 Δ ≤ threshold via `gatk-rs-equiv` | Green `giab-genomewide.yml` with `GIAB_MODE=ci-subset`, artifact + dashboard row | **Not yet signed** — after #83 + `perf/fix-100kb-rss` ownership/DP caps, 100 kb live RSS ~136 MiB (was ~2.6 GiB OOM) but **clean exit-0 + 500 kb Peak-RSS still owed** before re-dispatch ([`docs/perf/HC_MEMORY_PROFILE.md`](perf/HC_MEMORY_PROFILE.md)) |
+| GIAB **ci-subset** equivalence (HG001 at minimum): \|Rust−Java\| F1 Δ ≤ threshold via `gatk-rs-equiv` | Green `giab-genomewide.yml` with `GIAB_MODE=ci-subset`, artifact + dashboard row | **Not yet signed** — Peak gate cleared on Air M4 (`GATK_RS_HC_SEQUENTIAL=1`): 500 kb ~196 MiB exit 0 / 981; holdout FORMAT/F1 PASS; P12 L3/L4 66/66. Redispatch after #85 merge (prefer smoke hygiene first, then `ci-subset` HG001). See [`docs/perf/HC_MEMORY_PROFILE.md`](perf/HC_MEMORY_PROFILE.md) |
 | GIAB **ci-subset** on HG001+HG002+HG005 | Same, all three samples | **Not yet signed** |
 | GIAB **full autosomes** (chr1–22) equivalence | `GIAB_MODE=autosomes` green run | **Not yet signed** |
 | Nightly / GIAB Pages dashboard (`docs/EQUIVALENCE_DASHBOARD.md`, `docs/parity-site/data/history.json`) | Green `ci-subset`+ finalize → `publish-parity-site` job writing non-empty `history.json` `runs` (smoke never publishes) | **Not yet signed** — wire exists; waits on first successful non-smoke publish |

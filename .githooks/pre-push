@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Versioned pre-push hook for gatk-rs (enable via scripts/dev/install-hooks.sh).
+# Belt-and-suspenders with pre-commit: refuse push if fmt/clippy would fail CI.
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+echo "[pre-push] cargo fmt --all -- --check"
+cargo fmt --all -- --check
+
+echo "[pre-push] cargo clippy --workspace"
+# Lint debt: warn-only (same as CI pr-check / quality). Hard errors still fail.
+cargo clippy --workspace
+
+echo "[pre-push] ok"
+exit 0

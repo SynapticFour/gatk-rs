@@ -89,7 +89,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # Full history: shallow tip-only checkout hides `baseline-bump:` commits
+      # from `git log origin/<base>..HEAD` in the ratchet step below.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Install Rust (stable + rustfmt + clippy)
         uses: dtolnay/rust-toolchain@stable
@@ -120,7 +124,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n "${GITHUB_BASE_REF:-}" ]]; then
-            git fetch --no-tags --depth=1 origin "${GITHUB_BASE_REF}"
+            git fetch --no-tags origin "${GITHUB_BASE_REF}"
             export UNSAFE_PATTERNS_BASE_REF="origin/${GITHUB_BASE_REF}"
           fi
           ./scripts/dev/count_unsafe_patterns.sh check

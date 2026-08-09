@@ -16,7 +16,14 @@ First step after clone — enable the versioned Git hooks (`.githooks/`):
 ```
 
 This sets `git config core.hooksPath .githooks` so every contributor shares the same
-pre-commit checks (fmt, scoped clippy, unwrap/clone ratchets, doc links, >1 MiB guard).
+checks:
+
+- **pre-commit** — `cargo fmt --check`, scoped `cargo clippy`, unwrap/clone ratchets,
+  doc links, >1 MiB guard, `cargo test --workspace --lib`
+- **pre-push** — `cargo fmt --check` + `cargo clippy --workspace` (same lint surface as CI)
+
+Always run `./scripts/dev/install-hooks.sh` after clone. Do not skip with `--no-verify`
+unless intentional; PR CI still runs the same fmt/clippy/ratchet gates.
 
 Optional additional hooks via the Python `pre-commit` framework:
 
