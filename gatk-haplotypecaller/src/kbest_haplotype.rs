@@ -232,25 +232,36 @@ pub fn find_best_haplotypes_for_assembly(
     graph: AssemblyGraph,
     max_number_of_haplotypes: usize,
 ) -> GatkResult<(Vec<KBestPath>, AssemblyGraph)> {
-    let graph = match graph_for_kbest(graph) {
-        Ok(acyclic) => acyclic,
+    // Observable contract: prefer acyclic k-best; when cycle stripping cannot produce a
+    // source→sink DAG, fall back to capped preserving search (pre-Peak behavior). Dropping
+    // that fallback and running `find_best_haplotypes_inner` on the cyclic graph left L2
+    // `g2-subset-live` at haplotype_count=1 (ref only).
+    let (paths, graph) = match graph_for_kbest(graph) {
+        Ok(acyclic) => {
+            crate::runtime_config::rss_trace_checkpoint(
+                "kbest_begin",
+                &format!(
+                    "nodes={} max_haps={} mode=acyclic",
+                    acyclic.nodes().len(),
+                    max_number_of_haplotypes
+                ),
+            );
+            let paths = find_best_haplotypes_inner(&acyclic, max_number_of_haplotypes, false)?;
+            (paths, acyclic)
+        }
         Err(cyclic) => {
             crate::runtime_config::rss_trace_checkpoint(
                 "kbest_cyclic_preserve",
-                &format!("nodes={}", cyclic.nodes().len()),
+                &format!(
+                    "nodes={} max_haps={}",
+                    cyclic.nodes().len(),
+                    max_number_of_haplotypes
+                ),
             );
-            cyclic
+            let paths = find_best_haplotypes_preserving_cycles(&cyclic, max_number_of_haplotypes)?;
+            (paths, cyclic)
         }
     };
-    crate::runtime_config::rss_trace_checkpoint(
-        "kbest_begin",
-        &format!(
-            "nodes={} max_haps={}",
-            graph.nodes().len(),
-            max_number_of_haplotypes
-        ),
-    );
-    let paths = find_best_haplotypes_inner(&graph, max_number_of_haplotypes, false)?;
     crate::runtime_config::rss_trace_checkpoint("kbest_done", &format!("paths={}", paths.len()));
     Ok((paths, graph))
 }

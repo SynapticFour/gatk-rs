@@ -26,7 +26,7 @@ use rust_htslib::bam;
 /// Owns haplotypes/events and the finalized read records from one assemble pass.
 /// # Observable contract
 /// Same haplotypes as [`assemble_reads`]; `finalized_reads` matches
-/// [`finalize_region_reads_for_assembly`] for the input region (softclip/adaptor applied once).
+/// [`finalize_region_reads_for_assembly_owned`] for the input region (softclip/adaptor applied once).
 pub struct AssembledRegion {
     pub assembly: AssemblyResultSet,
     pub finalized_reads: Vec<bam::Record>,

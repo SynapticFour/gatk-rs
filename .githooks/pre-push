@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Versioned pre-push hook for gatk-rs (enable via scripts/dev/install-hooks.sh).
-# Belt-and-suspenders with pre-commit: refuse push if fmt/clippy would fail CI.
+# Belt-and-suspenders with pre-commit: refuse push if fmt/clippy/excellence/doc
+# gates that failed post-#85 main would fail CI again.
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
@@ -12,6 +13,48 @@ cargo fmt --all -- --check
 echo "[pre-push] cargo clippy --workspace"
 # Lint debt: warn-only (same as CI pr-check / quality). Hard errors still fail.
 cargo clippy --workspace
+
+echo "[pre-push] excellence gates (N-1…N-7)"
+python3 scripts/parity/excellence_gates_audit.py
+
+echo "[pre-push] cargo doc --workspace (broken intra-doc links)"
+RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --workspace --no-deps
+
+# L2 g2-subset-live slice when assembly / k-best surface changed in the push range.
+# Full 220-row L2 stays CI/nightly (Docker + wall time); this catches the Peak min-kmer
+# haplotype_count=1 class locally when fixtures are staged.
+changed=""
+if git rev-parse --verify origin/main >/dev/null 2>&1; then
+  changed="$(git diff --name-only origin/main...HEAD 2>/dev/null || true)"
+fi
+if [[ -z "${changed}" ]]; then
+  changed="$(git diff --name-only HEAD~5..HEAD 2>/dev/null || true)"
+fi
+needs_g2=0
+while IFS= read -r f; do
+  [[ -z "$f" ]] && continue
+  case "$f" in
+    gatk-haplotypecaller/src/read_threading_assembler.rs|\
+    gatk-haplotypecaller/src/kbest_haplotype.rs|\
+    gatk-haplotypecaller/src/assembly_based_caller.rs|\
+    gatk-haplotypecaller/src/assembly_region_finalize.rs|\
+    gatk-haplotypecaller/src/parity_region_genotype.rs|\
+    gatk-haplotypecaller/src/assembly_region_genotype_dump.rs)
+      needs_g2=1
+      ;;
+  esac
+done <<EOF
+${changed}
+EOF
+
+if [[ "${needs_g2}" -eq 1 && -x scripts/dev/check_l2_g2_subset_live.sh ]]; then
+  if [[ "${PARITY_HOOK_SKIP_G2:-0}" == "1" ]]; then
+    echo "[pre-push] g2-subset-live skipped (PARITY_HOOK_SKIP_G2=1)"
+  else
+    echo "[pre-push] L2 g2-subset-live (frozen Java dumps; no Docker)"
+    ./scripts/dev/check_l2_g2_subset_live.sh
+  fi
+fi
 
 echo "[pre-push] ok"
 exit 0
