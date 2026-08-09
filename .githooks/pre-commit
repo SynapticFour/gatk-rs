@@ -77,7 +77,7 @@ if [[ -x scripts/dev/count_unsafe_patterns.sh ]]; then
   ./scripts/dev/count_unsafe_patterns.sh check
 fi
 
-# 4) doc links — when .md or ///-bearing .rs staged
+# 4) markdown / path doc links — when .md or ///-bearing .rs staged
 if [[ "$has_md" -eq 1 || "$has_doc_rs" -eq 1 ]]; then
   if [[ -f scripts/dev/check_doc_links.py ]]; then
     echo "[pre-commit] doc link check"
@@ -85,7 +85,42 @@ if [[ "$has_md" -eq 1 || "$has_doc_rs" -eq 1 ]]; then
   fi
 fi
 
-# 5) block staged files >1 MiB
+# 4b) rustdoc intra-doc links — matches CI Documentation Quality
+# (`RUSTDOCFLAGS=-D rustdoc::broken_intra_doc_links`). Scoped to affected crates.
+if [[ "$has_doc_rs" -eq 1 ]]; then
+  doc_args=""
+  for c in $crates; do
+    doc_args="${doc_args} -p ${c}"
+  done
+  if [[ -z "$doc_args" ]]; then
+    doc_args="--workspace"
+  fi
+  echo "[pre-commit] cargo doc${doc_args} (broken intra-doc links)"
+  # shellcheck disable=SC2086
+  RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc ${doc_args} --no-deps
+fi
+
+# 5) Excellence gates (N-1 coords, N-2 env, …) — matches CI quality.yml.
+# Fast Python; catches bare `923*****` / allowlist drift before push.
+has_excellence=0
+if [[ "$has_rs" -eq 1 ]]; then
+  has_excellence=1
+fi
+while IFS= read -r f; do
+  case "$f" in
+    scripts/parity/coord_allowlist.json|scripts/parity/excellence_gates_audit.py|scripts/parity/p12_site_id_audit.py)
+      has_excellence=1
+      ;;
+  esac
+done <<EOF
+${STAGED}
+EOF
+if [[ "$has_excellence" -eq 1 && -f scripts/parity/excellence_gates_audit.py ]]; then
+  echo "[pre-commit] excellence gates (N-1…N-7)"
+  python3 scripts/parity/excellence_gates_audit.py
+fi
+
+# 6) block staged files >1 MiB
 MAX=$((1024 * 1024))
 oversized=0
 while IFS= read -r f; do
@@ -103,7 +138,7 @@ if [[ "$oversized" -eq 1 ]]; then
   exit 1
 fi
 
-# 6) lib tests when Rust staged (catches CI test failures early)
+# 7) lib tests when Rust staged (catches CI test failures early)
 if [[ "$has_rs" -eq 1 ]]; then
   echo "[pre-commit] cargo test --workspace --lib"
   cargo test --workspace --lib
