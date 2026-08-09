@@ -101,6 +101,8 @@ Layers: (A) eager whole-`-L` shard load + dual residency with `region.reads`; (B
 | 100 kb | **64.1 MiB** exit 0 | 47 | was **~2 GiB** / jetsam |
 | **500 kb** `20:10000000-10500000` | **177.0 MiB** exit 0 | 104 | first clean exit-0 on this host post-Peak-cut (screen+caffeinate+fuse) |
 
+**Post path-edge fix remeasure (2026-08-09, commit `ddf035b`, 800 MiB fuse):** spike **37.1 MiB** / 14; 100 kb **117.1 MiB** / 253; **500 kb **196.4 MiB** exit 0 / 981 sites** — Peak stays ≪ fuse with call rate restored. Logs: `/tmp/hc-rss-500kb-postfix/`.
+
 **Unset `CARGO_TARGET_DIR` when measuring** — Cursor sandbox cache can leave a stale `target/release/gatk-rs`. 100 kb + 500 kb exit 0 with recorded Peak are in hand; holdout HC sanity re-checked below. Still **do not** sign `ci-subset` until FORMAT/F1 holdout gates + doctrine checklist are green. Optional: recover the 8 missing 50 kb sites without reopening the spike Peak.
 
 Overnight recipe unchanged: **no jemalloc**, `GATK_RS_HC_SEQUENTIAL=1`, `RAYON_NUM_THREADS=1`.
@@ -135,6 +137,10 @@ Precision is fine (P≈1.0); **recall collapsed** vs Jul-22 rust (~221 chr21 sit
 | chr20 dense `20:10Mb` | 139 (144) | **1.000** | pass |
 
 Log: `parity/reports/l9_holdout_format_f1_20260809T051310Z.log`. Prior fail log: `parity/reports/l9_holdout_format_f1_20260809T041657Z.log`.
+
+**500 kb Peak after path-edge fix (2026-08-09, `ddf035b`, 800 MiB fuse):** spike **37.1 MiB**; 100 kb **117.1 MiB** / 253; **500 kb **196.4 MiB** exit 0 / 981** — ≪ fuse. Logs: `/tmp/hc-rss-500kb-postfix/`.
+
+**P12 L3/L4 (post-fix):** emit gate graph-only **63/66** shared (missing `92319083`, `92319096`, `92325268` — present when forced as tiny `-L` windows; absent as active regions in full `2:92300000-92350000` walk). `origin/main` Peak-cut without path-edge was **~28/66**. Spike Peak still ~37 MiB after exempting the P12 L\* slice from RT early-stop. L4 not signed until 66/66.
 
 ## A. Trivial smoke — reproducibility reference only
 

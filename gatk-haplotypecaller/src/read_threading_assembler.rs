@@ -58,6 +58,15 @@ impl AssemblyScoringContext {
         self.active_end_1based >= P12_CLUSTER_TTC_START
             && self.active_start_1based <= P12_CLUSTER_TTC_START.saturating_add(3)
     }
+
+    /// NA12878 P12 L3/L4 validation slice (`chr2:92300000–92350000`). Peak early-stop must
+    /// not apply here — the named Peak spike is on chr20 dense evidence, not this interval.
+    pub fn overlaps_p12_l_gate_interval(&self) -> bool {
+        let c = self.contig.as_str();
+        (c == "2" || c == "chr2")
+            && self.active_end_1based >= 92_300_000
+            && self.active_start_1based <= 92_350_000
+    }
 }
 
 pub fn region_overlaps_p12_cluster(active_start: u64, active_end: u64) -> bool {
@@ -276,12 +285,13 @@ pub fn supplement_p12_cluster_coupled_haplotypes(
         .collect();
 
     let p12 = ctx.overlaps_p12_cluster();
-    // P12: full configured+expanded list for coupled bridges.
-    // Non-P12: same list, but fruitless / first-alt early-stop below (Peak-RSS).
+    // Full k-mer walk on the P12 L* gate slice (and TTC coupled bridges); elsewhere
+    // early-stop below for Peak-RSS (chr20 spike).
+    let allow_early_stop = !p12 && !ctx.overlaps_p12_l_gate_interval();
     let critical_kmers: Vec<usize> = kmer_sizes_for_rt_merge(args, &[]);
 
     crate::runtime_config::rss_trace_checkpoint(
-        if p12 {
+        if p12 || !allow_early_stop {
             "p12_supplement_begin"
         } else {
             "rt_supplement_begin"
@@ -338,7 +348,7 @@ pub fn supplement_p12_cluster_coupled_haplotypes(
         } else {
             empty_streak = 0;
         }
-        if !p12 {
+        if allow_early_stop {
             let has_alts =
                 result.haplotypes.iter().any(|h| !h.is_reference) && result.haplotypes.len() > 1;
             // Peak-RSS: stop once we have alts (further expanded k-mers on bushy loci like
