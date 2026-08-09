@@ -140,7 +140,7 @@ Log: `parity/reports/l9_holdout_format_f1_20260809T051310Z.log`. Prior fail log:
 
 **500 kb Peak after path-edge fix (2026-08-09, `ddf035b`, 800 MiB fuse):** spike **37.1 MiB**; 100 kb **117.1 MiB** / 253; **500 kb **196.4 MiB** exit 0 / 981** — ≪ fuse. Logs: `/tmp/hc-rss-500kb-postfix/`.
 
-**P12 L3/L4 (post-fix):** emit gate graph-only **63/66** shared (missing `92319083`, `92319096`, `92325268` — present when forced as tiny `-L` windows; absent as active regions in full `2:92300000-92350000` walk). `origin/main` Peak-cut without path-edge was **~28/66**. Spike Peak still ~37 MiB after exempting the P12 L\* slice from RT early-stop. L4 not signed until 66/66.
+**P12 L3/L4 (post-fix, `c19b1fe`):** **PASS** — emit **66/66**, FORMAT **66/66**. Root cause of the prior 63/66: detach-on-fill emptied `all_records` while activity still piled up from those indices (false inactive band over `92319083`/`92319096`); plus pre-trim gap backfill for downstream `92325268`. Hybrid wavefront detach keeps Peak spike **~36 MiB**. Logs: `parity/reports/p12_l3_signoff_*`, `p12_l4_signoff_20260809T125838Z.log`.
 
 ## A. Trivial smoke — reproducibility reference only
 
