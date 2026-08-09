@@ -1,14 +1,14 @@
 # GIAB genome-wide equivalence dashboard
 
 - **Run dir:** `/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci`
-- **Generated (UTC):** 2026-08-09T16:37:45Z
+- **Generated (UTC):** 2026-08-09T20:11:03Z
 - **Scope:** SMOKE: three ~50kb windows (chr20/chr21/P12). P12 reads from NA12878_20k evidence class; chr20/21 from HG001 30×. Full-30× P12 is benchmark-host only. Not genome-wide.
 
 ## Samples
 
 | Sample | Mode | Gate | Max\|ΔF1\| | Java wall | Java RSS | Rust wall | Rust RSS |
 |--------|------|:----:|----------:|----------:|---------:|----------:|---------:|
-| HG001 | smoke | FAIL | — | — | — | — | — |
+| HG001 | smoke | PASS | 0.0000 | — | — | — | — |
 
 ## Notes
 
