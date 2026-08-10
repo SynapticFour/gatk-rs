@@ -18,7 +18,7 @@
       "dir": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci/HG001",
       "equiv_results": {
         "manifest": {
-          "created_utc": "2026-08-09T20:11:03.422488177+00:00",
+          "created_utc": "2026-08-10T04:31:36.734060500+00:00",
           "tool_version": "0.1.0",
           "engine": "hap.py",
           "reference": "/home/runner/work/gatk-rs/gatk-rs/parity/realworld/assets/hs37d5.simple.fa",
