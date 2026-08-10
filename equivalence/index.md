@@ -3,9 +3,9 @@
 Full spine: **HaplotypeCaller (GVCF) → CombineGVCFs → GenotypeGVCFs → VariantFiltration**
 for GIAB Ashkenazi trio HG002/HG003/HG004, scored with **hap.py** vs HG002 truth.
 
-- **Generated (UTC):** 2026-08-09T11:21:59Z
-- **Commit:** `4dce5e14b1273f502d811c2c84274295575201b2`
-- **Run dir:** `/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/nightly_trio_20260809T053537Z`
+- **Generated (UTC):** 2026-08-10T11:48:38Z
+- **Commit:** `87bea2944d2f5ae1f8e6a63ed33b5a27c5b7a034`
+- **Run dir:** `/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/nightly_trio_20260810T060409Z`
 - **Baseline:** `docs/equivalence/baseline.json`
 - **Regression threshold (|ΔF1| drop):** 0.02
 - **Regressions:** 0
@@ -14,7 +14,8 @@ for GIAB Ashkenazi trio HG002/HG003/HG004, scored with **hap.py** vs HG002 truth
 
 | Region | Kind | Status | Rust SNP F1 | Rust INDEL F1 | Java SNP F1 | Java INDEL F1 |
 |--------|------|--------|------------:|--------------:|------------:|--------------:|
-| chr20 | chromosome | running | — | — | — | — |
+| chr20 | chromosome | happy_failed | — | — | — | — |
+| chr21 | chromosome | running | — | — | — | — |
 
 ## Regressions vs last green
 
