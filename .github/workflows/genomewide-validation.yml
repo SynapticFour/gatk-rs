@@ -5,7 +5,7 @@
 #   - workflow_dispatch
 #
 # Cost control: GitHub-hosted jobs start/stop the cloud VM around the paid work.
-# Setup + budgeting: docs/ci/SELF_HOSTED_RUNNER_SETUP.md
+# Setup + budgeting: operator self-hosted runner runbook (internal)
 name: Genomewide validation (self-hosted)
 
 on:
@@ -90,7 +90,7 @@ jobs:
           set -euo pipefail
           chmod +x scripts/ci/cloud_vmctl.sh
           if [[ -z "${CLOUD_PROVIDER:-}" ]]; then
-            echo "::error::Set repository variable CLOUD_PROVIDER=hetzner|aws. See docs/ci/SELF_HOSTED_RUNNER_SETUP.md"
+            echo "::error::Set repository variable CLOUD_PROVIDER=hetzner|aws. See operator self-hosted runner runbook (internal)"
             exit 1
           fi
           ./scripts/ci/cloud_vmctl.sh start
@@ -237,7 +237,7 @@ jobs:
           set -euo pipefail
           chmod +x scripts/ci/cloud_vmctl.sh
           ./scripts/ci/cloud_vmctl.sh stop
-          echo "::notice::VM stopped. Storage volumes still incur monthly cost — see docs/ci/SELF_HOSTED_RUNNER_SETUP.md#cost-model"
+          echo "::notice::VM stopped. Storage volumes still incur monthly cost — see operator self-hosted runner runbook (internal)#cost-model"
 
   # Update customer-facing Chart.js site from genomewide JSON (GitHub-hosted).
   publish-parity-site:

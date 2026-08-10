@@ -6,7 +6,7 @@ non-burstable, single-tenant-ish** machine — **not** from:
 | Wrong place | Why |
 |-------------|-----|
 | GitHub-hosted `ubuntu-latest` | Shared/virtualized CPUs, noisy neighbors, no fixed core allocation |
-| Self-hosted **`gatk-rs-genomewide`** VM ([Prompt H](SELF_HOSTED_RUNNER_SETUP.md)) | Sized for correctness (RAM + disk), often busy with GIAB; different SKU; not tuned for low-jitter timing |
+| Self-hosted **`gatk-rs-genomewide`** VM (operator-provisioned; internal runbook) | Sized for correctness (RAM + disk), often busy with GIAB; different SKU; not tuned for low-jitter timing |
 
 This document provisions a **second** repository-scoped runner with label
 **`gatk-rs-benchmark`**, started/stopped by

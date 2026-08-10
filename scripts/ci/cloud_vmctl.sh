@@ -16,7 +16,7 @@
 # Usage:
 #   ./scripts/ci/cloud_vmctl.sh start|stop|status
 #
-# See docs/ci/SELF_HOSTED_RUNNER_SETUP.md and docs/ci/PERF_BENCHMARK_HOST.md
+# See operator self-hosted runner runbook (internal) and docs/ci/PERF_BENCHMARK_HOST.md
 set -euo pipefail
 
 cmd="${1:-}"

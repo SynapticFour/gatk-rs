@@ -86,7 +86,7 @@ Java GATK pin) is shown explicitly on the page.
 ### Full-autosome validation (paid self-hosted runner)
 
 Workflow: [`.github/workflows/genomewide-validation.yml`](../../../.github/workflows/genomewide-validation.yml)  
-Setup + **cost model**: [`docs/ci/SELF_HOSTED_RUNNER_SETUP.md`](../../../docs/ci/SELF_HOSTED_RUNNER_SETUP.md)
+Setup + **cost model**: operator-provisioned self-hosted runner for [`.github/workflows/genomewide-validation.yml`](../../../.github/workflows/genomewide-validation.yml) (internal runbook; not in the public tree)
 
 - Runner label: `gatk-rs-genomewide` (repo-scoped self-hosted only)
 - Default mode: `GIAB_MODE=autosomes` (not for GitHub-hosted 14 GB disks)
