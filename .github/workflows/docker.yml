@@ -25,7 +25,7 @@ jobs:
       uses: actions/checkout@v7
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
 
     - name: Extract metadata
       id: meta
@@ -95,7 +95,7 @@ jobs:
         platforms: ${{ matrix.platform }}
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
 
     - name: Build for platform
       uses: docker/build-push-action@v7
@@ -118,7 +118,7 @@ jobs:
       uses: actions/checkout@v7
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
 
     - name: Build Docker image
       uses: docker/build-push-action@v7
@@ -180,7 +180,7 @@ jobs:
       uses: actions/checkout@v7
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
 
     - name: Login to Docker Hub
       uses: docker/login-action@v4
