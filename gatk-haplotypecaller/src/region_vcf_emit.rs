@@ -31,7 +31,9 @@ use crate::read_event_discovery::{
 };
 use crate::variant_site_hc_annotations::{annotate_hc_variant_site, HcVariantSiteAnnotations};
 use gatk_common::GatkResult;
-use gatk_core::io::vcf::{Genotype, InfoValue, SampleData, VcfRecord};
+use gatk_core::io::vcf::{
+    FormatField, Genotype, InfoField, InfoValue, SampleData, VcfHeader, VcfRecord,
+};
 
 /// Non-chr2 emit gate (per-site genotype — not region summary).
 /// R4-2 retired the blunt “region-summary hom-alt only” check because it blocked dense GIAB
@@ -75,6 +77,137 @@ pub const HC_PIPELINE_ASSEMBLY_REGION_V1: &str = "assembly-region-v1";
 pub const HC_PIPELINE_SCAFFOLD: &str = "scaffold-v1";
 /// Removed in Sprint B — kept for grep/audit scripts that guard against regression.
 pub const HC_PIPELINE_LEGACY_PROVISIONAL: &str = "provisional-output-v1";
+
+/// Populate `##INFO` / `##FORMAT` for non-gVCF HC emission.
+///
+/// Observable contract: body records from [`hc_info_values`] + `GT:GQ:DP:AD:PL` must have
+/// matching header definitions so hap.py `vcfcheck --check-bcf-errors` accepts the VCF
+/// (GIAB smoke failed when only `##contig` lines were written).
+pub fn populate_hc_vcf_header_schema(header: &mut VcfHeader) {
+    fn info(id: &str, number: &str, ty: &str, desc: &str) -> InfoField {
+        InfoField {
+            id: id.to_string(),
+            number: number.to_string(),
+            type_field: ty.to_string(),
+            description: desc.to_string(),
+            source: None,
+            version: None,
+        }
+    }
+    fn fmt(id: &str, number: &str, ty: &str, desc: &str) -> FormatField {
+        FormatField {
+            id: id.to_string(),
+            number: number.to_string(),
+            type_field: ty.to_string(),
+            description: desc.to_string(),
+        }
+    }
+    header.info_fields = vec![
+        info(
+            "AC",
+            "A",
+            "Integer",
+            "Allele count in genotypes, for each ALT allele, in the same order as listed",
+        ),
+        info(
+            "AF",
+            "A",
+            "Float",
+            "Allele Frequency, for each ALT allele, in the same order as listed",
+        ),
+        info(
+            "AN",
+            "1",
+            "Integer",
+            "Total number of alleles in called genotypes",
+        ),
+        info(
+            "DP",
+            "1",
+            "Integer",
+            "Approximate read depth; some reads may have been filtered",
+        ),
+        info(
+            "ExcessHet",
+            "1",
+            "Float",
+            "Phred-scaled p-value for exact test of excess heterozygosity",
+        ),
+        info(
+            "FS",
+            "1",
+            "Float",
+            "Phred-scaled p-value using Fisher's exact test to detect strand bias",
+        ),
+        info(
+            "InbreedingCoeff",
+            "1",
+            "Float",
+            "Inbreeding coefficient as estimated from the genotype likelihoods per-sample",
+        ),
+        info(
+            "MLEAC",
+            "A",
+            "Integer",
+            "Maximum likelihood expectation (MLE) for the allele counts",
+        ),
+        info(
+            "MLEAF",
+            "A",
+            "Float",
+            "Maximum likelihood expectation (MLE) for the allele frequency",
+        ),
+        info("MQ", "1", "Float", "RMS Mapping Quality"),
+        info("QD", "1", "Float", "Variant Confidence/Quality by Depth"),
+        info(
+            "ReadPosRankSum",
+            "1",
+            "Float",
+            "Z-score from Wilcoxon rank sum test of Alt vs. Ref read position bias",
+        ),
+        info(
+            "SOR",
+            "1",
+            "Float",
+            "Symmetric Odds Ratio of 2x2 contingency table to detect strand bias",
+        ),
+        // Emitted on some sites / future annotators; declare so hap.py stays happy.
+        info(
+            "BaseQRankSum",
+            "1",
+            "Float",
+            "Z-score from Wilcoxon rank sum test of Alt Vs. Ref base qualities",
+        ),
+        info(
+            "MQRankSum",
+            "1",
+            "Float",
+            "Z-score From Wilcoxon rank sum test of Alt vs. Ref read mapping qualities",
+        ),
+    ];
+    header.format_fields = vec![
+        fmt("GT", "1", "String", "Genotype"),
+        fmt("GQ", "1", "Integer", "Genotype Quality"),
+        fmt(
+            "DP",
+            "1",
+            "Integer",
+            "Approximate read depth (reads with MQ=255 or with bad mates are filtered)",
+        ),
+        fmt(
+            "AD",
+            "R",
+            "Integer",
+            "Allelic depths for the ref and alt alleles in the order listed",
+        ),
+        fmt(
+            "PL",
+            "G",
+            "Integer",
+            "Normalized, Phred-scaled likelihoods for genotypes as defined in the VCF specification",
+        ),
+    ];
+}
 
 /// Minimum GQ (phred) to emit a variant in assembly-region mode.
 pub const DEFAULT_STAND_EMIT_CONFIDENCE: f64 = 10.0;
@@ -691,10 +824,55 @@ fn allele_at_haplotype_position(
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
+    use gatk_core::io::vcf::VcfWriter;
+    use std::io::Read;
 
     #[test]
     fn first_diff_position() {
         let pos = first_differing_position_1based(b"ACGT", b"ACCT", 10).expect("pos");
         assert_eq!(pos, 12);
+    }
+
+    #[test]
+    fn hc_vcf_header_schema_declares_emitted_info_and_format() {
+        let mut header = VcfHeader::default();
+        header.samples.push("NA12878".to_string());
+        populate_hc_vcf_header_schema(&mut header);
+        let info_ids: Vec<_> = header.info_fields.iter().map(|f| f.id.as_str()).collect();
+        let format_ids: Vec<_> = header.format_fields.iter().map(|f| f.id.as_str()).collect();
+        for key in [
+            "AC",
+            "AF",
+            "AN",
+            "DP",
+            "ExcessHet",
+            "FS",
+            "MLEAC",
+            "MLEAF",
+            "MQ",
+            "QD",
+            "SOR",
+            "ReadPosRankSum",
+            "InbreedingCoeff",
+        ] {
+            assert!(info_ids.contains(&key), "missing INFO {key}");
+        }
+        for key in ["GT", "GQ", "DP", "AD", "PL"] {
+            assert!(format_ids.contains(&key), "missing FORMAT {key}");
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hc.vcf");
+        let mut writer = VcfWriter::new(&path, header).unwrap();
+        writer.write_header().unwrap();
+        drop(writer);
+        let mut text = String::new();
+        std::fs::File::open(&path)
+            .unwrap()
+            .read_to_string(&mut text)
+            .unwrap();
+        assert!(text.contains("##FORMAT=<ID=GT,"));
+        assert!(text.contains("##INFO=<ID=AC,"));
+        assert!(text.contains("##FORMAT=<ID=PL,"));
     }
 }
