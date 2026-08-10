@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["empty_shared_record","into_unique_records","record_make_mut","share_record","share_records"],"trait":["BamRecordSlot"],"type":["SharedBamRecord"]};
+window.SIDEBAR_ITEMS = {"fn":["empty_shared_record","empty_shared_record_ref","into_unique_records","is_empty_shared_record","record_make_mut","share_record","share_records"],"trait":["BamRecordSlot"],"type":["SharedBamRecord"]};
