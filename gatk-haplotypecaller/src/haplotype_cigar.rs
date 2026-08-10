@@ -630,6 +630,12 @@ fn normalize_alleles(
     max_shift: usize,
     trim: bool,
 ) -> (i32, usize) {
+    debug_assert_eq!(sequences.len(), bounds.len());
+    // Java `AlignmentUtils.normalizeAlleles`:
+    //   Utils.validateArg(maxShift <= bound.getStart(), ...)
+    // Cap instead of aborting: callers that overshoot still left-align only as far as
+    // start allows, preserving the invariant that `nextBaseOnLeft` never indexes -1.
+    let max_shift = max_shift.min(bounds.iter().map(|b| b.start).min().unwrap_or(0));
     let mut start_shift: i32 = 0;
     let mut end_shift = 0usize;
     let mut min_size = bounds.iter().map(|b| b.size()).min().unwrap_or(0);
@@ -647,7 +653,10 @@ fn normalize_alleles(
         min_size -= 1;
         start_shift -= 1;
     }
-    while (start_shift as usize) < max_shift
+    // Signed compare matches Java `startShift < maxShift` (negative startShift after
+    // left-trim must still enter the left-align loop). Casting negative i32 → usize
+    // made the old condition always false after trim and could skip left-align.
+    while start_shift < max_shift as i32
         && next_base_on_left_is_same(sequences, bounds)
         && last_base_on_right_is_same(sequences, bounds)
     {
@@ -661,6 +670,10 @@ fn normalize_alleles(
 }
 
 fn last_base_on_right_is_same(sequences: &[&[u8]], bounds: &[IndexRange]) -> bool {
+    // Empty allele (size 0): Java uses end-1 (== start-1), same as next-base-on-left.
+    if bounds.iter().any(|b| b.end == 0) {
+        return false;
+    }
     let last = sequences[0][bounds[0].end - 1];
     sequences
         .iter()
@@ -677,6 +690,11 @@ fn first_base_on_left_is_same(sequences: &[&[u8]], bounds: &[IndexRange]) -> boo
 }
 
 fn next_base_on_left_is_same(sequences: &[&[u8]], bounds: &[IndexRange]) -> bool {
+    // Guard: Java never reaches here when any start==0 because maxShift<=start and
+    // startShift < maxShift together stop the loop first.
+    if bounds.iter().any(|b| b.start == 0) {
+        return false;
+    }
     let next = sequences[0][bounds[0].start - 1];
     sequences
         .iter()
@@ -705,5 +723,47 @@ mod tests {
         assert_eq!(cigar_str("ACGTT", "ACGT"), "3M1D1M");
         assert_eq!(cigar_str("ACGTT", "ACGTA"), "5M");
         assert_eq!(cigar_str("TTTACGTTACGT", "ACGTT"), "3D4M4D1M");
+    }
+
+    /// Regression: GIAB ci-subset panics when left-align reached `start==0` and
+    /// indexed `start - 1` (usize underflow → index usize::MAX).
+    #[test]
+    fn normalize_alleles_does_not_underflow_at_sequence_start() {
+        let ref_seq = b"ACGTACGT";
+        let read_seq = b"ACGTACGT";
+        // Empty indel ranges at start=0 with a large requested max_shift (Java would
+        // reject via validateArg; we cap and must not panic).
+        let mut bounds = [IndexRange::new(0, 0), IndexRange::new(0, 0)];
+        let (start_shift, end_shift) = normalize_alleles(
+            &[ref_seq.as_slice(), read_seq.as_slice()],
+            &mut bounds,
+            8,
+            true,
+        );
+        assert_eq!(start_shift, 0);
+        assert_eq!(end_shift, 0);
+        assert_eq!(bounds[0].start, 0);
+
+        // Homopolymer left-align that would walk into start without the signed/capped loop.
+        let ref_h = b"AAAAA";
+        let read_h = b"AAAA"; // 1D in A-run
+        let mut bounds = [IndexRange::new(1, 2), IndexRange::new(1, 1)]; // D of one A
+        let _ = normalize_alleles(
+            &[ref_h.as_slice(), read_h.as_slice()],
+            &mut bounds,
+            10,
+            true,
+        );
+        assert!(bounds.iter().all(|b| b.start <= b.end));
+    }
+
+    #[test]
+    fn left_align_indel_at_read_start_no_panic() {
+        let p = SwParameters::gatk_haplotype_to_reference();
+        // Insertion near / at the left edge of the alignment block.
+        let c = calculate_haplotype_cigar(b"ACGTACGTACGT", b"AACGTACGTACGT", &p);
+        assert!(c.is_some());
+        let c = calculate_haplotype_cigar(b"TTTTAAAA", b"TTTTAAA", &p);
+        assert!(c.is_some());
     }
 }

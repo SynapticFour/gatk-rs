@@ -133,6 +133,8 @@ pub fn run_haplotype_caller(config: &GatkConfig) -> GatkResult<()> {
     reject_unsupported_haplotype_caller_cli(&hc, config)?;
     let read_filters = ReadFilterParams::from_haplotype_caller(&hc);
 
+    // GATK accepts header-only / empty-record BAMs (e.g. chr tip windows with no
+    // coverage) and emits a header-only VCF. Only reject missing/unreadable paths.
     for in_path in &config.tool_config.inputs.input_files {
         let p = Path::new(in_path);
         if !p.is_file() {
@@ -140,22 +142,9 @@ pub fn run_haplotype_caller(config: &GatkConfig) -> GatkResult<()> {
                 "Alignment input not found or not a file: {in_path}"
             )));
         }
-        let mut reader = bam::Reader::from_path(p).map_err(|e| {
+        let _reader = bam::Reader::from_path(p).map_err(|e| {
             GatkError::generic(format!("Failed to open alignment input {in_path}: {e}"))
         })?;
-        let mut records = reader.records();
-        let seen = match records.next() {
-            None => false,
-            Some(res) => {
-                res.map_err(|e| GatkError::generic(format!("Failed reading {in_path}: {e}")))?;
-                true
-            }
-        };
-        if !seen {
-            return Err(GatkError::argument(format!(
-                "Alignment file contains no records: {in_path}"
-            )));
-        }
     }
 
     let out = config
