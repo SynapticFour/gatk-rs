@@ -33,6 +33,14 @@ use std::collections::{BTreeSet, HashSet};
 pub const DEFAULT_NUM_BEST_HAPLOTYPES_PER_GRAPH: usize = 128;
 pub const MIN_HAPLOTYPE_REFERENCE_LENGTH: usize = 30;
 
+/// Fail-closed Peak guard: skip k-best when an RT/SeqGraph exceeds this node count.
+///
+/// Normal HC assembly regions here are ~1–2 k nodes. Bushy graphs (NA12878 spike
+/// `20:10098169`, dense GIAB 1 Mb shards) climb past ~800 MiB / multi‑GiB during
+/// k-best expansion. Applied on primary SeqGraph + RT assemble paths as well as
+/// RT-supplement extract (same threshold).
+pub const MAX_ASSEMBLY_GRAPH_NODES: usize = 8_000;
+
 /// Optional active-region coordinates for choosing among k-mer assembly attempts (P12 cluster).
 /// # Invariants
 /// `active_start_1based` ≤ `active_end_1based` when used for overlap checks.
@@ -1203,6 +1211,18 @@ fn try_build_seq_graph_kmer(
             graph.edge_count()
         ),
     );
+    // Peak-RSS: skip bushy RT graphs before SeqGraph cleanup / k-best (primary path).
+    if graph.node_count() > MAX_ASSEMBLY_GRAPH_NODES {
+        crate::runtime_config::rss_trace_checkpoint(
+            "seq_rt_skip_huge",
+            &format!(
+                "kmer={kmer_size} nodes={} cap={MAX_ASSEMBLY_GRAPH_NODES}",
+                graph.node_count()
+            ),
+        );
+        drop(graph);
+        return Ok(None);
+    }
     let mut seq = SeqGraph::from_assembly_graph(&graph);
     drop(graph); // Peak-RSS: free RT graph before SeqGraph cleanup / k-best
     seq.clean_non_ref_paths();
@@ -1215,6 +1235,16 @@ fn try_build_seq_graph_kmer(
     // GATK `assembleKmerGraphsAndHaplotypeCall`: admit graphs with ASSEMBLED_SOME_VARIATION only
     // (Java does not require KBest path bytes != reference before `nonRefSeqGraphs.add`).
     if seq.reference_source_vertex().is_none() || seq.reference_sink_vertex().is_none() {
+        return Ok(None);
+    }
+    if seq.node_count() > MAX_ASSEMBLY_GRAPH_NODES {
+        crate::runtime_config::rss_trace_checkpoint(
+            "seq_skip_huge",
+            &format!(
+                "kmer={kmer_size} seq_nodes={} cap={MAX_ASSEMBLY_GRAPH_NODES}",
+                seq.node_count()
+            ),
+        );
         return Ok(None);
     }
     crate::runtime_config::rss_trace_checkpoint(
@@ -1501,12 +1531,11 @@ fn extract_rt_haplotypes_from_built_graph(
     );
     // Peak-RSS: bushy RT graphs (seen climbing past ~800 MiB on NA12878 20:10098169) —
     // skip k-best rather than expand a multi-GiB frontier. Normal HC regions here are ~1–2 k nodes.
-    const MAX_RT_SUPPLEMENT_NODES: usize = 8_000;
-    if graph.node_count() > MAX_RT_SUPPLEMENT_NODES {
+    if graph.node_count() > MAX_ASSEMBLY_GRAPH_NODES {
         crate::runtime_config::rss_trace_checkpoint(
             "rt_graph_skip_huge",
             &format!(
-                "kmer={kmer_size} nodes={} cap={MAX_RT_SUPPLEMENT_NODES}",
+                "kmer={kmer_size} nodes={} cap={MAX_ASSEMBLY_GRAPH_NODES}",
                 graph.node_count()
             ),
         );
@@ -1737,6 +1766,27 @@ fn try_assemble_kmer(
     else {
         return Ok(None);
     };
+
+    crate::runtime_config::rss_trace_checkpoint(
+        "rt_primary_built",
+        &format!(
+            "kmer={kmer_size} nodes={} edges={}",
+            graph.node_count(),
+            graph.edge_count()
+        ),
+    );
+    // Peak-RSS: same fail-closed node cap as SeqGraph primary + RT-supplement.
+    if graph.node_count() > MAX_ASSEMBLY_GRAPH_NODES {
+        crate::runtime_config::rss_trace_checkpoint(
+            "rt_primary_skip_huge",
+            &format!(
+                "kmer={kmer_size} nodes={} cap={MAX_ASSEMBLY_GRAPH_NODES}",
+                graph.node_count()
+            ),
+        );
+        drop(graph);
+        return Ok(None);
+    }
 
     let mut ref_hap = Haplotype::new(reference.bases.as_slice(), true);
     let mut ref_cigar = Cigar::new();
