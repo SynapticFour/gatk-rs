@@ -52,7 +52,7 @@ evidence/scripts are restored here. Cite them as historical engineering notes on
 | GIAB **full autosomes** (chr1–22) equivalence | `GIAB_MODE=autosomes` green run | **Not yet signed** |
 | Nightly / GIAB Pages dashboard (`docs/EQUIVALENCE_DASHBOARD.md`, `docs/parity-site/data/history.json`) | Green `ci-subset`+ finalize → `publish-parity-site` job writing non-empty `history.json` `runs` (smoke never publishes) | **Not yet signed** — wire exists; waits on first successful non-smoke publish |
 | GIAB **smoke** as a product / genome-adjacent claim | Smoke is PR/infra hygiene (hybrid P12 from NA12878_20k + chr20/21 30×): three ~50 kb windows only | **Not a product claim** — harness is green ([30703069224](https://github.com/SynapticFour/gatk-rs/actions/runs/30703069224)); do **not** cite smoke as `ci-subset` or autosome equivalence |
-| GIAB **full autosomes** on GitHub-hosted runners | Hosted `giab-genomewide.yml` **rejects** `autosomes` (disk + 6 h cap) | Use self-hosted [`.github/workflows/genomewide-validation.yml`](../.github/workflows/genomewide-validation.yml) — see [`docs/ci/SELF_HOSTED_RUNNER_SETUP.md`](ci/SELF_HOSTED_RUNNER_SETUP.md) |
+| GIAB **full autosomes** on GitHub-hosted runners | Hosted `giab-genomewide.yml` **rejects** `autosomes` (disk + 6 h cap) | Use self-hosted [`.github/workflows/genomewide-validation.yml`](../.github/workflows/genomewide-validation.yml) (operator-provisioned runner; setup notes are internal) |
 
 ---
 
