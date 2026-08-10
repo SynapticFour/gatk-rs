@@ -40,7 +40,7 @@ jobs:
     # load:true only works for a single platform.
     - name: Build Docker image (amd64)
       id: build
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v7
       with:
         context: .
         platforms: linux/amd64
@@ -98,7 +98,7 @@ jobs:
       uses: docker/setup-buildx-action@v3
 
     - name: Build for platform
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v7
       with:
         context: .
         platforms: ${{ matrix.platform }}
@@ -121,7 +121,7 @@ jobs:
       uses: docker/setup-buildx-action@v3
 
     - name: Build Docker image
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v7
       with:
         context: .
         platforms: linux/amd64
@@ -199,7 +199,7 @@ jobs:
           type=raw,value=latest
 
     - name: Build and push Docker image
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v7
       with:
         context: .
         platforms: linux/amd64,linux/arm64
