@@ -479,17 +479,28 @@ impl IndexRange {
         self.end.saturating_sub(self.start)
     }
     fn shift_left(&mut self, n: usize) {
-        self.start -= n;
-        self.end -= n;
+        // Java IndexRange validates from>=0; usize wrap previously produced start≈usize::MAX
+        // and panics in next_base_on_left (`start - 1`).
+        self.start = self.start.saturating_sub(n);
+        self.end = self.end.saturating_sub(n);
+        if self.start > self.end {
+            self.end = self.start;
+        }
     }
     fn shift_start(&mut self, n: usize) {
-        self.start += n;
+        self.start = self.start.saturating_add(n);
+        if self.start > self.end {
+            self.start = self.end;
+        }
     }
     fn shift_end_left(&mut self, n: usize) {
-        self.end -= n;
+        self.end = self.end.saturating_sub(n);
+        if self.end < self.start {
+            self.end = self.start;
+        }
     }
     fn shift_start_left(&mut self, n: usize) {
-        self.start -= n;
+        self.start = self.start.saturating_sub(n);
     }
 }
 
@@ -691,8 +702,13 @@ fn first_base_on_left_is_same(sequences: &[&[u8]], bounds: &[IndexRange]) -> boo
 
 fn next_base_on_left_is_same(sequences: &[&[u8]], bounds: &[IndexRange]) -> bool {
     // Guard: Java never reaches here when any start==0 because maxShift<=start and
-    // startShift < maxShift together stop the loop first.
-    if bounds.iter().any(|b| b.start == 0) {
+    // startShift < maxShift together stop the loop first. Also reject wrapped starts
+    // from historical usize underflow in IndexRange::shift_left.
+    if bounds
+        .iter()
+        .zip(sequences.iter())
+        .any(|(b, seq)| b.start == 0 || b.start > seq.len())
+    {
         return false;
     }
     let next = sequences[0][bounds[0].start - 1];

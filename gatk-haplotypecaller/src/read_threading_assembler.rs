@@ -1037,6 +1037,11 @@ fn assemble_from_ref_and_reads_seq_graph(
         Ok(())
     };
 
+    let allow_seq_early_stop = match args.scoring.as_ref() {
+        None => true,
+        Some(ctx) => !ctx.overlaps_p12_cluster() && !ctx.overlaps_p12_l_gate_interval(),
+    };
+
     for &kmer_size in &kmer_sizes {
         if let Some((seq, status, kmer)) = try_build_seq_graph_kmer(
             reference,
@@ -1061,6 +1066,22 @@ fn assemble_from_ref_and_reads_seq_graph(
                     last_just_ref = Some(just_reference_result(kmer, reference));
                 }
             }
+        }
+        // Peak-RSS: mirror RT-supplement — once we have alt+ref from SeqGraph k-best,
+        // skip remaining configured/expanded kmers (each can thrash ≤8k-node graphs).
+        if allow_seq_early_stop
+            && haplotypes.iter().any(|h| !h.is_reference)
+            && haplotypes.len() > 1
+        {
+            crate::runtime_config::rss_trace_checkpoint(
+                "seq_ingest_early_stop",
+                &format!(
+                    "after_kmer={kmer_size} haps={} variation_kmers={}",
+                    haplotypes.len(),
+                    variation_kmers.len()
+                ),
+            );
+            break;
         }
     }
 
@@ -1091,6 +1112,20 @@ fn assemble_from_ref_and_reads_seq_graph(
                         last_just_ref = Some(just_reference_result(kmer, reference));
                     }
                 }
+            }
+            if allow_seq_early_stop
+                && haplotypes.iter().any(|h| !h.is_reference)
+                && haplotypes.len() > 1
+            {
+                crate::runtime_config::rss_trace_checkpoint(
+                    "seq_ingest_early_stop_expanded",
+                    &format!(
+                        "after_kmer={kmer_size} haps={} variation_kmers={}",
+                        haplotypes.len(),
+                        variation_kmers.len()
+                    ),
+                );
+                break;
             }
             kmer_size += 10;
         }

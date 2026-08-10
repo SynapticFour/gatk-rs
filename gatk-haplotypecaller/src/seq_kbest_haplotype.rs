@@ -103,10 +103,18 @@ pub fn find_best_haplotypes_seq_graph(
     });
 
     let mut vertex_counts = vec![0usize; graph.node_count()];
-    const MAX_KBEST_EXPANSIONS: usize = 50_000;
+    // Same Peak bound as read-threading k-best (50k → 12k for dense GIAB shards).
+    const MAX_KBEST_EXPANSIONS: usize = 12_000;
     let mut expansions = 0usize;
 
     while !heap.is_empty() && result.len() < max_number_of_haplotypes {
+        if crate::runtime_config::hc_rss_abort_triggered() {
+            crate::runtime_config::rss_trace_checkpoint(
+                "seq_kbest_rss_abort",
+                &format!("expansions={expansions} results={}", result.len()),
+            );
+            break;
+        }
         let item = heap.pop().expect("non-empty");
         let path = item.path;
         if sinks.contains(&path.last) {
