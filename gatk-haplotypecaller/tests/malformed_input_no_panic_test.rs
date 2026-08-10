@@ -198,21 +198,49 @@ fn hc_run_missing_alignment_input_returns_err() {
 }
 
 #[test]
-fn hc_run_empty_alignment_file_returns_err() {
+fn hc_run_empty_alignment_file_emits_header_only_vcf() {
     let dir = tempdir().unwrap();
     let fa = dir.path().join("ref.fa");
     fs::write(&fa, b">chr1\nACGTACGTAC\n").unwrap();
-    let bam = dir.path().join("empty_records.sam");
-    // Header-only SAM (no alignments).
-    fs::write(&bam, b"@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:10\n").unwrap();
+    // Header-only indexed BAM (no alignments) — GATK HC accepts this and writes header-only VCF.
+    let bam_path = dir.path().join("empty_records.bam");
+    {
+        let header = {
+            let mut hdr = bam::header::Header::new();
+            hdr.push_record(
+                bam::header::HeaderRecord::new(b"HD")
+                    .push_tag(b"VN", "1.6")
+                    .push_tag(b"SO", "coordinate"),
+            );
+            hdr.push_record(
+                bam::header::HeaderRecord::new(b"SQ")
+                    .push_tag(b"SN", "chr1")
+                    .push_tag(b"LN", "10"),
+            );
+            bam::HeaderView::from_header(&hdr)
+        };
+        let w = bam::Writer::from_path(
+            &bam_path,
+            &bam::Header::from_template(&header),
+            bam::Format::Bam,
+        )
+        .expect("write empty bam");
+        drop(w);
+        bam::index::build(&bam_path, None, bam::index::Type::Bai, 1).expect("index empty bam");
+    }
+    let out = dir.path().join("out.vcf");
     let mut cfg = GatkConfig::new("HaplotypeCaller".to_string());
     cfg.set_reference(fa.display().to_string());
-    cfg.add_input_file(bam.display().to_string());
-    cfg.set_output_vcf(dir.path().join("out.vcf").display().to_string());
-    let err = run_haplotype_caller(&cfg).expect_err("empty alignment");
-    let msg = format!("{err}");
+    cfg.add_input_file(bam_path.display().to_string());
+    cfg.set_output_vcf(out.display().to_string());
+    run_haplotype_caller(&cfg).expect("empty BAM should succeed like GATK");
+    let vcf = fs::read_to_string(&out).expect("vcf written");
     assert!(
-        msg.contains("no records") || msg.contains("Alignment"),
-        "unexpected: {err:?}"
+        vcf.contains("##fileformat=VCFv4") || vcf.starts_with("##"),
+        "expected VCF header, got: {vcf}"
+    );
+    assert!(
+        !vcf.lines().any(|l| !l.starts_with('#') && !l.is_empty()),
+        "expected no variant body lines for empty BAM"
     );
 }
