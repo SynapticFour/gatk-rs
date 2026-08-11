@@ -567,7 +567,12 @@ impl AssemblyGraph {
         dir: TraversalDir,
         blacklist: Option<(usize, usize)>,
     ) -> Vec<usize> {
+        // GATK `getReferencePath` has no explicit cycle guard; on a cyclic allowNonRef
+        // walk it would hang. Break on revisit so Peak cannot climb without bound
+        // (chr20:20301092 k=35: 5 sinks still OOM'd via unbounded ref spines).
         let mut path = vec![start];
+        let mut visited = HashSet::with_capacity(64);
+        visited.insert(start);
         let mut v = start;
         loop {
             let next = match dir {
@@ -577,6 +582,9 @@ impl AssemblyGraph {
             let Some(n) = next else {
                 break;
             };
+            if !visited.insert(n) {
+                break;
+            }
             path.push(n);
             v = n;
         }
@@ -596,18 +604,22 @@ impl AssemblyGraph {
                                          // Java `generateCigarAgainstDownwardsReferencePath` → `findPathUpwardsToLowestCommonAncestor`.
         let give_up = !params.recover_all_dangling_branches;
         let mut alt_path = self.find_path_upwards_to_lca(sink, params.min_prune_factor, give_up);
-        // P12 extensions when Java walk is short (not in GATK; cluster graph only).
-        if alt_path.as_ref().is_none_or(|p| p.len() < min_vertices) && give_up {
-            alt_path = self.find_path_upwards_to_lca(sink, params.min_prune_factor, false);
-        }
-        if alt_path.as_ref().is_none_or(|p| p.len() < min_vertices) {
-            alt_path = self.find_path_upwards_to_lca(sink, 0, false);
-        }
-        if alt_path.as_ref().is_none_or(|p| p.len() < min_vertices) {
-            alt_path = self.longest_heavy_incoming_path_upwards(sink, min_vertices);
-        }
-        if alt_path.as_ref().is_none_or(|p| p.len() < min_vertices) {
-            alt_path = self.walk_heavy_incoming_to_ref_junction(sink, min_vertices);
+        // P12 / ASM-1 extensions when Java walk is short — not in GATK. Skip under
+        // `dangling_java_exact` (production Peak: these walks + SW on long ref spines
+        // dominated RSS at chr20:20301092 k=35).
+        if !params.dangling_java_exact {
+            if alt_path.as_ref().is_none_or(|p| p.len() < min_vertices) && give_up {
+                alt_path = self.find_path_upwards_to_lca(sink, params.min_prune_factor, false);
+            }
+            if alt_path.as_ref().is_none_or(|p| p.len() < min_vertices) {
+                alt_path = self.find_path_upwards_to_lca(sink, 0, false);
+            }
+            if alt_path.as_ref().is_none_or(|p| p.len() < min_vertices) {
+                alt_path = self.longest_heavy_incoming_path_upwards(sink, min_vertices);
+            }
+            if alt_path.as_ref().is_none_or(|p| p.len() < min_vertices) {
+                alt_path = self.walk_heavy_incoming_to_ref_junction(sink, min_vertices);
+            }
         }
         let Some(alt_path) = alt_path else {
             return Err("no_alt_path");
@@ -629,6 +641,16 @@ impl AssemblyGraph {
             None
         };
         let ref_path = self.reference_path_from(lca, TraversalDir::Down, blacklist);
+        if ref_path.len() > 4_096 || alt_path.len() > 4_096 {
+            crate::runtime_config::rss_trace_checkpoint(
+                "rt_dangling_long_paths",
+                &format!(
+                    "sink={sink} alt_len={} ref_len={}",
+                    alt_path.len(),
+                    ref_path.len()
+                ),
+            );
+        }
         let ref_bases = path_bases(self, &ref_path, false);
         let alt_bases = path_bases(self, &alt_path, false);
         let cigar = align_dangling(&ref_bases, &alt_bases, &params.sw);
@@ -845,11 +867,14 @@ impl AssemblyGraph {
         let give_up = !params.recover_all_dangling_branches;
         let mut alt_path =
             self.find_path_downwards_to_ref(source, params.min_prune_factor, give_up);
-        if alt_path.as_ref().is_none_or(|p| p.len() < min_vertices) && give_up {
-            alt_path = self.find_path_downwards_to_ref(source, params.min_prune_factor, false);
-        }
-        if alt_path.as_ref().is_none_or(|p| p.len() < min_vertices) {
-            alt_path = self.find_path_downwards_to_ref(source, 0, false);
+        // Same as tails: non-GATK head walk retries are ASM-1/P12 only.
+        if !params.dangling_java_exact {
+            if alt_path.as_ref().is_none_or(|p| p.len() < min_vertices) && give_up {
+                alt_path = self.find_path_downwards_to_ref(source, params.min_prune_factor, false);
+            }
+            if alt_path.as_ref().is_none_or(|p| p.len() < min_vertices) {
+                alt_path = self.find_path_downwards_to_ref(source, 0, false);
+            }
         }
         let Some(mut alt_path) = alt_path else {
             return Err("no_alt_path");
@@ -1006,14 +1031,29 @@ impl AssemblyGraph {
         let mut heads_recovered = 0u32;
 
         if params.dangling_java_exact {
-            for v in 0..self.node_count() {
-                if self.outgoing_nodes(v).is_empty() && !self.is_ref_sink(v) {
-                    tails_attempted += 1;
-                    if self.recover_dangling_tail(v, params) {
-                        tails_recovered += 1;
-                    }
+            let sinks: Vec<usize> = (0..self.node_count())
+                .filter(|&v| self.outgoing_nodes(v).is_empty() && !self.is_ref_sink(v))
+                .collect();
+            crate::runtime_config::rss_trace_checkpoint(
+                "rt_dangling_tails_begin",
+                &format!("sinks={}", sinks.len()),
+            );
+            for (i, &v) in sinks.iter().enumerate() {
+                tails_attempted += 1;
+                if self.recover_dangling_tail(v, params) {
+                    tails_recovered += 1;
+                }
+                if i == 0 || i + 1 == sinks.len() || (i + 1) % 8 == 0 {
+                    crate::runtime_config::rss_trace_checkpoint(
+                        "rt_dangling_tail",
+                        &format!("i={}/{} v={v}", i + 1, sinks.len()),
+                    );
                 }
             }
+            crate::runtime_config::rss_trace_checkpoint(
+                "rt_dangling_tails_done",
+                &format!("attempted={tails_attempted} recovered={tails_recovered}"),
+            );
             if params.recover_dangling_heads {
                 let sources: Vec<usize> = (0..self.node_count())
                     .filter(|&v| {
@@ -1022,14 +1062,32 @@ impl AssemblyGraph {
                             && !self.is_ref_source_vertex(v)
                     })
                     .collect();
-                for v in sources {
+                crate::runtime_config::rss_trace_checkpoint(
+                    "rt_dangling_heads_begin",
+                    &format!("sources={}", sources.len()),
+                );
+                for (i, &v) in sources.iter().enumerate() {
                     heads_attempted += 1;
                     if self.recover_dangling_head(v, params) {
                         heads_recovered += 1;
                     }
+                    if i == 0 || i + 1 == sources.len() || (i + 1) % 8 == 0 {
+                        crate::runtime_config::rss_trace_checkpoint(
+                            "rt_dangling_head",
+                            &format!("i={}/{} v={v}", i + 1, sources.len()),
+                        );
+                    }
                 }
+                crate::runtime_config::rss_trace_checkpoint(
+                    "rt_dangling_heads_done",
+                    &format!("attempted={heads_attempted} recovered={heads_recovered}"),
+                );
             }
             self.cleanup_isolated_nodes();
+            crate::runtime_config::rss_trace_checkpoint(
+                "rt_dangling_cleanup_done",
+                &format!("nodes={} edges={}", self.node_count(), self.edge_count()),
+            );
             return Ok(DanglingRecoverySummary {
                 edges_before,
                 edges_after: self.edge_count(),
@@ -1223,7 +1281,7 @@ mod tests {
         let alt_sink = graph
             .nodes()
             .iter()
-            .position(|n| n.kmer == b"TCA")
+            .position(|n| n.kmer.as_ref() == b"TCA")
             .expect("TCA sink");
         let path = graph
             .find_path_upwards_to_lca(alt_sink, 2, true)
@@ -1325,5 +1383,25 @@ mod tests {
             summary.tails_recovered, summary.tails_attempted,
             "recoverAll should merge every attempted alt tail"
         );
+    }
+
+    #[test]
+    fn reference_path_from_breaks_on_cycle() {
+        // Synthetic 2-node ref cycle: without the revisit guard this walk is unbounded.
+        let mut g = AssemblyGraph::new(3).expect("k=3 graph");
+        let a = g.ensure_node(b"AAA");
+        let b = g.ensure_node(b"AAB");
+        g.add_edge_support(a, b, 1);
+        g.add_edge_support(b, a, 1);
+        g.ref_edges.insert((a, b));
+        g.ref_edges.insert((b, a));
+        g.ref_nodes.extend([a, b]);
+        let path = g.reference_path_from(a, TraversalDir::Down, None);
+        assert!(
+            path.len() <= 3,
+            "cycle must not grow ref path unboundedly: got {}",
+            path.len()
+        );
+        assert_eq!(path[0], a);
     }
 }

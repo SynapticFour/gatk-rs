@@ -145,12 +145,42 @@ use std::sync::{Mutex, Once, OnceLock};
 /// this below hosted-runner RAM so dense shards soft-land.
 pub fn hc_rss_abort_mib() -> Option<f64> {
     static CACHED: OnceLock<Option<f64>> = OnceLock::new();
-    *CACHED.get_or_init(|| {
-        std::env::var("GATK_RS_HC_RSS_ABORT_MIB")
+    let parsed = *CACHED.get_or_init(|| {
+        let parsed = std::env::var("GATK_RS_HC_RSS_ABORT_MIB")
             .ok()
             .and_then(|s| s.parse::<f64>().ok())
-            .filter(|&v| v.is_finite() && v > 0.0)
-    })
+            .filter(|&v| v.is_finite() && v > 0.0);
+        // Always announce once so CI logs prove the in-process limit (vs env-only in the job).
+        // Do not start the sampler here — that would deadlock if the thread re-entered
+        // this OnceLock while init is still running.
+        match parsed {
+            Some(limit) => {
+                let rss = current_rss_mib()
+                    .map(|v| format!("{v:.1}"))
+                    .unwrap_or_else(|| "?".into());
+                eprintln!("HC_RSS_ABORT_CONFIG limit_MiB={limit:.0} rss_MiB={rss}");
+                let _ = std::io::Write::flush(&mut std::io::stderr());
+            }
+            None => {
+                if std::env::var_os("GATK_RS_HC_RSS_ABORT_MIB").is_some() {
+                    eprintln!("HC_RSS_ABORT_CONFIG ignored (unparseable or non-positive)");
+                    let _ = std::io::Write::flush(&mut std::io::stderr());
+                }
+            }
+        }
+        parsed
+    });
+    if parsed.is_some() {
+        // Watchdog samples even when TRACE is off — proves locus/phase if k-best
+        // abort checks are not on the allocating path.
+        ensure_rss_sampler();
+    }
+    parsed
+}
+
+/// Peak diagnostics active when TRACE is on **or** an RSS abort limit is configured.
+fn hc_rss_diagnostics_enabled() -> bool {
+    hc_rss_trace_enabled() || hc_rss_abort_mib().is_some()
 }
 
 /// True when RSS abort is configured and current RSS is at/above the threshold.
@@ -164,8 +194,13 @@ pub fn hc_rss_abort_triggered() -> bool {
     if rss >= limit {
         static LOGGED: AtomicBool = AtomicBool::new(false);
         if !LOGGED.swap(true, Ordering::Relaxed) {
+            let locus = rss_trace_locus_lock()
+                .lock()
+                .map(|s| s.clone())
+                .unwrap_or_default();
             // Always log once (not TRACE-only) so GIAB CI shows why a shard soft-landed.
-            eprintln!("HC_RSS_ABORT rss_MiB={rss:.1} limit_MiB={limit:.0}");
+            eprintln!("HC_RSS_ABORT rss_MiB={rss:.1} limit_MiB={limit:.0} locus={locus}");
+            let _ = std::io::Write::flush(&mut std::io::stderr());
         }
         true
     } else {
@@ -185,7 +220,7 @@ fn rss_trace_locus_lock() -> &'static Mutex<String> {
 
 /// Set the in-flight locus label for mid-phase RSS samples (observe-only).
 pub fn rss_trace_set_locus(contig: &str, start: u64, end: u64, detail: &str) {
-    if !hc_rss_trace_enabled() {
+    if !hc_rss_diagnostics_enabled() {
         return;
     }
     if let Ok(mut s) = rss_trace_locus_lock().lock() {
@@ -201,7 +236,7 @@ pub fn rss_trace_set_locus(contig: &str, start: u64, end: u64, detail: &str) {
 
 /// Clear the in-flight locus label after a region finishes.
 pub fn rss_trace_clear_locus() {
-    if !hc_rss_trace_enabled() {
+    if !hc_rss_diagnostics_enabled() {
         return;
     }
     if let Ok(mut s) = rss_trace_locus_lock().lock() {
@@ -209,9 +244,9 @@ pub fn rss_trace_clear_locus() {
     }
 }
 
-/// Log a named phase RSS sample when `GATK_RS_HC_RSS_TRACE=1`.
+/// Log a named phase RSS sample when TRACE is on or an RSS abort limit is set.
 pub fn rss_trace_checkpoint(phase: &str, detail: &str) {
-    if !hc_rss_trace_enabled() {
+    if !hc_rss_diagnostics_enabled() {
         return;
     }
     ensure_rss_sampler();
@@ -227,6 +262,7 @@ pub fn rss_trace_checkpoint(phase: &str, detail: &str) {
     } else {
         eprintln!("HC_RSS_TRACE phase={phase} locus={locus} {detail} rss_MiB={rss}");
     }
+    let _ = std::io::Write::flush(&mut std::io::stderr());
 }
 
 fn ensure_rss_sampler() {
@@ -236,6 +272,7 @@ fn ensure_rss_sampler() {
             .name("hc-rss-trace".into())
             .spawn(|| {
                 let mut last_logged_mib = 0.0f64;
+                let mut abort_watchdog_logged = false;
                 while !RSS_SAMPLER_STOP.load(Ordering::Relaxed) {
                     std::thread::sleep(std::time::Duration::from_millis(100));
                     let Some(rss) = current_rss_mib() else {
@@ -243,16 +280,27 @@ fn ensure_rss_sampler() {
                     };
                     let x10 = (rss * 10.0) as u64;
                     RSS_TRACE_PEAK_X10.fetch_max(x10, Ordering::Relaxed);
+                    let locus = rss_trace_locus_lock()
+                        .lock()
+                        .map(|s| s.clone())
+                        .unwrap_or_default();
+                    // Watchdog: prove over-limit even if no abort check is on the hot path.
+                    if let Some(limit) = hc_rss_abort_mib() {
+                        if rss >= limit && !abort_watchdog_logged {
+                            abort_watchdog_logged = true;
+                            eprintln!(
+                                "HC_RSS_ABORT_WATCHDOG rss_MiB={rss:.1} limit_MiB={limit:.0} locus={locus}"
+                            );
+                            let _ = std::io::Write::flush(&mut std::io::stderr());
+                        }
+                    }
                     // Log when crossing ~800 MiB or every ~200 MiB thereafter.
                     if rss >= 800.0 && (last_logged_mib < 800.0 || rss >= last_logged_mib + 200.0) {
-                        let locus = rss_trace_locus_lock()
-                            .lock()
-                            .map(|s| s.clone())
-                            .unwrap_or_default();
                         eprintln!(
                             "HC_RSS_TRACE sample locus={locus} rss_MiB={rss:.1} peak_MiB={:.1}",
                             x10 as f64 / 10.0
                         );
+                        let _ = std::io::Write::flush(&mut std::io::stderr());
                         last_logged_mib = rss;
                     }
                 }

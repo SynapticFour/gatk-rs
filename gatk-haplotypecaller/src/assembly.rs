@@ -89,7 +89,8 @@ pub struct AssemblyGraphSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KmerNode {
     pub id: usize,
-    pub kmer: Vec<u8>,
+    /// Shared kmer bytes — one allocation; maps hold `Arc` clones (Java-style reference sharing).
+    pub kmer: std::sync::Arc<[u8]>,
     pub support: u32,
 }
 
@@ -120,7 +121,7 @@ pub struct AssemblyGraph {
     /// Successful dangling merges that carry variation off the ref-spine (ASM-1 → ASM-8).
     pub(crate) dangling_merge_haps: Vec<DanglingMergeHaplotype>,
     nodes: Vec<KmerNode>,
-    kmer_to_id: BTreeMap<Vec<u8>, usize>,
+    kmer_to_id: BTreeMap<std::sync::Arc<[u8]>, usize>,
     edges: HashMap<(usize, usize), u32>,
     outgoing: HashMap<usize, BTreeSet<usize>>,
     incoming: HashMap<usize, BTreeSet<usize>>,
@@ -130,7 +131,7 @@ pub struct AssemblyGraph {
     pub(crate) ref_nodes: HashSet<usize>,
     /// First reference kmer (`AbstractReadThreadingGraph.refSource`).
     #[allow(dead_code)] // carried from threading graph for future parity dumps
-    pub(crate) ref_source_kmer: Option<Vec<u8>>,
+    pub(crate) ref_source_kmer: Option<std::sync::Arc<[u8]>>,
 }
 
 impl AssemblyGraph {
@@ -146,13 +147,13 @@ impl AssemblyGraph {
     pub(crate) fn from_threading_build(
         kmer_size: usize,
         nodes: Vec<KmerNode>,
-        kmer_to_id: BTreeMap<Vec<u8>, usize>,
+        kmer_to_id: BTreeMap<std::sync::Arc<[u8]>, usize>,
         edges: HashMap<(usize, usize), u32>,
         outgoing: HashMap<usize, BTreeSet<usize>>,
         incoming: HashMap<usize, BTreeSet<usize>>,
         ref_edges: HashSet<(usize, usize)>,
         ref_nodes: HashSet<usize>,
-        ref_source_kmer: Option<Vec<u8>>,
+        ref_source_kmer: Option<std::sync::Arc<[u8]>>,
     ) -> Self {
         Self {
             kmer_size,
@@ -175,12 +176,13 @@ impl AssemblyGraph {
             return idx;
         }
         let id = self.nodes.len();
+        let owned: std::sync::Arc<[u8]> = std::sync::Arc::from(kmer);
         self.nodes.push(KmerNode {
             id,
-            kmer: kmer.to_vec(),
+            kmer: std::sync::Arc::clone(&owned),
             support: 1,
         });
-        self.kmer_to_id.insert(kmer.to_vec(), id);
+        self.kmer_to_id.insert(owned, id);
         id
     }
 
@@ -314,10 +316,10 @@ impl AssemblyGraph {
     /// GATK `Path.getBases` on a k-mer graph path.
     pub fn path_bases(&self, start: usize, edges: &[(usize, usize)]) -> Vec<u8> {
         if edges.is_empty() {
-            return self.nodes[start].kmer.clone();
+            return self.nodes[start].kmer.to_vec();
         }
         let first_from = edges[0].0;
-        let mut s = self.nodes[first_from].kmer.clone();
+        let mut s = self.nodes[first_from].kmer.to_vec();
         for &(_, to) in edges {
             if let Some(&b) = self.nodes[to].kmer.last() {
                 s.push(b);
@@ -574,8 +576,8 @@ impl AssemblyGraph {
         self.outgoing.clear();
         self.incoming.clear();
         for n in &self.nodes {
-            // CLONE: needed — `kmer_to_id` HashMap owns keys independently of `nodes`.
-            self.kmer_to_id.insert(n.kmer.clone(), n.id);
+            // Arc clone — shared bytes with `nodes` (no second kmer allocation).
+            self.kmer_to_id.insert(std::sync::Arc::clone(&n.kmer), n.id);
         }
         for (from, to) in self.edges.keys() {
             self.outgoing.entry(*from).or_default().insert(*to);
@@ -602,7 +604,7 @@ impl AssemblyGraph {
         let mut heap: BinaryHeap<(u32, Reverse<Vec<u8>>)> = BinaryHeap::new();
         for s in starts {
             let mut visited = HashSet::new();
-            let mut current = self.nodes[s].kmer.clone(); // CLONE: needed — DFS scratch starts as source kmer
+            let mut current = self.nodes[s].kmer.to_vec(); // owned scratch for DFS path growth
             self.dfs_haplotypes(s, &mut current, 0, max_bases, &mut visited, &mut heap);
         }
         let mut out = heap
