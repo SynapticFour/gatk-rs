@@ -40,6 +40,17 @@ pub const MIN_HAPLOTYPE_REFERENCE_LENGTH: usize = 30;
 /// k-best expansion. Applied on primary SeqGraph + RT assemble paths as well as
 /// RT-supplement extract (same threshold).
 pub const MAX_ASSEMBLY_GRAPH_NODES: usize = 8_000;
+/// Edge-count bushiness gate (≤8k-node DAGs can still be edge-dense).
+pub const MAX_ASSEMBLY_GRAPH_EDGES: usize = 16_000;
+/// Max single-vertex out-degree before skipping k-best.
+pub const MAX_ASSEMBLY_OUT_DEGREE: usize = 32;
+
+#[inline]
+fn assembly_graph_too_bushy(nodes: usize, edges: usize, max_out: usize) -> bool {
+    nodes > MAX_ASSEMBLY_GRAPH_NODES
+        || edges > MAX_ASSEMBLY_GRAPH_EDGES
+        || max_out > MAX_ASSEMBLY_OUT_DEGREE
+}
 
 /// Optional active-region coordinates for choosing among k-mer assembly attempts (P12 cluster).
 /// # Invariants
@@ -1043,6 +1054,13 @@ fn assemble_from_ref_and_reads_seq_graph(
     };
 
     for &kmer_size in &kmer_sizes {
+        if crate::runtime_config::hc_rss_abort_triggered() {
+            crate::runtime_config::rss_trace_checkpoint(
+                "seq_ingest_rss_abort",
+                &format!("before_kmer={kmer_size} haps={}", haplotypes.len()),
+            );
+            break;
+        }
         if let Some((seq, status, kmer)) = try_build_seq_graph_kmer(
             reference,
             reads,
@@ -1088,6 +1106,13 @@ fn assemble_from_ref_and_reads_seq_graph(
     if variation_kmers.is_empty() && !args.dont_increase_kmer_sizes_for_cycles {
         let mut kmer_size = *kmer_sizes.last().unwrap_or(&25) + 10;
         for iter in 1..=6 {
+            if crate::runtime_config::hc_rss_abort_triggered() {
+                crate::runtime_config::rss_trace_checkpoint(
+                    "seq_ingest_rss_abort_expanded",
+                    &format!("before_kmer={kmer_size} haps={}", haplotypes.len()),
+                );
+                break;
+            }
             let last = iter == 6;
             if let Some((seq, status, kmer)) = try_build_seq_graph_kmer(
                 reference,
@@ -1247,12 +1272,18 @@ fn try_build_seq_graph_kmer(
         ),
     );
     // Peak-RSS: skip bushy RT graphs before SeqGraph cleanup / k-best (primary path).
-    if graph.node_count() > MAX_ASSEMBLY_GRAPH_NODES {
+    if assembly_graph_too_bushy(
+        graph.node_count(),
+        graph.edge_count(),
+        graph.max_out_degree(),
+    ) {
         crate::runtime_config::rss_trace_checkpoint(
             "seq_rt_skip_huge",
             &format!(
-                "kmer={kmer_size} nodes={} cap={MAX_ASSEMBLY_GRAPH_NODES}",
-                graph.node_count()
+                "kmer={kmer_size} nodes={} edges={} max_out={} caps={MAX_ASSEMBLY_GRAPH_NODES}/{MAX_ASSEMBLY_GRAPH_EDGES}/{MAX_ASSEMBLY_OUT_DEGREE}",
+                graph.node_count(),
+                graph.edge_count(),
+                graph.max_out_degree()
             ),
         );
         drop(graph);
@@ -1272,12 +1303,14 @@ fn try_build_seq_graph_kmer(
     if seq.reference_source_vertex().is_none() || seq.reference_sink_vertex().is_none() {
         return Ok(None);
     }
-    if seq.node_count() > MAX_ASSEMBLY_GRAPH_NODES {
+    if assembly_graph_too_bushy(seq.node_count(), seq.edge_count(), seq.max_out_degree()) {
         crate::runtime_config::rss_trace_checkpoint(
             "seq_skip_huge",
             &format!(
-                "kmer={kmer_size} seq_nodes={} cap={MAX_ASSEMBLY_GRAPH_NODES}",
-                seq.node_count()
+                "kmer={kmer_size} seq_nodes={} seq_edges={} max_out={} caps={MAX_ASSEMBLY_GRAPH_NODES}/{MAX_ASSEMBLY_GRAPH_EDGES}/{MAX_ASSEMBLY_OUT_DEGREE}",
+                seq.node_count(),
+                seq.edge_count(),
+                seq.max_out_degree()
             ),
         );
         return Ok(None);
@@ -1566,12 +1599,18 @@ fn extract_rt_haplotypes_from_built_graph(
     );
     // Peak-RSS: bushy RT graphs (seen climbing past ~800 MiB on NA12878 20:10098169) —
     // skip k-best rather than expand a multi-GiB frontier. Normal HC regions here are ~1–2 k nodes.
-    if graph.node_count() > MAX_ASSEMBLY_GRAPH_NODES {
+    if assembly_graph_too_bushy(
+        graph.node_count(),
+        graph.edge_count(),
+        graph.max_out_degree(),
+    ) {
         crate::runtime_config::rss_trace_checkpoint(
             "rt_graph_skip_huge",
             &format!(
-                "kmer={kmer_size} nodes={} cap={MAX_ASSEMBLY_GRAPH_NODES}",
-                graph.node_count()
+                "kmer={kmer_size} nodes={} edges={} max_out={} caps={MAX_ASSEMBLY_GRAPH_NODES}/{MAX_ASSEMBLY_GRAPH_EDGES}/{MAX_ASSEMBLY_OUT_DEGREE}",
+                graph.node_count(),
+                graph.edge_count(),
+                graph.max_out_degree()
             ),
         );
         drop(graph);
@@ -1657,6 +1696,10 @@ pub fn merge_rt_kbest_pre_remove_paths_at_kmer(
     for kmer_size in kmer_sizes_for_rt_merge(args, variation_kmers) {
         if only_kmer.is_some_and(|k| kmer_size != k) {
             continue;
+        }
+        // Soft-land before another RT assemble+k-best when Peak already blew the budget.
+        if crate::runtime_config::hc_rss_abort_triggered() {
+            break;
         }
         let is_expanded = !configured.contains(&kmer_size);
         let allow_lc = if is_expanded {
@@ -1774,6 +1817,9 @@ fn try_assemble_kmer(
     allow_low_complexity: bool,
     allow_non_unique_ref: bool,
 ) -> GatkResult<Option<AssemblyResult>> {
+    if crate::runtime_config::hc_rss_abort_triggered() {
+        return Ok(None);
+    }
     if reference.bases.len() < kmer_size {
         return Ok(Some(AssemblyResult {
             status: AssemblyStatus::Failed,
@@ -1810,13 +1856,19 @@ fn try_assemble_kmer(
             graph.edge_count()
         ),
     );
-    // Peak-RSS: same fail-closed node cap as SeqGraph primary + RT-supplement.
-    if graph.node_count() > MAX_ASSEMBLY_GRAPH_NODES {
+    // Peak-RSS: same fail-closed bushiness caps as SeqGraph primary + RT-supplement.
+    if assembly_graph_too_bushy(
+        graph.node_count(),
+        graph.edge_count(),
+        graph.max_out_degree(),
+    ) {
         crate::runtime_config::rss_trace_checkpoint(
             "rt_primary_skip_huge",
             &format!(
-                "kmer={kmer_size} nodes={} cap={MAX_ASSEMBLY_GRAPH_NODES}",
-                graph.node_count()
+                "kmer={kmer_size} nodes={} edges={} max_out={} caps={MAX_ASSEMBLY_GRAPH_NODES}/{MAX_ASSEMBLY_GRAPH_EDGES}/{MAX_ASSEMBLY_OUT_DEGREE}",
+                graph.node_count(),
+                graph.edge_count(),
+                graph.max_out_degree()
             ),
         );
         drop(graph);

@@ -204,6 +204,11 @@ impl AssemblyGraph {
         self.edges.len()
     }
 
+    /// Max out-degree over vertices (Peak bushiness gate).
+    pub(crate) fn max_out_degree(&self) -> usize {
+        self.outgoing.values().map(|s| s.len()).max().unwrap_or(0)
+    }
+
     pub fn nodes(&self) -> &[KmerNode] {
         &self.nodes
     }
