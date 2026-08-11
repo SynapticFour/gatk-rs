@@ -22,8 +22,7 @@ use crate::read_event_discovery::{
     P12_CLUSTER_TTC_START,
 };
 use crate::read_threading_graph::{
-    assembly_graph_from_ref_and_reads_threading, reference_has_non_unique_kmers,
-    threading_non_unique_summary,
+    assembly_graph_from_ref_and_reads_threading_with_summary, reference_has_non_unique_kmers,
 };
 use crate::seq_graph::{SeqGraph, SeqGraphCleanupStatus};
 use crate::seq_kbest_haplotype::find_best_haplotypes_seq_graph;
@@ -2000,12 +1999,28 @@ fn build_threading_graph_core(
         return Ok(None);
     }
 
-    let mut graph = assembly_graph_from_ref_and_reads_threading(reference, reads, &params)?;
-
-    let summary = threading_non_unique_summary(Some(reference), reads, &params)?;
+    crate::runtime_config::rss_trace_checkpoint(
+        "rt_build_threading_begin",
+        &format!("kmer={kmer_size}"),
+    );
+    let (mut graph, summary) =
+        assembly_graph_from_ref_and_reads_threading_with_summary(reference, reads, &params)?;
+    crate::runtime_config::rss_trace_checkpoint(
+        "rt_build_threading_done",
+        &format!(
+            "kmer={kmer_size} nodes={} edges={} low_complexity={}",
+            graph.node_count(),
+            graph.edge_count(),
+            summary.is_low_complexity
+        ),
+    );
     if !allow_low_complexity && !args.allow_low_complexity_graphs && summary.is_low_complexity {
         return Ok(None);
     }
+    crate::runtime_config::rss_trace_checkpoint(
+        "rt_build_after_complexity_gate",
+        &format!("kmer={kmer_size}"),
+    );
 
     let mut pruning = AssemblyGraphPruningParams::gatk_haplotype_caller_defaults();
     pruning.min_prune_factor = args.min_prune_factor;
@@ -2013,6 +2028,14 @@ fn build_threading_graph_core(
 
     if args.prune_before_cycle_counting {
         graph.apply_pruning(&pruning);
+        crate::runtime_config::rss_trace_checkpoint(
+            "rt_build_after_prune",
+            &format!(
+                "kmer={kmer_size} nodes={} edges={}",
+                graph.node_count(),
+                graph.edge_count()
+            ),
+        );
     }
 
     if abort_cyclic_before_dangling
@@ -2025,7 +2048,27 @@ fn build_threading_graph_core(
 
     if args.recover_dangling_branches && !graph.ref_nodes.is_empty() {
         let dangling = DanglingRecoveryParams::from_assembler_args(args);
+        let sinks = (0..graph.node_count())
+            .filter(|&v| graph.outgoing_nodes(v).is_empty() && !graph.is_ref_sink_vertex(v))
+            .count();
+        crate::runtime_config::rss_trace_checkpoint(
+            "rt_build_dangling_begin",
+            &format!(
+                "kmer={kmer_size} nodes={} sinks={} java_exact={}",
+                graph.node_count(),
+                sinks,
+                dangling.dangling_java_exact
+            ),
+        );
         let _ = graph.recover_dangling_branches(&dangling)?;
+        crate::runtime_config::rss_trace_checkpoint(
+            "rt_build_after_dangling",
+            &format!(
+                "kmer={kmer_size} nodes={} edges={}",
+                graph.node_count(),
+                graph.edge_count()
+            ),
+        );
     }
 
     if args.recover_all_dangling_branches && graph.has_cycle() {

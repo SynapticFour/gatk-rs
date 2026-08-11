@@ -440,7 +440,8 @@ pub use read_threading_assembler::{
 };
 pub use read_threading_assembler::{probe_seq_graph_kmer_attempts, SeqGraphKmerProbeRow};
 pub use read_threading_graph::{
-    reference_has_non_unique_kmers, threading_non_unique_summary, ThreadingNonUniqueSummary,
+    assembly_graph_from_ref_and_reads_threading_with_summary, reference_has_non_unique_kmers,
+    threading_non_unique_summary, ThreadingNonUniqueSummary,
 };
 pub use read_transformer::{
     apply_iupac_strict_transform, apply_shard_read_pipeline, load_contig_records_hc_production,

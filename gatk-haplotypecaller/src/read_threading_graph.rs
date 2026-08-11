@@ -7,6 +7,7 @@ use crate::assembly::{AssemblyGraph, AssemblyGraphParams, AssemblyRead};
 use gatk_common::{GatkError, GatkResult};
 use indexmap::IndexMap;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet};
+use std::sync::Arc;
 
 /// GATK `AbstractReadThreadingGraph.ANONYMOUS_SAMPLE` (reference sequences).
 const ANONYMOUS_SAMPLE: &str = "XXX_UNNAMED_XXX";
@@ -17,7 +18,8 @@ const INCREASE_COUNTS_BACKWARDS: bool = true;
 struct SequenceForKmers {
     #[allow(dead_code)]
     name: String,
-    bases: Vec<u8>,
+    /// One shared allocation for the usable segment (no pending double-copy).
+    bases: Arc<[u8]>,
     start: usize,
     stop: usize,
     count: u32,
@@ -88,14 +90,14 @@ pub struct ReadThreadingGraphBuilder {
     num_pruning_samples: usize,
     /// GATK `pending`: sequences grouped by sample; flush edge multiplicities after each sample.
     pending: IndexMap<String, Vec<SequenceForKmers>>,
-    non_unique_kmers: HashSet<Vec<u8>>,
+    non_unique_kmers: HashSet<Arc<[u8]>>,
     /// GATK `uniqueKmers`: one vertex per unique kmer only.
-    unique_kmers: BTreeMap<Vec<u8>, usize>,
-    nodes: Vec<Vec<u8>>,
+    unique_kmers: BTreeMap<Arc<[u8]>, usize>,
+    nodes: Vec<Arc<[u8]>>,
     edges: HashMap<(usize, usize), ThreadingEdge>,
     edge_is_ref: HashSet<(usize, usize)>,
     ref_nodes: HashSet<usize>,
-    ref_source_kmer: Option<Vec<u8>>,
+    ref_source_kmer: Option<Arc<[u8]>>,
     /// Neighbor sets are ordered so `extend_chain_by_one` first-match is deterministic.
     outgoing: HashMap<usize, BTreeSet<usize>>,
     incoming: HashMap<usize, BTreeSet<usize>>,
@@ -128,8 +130,8 @@ impl ReadThreadingGraphBuilder {
         }
     }
 
-    fn kmer_at(bases: &[u8], start: usize, k: usize) -> Vec<u8> {
-        bases[start..start + k].to_vec()
+    fn kmer_at(bases: &[u8], start: usize, k: usize) -> Arc<[u8]> {
+        Arc::from(&bases[start..start + k])
     }
 
     fn suffix_of_kmer(kmer: &[u8]) -> u8 {
@@ -152,10 +154,11 @@ impl ReadThreadingGraphBuilder {
                 if let Some(start) = last_good {
                     let len = end - start;
                     if len >= kmer_size {
-                        // Store only the usable segment (callers treat start/stop as offsets into `bases`).
+                        // Store only the usable segment once (`Arc`) — callers push this
+                        // into pending without a second copy.
                         out.push(SequenceForKmers {
                             name: format!("{start}_{end}"),
-                            bases: bytes[start..end].to_vec(),
+                            bases: Arc::from(&bytes[start..end]),
                             start: 0,
                             stop: len,
                             count: 1,
@@ -179,43 +182,17 @@ impl ReadThreadingGraphBuilder {
             .push(seq);
     }
 
-    /// GATK `addSequence` stores a subread-only byte array (see `addRead` / parity `addReadThreadingSequence`).
-    fn add_pending_subread(
-        &mut self,
-        sample: &str,
-        name: String,
-        bases: Vec<u8>,
-        count: u32,
-        is_ref: bool,
-    ) {
-        let len = bases.len();
-        if len < self.kmer_size {
-            return;
-        }
-        self.add_pending_sequence(
-            sample,
-            SequenceForKmers {
-                name,
-                bases,
-                start: 0,
-                stop: len,
-                count,
-                is_ref,
-            },
-        );
-    }
-
     fn preprocess_reads(&mut self) {
         self.non_unique_kmers.clear();
         let k = self.kmer_size;
         for seq in self.pending.values().flatten() {
-            let mut seen = HashSet::new();
+            let mut seen: HashSet<Arc<[u8]>> = HashSet::new();
             // GATK scans 0..stop-k on the subread byte array; we keep [start, stop) in full read coordinates.
             let stop = seq.stop.saturating_sub(k);
             for i in seq.start..=stop {
                 let key = Self::kmer_at(&seq.bases, i, k);
                 // Lifetime: first sighting moves into `seen`; a later duplicate moves into
-                // `non_unique_kmers`. No clone — both sets only need owned keys they retain.
+                // `non_unique_kmers`. Arc share — no second byte allocation.
                 if seen.contains(&key) {
                     self.non_unique_kmers.insert(key);
                 } else {
@@ -257,13 +234,14 @@ impl ReadThreadingGraphBuilder {
         self.unique_kmers.get(kmer).copied()
     }
 
-    fn create_vertex(&mut self, kmer: Vec<u8>) -> usize {
+    fn create_vertex(&mut self, kmer: Arc<[u8]>) -> usize {
         let id = self.nodes.len();
-        // Unique kmers need the bytes in both `nodes` and `unique_kmers` (map key).
-        // Non-unique: move into `nodes` only — avoid the prior always-clone-on-push.
-        if !self.non_unique_kmers.contains(&kmer) && !self.unique_kmers.contains_key(&kmer) {
-            // CLONE: needed because map key and node storage both own the kmer bytes.
-            self.unique_kmers.insert(kmer.clone(), id);
+        // Unique kmers: share one Arc between `nodes` and `unique_kmers` (Java-style).
+        // Non-unique: move into `nodes` only.
+        if !self.non_unique_kmers.contains(kmer.as_ref())
+            && !self.unique_kmers.contains_key(kmer.as_ref())
+        {
+            self.unique_kmers.insert(Arc::clone(&kmer), id);
         }
         self.nodes.push(kmer);
         id
@@ -290,7 +268,7 @@ impl ReadThreadingGraphBuilder {
     fn max_kmer_multiplicity(&self) -> usize {
         let mut mult: HashMap<&[u8], usize> = HashMap::new();
         for kmer in &self.nodes {
-            *mult.entry(kmer.as_slice()).or_default() += 1;
+            *mult.entry(kmer.as_ref()).or_default() += 1;
         }
         mult.values().copied().max().unwrap_or(0)
     }
@@ -441,6 +419,12 @@ impl ReadThreadingGraphBuilder {
 
     pub fn into_assembly_graph(mut self) -> AssemblyGraph {
         self.build();
+        self.finish_into_assembly_graph()
+    }
+
+    /// Consume a built builder into an [`AssemblyGraph`] (no second threading pass).
+    fn finish_into_assembly_graph(self) -> AssemblyGraph {
+        debug_assert!(self.built, "finish_into_assembly_graph requires build()");
         let nodes: Vec<_> = self
             .nodes
             .into_iter()
@@ -451,10 +435,11 @@ impl ReadThreadingGraphBuilder {
                 support: 1,
             })
             .collect();
+        // Drain edges — avoid dual residency of ThreadingEdge map + multiplicity map.
         let edges: HashMap<_, _> = self
             .edges
-            .iter()
-            .map(|(&(from, to), e)| ((from, to), e.pruning_multiplicity()))
+            .into_iter()
+            .map(|((from, to), e)| ((from, to), e.pruning_multiplicity()))
             .collect();
         // GATK `buildGraphIfNecessary` keeps all vertices in `vertexSet` (no orphan cleanup here).
         AssemblyGraph::from_threading_build(
@@ -468,6 +453,15 @@ impl ReadThreadingGraphBuilder {
             self.ref_nodes,
             self.ref_source_kmer,
         )
+    }
+
+    /// Build once and return graph + low-complexity summary (no dual-graph Peak).
+    pub fn into_assembly_graph_with_summary(
+        mut self,
+    ) -> (AssemblyGraph, ThreadingNonUniqueSummary) {
+        self.build();
+        let summary = self.non_unique_summary();
+        (self.finish_into_assembly_graph(), summary)
     }
 }
 
@@ -486,6 +480,19 @@ pub fn assembly_graph_from_ref_and_reads_threading(
     Ok(builder.into_assembly_graph())
 }
 
+/// Single threading build returning graph + non-unique / low-complexity summary.
+///
+/// Prefer this over calling [`assembly_graph_from_ref_and_reads_threading`] then
+/// [`threading_non_unique_summary`] (which would rebuild the graph and double Peak-RSS).
+pub fn assembly_graph_from_ref_and_reads_threading_with_summary(
+    reference: &AssemblyRead,
+    reads: &[AssemblyRead],
+    params: &AssemblyGraphParams,
+) -> GatkResult<(AssemblyGraph, ThreadingNonUniqueSummary)> {
+    let builder = build_threading_builder(Some(reference), reads, params)?;
+    Ok(builder.into_assembly_graph_with_summary())
+}
+
 fn build_threading_builder(
     reference: Option<&AssemblyRead>,
     reads: &[AssemblyRead],
@@ -499,18 +506,13 @@ fn build_threading_builder(
         params.start_threading_only_at_existing_vertex,
     );
     if let Some(reference) = reference {
-        for seq in ReadThreadingGraphBuilder::sequences_from_read(
+        for mut seq in ReadThreadingGraphBuilder::sequences_from_read(
             reference,
             kmer_size,
             params.min_base_quality,
         ) {
-            builder.add_pending_subread(
-                ANONYMOUS_SAMPLE,
-                seq.name,
-                seq.bases[seq.start..seq.stop].to_vec(),
-                seq.count,
-                true,
-            );
+            seq.is_ref = true;
+            builder.add_pending_sequence(ANONYMOUS_SAMPLE, seq);
         }
     }
     const READ_SAMPLE: &str = "SAMPLE";
@@ -523,13 +525,7 @@ fn build_threading_builder(
         for seq in
             ReadThreadingGraphBuilder::sequences_from_read(read, kmer_size, params.min_base_quality)
         {
-            builder.add_pending_subread(
-                READ_SAMPLE,
-                seq.name,
-                seq.bases[seq.start..seq.stop].to_vec(),
-                seq.count,
-                false,
-            );
+            builder.add_pending_sequence(READ_SAMPLE, seq);
         }
     }
     Ok(builder)
@@ -614,8 +610,8 @@ mod tests {
         let g = assembly_graph_from_reads_threading(&reads, &params).unwrap();
         let mut by_pair: HashMap<(Vec<u8>, Vec<u8>), u32> = HashMap::new();
         for e in g.edges_sorted() {
-            let from = g.nodes()[e.from].kmer.clone();
-            let to = g.nodes()[e.to].kmer.clone();
+            let from = g.nodes()[e.from].kmer.to_vec();
+            let to = g.nodes()[e.to].kmer.to_vec();
             by_pair.insert((from, to), e.support);
         }
         assert_eq!(by_pair.get(&(b"ACG".to_vec(), b"CGT".to_vec())), Some(&5));

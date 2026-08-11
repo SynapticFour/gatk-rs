@@ -25,8 +25,7 @@ use crate::read_threading_assembler::{
     allow_low_complexity_expanded_kmer, allow_non_unique_expanded_kmer, ReadThreadingAssemblerArgs,
 };
 use crate::read_threading_graph::{
-    assembly_graph_from_ref_and_reads_threading, reference_has_non_unique_kmers,
-    threading_non_unique_summary,
+    assembly_graph_from_ref_and_reads_threading_with_summary, reference_has_non_unique_kmers,
 };
 use crate::seq_graph::SeqGraph;
 use crate::seq_kbest_haplotype::find_best_haplotypes_seq_graph;
@@ -477,9 +476,9 @@ fn probe_k85_stages(
         max_haplotype_bases: 4096,
         start_threading_only_at_existing_vertex: !args.recover_dangling_branches,
     };
-    let mut graph = assembly_graph_from_ref_and_reads_threading(reference, reads, &params)?;
+    let (mut graph, summary) =
+        assembly_graph_from_ref_and_reads_threading_with_summary(reference, reads, &params)?;
     let graph_has_cycles = graph.has_cycle();
-    let summary = threading_non_unique_summary(Some(reference), reads, &params)?;
     if !allow_lc && !args.allow_low_complexity_graphs && summary.is_low_complexity {
         return Ok((
             rows,

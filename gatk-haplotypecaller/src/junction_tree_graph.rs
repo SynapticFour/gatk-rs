@@ -625,10 +625,19 @@ impl JunctionTreeGraphBuilder {
             .enumerate()
             .map(|(id, kmer)| KmerNode {
                 id,
-                kmer: kmer.clone(),
+                kmer: std::sync::Arc::from(kmer.as_slice()),
                 support: 1,
             })
             .collect();
+        let kmer_to_id: std::collections::BTreeMap<_, _> = self
+            .kmer_to_vertex
+            .iter()
+            .map(|(k, &id)| (std::sync::Arc::from(k.as_slice()), id))
+            .collect();
+        let ref_source_kmer = self
+            .ref_source_kmer
+            .as_ref()
+            .map(|k| std::sync::Arc::from(k.as_slice()));
         let edges: HashMap<_, _> = self
             .edges
             .iter()
@@ -647,13 +656,13 @@ impl JunctionTreeGraphBuilder {
         let mut graph = AssemblyGraph::from_threading_build(
             self.kmer_size,
             nodes,
-            self.kmer_to_vertex,
+            kmer_to_id,
             edges,
             outgoing,
             incoming,
-            self.edge_is_ref,
-            self.ref_nodes,
-            self.ref_source_kmer,
+            self.edge_is_ref.clone(),
+            self.ref_nodes.clone(),
+            ref_source_kmer,
         );
         graph.cleanup_isolated_nodes();
         let ref_kmer_path: Vec<Vec<u8>> = self

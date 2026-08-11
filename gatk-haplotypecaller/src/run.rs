@@ -422,12 +422,17 @@ fn assembly_region_variant_records(
     given_alleles_vcf: Option<String>,
     pair_hmm_impl: crate::pairhmm_simd::PairHmmImpl,
 ) -> GatkResult<Vec<VcfRecord>> {
+    // Touch abort config early so CI logs `HC_RSS_ABORT_CONFIG` and the watchdog
+    // sampler starts before the first dense region (not only mid k-best).
+    let _ = crate::runtime_config::hc_rss_abort_mib();
     if crate::runtime_config::hc_rss_trace_enabled() {
         eprintln!(
             "HC_RSS_TRACE enabled sequential={} (observe-only)",
             crate::runtime_config::hc_force_sequential_regions()
         );
         crate::runtime_config::rss_trace_checkpoint("run_start", "");
+    } else if crate::runtime_config::hc_rss_abort_mib().is_some() {
+        crate::runtime_config::rss_trace_checkpoint("run_start", "abort_watchdog");
     }
     let dict = SequenceDictionary::from_fasta_path(reference_fasta)?;
     let cfg = WalkerTraversalConfig::gatk_haplotype_caller_production(
