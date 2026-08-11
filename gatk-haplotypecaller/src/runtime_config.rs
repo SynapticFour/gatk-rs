@@ -138,6 +138,29 @@ pub fn hc_rss_trace_enabled() -> bool {
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, Once, OnceLock};
 
+/// Optional soft Peak abort during k-best: `GATK_RS_HC_RSS_ABORT_MIB=<MiB>`.
+///
+/// When set and current RSS ≥ threshold, k-best returns partial paths instead of
+/// expanding into a hard runner OOM. Unset = off (algorithm default). GIAB CI sets
+/// this below hosted-runner RAM so dense shards soft-land.
+pub fn hc_rss_abort_mib() -> Option<f64> {
+    static CACHED: OnceLock<Option<f64>> = OnceLock::new();
+    *CACHED.get_or_init(|| {
+        std::env::var("GATK_RS_HC_RSS_ABORT_MIB")
+            .ok()
+            .and_then(|s| s.parse::<f64>().ok())
+            .filter(|&v| v.is_finite() && v > 0.0)
+    })
+}
+
+/// True when RSS abort is configured and current RSS is at/above the threshold.
+pub fn hc_rss_abort_triggered() -> bool {
+    let Some(limit) = hc_rss_abort_mib() else {
+        return false;
+    };
+    current_rss_mib().is_some_and(|rss| rss >= limit)
+}
+
 static RSS_TRACE_LOCUS: OnceLock<Mutex<String>> = OnceLock::new();
 static RSS_SAMPLER_STARTED: Once = Once::new();
 static RSS_SAMPLER_STOP: AtomicBool = AtomicBool::new(false);

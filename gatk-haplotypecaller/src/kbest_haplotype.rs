@@ -250,16 +250,31 @@ pub fn find_best_haplotypes_for_assembly(
             (paths, acyclic)
         }
         Err(cyclic) => {
-            crate::runtime_config::rss_trace_checkpoint(
-                "kbest_cyclic_preserve",
-                &format!(
-                    "nodes={} max_haps={}",
-                    cyclic.nodes().len(),
-                    max_number_of_haplotypes
-                ),
-            );
-            let paths = find_best_haplotypes_preserving_cycles(&cyclic, max_number_of_haplotypes)?;
-            (paths, cyclic)
+            // Peak-RSS: cyclic-preserve k-best on bushy graphs (≤8k nodes still) is the
+            // multi-GiB amplifier. Keep preserve for small cyclic L2 fixtures only.
+            const MAX_CYCLIC_PRESERVE_NODES: usize = 4_000;
+            if cyclic.nodes().len() > MAX_CYCLIC_PRESERVE_NODES {
+                crate::runtime_config::rss_trace_checkpoint(
+                    "kbest_cyclic_skip_huge",
+                    &format!(
+                        "nodes={} cap={MAX_CYCLIC_PRESERVE_NODES}",
+                        cyclic.nodes().len()
+                    ),
+                );
+                (Vec::new(), cyclic)
+            } else {
+                crate::runtime_config::rss_trace_checkpoint(
+                    "kbest_cyclic_preserve",
+                    &format!(
+                        "nodes={} max_haps={}",
+                        cyclic.nodes().len(),
+                        max_number_of_haplotypes
+                    ),
+                );
+                let paths =
+                    find_best_haplotypes_preserving_cycles(&cyclic, max_number_of_haplotypes)?;
+                (paths, cyclic)
+            }
         }
     };
     crate::runtime_config::rss_trace_checkpoint("kbest_done", &format!("paths={}", paths.len()));
@@ -309,9 +324,17 @@ fn find_best_haplotypes_inner(
 
     // Bound total expansions: at the heap cap, a bushy/cyclic graph otherwise spins
     // forever in pop/extend/push, fragmenting the allocator into multi-GiB Peak-RSS.
-    const MAX_KBEST_EXPANSIONS: usize = 50_000;
+    // 50k was still enough for ≤8k-node dense GIAB shards to climb to ~15 GiB.
+    const MAX_KBEST_EXPANSIONS: usize = 12_000;
     let mut expansions = 0usize;
     while !heap.is_empty() && result.len() < max_number_of_haplotypes {
+        if crate::runtime_config::hc_rss_abort_triggered() {
+            crate::runtime_config::rss_trace_checkpoint(
+                "kbest_rss_abort",
+                &format!("expansions={expansions} results={}", result.len()),
+            );
+            break;
+        }
         let item = heap.pop().expect("non-empty");
         let path = item.path;
         if sinks.contains(&path.last) {

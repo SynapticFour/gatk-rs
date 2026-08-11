@@ -266,6 +266,8 @@ jobs:
           MALLOC_ARENA_MAX: "2"
           # One assembly region at a time on hosted runners (Peak-RSS; same evidence).
           GATK_RS_HC_SEQUENTIAL: "1"
+          # Soft-land dense-shard Peak before hard OOM (~16 GiB runners; probe shows ~15 GiB).
+          GATK_RS_HC_RSS_ABORT_MIB: "12288"
           GIAB_MEM_PROBE_LOG: ${{ github.workspace }}/parity/giab/runs/ci/hc-mem-probe-${{ matrix.shard }}-${{ matrix.engine }}.log
           GIAB_MEM_PROBE_SEC: "5"
         run: |
