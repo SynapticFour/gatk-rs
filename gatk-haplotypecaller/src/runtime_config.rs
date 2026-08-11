@@ -158,7 +158,19 @@ pub fn hc_rss_abort_triggered() -> bool {
     let Some(limit) = hc_rss_abort_mib() else {
         return false;
     };
-    current_rss_mib().is_some_and(|rss| rss >= limit)
+    let Some(rss) = current_rss_mib() else {
+        return false;
+    };
+    if rss >= limit {
+        static LOGGED: AtomicBool = AtomicBool::new(false);
+        if !LOGGED.swap(true, Ordering::Relaxed) {
+            // Always log once (not TRACE-only) so GIAB CI shows why a shard soft-landed.
+            eprintln!("HC_RSS_ABORT rss_MiB={rss:.1} limit_MiB={limit:.0}");
+        }
+        true
+    } else {
+        false
+    }
 }
 
 static RSS_TRACE_LOCUS: OnceLock<Mutex<String>> = OnceLock::new();

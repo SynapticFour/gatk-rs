@@ -124,6 +124,11 @@ impl SeqGraph {
         self.edges.len()
     }
 
+    /// Max out-degree over vertices (Peak bushiness gate).
+    pub(crate) fn max_out_degree(&self) -> usize {
+        self.outgoing.values().map(|s| s.len()).max().unwrap_or(0)
+    }
+
     pub fn reference_source_vertex(&self) -> Option<usize> {
         (0..self.vertices.len()).find(|&v| self.is_ref_source(v))
     }
