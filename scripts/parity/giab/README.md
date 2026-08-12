@@ -27,6 +27,10 @@ GIAB_MODE=smoke GIAB_SAMPLES=HG001 \
 GIAB_MODE=ci-subset GIAB_SAMPLES=HG001,HG002,HG005 \
   ./scripts/parity/giab/run_genomewide_equivalence.sh
 
+# 2b) Summarize Java vs Rust wall / Peak-RSS per CI shard (from a Actions run):
+./scripts/parity/giab/summarize_ci_subset_shard_perf.py --run-id <run_id> \
+  --json-out /tmp/shard_perf.json --md-out /tmp/shard_perf.md
+
 # 3) Joint-genotyping E2E (HC gVCF → CombineGVCFs → GenotypeGVCFs)
 # Smoke (synthetic mini cohort; no BAM download):
 TRIO_E2E_MODE=smoke ./scripts/parity/giab/run_trio_joint_genotyping_e2e.sh
