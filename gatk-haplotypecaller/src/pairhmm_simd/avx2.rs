@@ -74,7 +74,10 @@ unsafe fn score_haps_avx2_f64_unchecked(
     let mut i = 0;
     while i < haplotypes.len() {
         let remaining = haplotypes.len() - i;
-        if remaining >= LANES {
+        let equal_lens = remaining >= LANES
+            && (1..LANES).all(|k| haplotypes[i + k].len() == haplotypes[i].len());
+        // Uneven hap lengths in one AVX pack corrupt lane DP (mask path); fall back.
+        if equal_lens {
             let pack = [
                 haplotypes[i],
                 haplotypes[i + 1],
@@ -85,17 +88,16 @@ unsafe fn score_haps_avx2_f64_unchecked(
             out[i..i + LANES].copy_from_slice(&scores);
             i += LANES;
         } else {
-            let slice = &haplotypes[i..];
             let rest = score_haps_logless_packed_f64(
                 read_bases,
                 read_quals,
-                slice,
+                &haplotypes[i..=i],
                 insertion_gop,
                 deletion_gop,
                 overall_gcp,
             )?;
-            out[i..].copy_from_slice(&rest);
-            break;
+            out[i] = rest[0];
+            i += 1;
         }
     }
     Ok(out)
