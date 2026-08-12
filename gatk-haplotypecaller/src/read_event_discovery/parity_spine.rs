@@ -62,12 +62,17 @@ fn merge_active_and_cluster_events(
 }
 
 /// Parity spine: read-proven indels missing from assembly EventMap (genome-wide + harness).
+///
+/// `materialize_alt_haps`: when true, SW-rematerialize alt haplotypes so EventMap sync
+/// retains the alleles. List-only mode (`false`) is only safe when a later path merges
+/// prior events without a strict CIGAR-only rebuild — post-HMM StrictJava sync does not.
 pub fn parity_spine_read_proven_indels(
     assembly: &mut AssemblyResultSet,
     reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     sw: &SwParameters,
+    materialize_alt_haps: bool,
 ) -> GatkResult<()> {
     if reads.is_empty() || ref_bases_empty(assembly) {
         return Ok(());
@@ -274,26 +279,37 @@ pub fn parity_spine_read_proven_indels(
         }
     }
     let events: Vec<VariationEvent> = candidates.into_iter().map(|(_, e)| e).collect();
-    apply_read_events_to_assembly(
-        assembly,
-        &apply_bases,
-        apply_pad,
-        &contig,
-        &events,
-        sw,
-    )?;
-    sync_assembly_events_from_haplotype_cigars(assembly, &contig, sw);
+    if materialize_alt_haps {
+        apply_read_events_to_assembly(
+            assembly,
+            &apply_bases,
+            apply_pad,
+            &contig,
+            &events,
+            sw,
+        )?;
+        sync_assembly_events_from_haplotype_cigars(assembly, &contig, sw);
+    } else {
+        for e in events {
+            if !assembly.variation_events.iter().any(|x| events_match(x, &e)) {
+                assembly.variation_events.push(e);
+            }
+        }
+        sort_dedup_variation_events(assembly);
+    }
     scrub_p12_cluster_phantom_alleles(&mut assembly.variation_events);
     Ok(())
 }
 
 /// Parity spine: biallelic SNPs from reads when EventMap has no event at that locus (Java `getVariationEvents` gap).
+/// See [`parity_spine_read_proven_indels`] for `materialize_alt_haps`.
 pub fn parity_spine_read_proven_snps(
     assembly: &mut AssemblyResultSet,
     reads: &[SharedBamRecord],
     active_start_1based: u64,
     active_end_1based: u64,
     sw: &SwParameters,
+    materialize_alt_haps: bool,
 ) -> GatkResult<()> {
     if reads.is_empty() || ref_bases_empty(assembly) {
         return Ok(());
@@ -342,15 +358,24 @@ pub fn parity_spine_read_proven_snps(
     if candidates.is_empty() {
         return Ok(());
     }
-    apply_read_events_to_assembly(
-        assembly,
-        &apply_bases,
-        apply_pad,
-        &contig,
-        &candidates,
-        sw,
-    )?;
-    sync_assembly_events_from_haplotype_cigars(assembly, &contig, sw);
+    if materialize_alt_haps {
+        apply_read_events_to_assembly(
+            assembly,
+            &apply_bases,
+            apply_pad,
+            &contig,
+            &candidates,
+            sw,
+        )?;
+        sync_assembly_events_from_haplotype_cigars(assembly, &contig, sw);
+    } else {
+        for e in candidates {
+            if !assembly.variation_events.iter().any(|x| events_match(x, &e)) {
+                assembly.variation_events.push(e);
+            }
+        }
+        sort_dedup_variation_events(assembly);
+    }
     Ok(())
 }
 
@@ -368,6 +393,7 @@ pub fn parity_spine_indels_from_reads(
         active_start_1based,
         active_end_1based,
         sw,
+        true,
     )
 }
 

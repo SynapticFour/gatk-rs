@@ -5,7 +5,7 @@
 use crate::assembly_result_set::AssemblyResultSet;
 use crate::event_map::VariationEvent;
 use crate::genome_loc::GenomePosition;
-use crate::genotyping::emit_genotype_format_fields;
+use crate::genotyping::{emit_genotype_format_fields, ReadLikelihoodRow};
 use crate::haplotype::Haplotype;
 use crate::hc_allele_mapping::{
     create_allele_mapper, hap_base_at_ref_locus, haplotype_supports_allele_at_with_ref,
@@ -56,9 +56,9 @@ pub fn haplotype_log10_sums_from_region_likelihoods(
 }
 
 /// Java `AlleleFilteringHC.getAlleleLikelihoodVsInverse`: `min(PL1-PL0, PL2-PL0)` per event.
-fn variation_event_hc_inverse_pl(
+fn variation_event_hc_inverse_pl_from_rows(
     event: &VariationEvent,
-    likelihoods: &[RegionReadLikelihood],
+    rows: &[ReadLikelihoodRow],
     haplotypes: &[Haplotype],
     ref_bytes: &[u8],
     pad_start_1based: u64,
@@ -76,12 +76,11 @@ fn variation_event_hc_inverse_pl(
     if mapping.alt_haplotype_indices.is_empty() {
         return None;
     }
-    let rows = region_likelihoods_to_rows(likelihoods, haplotypes.len());
     if rows.is_empty() {
         return None;
     }
     let marg = marginalize_rows_to_biallelic_alleles(
-        &rows,
+        rows,
         &mapping.ref_haplotype_indices,
         &mapping.alt_haplotype_indices,
     );
@@ -96,9 +95,15 @@ fn variation_event_hc_inverse_pl(
 }
 
 /// Max per-event HC inverse-PL among events each haplotype supports (higher = stronger).
+///
+/// Observable Java contract: same per-haplotype max inverse-PL ranking input.
+/// Rust-native: score each active-span event once (cache), reuse the PairHMM row matrix,
+/// and skip events that no non-ref hap supports — dense EventMaps otherwise recompute
+/// biallelic GLs O(haps × events) (~10 s on 20:29455994 with 267 events).
 fn haplotype_hc_inverse_pl_scores(
     assembly: &AssemblyResultSet,
     likelihoods: &[RegionReadLikelihood],
+    options: crate::allele_filter_options::AlleleFilterOptions,
 ) -> Vec<f64> {
     let (ref_bytes, pad_start) = assembly.event_map_reference();
     let ref_hap = assembly
@@ -111,12 +116,26 @@ fn haplotype_hc_inverse_pl_scores(
     if likelihoods.is_empty() || assembly.variation_events.is_empty() {
         return out;
     }
+    let events = variation_events_in_active_span(
+        assembly,
+        options.active_start_1based(),
+        options.active_end_1based(),
+    );
+    if events.is_empty() {
+        return out;
+    }
+    let rows = region_likelihoods_to_rows(likelihoods, assembly.haplotypes.len());
+    if rows.is_empty() {
+        return out;
+    }
+    // Per-event PL is independent of which haplotype we are ranking — compute once.
+    let mut event_pl: Vec<Option<Option<i32>>> = vec![None; events.len()];
     for (hi, h) in assembly.haplotypes.iter().enumerate() {
         if h.is_reference {
             continue;
         }
         let mut best = f64::NEG_INFINITY;
-        for event in &assembly.variation_events {
+        for (ei, event) in events.iter().enumerate() {
             if !haplotype_supports_allele_at_with_ref(
                 h,
                 ref_hap,
@@ -130,14 +149,17 @@ fn haplotype_hc_inverse_pl_scores(
             ) {
                 continue;
             }
-            if let Some(pl) = variation_event_hc_inverse_pl(
-                event,
-                likelihoods,
-                &assembly.haplotypes,
-                ref_bytes,
-                pad_start,
-                max_mnp,
-            ) {
+            let pl = event_pl[ei].get_or_insert_with(|| {
+                variation_event_hc_inverse_pl_from_rows(
+                    event,
+                    &rows,
+                    &assembly.haplotypes,
+                    ref_bytes,
+                    pad_start,
+                    max_mnp,
+                )
+            });
+            if let Some(pl) = *pl {
                 best = best.max(pl as f64);
             }
         }
@@ -359,8 +381,18 @@ fn select_haplotype_keep_mask(
         }
     }
     mark_haplotypes_supporting_variation_events(assembly, &mut keep, ref_idx, options);
+    let mut non_ref_kept = keep
+        .iter()
+        .enumerate()
+        .filter(|(i, k)| *i != ref_idx && **k)
+        .count();
+    // Already at the GATK non-ref cap via indel/event marks — skip HC-inverse PL ranking
+    // (dominant cost on dense EventMaps; phenotype unchanged once top-N is full).
+    if non_ref_kept >= MAX_NON_REF_HAPLOTYPES_FOR_GENOTYPING {
+        return Ok(keep);
+    }
     let sums = haplotype_log10_sums_from_region_likelihoods(likelihoods, assembly.haplotypes.len());
-    let hc_scores = haplotype_hc_inverse_pl_scores(assembly, likelihoods);
+    let hc_scores = haplotype_hc_inverse_pl_scores(assembly, likelihoods, options);
     let mut scored: Vec<(usize, f64)> = assembly
         .haplotypes
         .iter()
@@ -382,11 +414,6 @@ fn select_haplotype_keep_mask(
         !options.strict_java_snp_rank_only || (assembly.contig != "2" && assembly.contig != "chr2");
     if allow_score_fill {
         scored.sort_by(|a, b| b.1.total_cmp(&a.1));
-        let mut non_ref_kept = keep
-            .iter()
-            .enumerate()
-            .filter(|(i, k)| *i != ref_idx && **k)
-            .count();
         for (i, _) in scored {
             if non_ref_kept >= MAX_NON_REF_HAPLOTYPES_FOR_GENOTYPING {
                 break;

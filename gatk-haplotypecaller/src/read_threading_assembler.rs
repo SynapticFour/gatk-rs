@@ -1103,55 +1103,66 @@ fn assemble_from_ref_and_reads_seq_graph(
     }
 
     if variation_kmers.is_empty() && !args.dont_increase_kmer_sizes_for_cycles {
-        let mut kmer_size = *kmer_sizes.last().unwrap_or(&25) + 10;
-        for iter in 1..=6 {
-            if crate::runtime_config::hc_rss_abort_triggered() {
-                crate::runtime_config::rss_trace_checkpoint(
-                    "seq_ingest_rss_abort_expanded",
-                    &format!("before_kmer={kmer_size} haps={}", haplotypes.len()),
-                );
-                break;
-            }
-            let last = iter == 6;
-            if let Some((seq, status, kmer)) = try_build_seq_graph_kmer(
-                reference,
-                reads,
-                kmer_size,
-                args,
-                allow_low_complexity_expanded_kmer(args, last),
-                allow_non_unique_expanded_kmer(args, last),
-            )? {
-                match status {
-                    SeqGraphCleanupStatus::AssembledSomeVariation => {
-                        ingest_seq_graph(
-                            seq,
-                            kmer,
-                            &mut variation_kmers,
-                            &mut haplotypes,
-                            &mut seen,
-                            &ref_hap,
-                        )?;
-                    }
-                    SeqGraphCleanupStatus::JustAssembledReference => {
-                        last_just_ref = Some(just_reference_result(kmer, reference));
+        // Production HC defaults (`kmer_sizes` includes ≥25, no sub-10 fixtures): when
+        // configured k-mers produced no SeqGraph variation, expanded walks still rebuild
+        // full RT graphs (chr20 pin: 6× `seq_rt_built` with haps=1) then RT-supplement
+        // rebuilds again. Skip that empty climb; parent supplement supplies alts.
+        // Keep the expanded walk for P12 / L-gate and for L2 tiny k-mer fixtures ([3,5,10]).
+        let production_kmer_set =
+            kmer_sizes.iter().any(|&k| k >= 25) && !kmer_sizes.iter().any(|&k| k < 10);
+        if allow_seq_early_stop && production_kmer_set {
+            crate::runtime_config::rss_trace_checkpoint(
+                "seq_skip_expanded_no_variation",
+                &format!("configured_kmers={kmer_sizes:?}"),
+            );
+        } else {
+            let mut kmer_size = *kmer_sizes.last().unwrap_or(&25) + 10;
+            for iter in 1..=6 {
+                if crate::runtime_config::hc_rss_abort_triggered() {
+                    crate::runtime_config::rss_trace_checkpoint(
+                        "seq_ingest_rss_abort_expanded",
+                        &format!("before_kmer={kmer_size} haps={}", haplotypes.len()),
+                    );
+                    break;
+                }
+                let last = iter == 6;
+                if let Some((seq, status, kmer)) = try_build_seq_graph_kmer(
+                    reference,
+                    reads,
+                    kmer_size,
+                    args,
+                    allow_low_complexity_expanded_kmer(args, last),
+                    allow_non_unique_expanded_kmer(args, last),
+                )? {
+                    match status {
+                        SeqGraphCleanupStatus::AssembledSomeVariation => {
+                            ingest_seq_graph(
+                                seq,
+                                kmer,
+                                &mut variation_kmers,
+                                &mut haplotypes,
+                                &mut seen,
+                                &ref_hap,
+                            )?;
+                        }
+                        SeqGraphCleanupStatus::JustAssembledReference => {
+                            last_just_ref = Some(just_reference_result(kmer, reference));
+                        }
                     }
                 }
+                if haplotypes.iter().any(|h| !h.is_reference) && haplotypes.len() > 1 {
+                    crate::runtime_config::rss_trace_checkpoint(
+                        "seq_ingest_early_stop_expanded",
+                        &format!(
+                            "after_kmer={kmer_size} haps={} variation_kmers={}",
+                            haplotypes.len(),
+                            variation_kmers.len()
+                        ),
+                    );
+                    break;
+                }
+                kmer_size += 10;
             }
-            if allow_seq_early_stop
-                && haplotypes.iter().any(|h| !h.is_reference)
-                && haplotypes.len() > 1
-            {
-                crate::runtime_config::rss_trace_checkpoint(
-                    "seq_ingest_early_stop_expanded",
-                    &format!(
-                        "after_kmer={kmer_size} haps={} variation_kmers={}",
-                        haplotypes.len(),
-                        variation_kmers.len()
-                    ),
-                );
-                break;
-            }
-            kmer_size += 10;
         }
     }
 

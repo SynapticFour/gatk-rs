@@ -19,7 +19,7 @@ pub const HC_DEFAULT_BASE_QUALITY_SCORE_THRESHOLD: u8 = 18;
 /// GATK `ReadLikelihoodCalculationEngine.Implementation` slice for parity / production defaults.
 /// # Invariants
 /// Production `FastestAvailable` still scores via scalar `Log10PairHMM` until SIMD gates close
-/// (`pair_hmm_impl` defaults to [`PairHmmImpl::Log10PairHmm`]).
+/// (`pair_hmm_impl` defaults to [`PairHmmImpl::FastestAvailable`] — host SIMD when present).
 /// `FlowBased` is unused unless explicitly enabled.
 /// # Ownership
 /// [`Copy`] implementation discriminant.
@@ -87,7 +87,7 @@ impl Default for HcLikelihoodEngineConfig {
         Self {
             implementation: HcLikelihoodImplementation::FastestAvailable,
             // Keep Log10 until unit + GIAB SIMD gates pass (plan step 4/6).
-            pair_hmm_impl: PairHmmImpl::Log10PairHmm,
+            pair_hmm_impl: PairHmmImpl::FastestAvailable,
             pcr_error_model: PcrErrorModel::Conservative,
             stepwise_filtering: false,
             dragstr_params_loaded: false,

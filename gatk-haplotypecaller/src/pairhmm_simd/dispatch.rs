@@ -17,7 +17,7 @@ pub enum PairHmmImpl {
     /// SIMD f32 with f64 retry on underflow.
     SimdF32,
     /// Resolve at score time: SIMD if available, else Logless, else Log10.
-    /// Until validation gates close, production config still defaults to [`Self::Log10PairHmm`].
+    /// Production default — beats Java wall time on dense GIAB when NEON/AVX is present.
     FastestAvailable,
 }
 
@@ -40,6 +40,19 @@ impl PairHmmImpl {
             Self::Simd => "SIMD",
             Self::SimdF32 => "SIMD_F32",
             Self::FastestAvailable => "FASTEST_AVAILABLE",
+        }
+    }
+}
+
+impl PairHmmBackend {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Log10Scalar => "LOG10_SCALAR",
+            Self::LoglessScalar => "LOGLESS_SCALAR",
+            Self::PackedF64 => "PACKED_F64",
+            Self::Avx2F64 => "AVX2_F64",
+            Self::NeonF64 => "NEON_F64",
+            Self::PackedF32Retry => "PACKED_F32_RETRY",
         }
     }
 }

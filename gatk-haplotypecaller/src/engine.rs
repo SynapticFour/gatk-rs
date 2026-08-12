@@ -807,6 +807,7 @@ impl HaplotypeCallerEngine {
         };
 
         let mut read_likelihoods = Vec::new();
+        let mut post_pairhmm_t0: Option<std::time::Instant> = None;
         if args.compute_read_likelihoods {
             crate::read_event_discovery::prune_spillover_supplement_haplotypes(&mut assembly);
             if args.is_strict_java() {
@@ -822,15 +823,21 @@ impl HaplotypeCallerEngine {
             // Assemble / EventMap used SW heavily — drop SW TLS before PairHMM so peaks
             // do not stack (observable likelihoods unchanged).
             crate::smith_waterman::release_sw_tls_scratch();
+            let pairhmm_impl = args.likelihood.pair_hmm_impl;
+            let pairhmm_backend = crate::pairhmm_simd::resolve_pair_hmm_impl(pairhmm_impl).label();
             crate::runtime_config::rss_trace_checkpoint(
                 "before_pairhmm",
                 &format!(
-                    "haps={} finalized={}",
+                    "haps={} finalized={} geno_reads={} impl={} backend={}",
                     assembly.haplotypes.len(),
-                    assemble_finalized.len()
+                    assemble_finalized.len(),
+                    region_for_genotyping.reads.len(),
+                    pairhmm_impl.label(),
+                    pairhmm_backend
                 ),
             );
             let ll_normalize = !args.is_strict_java();
+            let pairhmm_t0 = std::time::Instant::now();
             read_likelihoods = compute_region_read_likelihoods(
                 &region_for_genotyping,
                 &assembly.haplotypes,
@@ -838,20 +845,23 @@ impl HaplotypeCallerEngine {
                 ll_normalize,
                 Some(assemble_finalized),
             )?;
-            if crate::runtime_config::hc_rss_trace_enabled() {
-                let rss = crate::runtime_config::current_rss_mib()
-                    .map(|v| format!("{v:.1}"))
-                    .unwrap_or_else(|| "?".into());
-                eprintln!(
-                    "HC_RSS_TRACE phase=after_pairhmm region={}:{}-{} geno_reads={} ll_rows={} rss_MiB={}",
-                    region.contig,
-                    region.start.get(),
-                    region.end.get(),
+            let pairhmm_ms = pairhmm_t0.elapsed().as_millis();
+            // Always under abort/TRACE diagnostics (not TRACE-only) so CI wall-time
+            // attribution does not lose the PairHMM gap when only ABORT_MIB is set.
+            crate::runtime_config::rss_trace_checkpoint(
+                "after_pairhmm",
+                &format!(
+                    "haps={} geno_reads={} ll_rows={} pairhmm_ms={} impl={} backend={}",
+                    assembly.haplotypes.len(),
                     region_for_genotyping.reads.len(),
                     read_likelihoods.len(),
-                    rss
-                );
-            }
+                    pairhmm_ms,
+                    pairhmm_impl.label(),
+                    pairhmm_backend
+                ),
+            );
+            let genotype_t0 = std::time::Instant::now();
+            post_pairhmm_t0 = Some(genotype_t0);
             if read_likelihoods.is_empty() {
                 let mut ll_region = region.clone();
                 ll_region.reads = reads_overlapping_active_span(
@@ -888,6 +898,7 @@ impl HaplotypeCallerEngine {
                 && assembly.haplotypes.len() > 1
                 && !defer_early_allele_filter
             {
+                let t_early = std::time::Instant::now();
                 crate::read_event_discovery::sync_assembly_events_from_haplotype_cigars_with_harvest(
                     &mut assembly,
                     &region.contig,
@@ -923,11 +934,23 @@ impl HaplotypeCallerEngine {
                         strict_event_map_only: args.is_strict_java(),
                     },
                 );
+                crate::runtime_config::rss_trace_checkpoint(
+                    "prep_early_allele_filter",
+                    &format!(
+                        "haps={} ll_rows={} events={} step_ms={}",
+                        assembly.haplotypes.len(),
+                        read_likelihoods.len(),
+                        assembly.variation_events.len(),
+                        t_early.elapsed().as_millis()
+                    ),
+                );
             }
             // Drop PairHMM TLS before realign SW so DP arenas do not stack with SW.
             crate::pairhmm_log10::release_pairhmm_tls_scratch();
             crate::pairhmm_logless::release_pairhmm_logless_tls_scratch();
+            crate::pairhmm_simd::release_pairhmm_simd_tls_scratch();
             // A3: realign via Arc COW (`BamRecordSlot`) — no deep clone of every BAM payload.
+            let t_realign = std::time::Instant::now();
             let (_realigned, best_hap_per_read) = realign_reads_to_best_haplotype(
                 region_for_genotyping.reads.as_mut_slice(),
                 &assembly.haplotypes,
@@ -939,6 +962,15 @@ impl HaplotypeCallerEngine {
                 read_likelihoods,
                 &best_hap_per_read,
             );
+            crate::runtime_config::rss_trace_checkpoint(
+                "prep_realign",
+                &format!(
+                    "reads={} haps={} step_ms={}",
+                    region_for_genotyping.reads.len(),
+                    assembly.haplotypes.len(),
+                    t_realign.elapsed().as_millis()
+                ),
+            );
             crate::smith_waterman::release_sw_tls_scratch();
         }
         let ref_hap = assembly.haplotypes.iter().find(|h| h.is_reference);
@@ -946,6 +978,16 @@ impl HaplotypeCallerEngine {
             .and_then(|h| h.genome_loc.map(|g| g.start_1based()))
             .unwrap_or_else(|| assembly.padded_reference_start_1based());
         let apply_bases = assembly.apply_bases_shared();
+        // P12/ASM-8 post-HMM haplotype injection is a parity bridge for the chr2 cluster.
+        // Genome-wide it grows the hap set after the first PairHMM and forces a second
+        // full likelihood pass (chr20:29455745: 18→32 haps, tens of seconds) that Java
+        // does not run. Keep EventMap + R4-2 *event list* updates genome-wide; limit
+        // hap materialization + PairHMM refresh to the P12 cluster span.
+        let post_hmm_hap_bridges = args.is_strict_java()
+            && crate::read_event_discovery::strict_java_p12_cluster_span(
+                region.start.get(),
+                region.end.get(),
+            );
         crate::read_event_discovery::sync_assembly_events_from_haplotype_cigars_with_harvest(
             &mut assembly,
             &region.contig,
@@ -955,28 +997,46 @@ impl HaplotypeCallerEngine {
                 strict_event_map_only: args.is_strict_java(),
             },
         );
-        // R4-2 / L8: production StrictJava outside contig 2 — materialize read-proven
-        // indels and SNPs (parity spine path was harness-only and never ran on dense GIAB).
+        // R4-2 / L8: production StrictJava outside contig 2 — append read-proven
+        // indels/SNPs. Must SW-materialize alt haps: the later strict EventMap sync
+        // rebuilds from haplotype CIGARs and drops list-only events (p5 sparse SNP
+        // otherwise returns Ok(None) before genotyping). Dense EventMaps already at
+        // ≥64 events skip rediscovery (~0.5 s/region on the chr20 pin).
         // Use untrimmed `region.reads`: post-PairHMM realign strips BAM I/D from genotyping reads.
         if args.is_strict_java()
             && region.contig != "2"
             && region.contig != "chr2"
             && !args.enable_read_event_supplement
         {
-            crate::read_event_discovery::parity_spine_read_proven_indels(
-                &mut assembly,
-                &region.reads,
-                region.start.get(),
-                region.end.get(),
-                sw,
-            )?;
-            crate::read_event_discovery::parity_spine_read_proven_snps(
-                &mut assembly,
-                &region.reads,
-                region.start.get(),
-                region.end.get(),
-                sw,
-            )?;
+            const SPINE_EVENT_SATURATION: usize = 64;
+            let t0 = std::time::Instant::now();
+            if assembly.variation_events.len() < SPINE_EVENT_SATURATION {
+                crate::read_event_discovery::parity_spine_read_proven_indels(
+                    &mut assembly,
+                    &region.reads,
+                    region.start.get(),
+                    region.end.get(),
+                    sw,
+                    true,
+                )?;
+                crate::read_event_discovery::parity_spine_read_proven_snps(
+                    &mut assembly,
+                    &region.reads,
+                    region.start.get(),
+                    region.end.get(),
+                    sw,
+                    true,
+                )?;
+            }
+            crate::runtime_config::rss_trace_checkpoint(
+                "prep_parity_spine",
+                &format!(
+                    "haps={} events={} step_ms={}",
+                    assembly.haplotypes.len(),
+                    assembly.variation_events.len(),
+                    t0.elapsed().as_millis()
+                ),
+            );
         }
         #[cfg(any(test, feature = "parity_harness"))]
         {
@@ -988,6 +1048,7 @@ impl HaplotypeCallerEngine {
                     region.start.get(),
                     region.end.get(),
                     sw,
+                    true,
                 )?;
                 crate::read_event_discovery::parity_spine_read_proven_snps(
                     &mut assembly,
@@ -995,6 +1056,7 @@ impl HaplotypeCallerEngine {
                     region.start.get(),
                     region.end.get(),
                     sw,
+                    true,
                 )?;
             }
         }
@@ -1069,9 +1131,9 @@ impl HaplotypeCallerEngine {
             &region.contig,
         );
         if args.is_strict_java() {
-            let run_strict_event_map_finalize =
-                crate::read_event_discovery::strict_java_asm8_only_enabled()
-                    || crate::read_event_discovery::strict_java_p12_ensure_bridges_enabled();
+            let run_strict_event_map_finalize = post_hmm_hap_bridges
+                && (crate::read_event_discovery::strict_java_asm8_only_enabled()
+                    || crate::read_event_discovery::strict_java_p12_ensure_bridges_enabled());
             if run_strict_event_map_finalize {
                 crate::read_event_discovery::propagate_cluster_coupled_from_untrimmed(
                     &untrimmed,
@@ -1093,8 +1155,11 @@ impl HaplotypeCallerEngine {
                 )?;
             }
             // R4-2: re-materialize genome-wide read-proven indels after ASM-8 finalize
-            // (strict CIGAR sync / SNP-rank paths can drop supplement indels).
-            if region.contig != "2" && region.contig != "chr2" && !args.enable_read_event_supplement
+            // only when that finalize ran (P12). Genome-wide already did one spine pass above.
+            if post_hmm_hap_bridges
+                && region.contig != "2"
+                && region.contig != "chr2"
+                && !args.enable_read_event_supplement
             {
                 crate::read_event_discovery::parity_spine_read_proven_indels(
                     &mut assembly,
@@ -1102,13 +1167,16 @@ impl HaplotypeCallerEngine {
                     region.start.get(),
                     region.end.get(),
                     sw,
+                    true,
                 )?;
                 crate::read_event_discovery::ensure_alt_haplotypes_for_variation_events(
                     &mut assembly,
                     sw,
                 )?;
             }
-            if crate::read_event_discovery::strict_java_p12_ensure_bridges_enabled() {
+            if post_hmm_hap_bridges
+                && crate::read_event_discovery::strict_java_p12_ensure_bridges_enabled()
+            {
                 crate::read_event_discovery::ensure_p12_cluster_variation_events_for_active_span(
                     &mut assembly,
                     &region.contig,
@@ -1128,28 +1196,31 @@ impl HaplotypeCallerEngine {
         }
         if args.is_strict_java() {
             let hap_before_event_map_finalize = assembly.haplotypes.len();
+            let t_strict = std::time::Instant::now();
             crate::read_event_discovery::repair_alt_haplotype_alignment_for_event_map(
                 &mut assembly.haplotypes,
                 sw,
             );
-            crate::read_event_discovery::ensure_alt_haplotypes_for_variation_events(
-                &mut assembly,
-                sw,
-            )?;
-            // Java ASM-8: read-proven SNPs on EventMap before genotyping (92305634 G/T alt hap).
-            crate::read_event_discovery::materialize_read_proven_snps_missing_from_cigars(
-                &mut assembly,
-                &region.reads,
-                region.start.get(),
-                region.end.get(),
-                &region.contig,
-                sw,
-            )?;
-            crate::read_event_discovery::ensure_read_backed_snp_alt_haplotypes(
-                &mut assembly,
-                &region.reads,
-                sw,
-            )?;
+            if post_hmm_hap_bridges {
+                crate::read_event_discovery::ensure_alt_haplotypes_for_variation_events(
+                    &mut assembly,
+                    sw,
+                )?;
+                // Java ASM-8: read-proven SNPs on EventMap before genotyping (92305634 G/T alt hap).
+                crate::read_event_discovery::materialize_read_proven_snps_missing_from_cigars(
+                    &mut assembly,
+                    &region.reads,
+                    region.start.get(),
+                    region.end.get(),
+                    &region.contig,
+                    sw,
+                )?;
+                crate::read_event_discovery::ensure_read_backed_snp_alt_haplotypes(
+                    &mut assembly,
+                    &region.reads,
+                    sw,
+                )?;
+            }
             crate::read_event_discovery::sync_assembly_events_from_haplotype_cigars_with_harvest(
                 &mut assembly,
                 &region.contig,
@@ -1159,8 +1230,11 @@ impl HaplotypeCallerEngine {
                     strict_event_map_only: true,
                 },
             );
-            // R4-2: last-chance genome-wide indel spine after final strict EventMap sync.
-            if region.contig != "2" && region.contig != "chr2" && !args.enable_read_event_supplement
+            // R4-2 last-chance indel spine: P12 only (genome-wide already ran once).
+            if post_hmm_hap_bridges
+                && region.contig != "2"
+                && region.contig != "chr2"
+                && !args.enable_read_event_supplement
             {
                 crate::read_event_discovery::parity_spine_read_proven_indels(
                     &mut assembly,
@@ -1168,6 +1242,7 @@ impl HaplotypeCallerEngine {
                     region.start.get(),
                     region.end.get(),
                     sw,
+                    true,
                 )?;
             }
             rebuild_variation_events_for_genotyping(
@@ -1177,15 +1252,12 @@ impl HaplotypeCallerEngine {
                 &[],
                 false,
             );
-            crate::read_event_discovery::ensure_read_backed_snp_alt_haplotypes(
-                &mut assembly,
-                &region.reads,
-                sw,
-            )?;
-            if crate::read_event_discovery::strict_java_p12_cluster_span(
-                region.start.get(),
-                region.end.get(),
-            ) {
+            if post_hmm_hap_bridges {
+                crate::read_event_discovery::ensure_read_backed_snp_alt_haplotypes(
+                    &mut assembly,
+                    &region.reads,
+                    sw,
+                )?;
                 crate::read_event_discovery::fix_p12_cluster_coupled_alt_haplotype(
                     &mut assembly,
                     &region.contig,
@@ -1203,10 +1275,23 @@ impl HaplotypeCallerEngine {
                 )?;
             }
             crate::read_event_discovery::prune_spillover_supplement_haplotypes(&mut assembly);
-            if args.compute_read_likelihoods
+            crate::runtime_config::rss_trace_checkpoint(
+                "prep_strict_event_map",
+                &format!(
+                    "haps={}→{} bridges={} step_ms={}",
+                    hap_before_event_map_finalize,
+                    assembly.haplotypes.len(),
+                    post_hmm_hap_bridges,
+                    t_strict.elapsed().as_millis()
+                ),
+            );
+            // Second PairHMM only when P12 bridges actually grew the haplotype set.
+            if post_hmm_hap_bridges
+                && args.compute_read_likelihoods
                 && (assembly.haplotypes.len() != hap_before_event_map_finalize
                     || read_likelihoods.is_empty())
             {
+                let t_re = std::time::Instant::now();
                 let mut ll_region = region.clone();
                 ll_region.reads = reads_overlapping_active_span(
                     &region.reads,
@@ -1238,13 +1323,23 @@ impl HaplotypeCallerEngine {
                         region_for_genotyping.reads = ll_region.reads;
                     }
                 }
+                crate::runtime_config::rss_trace_checkpoint(
+                    "prep_second_pairhmm",
+                    &format!(
+                        "haps={} ll_rows={} step_ms={}",
+                        assembly.haplotypes.len(),
+                        read_likelihoods.len(),
+                        t_re.elapsed().as_millis()
+                    ),
+                );
             }
         }
-        if args.is_strict_java()
+        if post_hmm_hap_bridges
             && crate::read_event_discovery::strict_java_asm8_only_enabled()
             && !crate::read_event_discovery::strict_java_p12_ensure_bridges_enabled()
         {
             // Gap SNP events (92305634 G/T) must exist before read-backed alt-hap materialization.
+            // P12/ASM-8 only — genome-wide this forced a third PairHMM (chr20 CI timeouts).
             crate::read_event_discovery::backfill_graph_only_read_proven_gap_snps(
                 &mut assembly,
                 &region.reads,
@@ -1346,104 +1441,124 @@ impl HaplotypeCallerEngine {
             return Ok(None);
         }
 
+        // Java: filterAlleles once after EventMap (early path above for non-P12).
+        // P12 defers that filter until after post-HMM hap bridges — run it here.
+        // Genome-wide: do not re-rank haplotypes a second time (HC-inverse PL over a
+        // dense EventMap was ~11s/region on 20:29455994 and doubled with a late pass).
         if args.is_strict_java()
             && args.enable_allele_filtering
             && args.compute_read_likelihoods
             && !read_likelihoods.is_empty()
             && assembly.haplotypes.len() > 1
         {
-            let hap_before_final_filter = assembly.haplotypes.len();
-            crate::read_event_discovery::backfill_graph_only_read_proven_gap_snps(
-                &mut assembly,
-                &region.reads,
-                region.start.get(),
-                region.end.get(),
-                &region.contig,
-            );
-            crate::read_event_discovery::ensure_phase_e_gap_read_backed_alt_haplotypes(
-                &mut assembly,
-                &region.reads,
-                region.start.get(),
-                region.end.get(),
-                &region.contig,
-                sw,
-            )?;
-            crate::read_event_discovery::ensure_read_backed_snp_alt_haplotypes(
-                &mut assembly,
-                &region.reads,
-                sw,
-            )?;
-            if assembly.haplotypes.len() != hap_before_final_filter {
-                let (ll, reads) = refresh_region_read_likelihoods(
-                    &region_for_genotyping,
+            let t_af = std::time::Instant::now();
+            if post_hmm_hap_bridges {
+                let hap_before_final_filter = assembly.haplotypes.len();
+                crate::read_event_discovery::backfill_graph_only_read_proven_gap_snps(
+                    &mut assembly,
                     &region.reads,
-                    &assembly.haplotypes,
-                    assembly.padded_reference_start_1based(),
-                    &args.likelihood,
-                    sw,
-                    false,
-                )?;
-                if !ll.is_empty() {
-                    read_likelihoods = ll;
-                    if !reads.is_empty() {
-                        region_for_genotyping.reads = reads;
-                    }
-                }
-            }
-            crate::read_event_discovery::prune_spillover_supplement_haplotypes(&mut assembly);
-            let hap_snapshot = assembly.haplotypes.clone();
-            let filtered = filter_assembly_and_likelihoods(
-                &mut assembly,
-                read_likelihoods.clone(),
-                crate::allele_filter_options::AlleleFilterOptions::strict_java_span(
                     region.start.get(),
                     region.end.get(),
-                ),
-            )?;
-            if !filtered.is_empty() {
-                read_likelihoods = filtered;
-                // Raw LL on filtered haps, then Java normalize using active-span ref/alt pools only.
-                let (ll, reads) = refresh_region_read_likelihoods(
-                    &region_for_genotyping,
+                    &region.contig,
+                );
+                crate::read_event_discovery::ensure_phase_e_gap_read_backed_alt_haplotypes(
+                    &mut assembly,
                     &region.reads,
-                    &assembly.haplotypes,
-                    assembly.padded_reference_start_1based(),
-                    &args.likelihood,
+                    region.start.get(),
+                    region.end.get(),
+                    &region.contig,
                     sw,
-                    false,
                 )?;
-                if !ll.is_empty() {
-                    read_likelihoods = ll;
-                    region_for_genotyping.reads = reads;
-                    let norm_haps =
-                        crate::hc_genotyping_engine::strict_java_pairhmm_normalize_hap_indices(
-                            &assembly,
-                            &assembly.haplotypes,
-                            region.start.get(),
-                            region.end.get(),
-                            apply_pad,
-                            &apply_bases,
-                            assembly.max_mnp_distance(),
-                            &region.contig,
-                            &args.genotyping,
-                        );
-                    normalize_region_read_likelihoods(&mut read_likelihoods, &norm_haps);
-                    let filtered = filter_normalized_region_read_likelihoods(
-                        &read_likelihoods,
-                        &region_for_genotyping.reads,
-                        Some((region.start.get(), region.end.get())),
-                    );
-                    if !filtered.is_empty() {
-                        read_likelihoods = filtered;
+                crate::read_event_discovery::ensure_read_backed_snp_alt_haplotypes(
+                    &mut assembly,
+                    &region.reads,
+                    sw,
+                )?;
+                if assembly.haplotypes.len() != hap_before_final_filter {
+                    let (ll, reads) = refresh_region_read_likelihoods(
+                        &region_for_genotyping,
+                        &region.reads,
+                        &assembly.haplotypes,
+                        assembly.padded_reference_start_1based(),
+                        &args.likelihood,
+                        sw,
+                        false,
+                    )?;
+                    if !ll.is_empty() {
+                        read_likelihoods = ll;
+                        if !reads.is_empty() {
+                            region_for_genotyping.reads = reads;
+                        }
                     }
                 }
+                crate::read_event_discovery::prune_spillover_supplement_haplotypes(&mut assembly);
+                let hap_snapshot = assembly.haplotypes.clone();
+                let filtered = filter_assembly_and_likelihoods(
+                    &mut assembly,
+                    read_likelihoods.clone(),
+                    crate::allele_filter_options::AlleleFilterOptions::strict_java_span(
+                        region.start.get(),
+                        region.end.get(),
+                    ),
+                )?;
+                if !filtered.is_empty() {
+                    read_likelihoods = filtered;
+                    // P12: Raw LL on filtered haps, then Java normalize using active-span pools.
+                    let (ll, reads) = refresh_region_read_likelihoods(
+                        &region_for_genotyping,
+                        &region.reads,
+                        &assembly.haplotypes,
+                        assembly.padded_reference_start_1based(),
+                        &args.likelihood,
+                        sw,
+                        false,
+                    )?;
+                    if !ll.is_empty() {
+                        read_likelihoods = ll;
+                        region_for_genotyping.reads = reads;
+                    }
+                } else {
+                    assembly.haplotypes = hap_snapshot;
+                }
             } else {
-                assembly.haplotypes = hap_snapshot;
+                crate::read_event_discovery::prune_spillover_supplement_haplotypes(&mut assembly);
             }
+            // Java order after filterAlleles: normalize + drop poorly modeled evidence.
+            // Genome-wide reuses the early-filter matrix (no second HC-inverse rank pass).
+            let norm_haps = crate::hc_genotyping_engine::strict_java_pairhmm_normalize_hap_indices(
+                &assembly,
+                &assembly.haplotypes,
+                region.start.get(),
+                region.end.get(),
+                apply_pad,
+                &apply_bases,
+                assembly.max_mnp_distance(),
+                &region.contig,
+                &args.genotyping,
+            );
+            normalize_region_read_likelihoods(&mut read_likelihoods, &norm_haps);
+            let filtered = filter_normalized_region_read_likelihoods(
+                &read_likelihoods,
+                &region_for_genotyping.reads,
+                Some((region.start.get(), region.end.get())),
+            );
+            if !filtered.is_empty() {
+                read_likelihoods = filtered;
+            }
+            crate::runtime_config::rss_trace_checkpoint(
+                "prep_allele_filter",
+                &format!(
+                    "haps={} ll_rows={} bridges={} step_ms={}",
+                    assembly.haplotypes.len(),
+                    read_likelihoods.len(),
+                    post_hmm_hap_bridges,
+                    t_af.elapsed().as_millis()
+                ),
+            );
         }
 
-        // Post-filterAlleles: restore read-backed gap / java-only SNP alt haps (92318210 A/G mapper gap).
-        if args.is_strict_java() {
+        // Post-filterAlleles: restore read-backed gap / java-only SNP alt haps (P12 ASM-8).
+        if post_hmm_hap_bridges {
             let hap_before_post_filter_gap = assembly.haplotypes.len();
             crate::read_event_discovery::backfill_graph_only_read_proven_gap_snps(
                 &mut assembly,
@@ -1656,6 +1771,19 @@ impl HaplotypeCallerEngine {
         );
         let genotyping_events = assembly.variation_events.clone();
 
+        if let Some(t0) = post_pairhmm_t0 {
+            crate::runtime_config::rss_trace_checkpoint(
+                "before_assign_genotype",
+                &format!(
+                    "haps={} ll_rows={} post_pairhmm_prep_ms={}",
+                    assembly.haplotypes.len(),
+                    read_likelihoods.len(),
+                    t0.elapsed().as_millis()
+                ),
+            );
+        }
+
+        let assign_t0 = std::time::Instant::now();
         let (genotype, genotyped_calls) = if args.run_genotyping
             && (!read_likelihoods.is_empty() || !genotyping_events.is_empty())
         {
@@ -1718,6 +1846,17 @@ impl HaplotypeCallerEngine {
         }
         if !genotyped_calls.is_empty() {
             union_genotyped_calls_into_variation_events(&mut assembly, &genotyped_calls);
+        }
+        if let Some(t0) = post_pairhmm_t0 {
+            crate::runtime_config::rss_trace_checkpoint(
+                "after_genotype",
+                &format!(
+                    "calls={} genotype_ms={} assign_genotype_ms={}",
+                    genotyped_calls.len(),
+                    t0.elapsed().as_millis(),
+                    assign_t0.elapsed().as_millis()
+                ),
+            );
         }
         // Observe-only semantic checkpoints (no algorithm effect).
         if crate::semantic_trace::is_enabled() {
@@ -2101,7 +2240,7 @@ fn post_process_pairhmm_likelihoods<R: std::borrow::Borrow<rust_htslib::bam::Rec
 /// # Observable contract
 /// Same finalizeRegion evidence and PairHMM inputs as the prior `records_to_assembly_reads` path
 /// (BAM seq/qual bytes are ASCII ACGTN — identical to `String::from_utf8_lossy` for valid records).
-fn score_pairhmm_from_records<R: std::borrow::Borrow<rust_htslib::bam::Record>>(
+fn score_pairhmm_from_records<R: std::borrow::Borrow<rust_htslib::bam::Record> + Sync>(
     reads: &[R],
     haplotypes: &[Haplotype],
     config: &HcLikelihoodEngineConfig,
@@ -2112,20 +2251,52 @@ fn score_pairhmm_from_records<R: std::borrow::Borrow<rust_htslib::bam::Record>>(
         .iter()
         .map(|&hi| haplotypes[hi].bases.as_slice())
         .collect();
-    let mut out = Vec::with_capacity(reads.len() * eligible.len());
-    for (ri, rec) in reads.iter().enumerate() {
-        let rec = rec.borrow();
-        // One BAM packed-seq decode; no intermediate UTF-8 String.
-        let bases = rec.seq().as_bytes();
-        let scores =
-            score_read_against_haplotypes(config, &bases, rec.qual(), rec.mapq(), &hap_refs)?;
-        for (score_i, &hi) in eligible.iter().enumerate() {
-            out.push(RegionReadLikelihood {
-                read_index: crate::bio_ids::ReadIndex::new(ri),
-                haplotype_index: crate::bio_ids::HaplotypeIndex::new(hi),
-                log10_likelihood: scores[score_i],
-            });
+    // Parallel across reads when the rayon pool has >1 worker (Java `--native-pair-hmm-threads`).
+    // `GATK_RS_HC_SEQUENTIAL` only serializes *regions* for Peak-RSS — PairHMM within a region
+    // stays threaded so we can undercut Java wall without stacking mid-size regions.
+    let parallel = rayon::current_num_threads() > 1 && reads.len() >= 8;
+    if !parallel {
+        let mut out = Vec::with_capacity(reads.len() * eligible.len());
+        for (ri, rec) in reads.iter().enumerate() {
+            let rec = rec.borrow();
+            let bases = rec.seq().as_bytes();
+            let scores =
+                score_read_against_haplotypes(config, &bases, rec.qual(), rec.mapq(), &hap_refs)?;
+            for (score_i, &hi) in eligible.iter().enumerate() {
+                out.push(RegionReadLikelihood {
+                    read_index: crate::bio_ids::ReadIndex::new(ri),
+                    haplotype_index: crate::bio_ids::HaplotypeIndex::new(hi),
+                    log10_likelihood: scores[score_i],
+                });
+            }
         }
+        return Ok(out);
+    }
+    // Parallel across reads (Java native PairHMM threads). Each rayon worker has its own
+    // PairHMM TLS; collect then flatten in read-index order for stable LL rows.
+    use rayon::prelude::*;
+    let per_read: Vec<GatkResult<Vec<RegionReadLikelihood>>> = reads
+        .par_iter()
+        .enumerate()
+        .map(|(ri, rec)| {
+            let rec = rec.borrow();
+            let bases = rec.seq().as_bytes();
+            let scores =
+                score_read_against_haplotypes(config, &bases, rec.qual(), rec.mapq(), &hap_refs)?;
+            let mut rows = Vec::with_capacity(eligible.len());
+            for (score_i, &hi) in eligible.iter().enumerate() {
+                rows.push(RegionReadLikelihood {
+                    read_index: crate::bio_ids::ReadIndex::new(ri),
+                    haplotype_index: crate::bio_ids::HaplotypeIndex::new(hi),
+                    log10_likelihood: scores[score_i],
+                });
+            }
+            Ok(rows)
+        })
+        .collect();
+    let mut out = Vec::with_capacity(reads.len() * eligible.len());
+    for chunk in per_read {
+        out.extend(chunk?);
     }
     Ok(out)
 }
@@ -2176,179 +2347,9 @@ fn compute_region_read_likelihoods(
 }
 
 #[cfg(test)]
-mod pairhmm_post_process_tests {
-    use super::*;
+#[path = "engine_pairhmm_post_process_tests.rs"]
+mod pairhmm_post_process_tests;
 
-    #[test]
-    fn filter_drops_poorly_modeled_read_keeps_informative() {
-        let mut ll = vec![
-            RegionReadLikelihood {
-                read_index: crate::bio_ids::ReadIndex::new(0),
-                haplotype_index: crate::bio_ids::HaplotypeIndex::new(0),
-                log10_likelihood: -50.0,
-            },
-            RegionReadLikelihood {
-                read_index: crate::bio_ids::ReadIndex::new(0),
-                haplotype_index: crate::bio_ids::HaplotypeIndex::new(1),
-                log10_likelihood: -7.0,
-            },
-            RegionReadLikelihood {
-                read_index: crate::bio_ids::ReadIndex::new(1),
-                haplotype_index: crate::bio_ids::HaplotypeIndex::new(0),
-                log10_likelihood: -49.0,
-            },
-            RegionReadLikelihood {
-                read_index: crate::bio_ids::ReadIndex::new(1),
-                haplotype_index: crate::bio_ids::HaplotypeIndex::new(1),
-                log10_likelihood: -44.0,
-            },
-        ];
-        normalize_region_read_likelihoods(&mut ll, &[0, 1]);
-        let seq = b"ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT";
-        let qual = b"########################################################################################";
-        let mut keep = rust_htslib::bam::Record::new();
-        keep.set(b"ok", None, seq, qual);
-        let mut drop = rust_htslib::bam::Record::new();
-        drop.set(b"bad", None, seq, qual);
-        let filtered = filter_poorly_modeled_region_read_likelihoods(
-            &ll,
-            &crate::shared_bam::share_records(vec![keep, drop]),
-            None,
-        );
-        assert!(
-            filtered.iter().any(|e| e.read_index.get() == 0),
-            "informative read kept"
-        );
-        assert!(
-            !filtered.iter().any(|e| e.read_index.get() == 1),
-            "poorly modeled read dropped"
-        );
-    }
-
-    #[test]
-    fn filter_drops_all_reads_when_none_pass_threshold() {
-        let mut ll = vec![
-            RegionReadLikelihood {
-                read_index: crate::bio_ids::ReadIndex::new(0),
-                haplotype_index: crate::bio_ids::HaplotypeIndex::new(0),
-                log10_likelihood: -16.5526,
-            },
-            RegionReadLikelihood {
-                read_index: crate::bio_ids::ReadIndex::new(0),
-                haplotype_index: crate::bio_ids::HaplotypeIndex::new(1),
-                log10_likelihood: -13.0042,
-            },
-        ];
-        normalize_region_read_likelihoods(&mut ll, &[0, 1]);
-        let mut rec = rust_htslib::bam::Record::new();
-        rec.set(
-            b"r2",
-            None,
-            b"ACGTACGTACGTACGTACGT",
-            b"####################",
-        );
-        let reads = [crate::shared_bam::share_record(rec)];
-        let filtered = filter_poorly_modeled_region_read_likelihoods(&ll, &reads, None);
-        assert!(
-            filtered.is_empty(),
-            "92305716 read-2 class max LL -13.0 below Java static threshold -8.0"
-        );
-        let post = post_process_pairhmm_likelihoods(ll.clone(), &reads, &[], true, None);
-        assert!(
-            post.is_empty(),
-            "Java does not retain full matrix when no read passes filterPoorlyModeledEvidence"
-        );
-    }
-}
-
-/// G-6 audit: when trim drops indel CIGARs, untrimmed indel haps are re-attached (ASM-8 / CR-3).
 #[cfg(test)]
-mod asm_trim_audit_tests {
-    use super::*;
-    use crate::alignment::SwParameters;
-    use crate::assembly_region_iterator::AssemblyRegion;
-    use crate::assembly_result_set::AssemblyResultSet;
-    use crate::cigar::{Cigar, CigarOperator};
-    use crate::genome_loc::{GenomeLoc, GenomePosition};
-    use crate::haplotype::Haplotype;
-    use crate::read_threading_assembler::{AssemblyResult, AssemblyStatus};
-
-    #[test]
-    fn preserve_untrimmed_indel_haplotypes_reattaches_when_trim_loses_indel_cigar() {
-        let sw = SwParameters::gatk_haplotype_to_reference();
-        let ref_bases = b"ACGTACGTACGTACGT".to_vec();
-        let span = GenomeLoc::new(100, 115);
-        let mut ref_cigar = Cigar::new();
-        ref_cigar.push(ref_bases.len(), CigarOperator::Match);
-        // CLONE: needed because haplotype constructor takes owned bases.
-        let mut untrimmed_ref = Haplotype::new(ref_bases.clone(), true);
-        // CLONE: needed because haplotype owns CIGAR.
-        untrimmed_ref.cigar = Some(ref_cigar.clone());
-        untrimmed_ref.genome_loc = Some(span);
-        let mut untrimmed_alt = Haplotype::new(b"ACGTACGTTACGTACGT".to_vec(), false);
-        let mut indel_cigar = Cigar::new();
-        indel_cigar.push(8, CigarOperator::Match);
-        indel_cigar.push(1, CigarOperator::Insertion);
-        indel_cigar.push(8, CigarOperator::Match);
-        untrimmed_alt.cigar = Some(indel_cigar);
-        untrimmed_alt.alignment_start_hap_wrt_ref = 0;
-        let untrimmed = AssemblyResultSet::from_assembly_for_calling(
-            &AssemblyResult {
-                status: AssemblyStatus::AssembledSomeVariation,
-                kmer_size: 10,
-                haplotypes: vec![untrimmed_alt, untrimmed_ref],
-                event_maps: Vec::new(),
-            },
-            ref_bases.as_slice(),
-            100,
-            "2",
-            0,
-        );
-        let trimmed_region = AssemblyRegion {
-            contig: "2".into(),
-            start: GenomePosition::new_1based(102),
-            end: GenomePosition::new_1based(110),
-            is_active: true,
-            extended_start: GenomePosition::new_1based(100),
-            extended_end: GenomePosition::new_1based(115),
-            extension: 0,
-            reads: Vec::new(),
-            read_qnames: Vec::new(),
-            reference: crate::reference_context::ReferenceContext::empty(),
-            features: crate::feature_context::FeatureContext::empty(),
-            pileup_loci: Vec::new(),
-        };
-        let mut trimmed_ref = Haplotype::new(ref_bases[2..11].to_vec(), true);
-        trimmed_ref.cigar = Some({
-            let mut c = Cigar::new();
-            c.push(9, CigarOperator::Match);
-            c
-        });
-        trimmed_ref.genome_loc = Some(GenomeLoc::new(100, 115));
-        let mut assembly = AssemblyResultSet::from_assembly_for_calling(
-            &AssemblyResult {
-                status: AssemblyStatus::AssembledSomeVariation,
-                kmer_size: 10,
-                haplotypes: vec![trimmed_ref],
-                event_maps: Vec::new(),
-            },
-            &ref_bases[2..11],
-            100,
-            "2",
-            0,
-        );
-        preserve_untrimmed_indel_haplotypes(&untrimmed, &mut assembly, &trimmed_region, &sw);
-        assert!(
-            assembly
-                .haplotypes
-                .iter()
-                .filter(|h| !h.is_reference)
-                .any(|h| {
-                    h.cigar
-                        .as_ref()
-                        .is_some_and(|c| c.elements.iter().any(|e| e.operator.is_indel()))
-                }),
-            "G-6: indel alt hap must survive trim when assembly lost indel CIGAR"
-        );
-    }
-}
+#[path = "engine_asm_trim_audit_tests.rs"]
+mod asm_trim_audit_tests;

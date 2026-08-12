@@ -1592,7 +1592,7 @@ fn merge_p12_java_snp_registry(
     }
 }
 
-fn sort_dedup_variation_events(assembly: &mut AssemblyResultSet) {
+pub(crate) fn sort_dedup_variation_events(assembly: &mut AssemblyResultSet) {
     assembly.variation_events.sort_by_key(|e| e.start_1based);
     assembly.variation_events.dedup_by(|a, b| {
         a.start_1based == b.start_1based

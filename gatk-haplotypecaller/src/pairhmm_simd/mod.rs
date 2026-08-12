@@ -15,3 +15,12 @@ pub use dispatch::{
     PairHmmBackend, PairHmmImpl,
 };
 pub use pack::{score_haps_logless_packed_f32, score_haps_logless_packed_f64};
+
+#[cfg(target_arch = "aarch64")]
+pub use neon::release_pairhmm_neon_tls_scratch;
+
+/// Release SIMD PairHMM TLS scratch when present (no-op on non-aarch64).
+pub fn release_pairhmm_simd_tls_scratch() {
+    #[cfg(target_arch = "aarch64")]
+    release_pairhmm_neon_tls_scratch();
+}
