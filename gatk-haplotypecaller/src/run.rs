@@ -368,7 +368,7 @@ fn pair_hmm_impl_from_config(
         .or_else(|| config.get_parameter("pair_hmm").map(|s| s.as_str()));
     match raw {
         Some(s) => crate::pairhmm_simd::parse_pair_hmm_impl(s),
-        None => Ok(crate::pairhmm_simd::PairHmmImpl::Log10PairHmm),
+        None => Ok(crate::pairhmm_simd::PairHmmImpl::FastestAvailable),
     }
 }
 

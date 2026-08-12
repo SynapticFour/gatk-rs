@@ -178,8 +178,8 @@ pub fn hc_rss_abort_mib() -> Option<f64> {
     parsed
 }
 
-/// Peak diagnostics active when TRACE is on **or** an RSS abort limit is configured.
-fn hc_rss_diagnostics_enabled() -> bool {
+/// Peak / phase diagnostics active when TRACE is on **or** an RSS abort limit is configured.
+pub fn hc_rss_diagnostics_enabled() -> bool {
     hc_rss_trace_enabled() || hc_rss_abort_mib().is_some()
 }
 

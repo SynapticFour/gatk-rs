@@ -6,6 +6,7 @@ use super::pack::score_haps_logless_packed_f64;
 use crate::pairhmm_logless::{INITIAL_CONDITION, INITIAL_CONDITION_LOG10};
 use gatk_common::GatkResult;
 use std::arch::aarch64::*;
+use std::cell::RefCell;
 
 const MATCH_TO_MATCH: usize = 0;
 const INDEL_TO_MATCH: usize = 1;
@@ -15,6 +16,54 @@ const MATCH_TO_DELETION: usize = 4;
 const DELETION_TO_DELETION: usize = 5;
 
 const LANES: usize = 2;
+
+struct NeonScratch {
+    m: Vec<f64>,
+    ins: Vec<f64>,
+    del: Vec<f64>,
+    prior: Vec<f64>,
+}
+
+impl NeonScratch {
+    fn new() -> Self {
+        Self {
+            m: Vec::new(),
+            ins: Vec::new(),
+            del: Vec::new(),
+            prior: Vec::new(),
+        }
+    }
+
+    fn ensure(&mut self, cells: usize) {
+        let need = cells * LANES;
+        if self.m.len() < need {
+            self.m.resize(need, 0.0);
+            self.ins.resize(need, 0.0);
+            self.del.resize(need, 0.0);
+            self.prior.resize(need, 0.0);
+        } else {
+            self.m[..need].fill(0.0);
+            self.ins[..need].fill(0.0);
+            self.del[..need].fill(0.0);
+            self.prior[..need].fill(0.0);
+        }
+    }
+}
+
+thread_local! {
+    static NEON_SCRATCH: RefCell<NeonScratch> = RefCell::new(NeonScratch::new());
+}
+
+/// Drop NEON PairHMM TLS planes (Peak hygiene after a region).
+pub fn release_pairhmm_neon_tls_scratch() {
+    NEON_SCRATCH.with(|c| {
+        let mut s = c.borrow_mut();
+        s.m = Vec::new();
+        s.ins = Vec::new();
+        s.del = Vec::new();
+        s.prior = Vec::new();
+    });
+}
 
 /// Score haplotypes with NEON when available; otherwise portable packed f64.
 pub fn score_haps_neon_f64(
@@ -68,27 +117,35 @@ unsafe fn score_haps_neon_f64_unchecked(
 
     let transitions = build_transitions(rn, insertion_gop, deletion_gop, overall_gcp);
     let mut out = vec![0.0f64; haplotypes.len()];
-    let mut i = 0;
-    while i < haplotypes.len() {
-        let remaining = haplotypes.len() - i;
-        if remaining >= LANES {
-            let pack = [haplotypes[i], haplotypes[i + 1]];
-            let scores = score_pack2(read_bases, read_quals, &pack, &transitions);
-            out[i..i + LANES].copy_from_slice(&scores);
-            i += LANES;
-        } else {
-            let slice = &haplotypes[i..];
-            let rest = score_haps_logless_packed_f64(
-                read_bases,
-                read_quals,
-                slice,
-                insertion_gop,
-                deletion_gop,
-                overall_gcp,
-            )?;
-            out[i..].copy_from_slice(&rest);
-            break;
+    let mut err: Option<gatk_common::GatkError> = None;
+    NEON_SCRATCH.with(|cell| {
+        let mut scratch = cell.borrow_mut();
+        let mut i = 0;
+        while i < haplotypes.len() {
+            let remaining = haplotypes.len() - i;
+            if remaining >= LANES {
+                let pack = [haplotypes[i], haplotypes[i + 1]];
+                let scores = score_pack2(read_bases, read_quals, &pack, &transitions, &mut scratch);
+                out[i..i + LANES].copy_from_slice(&scores);
+                i += LANES;
+            } else {
+                match score_haps_logless_packed_f64(
+                    read_bases,
+                    read_quals,
+                    &haplotypes[i..],
+                    insertion_gop,
+                    deletion_gop,
+                    overall_gcp,
+                ) {
+                    Ok(rest) => out[i..].copy_from_slice(&rest),
+                    Err(e) => err = Some(e),
+                }
+                break;
+            }
         }
+    });
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(out)
 }
@@ -130,17 +187,18 @@ unsafe fn score_pack2(
     read_quals: &[u8],
     haps: &[&[u8]; 2],
     transitions: &[[f64; 6]],
+    scratch: &mut NeonScratch,
 ) -> [f64; 2] {
     let rn = read_bases.len();
     let hn = [haps[0].len(), haps[1].len()];
     let hn_max = hn[0].max(hn[1]);
     let cols = hn_max + 1;
     let cells = (rn + 1) * cols;
-
-    let mut m = vec![0.0f64; cells * LANES];
-    let mut ins = vec![0.0f64; cells * LANES];
-    let mut del = vec![0.0f64; cells * LANES];
-    let mut prior = vec![0.0f64; cells * LANES];
+    scratch.ensure(cells);
+    let m = &mut scratch.m;
+    let ins = &mut scratch.ins;
+    let del = &mut scratch.del;
+    let prior = &mut scratch.prior;
 
     for lane in 0..LANES {
         let init = INITIAL_CONDITION / hn[lane] as f64;
