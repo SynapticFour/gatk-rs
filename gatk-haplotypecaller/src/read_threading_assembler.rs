@@ -2191,10 +2191,17 @@ pub fn reference_only_haplotypes(reference: &AssemblyRead, kmer_size: usize) -> 
 }
 
 pub(crate) fn just_reference_result(kmer_size: usize, reference: &AssemblyRead) -> AssemblyResult {
+    // Observable Java contract: JustAssembledReference haplotypes carry a full-span match
+    // CIGAR (`{len}M`). RT-first / merge_rt seed from this result; without a CIGAR the seed
+    // ref wins dedup and E2E dumps show an empty cigar column (p5_indel_chrindel).
+    let mut ref_hap = Haplotype::new(reference.bases.as_slice(), true);
+    let mut ref_cigar = Cigar::new();
+    ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
+    ref_hap.cigar = Some(ref_cigar);
     AssemblyResult {
         status: AssemblyStatus::JustAssembledReference,
         kmer_size,
-        haplotypes: vec![Haplotype::new(reference.bases.as_slice(), true)],
+        haplotypes: vec![ref_hap],
         event_maps: vec![EventMap::default()],
     }
 }
@@ -2393,10 +2400,16 @@ mod tests {
 /// When KBest marks a ref-byte path as non-reference (non-ref edges on spine), keep that alt entry so
 /// `is_variation_present` can see both alleles; do not collapse by sequence alone.
 fn ensure_reference_haplotype(haplotypes: &mut Vec<Haplotype>, ref_hap: &Haplotype) {
-    if haplotypes
-        .iter()
-        .any(|h| h.is_reference && h.bases == ref_hap.bases)
+    if let Some(existing) = haplotypes
+        .iter_mut()
+        .find(|h| h.is_reference && h.bases == ref_hap.bases)
     {
+        // Keep an already-present ref, but never leave it cigarless (`{len}M`).
+        if existing.cigar.is_none() {
+            let mut c = Cigar::new();
+            c.push(existing.bases.len(), CigarOperator::Match);
+            existing.cigar = Some(c);
+        }
         return;
     }
     // CLONE: needed because owned haplotypes for scoring call.
