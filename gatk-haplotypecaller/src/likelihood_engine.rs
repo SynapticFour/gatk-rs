@@ -1,6 +1,6 @@
 //! HC read×haplotype likelihood scoring (, **F.4**, **F.5**, **F.6**).
 //! Free functions + [`HcLikelihoodImplementation`] enum. PairHMM kernel selection is
-//! [`crate::pairhmm_simd::PairHmmImpl`] (Log10 default until SIMD gates close).
+//! [`crate::pairhmm_simd::PairHmmImpl`] (`FastestAvailable` → host SIMD when present).
 
 use crate::pairhmm_log10::{
     GATK_PARITY_DEFAULT_DEL_QUAL, GATK_PARITY_DEFAULT_GCP, GATK_PARITY_DEFAULT_INS_QUAL,
@@ -133,17 +133,20 @@ impl HcLikelihoodEngineConfig {
     }
 
     /// Stable label for parity dumps / logging.
+    ///
+    /// Reports the **configured** PairHMM selection (host-independent). Resolved
+    /// backends (AVX2 / NEON / scalar) vary by runner and must not appear in L2
+    /// frozen dumps.
     pub fn primary_engine_label(&self) -> &'static str {
         if self.implementation == HcLikelihoodImplementation::FlowBased {
             return "FlowBased";
         }
-        match self.resolved_pair_hmm_backend() {
-            PairHmmBackend::Log10Scalar => "Log10PairHMM",
-            PairHmmBackend::LoglessScalar => "LoglessPairHMM",
-            PairHmmBackend::PackedF64 => "LoglessPackedF64",
-            PairHmmBackend::Avx2F64 => "LoglessAvx2F64",
-            PairHmmBackend::NeonF64 => "LoglessNeonF64",
-            PairHmmBackend::PackedF32Retry => "LoglessPackedF32",
+        match self.pair_hmm_impl {
+            PairHmmImpl::Log10PairHmm => "Log10PairHMM",
+            PairHmmImpl::LoglessPairHmm => "LoglessPairHMM",
+            PairHmmImpl::Simd => "Simd",
+            PairHmmImpl::SimdF32 => "SimdF32",
+            PairHmmImpl::FastestAvailable => "FastestAvailable",
         }
     }
 }

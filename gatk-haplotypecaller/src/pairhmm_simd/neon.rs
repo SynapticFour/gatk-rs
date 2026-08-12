@@ -123,7 +123,8 @@ unsafe fn score_haps_neon_f64_unchecked(
         let mut i = 0;
         while i < haplotypes.len() {
             let remaining = haplotypes.len() - i;
-            if remaining >= LANES {
+            // Uneven hap lengths in one NEON pack corrupt lane DP (mask path); fall back.
+            if remaining >= LANES && haplotypes[i].len() == haplotypes[i + 1].len() {
                 let pack = [haplotypes[i], haplotypes[i + 1]];
                 let scores = score_pack2(read_bases, read_quals, &pack, &transitions, &mut scratch);
                 out[i..i + LANES].copy_from_slice(&scores);
@@ -132,15 +133,18 @@ unsafe fn score_haps_neon_f64_unchecked(
                 match score_haps_logless_packed_f64(
                     read_bases,
                     read_quals,
-                    &haplotypes[i..],
+                    &haplotypes[i..=i],
                     insertion_gop,
                     deletion_gop,
                     overall_gcp,
                 ) {
-                    Ok(rest) => out[i..].copy_from_slice(&rest),
-                    Err(e) => err = Some(e),
+                    Ok(rest) => out[i] = rest[0],
+                    Err(e) => {
+                        err = Some(e);
+                        break;
+                    }
                 }
-                break;
+                i += 1;
             }
         }
     });
