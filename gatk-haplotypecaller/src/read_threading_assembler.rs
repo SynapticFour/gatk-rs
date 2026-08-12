@@ -748,6 +748,17 @@ pub fn assemble_from_ref_and_reads(
     args: &ReadThreadingAssemblerArgs,
 ) -> GatkResult<AssemblyResult> {
     if args.use_seq_graph {
+        // Observable contract: non-P12 production regions that today burn a SeqGraph
+        // configured walk (often JustAssembledReference / skip-expanded) then rebuild the
+        // same k-mers in RT-supplement to discover before_remove alts. Prefer that RT
+        // extract first; on hit skip SeqGraph + the duplicate supplement rebuild (~1 graph
+        // build per region on dense chr20). P12 / L-gate and L2 tiny k-mer fixtures keep
+        // the SeqGraph-first path (see `rt_first_configured`).
+        if let Some(rt_first) = crate::rt_first_configured::try_rt_configured_alts_before_seq_graph(
+            reference, reads, args,
+        )? {
+            return Ok(rt_first);
+        }
         let result = assemble_from_ref_and_reads_seq_graph(reference, reads, args)?;
         // SeqGraph zip can collapse to a ref-length spine while RT k-best still has variation (P12 ASM-1).
         if matches!(result.status, AssemblyStatus::AssembledSomeVariation)
@@ -1212,14 +1223,13 @@ fn assemble_from_ref_and_reads_seq_graph(
             EventMap::from_haplotype_and_reference(h, &ref_hap, &ref_hap.bases, 1, 0)
         })
         .collect();
-    let mut out = AssemblyResult {
+    // Parent [`assemble_from_ref_and_reads`] runs RT-supplement once; do not double-walk here.
+    Ok(AssemblyResult {
         status,
         kmer_size: min_kmer,
         haplotypes,
         event_maps,
-    };
-    supplement_p12_cluster_coupled_haplotypes(&mut out, reference, reads, args)?;
-    Ok(out)
+    })
 }
 
 /// One k-mer attempt through threading graph → SeqGraph cleanup (parity diagnostics).
@@ -1493,7 +1503,7 @@ pub fn probe_seq_graph_kmer_attempts(
     Ok(rows)
 }
 
-fn haplotypes_have_alt_bases(haplotypes: &[Haplotype], ref_bytes: &[u8]) -> bool {
+pub(crate) fn haplotypes_have_alt_bases(haplotypes: &[Haplotype], ref_bytes: &[u8]) -> bool {
     haplotypes.iter().any(|h| h.bases.as_slice() != ref_bytes)
 }
 
@@ -2180,7 +2190,7 @@ pub fn reference_only_haplotypes(reference: &AssemblyRead, kmer_size: usize) -> 
     just_reference_result(kmer_size, reference).haplotypes
 }
 
-fn just_reference_result(kmer_size: usize, reference: &AssemblyRead) -> AssemblyResult {
+pub(crate) fn just_reference_result(kmer_size: usize, reference: &AssemblyRead) -> AssemblyResult {
     AssemblyResult {
         status: AssemblyStatus::JustAssembledReference,
         kmer_size,
@@ -2409,7 +2419,7 @@ fn assembly_status_from_haplotype_list(haplotypes: &[Haplotype]) -> AssemblyStat
     }
 }
 
-fn finalize_assembly_haplotypes(
+pub(crate) fn finalize_assembly_haplotypes(
     haplotypes: &mut Vec<Haplotype>,
     ref_hap: &Haplotype,
     ensure_ref: bool,
