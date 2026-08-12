@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["assembly_graph_from_reads_threading","assembly_graph_from_ref_and_reads_threading","reference_has_non_unique_kmers","threading_non_unique_summary"],"struct":["ReadThreadingGraphBuilder","ThreadingNonUniqueSummary"]};
+window.SIDEBAR_ITEMS = {"fn":["assembly_graph_from_reads_threading","assembly_graph_from_ref_and_reads_threading","assembly_graph_from_ref_and_reads_threading_with_summary","reference_has_non_unique_kmers","threading_non_unique_summary"],"struct":["ReadThreadingGraphBuilder","ThreadingNonUniqueSummary"]};

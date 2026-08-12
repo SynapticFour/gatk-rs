@@ -103,61 +103,69 @@
 <a href=#103 id=103 data-nosnippet>103</a>    });
 <a href=#104 id=104 data-nosnippet>104</a>
 <a href=#105 id=105 data-nosnippet>105</a>    <span class="kw">let </span><span class="kw-2">mut </span>vertex_counts = <span class="macro">vec!</span>[<span class="number">0usize</span>; graph.node_count()];
-<a href=#106 id=106 data-nosnippet>106</a>    <span class="kw">const </span>MAX_KBEST_EXPANSIONS: usize = <span class="number">50_000</span>;
-<a href=#107 id=107 data-nosnippet>107</a>    <span class="kw">let </span><span class="kw-2">mut </span>expansions = <span class="number">0usize</span>;
-<a href=#108 id=108 data-nosnippet>108</a>
-<a href=#109 id=109 data-nosnippet>109</a>    <span class="kw">while </span>!heap.is_empty() &amp;&amp; result.len() &lt; max_number_of_haplotypes {
-<a href=#110 id=110 data-nosnippet>110</a>        <span class="kw">let </span>item = heap.pop().expect(<span class="string">"non-empty"</span>);
-<a href=#111 id=111 data-nosnippet>111</a>        <span class="kw">let </span>path = item.path;
-<a href=#112 id=112 data-nosnippet>112</a>        <span class="kw">if </span>sinks.contains(<span class="kw-2">&amp;</span>path.last) {
-<a href=#113 id=113 data-nosnippet>113</a>            result.push(KBestPath {
-<a href=#114 id=114 data-nosnippet>114</a>                start: path.start,
-<a href=#115 id=115 data-nosnippet>115</a>                edges: path.edges,
-<a href=#116 id=116 data-nosnippet>116</a>                score: path.score,
-<a href=#117 id=117 data-nosnippet>117</a>                is_reference: path.is_reference,
-<a href=#118 id=118 data-nosnippet>118</a>            });
-<a href=#119 id=119 data-nosnippet>119</a>            <span class="kw">continue</span>;
-<a href=#120 id=120 data-nosnippet>120</a>        }
-<a href=#121 id=121 data-nosnippet>121</a>        <span class="kw">if </span>path.edges.len() &gt;= MAX_KBEST_PATH_EDGES
-<a href=#122 id=122 data-nosnippet>122</a>            || expansions &gt;= MAX_KBEST_EXPANSIONS
-<a href=#123 id=123 data-nosnippet>123</a>            || heap.len() &gt;= MAX_KBEST_HEAP_PATHS
-<a href=#124 id=124 data-nosnippet>124</a>        {
-<a href=#125 id=125 data-nosnippet>125</a>            <span class="kw">continue</span>;
-<a href=#126 id=126 data-nosnippet>126</a>        }
-<a href=#127 id=127 data-nosnippet>127</a>        <span class="kw">if </span>vertex_counts[path.last] &lt; max_number_of_haplotypes {
-<a href=#128 id=128 data-nosnippet>128</a>            vertex_counts[path.last] += <span class="number">1</span>;
-<a href=#129 id=129 data-nosnippet>129</a>            expansions += <span class="number">1</span>;
-<a href=#130 id=130 data-nosnippet>130</a>            <span class="kw">let </span>outs = graph.outgoing_nodes(path.last);
-<a href=#131 id=131 data-nosnippet>131</a>            <span class="kw">let </span>total: u32 = outs
-<a href=#132 id=132 data-nosnippet>132</a>                .iter()
-<a href=#133 id=133 data-nosnippet>133</a>                .filter_map(|<span class="kw-2">&amp;</span>t| graph.edge_support(path.last, t))
-<a href=#134 id=134 data-nosnippet>134</a>                .sum();
-<a href=#135 id=135 data-nosnippet>135</a>            <span class="kw">for </span>to <span class="kw">in </span>outs {
-<a href=#136 id=136 data-nosnippet>136</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(support) = graph.edge_support(path.last, to) {
-<a href=#137 id=137 data-nosnippet>137</a>                    <span class="kw">if </span>heap.len() &gt;= MAX_KBEST_HEAP_PATHS {
-<a href=#138 id=138 data-nosnippet>138</a>                        <span class="kw">break</span>;
-<a href=#139 id=139 data-nosnippet>139</a>                    }
-<a href=#140 id=140 data-nosnippet>140</a>                    <span class="kw">let </span>extended = path.extend(graph, to, support, total);
-<a href=#141 id=141 data-nosnippet>141</a>                    heap.push(HeapItem {
-<a href=#142 id=142 data-nosnippet>142</a>                        score_bits: extended.score.to_bits(),
-<a href=#143 id=143 data-nosnippet>143</a>                        tie: extended.edge_count,
-<a href=#144 id=144 data-nosnippet>144</a>                        path: extended,
-<a href=#145 id=145 data-nosnippet>145</a>                    });
-<a href=#146 id=146 data-nosnippet>146</a>                }
-<a href=#147 id=147 data-nosnippet>147</a>            }
-<a href=#148 id=148 data-nosnippet>148</a>        }
-<a href=#149 id=149 data-nosnippet>149</a>    }
-<a href=#150 id=150 data-nosnippet>150</a>
-<a href=#151 id=151 data-nosnippet>151</a>    result.sort_by(|a, b| {
-<a href=#152 id=152 data-nosnippet>152</a>        b.score
-<a href=#153 id=153 data-nosnippet>153</a>            .partial_cmp(<span class="kw-2">&amp;</span>a.score)
-<a href=#154 id=154 data-nosnippet>154</a>            .unwrap_or(Ordering::Equal)
-<a href=#155 id=155 data-nosnippet>155</a>            .then_with(|| {
-<a href=#156 id=156 data-nosnippet>156</a>                <span class="kw">let </span>ab = graph.path_bases_bytes(a.start, <span class="kw-2">&amp;</span>a.edges);
-<a href=#157 id=157 data-nosnippet>157</a>                <span class="kw">let </span>bb = graph.path_bases_bytes(b.start, <span class="kw-2">&amp;</span>b.edges);
-<a href=#158 id=158 data-nosnippet>158</a>                bb.cmp(<span class="kw-2">&amp;</span>ab)
-<a href=#159 id=159 data-nosnippet>159</a>            })
-<a href=#160 id=160 data-nosnippet>160</a>    });
-<a href=#161 id=161 data-nosnippet>161</a>    <span class="prelude-val">Ok</span>(result)
-<a href=#162 id=162 data-nosnippet>162</a>}
+<a href=#106 id=106 data-nosnippet>106</a>    <span class="comment">// Same Peak bound as read-threading k-best (50k → 12k for dense GIAB shards).
+<a href=#107 id=107 data-nosnippet>107</a>    </span><span class="kw">const </span>MAX_KBEST_EXPANSIONS: usize = <span class="number">12_000</span>;
+<a href=#108 id=108 data-nosnippet>108</a>    <span class="kw">let </span><span class="kw-2">mut </span>expansions = <span class="number">0usize</span>;
+<a href=#109 id=109 data-nosnippet>109</a>
+<a href=#110 id=110 data-nosnippet>110</a>    <span class="kw">while </span>!heap.is_empty() &amp;&amp; result.len() &lt; max_number_of_haplotypes {
+<a href=#111 id=111 data-nosnippet>111</a>        <span class="kw">if </span><span class="kw">crate</span>::runtime_config::hc_rss_abort_triggered() {
+<a href=#112 id=112 data-nosnippet>112</a>            <span class="kw">crate</span>::runtime_config::rss_trace_checkpoint(
+<a href=#113 id=113 data-nosnippet>113</a>                <span class="string">"seq_kbest_rss_abort"</span>,
+<a href=#114 id=114 data-nosnippet>114</a>                <span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">"expansions={expansions} results={}"</span>, result.len()),
+<a href=#115 id=115 data-nosnippet>115</a>            );
+<a href=#116 id=116 data-nosnippet>116</a>            <span class="kw">break</span>;
+<a href=#117 id=117 data-nosnippet>117</a>        }
+<a href=#118 id=118 data-nosnippet>118</a>        <span class="kw">let </span>item = heap.pop().expect(<span class="string">"non-empty"</span>);
+<a href=#119 id=119 data-nosnippet>119</a>        <span class="kw">let </span>path = item.path;
+<a href=#120 id=120 data-nosnippet>120</a>        <span class="kw">if </span>sinks.contains(<span class="kw-2">&amp;</span>path.last) {
+<a href=#121 id=121 data-nosnippet>121</a>            result.push(KBestPath {
+<a href=#122 id=122 data-nosnippet>122</a>                start: path.start,
+<a href=#123 id=123 data-nosnippet>123</a>                edges: path.edges,
+<a href=#124 id=124 data-nosnippet>124</a>                score: path.score,
+<a href=#125 id=125 data-nosnippet>125</a>                is_reference: path.is_reference,
+<a href=#126 id=126 data-nosnippet>126</a>            });
+<a href=#127 id=127 data-nosnippet>127</a>            <span class="kw">continue</span>;
+<a href=#128 id=128 data-nosnippet>128</a>        }
+<a href=#129 id=129 data-nosnippet>129</a>        <span class="kw">if </span>path.edges.len() &gt;= MAX_KBEST_PATH_EDGES
+<a href=#130 id=130 data-nosnippet>130</a>            || expansions &gt;= MAX_KBEST_EXPANSIONS
+<a href=#131 id=131 data-nosnippet>131</a>            || heap.len() &gt;= MAX_KBEST_HEAP_PATHS
+<a href=#132 id=132 data-nosnippet>132</a>        {
+<a href=#133 id=133 data-nosnippet>133</a>            <span class="kw">continue</span>;
+<a href=#134 id=134 data-nosnippet>134</a>        }
+<a href=#135 id=135 data-nosnippet>135</a>        <span class="kw">if </span>vertex_counts[path.last] &lt; max_number_of_haplotypes {
+<a href=#136 id=136 data-nosnippet>136</a>            vertex_counts[path.last] += <span class="number">1</span>;
+<a href=#137 id=137 data-nosnippet>137</a>            expansions += <span class="number">1</span>;
+<a href=#138 id=138 data-nosnippet>138</a>            <span class="kw">let </span>outs = graph.outgoing_nodes(path.last);
+<a href=#139 id=139 data-nosnippet>139</a>            <span class="kw">let </span>total: u32 = outs
+<a href=#140 id=140 data-nosnippet>140</a>                .iter()
+<a href=#141 id=141 data-nosnippet>141</a>                .filter_map(|<span class="kw-2">&amp;</span>t| graph.edge_support(path.last, t))
+<a href=#142 id=142 data-nosnippet>142</a>                .sum();
+<a href=#143 id=143 data-nosnippet>143</a>            <span class="kw">for </span>to <span class="kw">in </span>outs {
+<a href=#144 id=144 data-nosnippet>144</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(support) = graph.edge_support(path.last, to) {
+<a href=#145 id=145 data-nosnippet>145</a>                    <span class="kw">if </span>heap.len() &gt;= MAX_KBEST_HEAP_PATHS {
+<a href=#146 id=146 data-nosnippet>146</a>                        <span class="kw">break</span>;
+<a href=#147 id=147 data-nosnippet>147</a>                    }
+<a href=#148 id=148 data-nosnippet>148</a>                    <span class="kw">let </span>extended = path.extend(graph, to, support, total);
+<a href=#149 id=149 data-nosnippet>149</a>                    heap.push(HeapItem {
+<a href=#150 id=150 data-nosnippet>150</a>                        score_bits: extended.score.to_bits(),
+<a href=#151 id=151 data-nosnippet>151</a>                        tie: extended.edge_count,
+<a href=#152 id=152 data-nosnippet>152</a>                        path: extended,
+<a href=#153 id=153 data-nosnippet>153</a>                    });
+<a href=#154 id=154 data-nosnippet>154</a>                }
+<a href=#155 id=155 data-nosnippet>155</a>            }
+<a href=#156 id=156 data-nosnippet>156</a>        }
+<a href=#157 id=157 data-nosnippet>157</a>    }
+<a href=#158 id=158 data-nosnippet>158</a>
+<a href=#159 id=159 data-nosnippet>159</a>    result.sort_by(|a, b| {
+<a href=#160 id=160 data-nosnippet>160</a>        b.score
+<a href=#161 id=161 data-nosnippet>161</a>            .partial_cmp(<span class="kw-2">&amp;</span>a.score)
+<a href=#162 id=162 data-nosnippet>162</a>            .unwrap_or(Ordering::Equal)
+<a href=#163 id=163 data-nosnippet>163</a>            .then_with(|| {
+<a href=#164 id=164 data-nosnippet>164</a>                <span class="kw">let </span>ab = graph.path_bases_bytes(a.start, <span class="kw-2">&amp;</span>a.edges);
+<a href=#165 id=165 data-nosnippet>165</a>                <span class="kw">let </span>bb = graph.path_bases_bytes(b.start, <span class="kw-2">&amp;</span>b.edges);
+<a href=#166 id=166 data-nosnippet>166</a>                bb.cmp(<span class="kw-2">&amp;</span>ab)
+<a href=#167 id=167 data-nosnippet>167</a>            })
+<a href=#168 id=168 data-nosnippet>168</a>    });
+<a href=#169 id=169 data-nosnippet>169</a>    <span class="prelude-val">Ok</span>(result)
+<a href=#170 id=170 data-nosnippet>170</a>}
 </code></pre></div></section></main></body></html>
