@@ -63,9 +63,9 @@ fn merge_active_and_cluster_events(
 
 /// Parity spine: read-proven indels missing from assembly EventMap (genome-wide + harness).
 ///
-/// `materialize_alt_haps`: when true, SW-rematerialize alt haplotypes (pre-HMM / P12 bridges).
-/// Post-PairHMM genome-wide genotyping only needs the event list + pileup — set false to
-/// skip SoftClip/Indel SW rematerialize (~0.5 s/region on dense chr20).
+/// `materialize_alt_haps`: when true, SW-rematerialize alt haplotypes so EventMap sync
+/// retains the alleles. List-only mode (`false`) is only safe when a later path merges
+/// prior events without a strict CIGAR-only rebuild — post-HMM StrictJava sync does not.
 pub fn parity_spine_read_proven_indels(
     assembly: &mut AssemblyResultSet,
     reads: &[SharedBamRecord],

@@ -998,11 +998,11 @@ impl HaplotypeCallerEngine {
             },
         );
         // R4-2 / L8: production StrictJava outside contig 2 — append read-proven
-        // indels/SNPs onto the event list. Post-HMM PairHMM already ran: do not SW-
-        // rematerialize alt haps (Java genotypes from EventMap + pileup).
+        // indels/SNPs. Must SW-materialize alt haps: the later strict EventMap sync
+        // rebuilds from haplotype CIGARs and drops list-only events (p5 sparse SNP
+        // otherwise returns Ok(None) before genotyping). Dense EventMaps already at
+        // ≥64 events skip rediscovery (~0.5 s/region on the chr20 pin).
         // Use untrimmed `region.reads`: post-PairHMM realign strips BAM I/D from genotyping reads.
-        // Dense EventMaps (already ≥ spine caps) skip rediscovery — chr20 pin paid ~0.5 s/region
-        // rescanning reads when the list was already 200+ events.
         if args.is_strict_java()
             && region.contig != "2"
             && region.contig != "chr2"
@@ -1017,7 +1017,7 @@ impl HaplotypeCallerEngine {
                     region.start.get(),
                     region.end.get(),
                     sw,
-                    false,
+                    true,
                 )?;
                 crate::read_event_discovery::parity_spine_read_proven_snps(
                     &mut assembly,
@@ -1025,7 +1025,7 @@ impl HaplotypeCallerEngine {
                     region.start.get(),
                     region.end.get(),
                     sw,
-                    false,
+                    true,
                 )?;
             }
             crate::runtime_config::rss_trace_checkpoint(
