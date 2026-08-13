@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["PairHmmBackend","PairHmmImpl"],"fn":["best_simd_backend","parse_pair_hmm_impl","resolve_pair_hmm_impl","score_haps_logless_packed_f32","score_haps_logless_packed_f64","score_read_haps_logless"]};
+window.SIDEBAR_ITEMS = {"enum":["PairHmmBackend","PairHmmImpl"],"fn":["best_simd_backend","parse_pair_hmm_impl","release_pairhmm_simd_tls_scratch","resolve_pair_hmm_impl","score_haps_logless_packed_f32","score_haps_logless_packed_f64","score_read_haps_logless"]};

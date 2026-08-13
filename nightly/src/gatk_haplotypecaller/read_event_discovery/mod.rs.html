@@ -1592,7 +1592,7 @@
 <a href=#1592 id=1592 data-nosnippet>1592</a>    }
 <a href=#1593 id=1593 data-nosnippet>1593</a>}
 <a href=#1594 id=1594 data-nosnippet>1594</a>
-<a href=#1595 id=1595 data-nosnippet>1595</a><span class="kw">fn </span>sort_dedup_variation_events(assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet) {
+<a href=#1595 id=1595 data-nosnippet>1595</a><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>sort_dedup_variation_events(assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet) {
 <a href=#1596 id=1596 data-nosnippet>1596</a>    assembly.variation_events.sort_by_key(|e| e.start_1based);
 <a href=#1597 id=1597 data-nosnippet>1597</a>    assembly.variation_events.dedup_by(|a, b| {
 <a href=#1598 id=1598 data-nosnippet>1598</a>        a.start_1based == b.start_1based

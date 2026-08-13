@@ -368,7 +368,7 @@
 <a href=#368 id=368 data-nosnippet>368</a>        .or_else(|| config.get_parameter(<span class="string">"pair_hmm"</span>).map(|s| s.as_str()));
 <a href=#369 id=369 data-nosnippet>369</a>    <span class="kw">match </span>raw {
 <a href=#370 id=370 data-nosnippet>370</a>        <span class="prelude-val">Some</span>(s) =&gt; <span class="kw">crate</span>::pairhmm_simd::parse_pair_hmm_impl(s),
-<a href=#371 id=371 data-nosnippet>371</a>        <span class="prelude-val">None </span>=&gt; <span class="prelude-val">Ok</span>(<span class="kw">crate</span>::pairhmm_simd::PairHmmImpl::Log10PairHmm),
+<a href=#371 id=371 data-nosnippet>371</a>        <span class="prelude-val">None </span>=&gt; <span class="prelude-val">Ok</span>(<span class="kw">crate</span>::pairhmm_simd::PairHmmImpl::FastestAvailable),
 <a href=#372 id=372 data-nosnippet>372</a>    }
 <a href=#373 id=373 data-nosnippet>373</a>}
 <a href=#374 id=374 data-nosnippet>374</a>

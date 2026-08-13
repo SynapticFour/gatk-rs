@@ -4,7 +4,7 @@
 }</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>GATK <code>ReadLikelihoodCalculationEngine.Implementation</code> slice for parity / production defaults.</p>
 <h2 id="invariants"><a class="doc-anchor" href="#invariants">§</a>Invariants</h2>
 <p>Production <code>FastestAvailable</code> still scores via scalar <code>Log10PairHMM</code> until SIMD gates close
-(<code>pair_hmm_impl</code> defaults to <a href="../pairhmm_simd/enum.PairHmmImpl.html#variant.Log10PairHmm" title="variant gatk_haplotypecaller::pairhmm_simd::PairHmmImpl::Log10PairHmm"><code>PairHmmImpl::Log10PairHmm</code></a>).
+(<code>pair_hmm_impl</code> defaults to <a href="../pairhmm_simd/enum.PairHmmImpl.html#variant.FastestAvailable" title="variant gatk_haplotypecaller::pairhmm_simd::PairHmmImpl::FastestAvailable"><code>PairHmmImpl::FastestAvailable</code></a> — host SIMD when present).
 <code>FlowBased</code> is unused unless explicitly enabled.</p>
 <h2 id="ownership"><a class="doc-anchor" href="#ownership">§</a>Ownership</h2>
 <p><a href="https://doc.rust-lang.org/1.97.1/core/marker/trait.Copy.html" title="trait core::marker::Copy"><code>Copy</code></a> implementation discriminant.</p>
