@@ -9,7 +9,7 @@ use crate::haplotype_cigar::{
     consolidated_padded_cigar, left_align_indels_for_read, read_start_on_reference_haplotype,
     trim_cigar_by_bases_public,
 };
-use crate::read_unclip::hard_clip_soft_clipped_bases;
+use crate::read_unclip::hard_clip_soft_clipped_bases_seq;
 use crate::region_read_likelihood::RegionReadLikelihood;
 use crate::smith_waterman::{align_read_to_best_haplotype, SwParameters as SwParams};
 use gatk_common::GatkResult;
@@ -296,16 +296,8 @@ fn create_read_aligned_to_ref_cached(
     let ref_bases = &ref_hap.bases;
     let (leading_clips, trailing_clips) = edge_clips_from_record(rec);
 
-    // Soft-clip hard-clip is identity when no S ops — avoid Record clone + second seq decode.
-    let has_soft = rec
-        .cigar()
-        .iter()
-        .any(|c| matches!(c, HtsCigar::SoftClip(_)));
-    let clipped_bases: Vec<u8> = if has_soft {
-        hard_clip_soft_clipped_bases(rec).seq().as_bytes()
-    } else {
-        rec.seq().as_bytes()
-    };
+    // Soft-clip hard-clip for SW only — no Record clone (bases match Java clip).
+    let clipped_bases = hard_clip_soft_clipped_bases_seq(rec);
     if clipped_bases.is_empty() {
         return Ok(false);
     }
@@ -380,11 +372,14 @@ fn create_read_aligned_to_ref_cached(
     let pos_0based = i64::try_from(read_start_on_ref_1based.saturating_sub(1)).unwrap_or(0);
     let old_pos = rec.pos();
     let cigar_changed = record_cigar_differs(rec, &final_cigar);
+    if !cigar_changed && old_pos == pos_0based {
+        return Ok(false);
+    }
     let hts_cigar = cigar_to_hts(&final_cigar);
     // Position + CIGAR only — avoid re-encoding qname/seq/qual (Java updates alignment fields).
     rec.set_cigar(Some(&hts_cigar));
     rec.set_pos(pos_0based);
-    Ok(old_pos != pos_0based || cigar_changed)
+    Ok(true)
 }
 
 /// Compare BAM CIGAR to an assembled CIGAR without `format!` / Vec collect thrash.

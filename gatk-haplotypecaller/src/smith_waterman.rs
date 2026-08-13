@@ -70,7 +70,12 @@ fn last_index_of(reference: &[u8], query: &[u8]) -> Option<usize> {
         return None;
     }
     let qlen = query.len();
+    let first = query[0];
+    let last = query[qlen - 1];
     for r in (0..=reference.len() - qlen).rev() {
+        if reference[r] != first || reference[r + qlen - 1] != last {
+            continue;
+        }
         if reference[r..r + qlen] == *query {
             return Some(r);
         }
