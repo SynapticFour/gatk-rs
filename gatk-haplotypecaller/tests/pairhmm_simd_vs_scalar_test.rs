@@ -161,6 +161,110 @@ fn f32_retry_path_matches_scalar_within_looser_policy() {
 }
 
 #[test]
+fn neon_equal_length_packs_match_scalar() {
+    let backend = resolve_pair_hmm_impl(PairHmmImpl::Simd);
+    let policy = PairHmmFpPolicy {
+        abs_epsilon: 1e-4,
+        rel_epsilon: 1e-4,
+    };
+    let mut worst = 0.0f64;
+    let mut fails = 0usize;
+    let mut cases = 0usize;
+    for &rn in &[1usize, 2, 3, 7, 8, 15, 16, 31, 32, 64, 100, 151] {
+        for &hn in &[1usize, 2, 3, 7, 8, 15, 16, 31, 32, 64, 100, 151] {
+            for seed in 0..8u64 {
+                let read = bases_pattern(rn, seed);
+                let (quals, ins, del, gcp) = parity_quals(rn);
+                // Five equal-length haps → NEON must pack 2+2+1
+                let haps: Vec<Vec<u8>> = (0..5u64)
+                    .map(|k| {
+                        let mut h = bases_pattern(hn, seed.wrapping_add(k * 17));
+                        if k % 3 == 0 && !h.is_empty() {
+                            h[0] = b'T';
+                        }
+                        if k % 5 == 1 && hn > 2 {
+                            h[hn / 2] = b'A';
+                        }
+                        h
+                    })
+                    .collect();
+                let hap_refs: Vec<&[u8]> = haps.iter().map(|h| h.as_slice()).collect();
+                let simd =
+                    score_read_haps_logless(backend, &read, &quals, &hap_refs, &ins, &del, &gcp)
+                        .expect("simd");
+                for (i, hap) in hap_refs.iter().enumerate() {
+                    let scalar = logless_pairhmm_likelihood(&read, &quals, hap, &ins, &del, &gcp)
+                        .expect("scalar");
+                    let ok = pairhmm_fp_eq(simd[i], scalar, policy)
+                        || (simd[i].is_infinite() && scalar.is_infinite());
+                    let abs = (simd[i] - scalar).abs();
+                    if abs > worst && simd[i].is_finite() && scalar.is_finite() {
+                        worst = abs;
+                    }
+                    if !ok {
+                        fails += 1;
+                        if fails <= 12 {
+                            eprintln!(
+                                "FAIL rn={rn} hn={hn} seed={seed} i={i}: simd={} scalar={} abs={}",
+                                simd[i], scalar, abs
+                            );
+                        }
+                    }
+                    cases += 1;
+                }
+            }
+        }
+    }
+    eprintln!("equal-length cases={cases} fails={fails} worst_abs={worst}");
+    assert_eq!(
+        fails, 0,
+        "equal-length NEON packs diverged on {fails}/{cases} (worst_abs={worst})"
+    );
+}
+
+#[test]
+fn packed_f64_equal_length_matches_scalar() {
+    // Portable packed path must match scalar even when all haps share a length.
+    let policy = PairHmmFpPolicy {
+        abs_epsilon: 1e-9,
+        rel_epsilon: 1e-9,
+    };
+    let mut fails = 0usize;
+    for &rn in &[1usize, 2, 8, 32, 100] {
+        for &hn in &[1usize, 7, 15, 64, 151] {
+            for seed in 0..3u64 {
+                let read = bases_pattern(rn, seed);
+                let (quals, ins, del, gcp) = parity_quals(rn);
+                let haps: Vec<Vec<u8>> = (0..4u64)
+                    .map(|k| bases_pattern(hn, seed.wrapping_add(k * 17)))
+                    .collect();
+                let hap_refs: Vec<&[u8]> = haps.iter().map(|h| h.as_slice()).collect();
+                let packed = gatk_haplotypecaller::score_haps_logless_packed_f64(
+                    &read, &quals, &hap_refs, &ins, &del, &gcp,
+                )
+                .unwrap();
+                for (i, hap) in hap_refs.iter().enumerate() {
+                    let scalar =
+                        logless_pairhmm_likelihood(&read, &quals, hap, &ins, &del, &gcp).unwrap();
+                    if !pairhmm_fp_eq(packed[i], scalar, policy)
+                        && !(packed[i].is_infinite() && scalar.is_infinite())
+                    {
+                        fails += 1;
+                        if fails <= 5 {
+                            eprintln!(
+                                "packed FAIL rn={rn} hn={hn} i={i}: {} vs {}",
+                                packed[i], scalar
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(fails, 0, "packed f64 diverged");
+}
+
+#[test]
 fn parse_pair_hmm_aliases() {
     use gatk_haplotypecaller::parse_pair_hmm_impl;
     assert_eq!(

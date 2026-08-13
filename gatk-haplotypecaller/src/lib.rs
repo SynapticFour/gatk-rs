@@ -407,8 +407,8 @@ pub use pairhmm_logless::{
     INITIAL_CONDITION_LOG10,
 };
 pub use pairhmm_simd::{
-    best_simd_backend, parse_pair_hmm_impl, resolve_pair_hmm_impl, score_read_haps_logless,
-    PairHmmBackend, PairHmmImpl,
+    best_simd_backend, parse_pair_hmm_impl, resolve_pair_hmm_impl, score_haps_logless_packed_f64,
+    score_read_haps_logless, PairHmmBackend, PairHmmImpl,
 };
 pub use read_downsample::{
     apply_positional_downsampler, GatkJavaRng, PositionalDownsamplerConfig,

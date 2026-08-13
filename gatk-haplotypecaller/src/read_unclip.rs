@@ -390,6 +390,47 @@ pub fn hard_clip_soft_clipped_bases(rec: &bam::Record) -> bam::Record {
     out
 }
 
+/// Sequence after `hardClipSoftClippedBases` without cloning the BAM record.
+///
+/// Realign only needs clipped bases for SW; Java still pays a full clip on the
+/// evidence read — observable bases must match.
+pub fn hard_clip_soft_clipped_bases_seq(rec: &bam::Record) -> Vec<u8> {
+    let seq = rec.seq().as_bytes();
+    if seq.is_empty() {
+        return Vec::new();
+    }
+    let mut read_index = 0usize;
+    let mut cut_left = None::<usize>;
+    let mut cut_right = None::<usize>;
+    let mut right_tail = false;
+    let mut saw_soft = false;
+    for c in rec.cigar().iter() {
+        if matches!(c, Cigar::SoftClip(_)) {
+            saw_soft = true;
+            if right_tail {
+                cut_right = Some(read_index);
+            } else {
+                cut_left = Some(read_index + cigar_len(c) as usize - 1);
+            }
+        } else if !matches!(c, Cigar::HardClip(_)) {
+            right_tail = true;
+        }
+        if consumes_read_bases(c) {
+            read_index += cigar_len(c) as usize;
+        }
+    }
+    if !saw_soft {
+        return seq;
+    }
+    // Same order as [`hard_clip_soft_clipped_bases`]: right clip then left.
+    let end = cut_right.unwrap_or(seq.len());
+    let start = cut_left.map(|l| l.saturating_add(1)).unwrap_or(0);
+    if start >= end || start >= seq.len() {
+        return Vec::new();
+    }
+    seq[start..end.min(seq.len())].to_vec()
+}
+
 pub const ORIGINAL_SOFTCLIP_START_TAG: &[u8] = b"os";
 pub const ORIGINAL_SOFTCLIP_END_TAG: &[u8] = b"oe";
 
@@ -643,5 +684,20 @@ mod read_unclip_tests {
         let elems = vec![Cigar::HardClip(1), Cigar::HardClip(30), Cigar::Match(219)];
         let out = normalize_cigar(elems);
         assert_eq!(out, vec![Cigar::HardClip(31), Cigar::Match(219)]);
+    }
+
+    #[test]
+    fn soft_clip_seq_matches_hard_clip_record_bases() {
+        let mut rec = bam::Record::new();
+        let cigar = CigarString::from(vec![
+            Cigar::SoftClip(3),
+            Cigar::Match(7),
+            Cigar::SoftClip(2),
+        ]);
+        rec.set(b"q1", Some(&cigar), b"AAACGTACGTT", b"IIIIIIIIIII");
+        let via_record = hard_clip_soft_clipped_bases(&rec).seq().as_bytes();
+        let via_seq = hard_clip_soft_clipped_bases_seq(&rec);
+        assert_eq!(via_seq, via_record);
+        assert_eq!(via_seq, b"CGTACGT");
     }
 }

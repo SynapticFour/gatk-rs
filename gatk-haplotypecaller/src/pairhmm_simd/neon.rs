@@ -41,12 +41,13 @@ impl NeonScratch {
             self.ins.resize(need, 0.0);
             self.del.resize(need, 0.0);
             self.prior.resize(need, 0.0);
-        } else {
-            self.m[..need].fill(0.0);
-            self.ins[..need].fill(0.0);
-            self.del[..need].fill(0.0);
-            self.prior[..need].fill(0.0);
         }
+        // Always clear the active prefix. On grow, `resize` only zeroes the new
+        // tail — leaving stale row-0 M/I from a prior smaller pack, which corrupts DP.
+        self.m[..need].fill(0.0);
+        self.ins[..need].fill(0.0);
+        self.del[..need].fill(0.0);
+        self.prior[..need].fill(0.0);
     }
 }
 
@@ -74,9 +75,8 @@ pub fn score_haps_neon_f64(
     deletion_gop: &[u8],
     overall_gcp: &[u8],
 ) -> GatkResult<Vec<f64>> {
-    // NEON is baseline on aarch64 Darwin/Linux for our targets.
-    // Do not reorder-by-length for packing: NEON pack2 still diverges from scalar on some
-    // equal-length packs (pairhmm_simd_vs_scalar_test); keep adjacent-only packing.
+    // Adjacent equal-length packs only. Length-grouping was measured slower on dense
+    // NA12878 (sort/scatter tax > pack win under SEQUENTIAL=1); keep TLS ensure fix.
     if std::arch::is_aarch64_feature_detected!("neon") {
         // SAFETY: NEON feature detected.
         unsafe {
@@ -195,10 +195,12 @@ unsafe fn score_pack2(
     transitions: &[[f64; 6]],
     scratch: &mut NeonScratch,
 ) -> [f64; 2] {
+    // Equal-length packs only (caller gates). TLS scratch must clear on grow
+    // (`NeonScratch::ensure`) — stale row-0 M/I was the equal-length ≠ scalar bug.
     let rn = read_bases.len();
-    let hn = [haps[0].len(), haps[1].len()];
-    let hn_max = hn[0].max(hn[1]);
-    let cols = hn_max + 1;
+    let hn = haps[0].len();
+    debug_assert_eq!(haps[0].len(), haps[1].len());
+    let cols = hn + 1;
     let cells = (rn + 1) * cols;
     scratch.ensure(cells);
     let m = &mut scratch.m;
@@ -206,11 +208,11 @@ unsafe fn score_pack2(
     let del = &mut scratch.del;
     let prior = &mut scratch.prior;
 
-    for lane in 0..LANES {
-        let init = INITIAL_CONDITION / hn[lane] as f64;
-        for j in 0..=hn[lane] {
-            del[j * LANES + lane] = init;
-        }
+    let init = INITIAL_CONDITION / hn as f64;
+    for j in 0..=hn {
+        let base = j * LANES;
+        del[base] = init;
+        del[base + 1] = init;
     }
 
     for i in 0..rn {
@@ -218,15 +220,15 @@ unsafe fn score_pack2(
         let match_p = 1.0 - 10f64.powf(-(read_quals[i] as f64) / 10.0);
         let mismatch_p = 10f64.powf(-(read_quals[i] as f64) / 10.0) / 3.0;
         let row = (i + 1) * cols;
-        for lane in 0..LANES {
-            for j in 0..hn[lane] {
+        for j in 0..hn {
+            let idx = (row + j + 1) * LANES;
+            for lane in 0..LANES {
                 let y = haps[lane][j];
-                let p = if x == y || x == b'N' || y == b'N' {
+                prior[idx + lane] = if x == y || x == b'N' || y == b'N' {
                     match_p
                 } else {
                     mismatch_p
                 };
-                prior[(row + j + 1) * LANES + lane] = p;
             }
         }
     }
@@ -241,17 +243,13 @@ unsafe fn score_pack2(
         let td2d = vdupq_n_f64(t[DELETION_TO_DELETION]);
         let row = i * cols;
         let prev = (i - 1) * cols;
-        for j in 1..=hn_max {
-            let active0 = if j <= hn[0] { 1.0 } else { 0.0 };
-            let active1 = if j <= hn[1] { 1.0 } else { 0.0 };
-            let mask = vsetq_lane_f64(active1, vdupq_n_f64(active0), 1);
-
+        for j in 1..=hn {
             let idx = (row + j) * LANES;
             let diag = (prev + j - 1) * LANES;
             let up = (prev + j) * LANES;
             let left = (row + j - 1) * LANES;
 
-            // SAFETY: SoA buffers sized for cells*LANES; NEON enabled.
+            // SAFETY: SoA buffers sized for cells*LANES; NEON enabled; equal-length pack.
             let m_diag = vld1q_f64(m.as_ptr().add(diag));
             let i_diag = vld1q_f64(ins.as_ptr().add(diag));
             let d_diag = vld1q_f64(del.as_ptr().add(diag));
@@ -265,15 +263,10 @@ unsafe fn score_pack2(
                 vaddq_f64(vmulq_f64(m_diag, tm2m), vmulq_f64(i_diag, ti2m)),
                 vmulq_f64(d_diag, ti2m),
             );
-            let m_new = vmulq_f64(vmulq_f64(p, sum), mask);
-            let i_new = vmulq_f64(
-                vaddq_f64(vmulq_f64(m_up, tm2i), vmulq_f64(i_up, ti2i)),
-                mask,
-            );
-            let d_new = vmulq_f64(
-                vaddq_f64(vmulq_f64(m_left, tm2d), vmulq_f64(d_left, td2d)),
-                mask,
-            );
+            let m_new = vmulq_f64(p, sum);
+            let i_new = vaddq_f64(vmulq_f64(m_up, tm2i), vmulq_f64(i_up, ti2i));
+            // del[i][j] uses match[i][j-1] already stored at previous j (m_left).
+            let d_new = vaddq_f64(vmulq_f64(m_left, tm2d), vmulq_f64(d_left, td2d));
 
             vst1q_f64(m.as_mut_ptr().add(idx), m_new);
             vst1q_f64(ins.as_mut_ptr().add(idx), i_new);
@@ -283,18 +276,15 @@ unsafe fn score_pack2(
 
     let end_row = rn * cols;
     let mut sums = [0.0f64; 2];
-    for j in 1..=hn_max {
+    for j in 1..=hn {
         let idx = (end_row + j) * LANES;
         let mv = vld1q_f64(m.as_ptr().add(idx));
         let iv = vld1q_f64(ins.as_ptr().add(idx));
         let s = vaddq_f64(mv, iv);
         let mut tmp = [0.0f64; 2];
         vst1q_f64(tmp.as_mut_ptr(), s);
-        for lane in 0..LANES {
-            if j <= hn[lane] {
-                sums[lane] += tmp[lane];
-            }
-        }
+        sums[0] += tmp[0];
+        sums[1] += tmp[1];
     }
 
     let mut out = [0.0f64; 2];
