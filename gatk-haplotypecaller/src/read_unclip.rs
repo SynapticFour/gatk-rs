@@ -352,7 +352,7 @@ pub fn revert_soft_clipped_bases(rec: &bam::Record) -> bam::Record {
 
 /// `ReadClipper.hardClipSoftClippedBases`.
 pub fn hard_clip_soft_clipped_bases(rec: &bam::Record) -> bam::Record {
-    let seq_len = rec.seq().as_bytes().len();
+    let seq_len = rec.seq().len();
     if seq_len == 0 {
         return rec.clone();
     }
@@ -360,8 +360,10 @@ pub fn hard_clip_soft_clipped_bases(rec: &bam::Record) -> bam::Record {
     let mut cut_left = None::<usize>;
     let mut cut_right = None::<usize>;
     let mut right_tail = false;
+    let mut saw_soft = false;
     for c in rec.cigar().iter() {
         if matches!(c, Cigar::SoftClip(_)) {
+            saw_soft = true;
             if right_tail {
                 cut_right = Some(read_index);
             } else {
@@ -374,7 +376,11 @@ pub fn hard_clip_soft_clipped_bases(rec: &bam::Record) -> bam::Record {
             read_index += cigar_len(c) as usize;
         }
     }
+    // Java hardClipSoftClippedBases is identity when there are no soft clips.
     let mut out = rec.clone();
+    if !saw_soft {
+        return out;
+    }
     if let Some(right) = cut_right {
         out = apply_hard_clip_bases(&out, right, seq_len.saturating_sub(1));
     }

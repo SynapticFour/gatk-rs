@@ -147,6 +147,16 @@ fn calculate_haplotype_cigar_sw(
             alignment_start_hap_wrt_ref: 0,
         });
     }
+    // Equal-length SNP/MNP: EventMap reads mismatches from Match ops — skip padded SW.
+    // Length-changing alts still need SoftClip/Indel SW below.
+    if ref_seq.len() == alt_seq.len() {
+        let mut c = Cigar::new();
+        c.push(ref_seq.len(), CigarOperator::Match);
+        return Some(HaplotypeAssemblyCigar {
+            cigar: c,
+            alignment_start_hap_wrt_ref: 0,
+        });
+    }
     let mut padded_ref = Vec::with_capacity(SW_PAD.len() + ref_seq.len() + SW_PAD.len());
     padded_ref.extend_from_slice(SW_PAD);
     padded_ref.extend_from_slice(ref_seq);

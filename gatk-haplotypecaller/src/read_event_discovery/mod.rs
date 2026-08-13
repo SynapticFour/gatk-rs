@@ -1802,6 +1802,34 @@ fn merge_read_strict_snps_missing_from_event_map(
 }
 include!("cluster_materialize.rs");
 
+/// True when some alt haplotype changes length vs the reference haplotype but still lacks I/D
+/// CIGAR ops — EventMap refresh/SW is required.
+///
+/// Compares against the **reference haplotype bases length** (trim-window or full pad), never
+/// the raw padded-ref byte buffer alone: after `trim_to`, SNP alts are shorter than the full
+/// pad and a pad-length compare falsely forces resync on every region.
+pub fn alt_needs_indel_cigar_refresh(haplotypes: &[Haplotype]) -> bool {
+    let Some(ref_len) = haplotypes
+        .iter()
+        .find(|h| h.is_reference)
+        .map(|h| h.bases.len())
+    else {
+        return haplotypes.iter().any(|h| !h.is_reference);
+    };
+    haplotypes.iter().any(|h| {
+        if h.is_reference {
+            return false;
+        }
+        let len_diff = h.bases.len() != ref_len;
+        let has_indel_cigar = h
+            .cigar
+            .as_ref()
+            .map(|c| c.elements.iter().any(|e| e.operator.is_indel()))
+            .unwrap_or(false);
+        len_diff && !has_indel_cigar
+    })
+}
+
 /// ASM-8: re-project all-`M` alt haps to CIGARs with I/D when bases differ from ref (EventMap path).
 pub fn refresh_alt_haplotype_indel_cigars(
     haplotypes: &mut [Haplotype],
@@ -1836,14 +1864,21 @@ pub fn refresh_alt_haplotype_indel_cigars(
             h.alignment_start_hap_wrt_ref =
                 trim_offset_in_full_ref.saturating_add(h.alignment_start_hap_wrt_ref);
         }
-        let needs_indel_cigar = match &h.cigar {
-            None => true,
-            Some(c) => !c.elements.iter().any(|e| e.operator.is_indel()),
-        };
-        let sequence_differs = h.bases.len() != ref_bytes.len()
-            || h.bases.iter().zip(ref_bytes.iter()).any(|(a, b)| a != b);
-        if !needs_indel_cigar && !sequence_differs {
-            continue;
+        // Skip SW when assembly already attached a usable CIGAR:
+        // - indel ops present → EventMap reads I/D from CIGAR
+        // - equal length → SNP/MNP EventMap from Match mismatches vs ref bases
+        // Only re-align when length differs without an indel CIGAR (all-M / missing).
+        let sequence_len_differs = h.bases.len() != ref_bytes.len();
+        match &h.cigar {
+            Some(c) if c.elements.iter().any(|e| e.operator.is_indel()) => continue,
+            Some(_) if !sequence_len_differs => continue,
+            None if !sequence_len_differs => {
+                let mut c = crate::cigar::Cigar::new();
+                c.push(h.bases.len(), crate::cigar::CigarOperator::Match);
+                h.cigar = Some(c);
+                continue;
+            }
+            _ => {}
         }
         let ref_cigar_len = ref_hap
             .cigar
@@ -1865,7 +1900,7 @@ pub fn refresh_alt_haplotype_indel_cigars(
                 applied = true;
             }
         }
-        if !applied && sequence_differs {
+        if !applied && sequence_len_differs {
             if let Some(indel_cigar) = calculate_haplotype_cigar_with_strategy(
                 ref_bytes,
                 &h.bases,

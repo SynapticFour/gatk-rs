@@ -486,14 +486,27 @@ impl HaplotypeCallerEngine {
         let apply_bases_u = untrimmed.apply_bases_shared();
         let sw = &args.assemble.assembler.haplotype_to_reference_sw;
 
-        crate::read_event_discovery::sync_assembly_events_from_haplotype_cigars_with_harvest(
-            &mut untrimmed,
-            &region.contig,
-            sw,
-            crate::read_event_discovery::SyncAssemblyOptions {
-                harvest_trim_snps: false,
-                strict_event_map_only: args.is_java_compatible(),
-            },
+        // Assemble already synced EventMap (`assemble_reads_with_finalized`). Re-running
+        // refresh+collect here re-pays haplotype→ref SW on every alt for trim_variants only.
+        // Resync when the list is empty (ref-only / early exit paths) or non-strict harvest.
+        if !args.is_java_compatible() || untrimmed.variation_events.is_empty() {
+            crate::read_event_discovery::sync_assembly_events_from_haplotype_cigars_with_harvest(
+                &mut untrimmed,
+                &region.contig,
+                sw,
+                crate::read_event_discovery::SyncAssemblyOptions {
+                    harvest_trim_snps: false,
+                    strict_event_map_only: args.is_java_compatible(),
+                },
+            );
+        }
+        crate::runtime_config::rss_trace_checkpoint(
+            "prep_trim_variants",
+            &format!(
+                "haps={} events={}",
+                untrimmed.haplotypes.len(),
+                untrimmed.variation_events.len()
+            ),
         );
         if !args.is_java_compatible()
             && !args.enable_read_event_supplement
@@ -653,22 +666,45 @@ impl HaplotypeCallerEngine {
             .unwrap_or_else(|| assembly.padded_reference_start_1based());
         let apply_bases_pre = assembly.apply_bases_shared();
         let (full_ref, full_pad) = assembly.event_map_reference();
-        let graph_events = collect_variation_events(
-            &assembly.haplotypes,
-            full_ref,
-            full_pad,
-            &region.contig,
-            assembly.max_mnp_distance(),
-        );
+        // Production StrictJava never enables read-event supplement — skip this collect.
+        // (Supplement path still needs graph_events for SNP merge.)
+        let graph_events = if args.enable_read_event_supplement {
+            collect_variation_events(
+                &assembly.haplotypes,
+                full_ref,
+                full_pad,
+                &region.contig,
+                assembly.max_mnp_distance(),
+            )
+        } else {
+            Vec::new()
+        };
         let harvest_trim_snps = !args.is_strict_java();
-        crate::read_event_discovery::sync_assembly_events_from_haplotype_cigars_with_harvest(
-            &mut assembly,
-            &region.contig,
-            sw,
-            crate::read_event_discovery::SyncAssemblyOptions {
-                harvest_trim_snps,
-                strict_event_map_only: args.is_strict_java(),
-            },
+        // `trim_to` already rebuilt EventMap. Re-sync only when an alt still lacks indel
+        // CIGAR for a length-changing allele vs the **trimmed** reference haplotype.
+        let needs_post_trim_resync = !args.is_java_compatible()
+            || harvest_trim_snps
+            || assembly.variation_events.is_empty()
+            || crate::read_event_discovery::alt_needs_indel_cigar_refresh(&assembly.haplotypes);
+        if needs_post_trim_resync {
+            crate::read_event_discovery::sync_assembly_events_from_haplotype_cigars_with_harvest(
+                &mut assembly,
+                &region.contig,
+                sw,
+                crate::read_event_discovery::SyncAssemblyOptions {
+                    harvest_trim_snps,
+                    strict_event_map_only: args.is_strict_java(),
+                },
+            );
+        }
+        crate::runtime_config::rss_trace_checkpoint(
+            "prep_post_trim_events",
+            &format!(
+                "haps={} events={} resync={needs_post_trim_resync} graph_events={}",
+                assembly.haplotypes.len(),
+                assembly.variation_events.len(),
+                graph_events.len()
+            ),
         );
         if args.enable_read_event_supplement {
             if args.pileup_detection.enable_event_supplement
@@ -792,6 +828,7 @@ impl HaplotypeCallerEngine {
 
         let mut read_likelihoods = Vec::new();
         let mut post_pairhmm_t0: Option<std::time::Instant> = None;
+        let mut event_map_synced_post_filter = false;
         if args.compute_read_likelihoods {
             crate::read_event_discovery::prune_spillover_supplement_haplotypes(&mut assembly);
             if args.is_strict_java() {
@@ -883,56 +920,68 @@ impl HaplotypeCallerEngine {
                 && !defer_early_allele_filter
             {
                 let t_early = std::time::Instant::now();
-                crate::read_event_discovery::sync_assembly_events_from_haplotype_cigars_with_harvest(
-                    &mut assembly,
-                    &region.contig,
-                    &args.assemble.assembler.haplotype_to_reference_sw,
-                    crate::read_event_discovery::SyncAssemblyOptions {
-                        harvest_trim_snps: false,
-                        strict_event_map_only: args.is_strict_java(),
-                    },
-                );
-                let hap_snapshot = assembly.haplotypes.clone();
+                // Skip pre-filter sync when trim/assemble EventMap is already CIGAR-complete.
+                let need_pre_filter_sync = assembly.variation_events.is_empty()
+                    || crate::read_event_discovery::alt_needs_indel_cigar_refresh(
+                        &assembly.haplotypes,
+                    );
+                if need_pre_filter_sync {
+                    crate::read_event_discovery::sync_assembly_events_from_haplotype_cigars_with_harvest(
+                        &mut assembly,
+                        &region.contig,
+                        &args.assemble.assembler.haplotype_to_reference_sw,
+                        crate::read_event_discovery::SyncAssemblyOptions {
+                            harvest_trim_snps: false,
+                            strict_event_map_only: args.is_strict_java(),
+                        },
+                    );
+                }
+                let hap_count_before = assembly.haplotypes.len();
                 // Stages: EventMapMaterialized → AlleleFiltered → sync again.
                 // See `assembly_pipeline_stages::{CallRegionAssemblyStage, EVENT_MAP_SYNC_AROUND_FILTER_RATIONALE}`.
+                // Take LL by move (no clone). Filter retains the reference haplotype; all-true
+                // keep-mask early-outs without rebuilding haps.
                 let filtered = filter_assembly_and_likelihoods(
                     &mut assembly,
-                    read_likelihoods.clone(),
+                    std::mem::take(&mut read_likelihoods),
                     crate::allele_filter_options::AlleleFilterOptions::from_strict_java(
                         args.is_strict_java(),
                         Some(region.start.get()),
                         Some(region.end.get()),
                     ),
                 )?;
-                if !filtered.is_empty() {
-                    read_likelihoods = filtered;
-                } else {
-                    assembly.haplotypes = hap_snapshot;
+                read_likelihoods = filtered;
+                let did_post_sync = assembly.haplotypes.len() != hap_count_before;
+                // Only regenerate EventMap when the hap set actually changed.
+                if did_post_sync {
+                    crate::read_event_discovery::sync_assembly_events_from_haplotype_cigars_with_harvest(
+                        &mut assembly,
+                        &region.contig,
+                        &args.assemble.assembler.haplotype_to_reference_sw,
+                        crate::read_event_discovery::SyncAssemblyOptions {
+                            harvest_trim_snps: false,
+                            strict_event_map_only: args.is_strict_java(),
+                        },
+                    );
                 }
-                crate::read_event_discovery::sync_assembly_events_from_haplotype_cigars_with_harvest(
-                    &mut assembly,
-                    &region.contig,
-                    &args.assemble.assembler.haplotype_to_reference_sw,
-                    crate::read_event_discovery::SyncAssemblyOptions {
-                        harvest_trim_snps: false,
-                        strict_event_map_only: args.is_strict_java(),
-                    },
-                );
+                event_map_synced_post_filter = true;
                 crate::runtime_config::rss_trace_checkpoint(
                     "prep_early_allele_filter",
                     &format!(
-                        "haps={} ll_rows={} events={} step_ms={}",
+                        "haps={} ll_rows={} events={} pre_sync={} post_sync={} step_ms={}",
                         assembly.haplotypes.len(),
                         read_likelihoods.len(),
                         assembly.variation_events.len(),
+                        need_pre_filter_sync,
+                        did_post_sync,
                         t_early.elapsed().as_millis()
                     ),
                 );
             }
-            // Drop PairHMM TLS before realign SW so DP arenas do not stack with SW.
-            crate::pairhmm_log10::release_pairhmm_tls_scratch();
-            crate::pairhmm_logless::release_pairhmm_logless_tls_scratch();
-            crate::pairhmm_simd::release_pairhmm_simd_tls_scratch();
+            // Do **not** full-drop PairHMM TLS here: on dense NA12878, munmap of NEON/Logless
+            // planes between early allele filter and realign was ~2 s/window while realign SW
+            // itself was <0.5 s (`step_ms` ≪ `delta_ms` on `prep_realign`). Peak stacking is
+            // bounded by region-end [`crate::run::release_region_tls_scratch`] (includes SIMD).
             // A3: realign via Arc COW (`BamRecordSlot`) — no deep clone of every BAM payload.
             let t_realign = std::time::Instant::now();
             let (_realigned, best_hap_per_read) = realign_reads_to_best_haplotype(
@@ -972,14 +1021,27 @@ impl HaplotypeCallerEngine {
                 region.start.get(),
                 region.end.get(),
             );
-        crate::read_event_discovery::sync_assembly_events_from_haplotype_cigars_with_harvest(
-            &mut assembly,
-            &region.contig,
-            &args.assemble.assembler.haplotype_to_reference_sw,
-            crate::read_event_discovery::SyncAssemblyOptions {
-                harvest_trim_snps,
-                strict_event_map_only: args.is_strict_java(),
-            },
+        // Realign mutates reads only. When allele-filter already regenerated EventMap,
+        // skip another full sync before spine (dense windows paid this twice).
+        let needs_post_realign_sync = post_hmm_hap_bridges || !event_map_synced_post_filter;
+        if needs_post_realign_sync {
+            crate::read_event_discovery::sync_assembly_events_from_haplotype_cigars_with_harvest(
+                &mut assembly,
+                &region.contig,
+                &args.assemble.assembler.haplotype_to_reference_sw,
+                crate::read_event_discovery::SyncAssemblyOptions {
+                    harvest_trim_snps,
+                    strict_event_map_only: args.is_strict_java(),
+                },
+            );
+        }
+        crate::runtime_config::rss_trace_checkpoint(
+            "prep_post_realign_events",
+            &format!(
+                "haps={} events={} resync={needs_post_realign_sync}",
+                assembly.haplotypes.len(),
+                assembly.variation_events.len()
+            ),
         );
         // R4-2 / L8: production StrictJava outside contig 2 — append read-proven
         // indels/SNPs. Must SW-materialize alt haps: the later strict EventMap sync
@@ -994,6 +1056,8 @@ impl HaplotypeCallerEngine {
         {
             const SPINE_EVENT_SATURATION: usize = 64;
             let t0 = std::time::Instant::now();
+            // Re-check saturation after indels: indel spine can fill the EventMap so SNP
+            // rediscovery is wasted (second full read scan + SW materialize).
             if assembly.variation_events.len() < SPINE_EVENT_SATURATION {
                 crate::read_event_discovery::parity_spine_read_proven_indels(
                     &mut assembly,
@@ -1003,6 +1067,8 @@ impl HaplotypeCallerEngine {
                     sw,
                     true,
                 )?;
+            }
+            if assembly.variation_events.len() < SPINE_EVENT_SATURATION {
                 crate::read_event_discovery::parity_spine_read_proven_snps(
                     &mut assembly,
                     &region.reads,
@@ -1181,10 +1247,17 @@ impl HaplotypeCallerEngine {
         if args.is_strict_java() {
             let hap_before_event_map_finalize = assembly.haplotypes.len();
             let t_strict = std::time::Instant::now();
-            crate::read_event_discovery::repair_alt_haplotype_alignment_for_event_map(
-                &mut assembly.haplotypes,
-                sw,
-            );
+            // Genome-wide (non-P12): EventMap already collected from CIGARs during assemble/trim.
+            // Skip repair/sync/rebuild thrash unless indel CIGARs are incomplete or events empty.
+            let needs_event_map_resync = post_hmm_hap_bridges
+                || assembly.variation_events.is_empty()
+                || crate::read_event_discovery::alt_needs_indel_cigar_refresh(&assembly.haplotypes);
+            if needs_event_map_resync {
+                crate::read_event_discovery::repair_alt_haplotype_alignment_for_event_map(
+                    &mut assembly.haplotypes,
+                    sw,
+                );
+            }
             if post_hmm_hap_bridges {
                 crate::read_event_discovery::ensure_alt_haplotypes_for_variation_events(
                     &mut assembly,
@@ -1205,15 +1278,17 @@ impl HaplotypeCallerEngine {
                     sw,
                 )?;
             }
-            crate::read_event_discovery::sync_assembly_events_from_haplotype_cigars_with_harvest(
-                &mut assembly,
-                &region.contig,
-                sw,
-                crate::read_event_discovery::SyncAssemblyOptions {
-                    harvest_trim_snps: false,
-                    strict_event_map_only: true,
-                },
-            );
+            if needs_event_map_resync {
+                crate::read_event_discovery::sync_assembly_events_from_haplotype_cigars_with_harvest(
+                    &mut assembly,
+                    &region.contig,
+                    sw,
+                    crate::read_event_discovery::SyncAssemblyOptions {
+                        harvest_trim_snps: false,
+                        strict_event_map_only: true,
+                    },
+                );
+            }
             // R4-2 last-chance indel spine: P12 only (genome-wide already ran once).
             if post_hmm_hap_bridges
                 && region.contig != "2"
@@ -1229,13 +1304,15 @@ impl HaplotypeCallerEngine {
                     true,
                 )?;
             }
-            rebuild_variation_events_for_genotyping(
-                &mut assembly,
-                &region.contig,
-                false,
-                &[],
-                false,
-            );
+            if needs_event_map_resync {
+                rebuild_variation_events_for_genotyping(
+                    &mut assembly,
+                    &region.contig,
+                    false,
+                    &[],
+                    false,
+                );
+            }
             if post_hmm_hap_bridges {
                 crate::read_event_discovery::ensure_read_backed_snp_alt_haplotypes(
                     &mut assembly,
@@ -1262,10 +1339,11 @@ impl HaplotypeCallerEngine {
             crate::runtime_config::rss_trace_checkpoint(
                 "prep_strict_event_map",
                 &format!(
-                    "haps={}→{} bridges={} step_ms={}",
+                    "haps={}→{} bridges={} resync={} step_ms={}",
                     hap_before_event_map_finalize,
                     assembly.haplotypes.len(),
                     post_hmm_hap_bridges,
+                    needs_event_map_resync,
                     t_strict.elapsed().as_millis()
                 ),
             );
@@ -1479,7 +1557,7 @@ impl HaplotypeCallerEngine {
                 let hap_snapshot = assembly.haplotypes.clone();
                 let filtered = filter_assembly_and_likelihoods(
                     &mut assembly,
-                    read_likelihoods.clone(),
+                    std::mem::take(&mut read_likelihoods),
                     crate::allele_filter_options::AlleleFilterOptions::strict_java_span(
                         region.start.get(),
                         region.end.get(),

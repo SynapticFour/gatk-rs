@@ -408,6 +408,11 @@ fn supplemental_indel_variation_events(
     if cigar_has_indel(cigar) {
         return Vec::new();
     }
+    // Equal-length alts are SNP/MNP — Indel-strategy SW cannot add I/D events and was the
+    // dominant cost inside every `collect_variation_events` on dense NA12878.
+    if haplotype.bases.len() == ref_bytes.len() {
+        return Vec::new();
+    }
     let sw = SwParameters::gatk_haplotype_to_reference();
     let Some(indel_cigar) = calculate_haplotype_cigar_with_strategy(
         ref_bytes,
@@ -422,6 +427,8 @@ fn supplemental_indel_variation_events(
     }
     let mut alt = haplotype.clone();
     alt.cigar = Some(indel_cigar);
+    alt.alignment_start_hap_wrt_ref =
+        effective_alignment_start_for_full_ref(haplotype, ref_hap, ref_loc_start_1based);
     let map = EventMap::from_haplotype_and_reference(
         &alt,
         ref_hap,
@@ -484,16 +491,28 @@ pub fn variation_events_for_haplotype(
     if haplotype.cigar.is_none() {
         return Vec::new();
     }
-    let mut hap_for_map = haplotype.clone();
-    hap_for_map.alignment_start_hap_wrt_ref =
-        effective_alignment_start_for_full_ref(&hap_for_map, ref_hap, ref_loc_start_1based);
-    let map = EventMap::from_haplotype_and_reference(
-        &hap_for_map,
-        ref_hap,
-        ref_bytes,
-        ref_loc_start_1based,
-        max_mnp_distance,
-    );
+    let align_start =
+        effective_alignment_start_for_full_ref(haplotype, ref_hap, ref_loc_start_1based);
+    // Avoid cloning haplotype bases solely to lift trim→pad alignment start.
+    let map = if align_start == haplotype.alignment_start_hap_wrt_ref {
+        EventMap::from_haplotype_and_reference(
+            haplotype,
+            ref_hap,
+            ref_bytes,
+            ref_loc_start_1based,
+            max_mnp_distance,
+        )
+    } else {
+        let mut hap_for_map = haplotype.clone();
+        hap_for_map.alignment_start_hap_wrt_ref = align_start;
+        EventMap::from_haplotype_and_reference(
+            &hap_for_map,
+            ref_hap,
+            ref_bytes,
+            ref_loc_start_1based,
+            max_mnp_distance,
+        )
+    };
     let mut events: Vec<VariationEvent> = map
         .variation_events(contig, ref_loc_start_1based)
         .into_iter()
@@ -522,16 +541,18 @@ pub fn collect_variation_events(
     contig: &str,
     max_mnp_distance: usize,
 ) -> Vec<VariationEvent> {
-    let ref_hap = haplotypes
-        .iter()
-        .find(|h| h.is_reference)
-        .cloned()
-        .unwrap_or_else(|| Haplotype::new(ref_bytes, true));
+    let owned_ref;
+    let ref_hap = if let Some(h) = haplotypes.iter().find(|h| h.is_reference) {
+        h
+    } else {
+        owned_ref = Haplotype::new(ref_bytes, true);
+        &owned_ref
+    };
     let mut set = BTreeSet::new();
     for h in haplotypes {
         for mut v in variation_events_for_haplotype(
             h,
-            &ref_hap,
+            ref_hap,
             ref_bytes,
             ref_loc_start_1based,
             max_mnp_distance,
@@ -554,16 +575,18 @@ pub fn build_event_start_positions_1based(
     ref_loc_start_1based: u64,
     max_mnp_distance: usize,
 ) -> BTreeSet<u64> {
-    let ref_hap = haplotypes
-        .iter()
-        .find(|x| x.is_reference)
-        .cloned()
-        .unwrap_or_else(|| Haplotype::new(ref_bytes, true));
+    let owned_ref;
+    let ref_hap = if let Some(h) = haplotypes.iter().find(|x| x.is_reference) {
+        h
+    } else {
+        owned_ref = Haplotype::new(ref_bytes, true);
+        &owned_ref
+    };
     let mut positions = BTreeSet::new();
     for h in haplotypes {
         for v in variation_events_for_haplotype(
             h,
-            &ref_hap,
+            ref_hap,
             ref_bytes,
             ref_loc_start_1based,
             max_mnp_distance,
