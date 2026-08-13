@@ -71,7 +71,8 @@ pub fn alignment_start_from_haplotype_sw(
     }
 }
 
-/// GATK `ReadThreadingAssembler` cigar path: SOFTCLIP first, INDEL retry on ref-span mismatch.
+/// GATK `ReadThreadingAssembler` cigar path: SoftClip first for equal-length;
+/// length-changing alts go Indel-first (SoftClip rarely passes the ref-span check).
 pub fn calculate_haplotype_cigar_for_assembly(
     ref_seq: &[u8],
     alt_seq: &[u8],
@@ -94,6 +95,25 @@ pub fn calculate_haplotype_cigar_for_assembly_with_offset(
     ref_cigar_length: usize,
     parameters: &SwParameters,
 ) -> Option<HaplotypeAssemblyCigar> {
+    // Length-changing: SoftClip almost always fails `reference_length == ref_cigar_length`
+    // and we fall through to Indel — skip the wasted SoftClip SW on dense extract.
+    // If Indel yields no I/D, fall back to SoftClip (rare recovery).
+    if ref_seq.len() != alt_seq.len() {
+        if let Some(indel) =
+            calculate_haplotype_cigar_sw(ref_seq, alt_seq, parameters, SwOverhangStrategy::Indel)
+        {
+            if indel.cigar.elements.iter().any(|e| e.operator.is_indel()) {
+                return Some(indel);
+            }
+        }
+        return calculate_haplotype_cigar_sw(
+            ref_seq,
+            alt_seq,
+            parameters,
+            SwOverhangStrategy::SoftClip,
+        );
+    }
+
     let soft =
         calculate_haplotype_cigar_sw(ref_seq, alt_seq, parameters, SwOverhangStrategy::SoftClip)?;
     if soft.cigar.reference_length() == ref_cigar_length {

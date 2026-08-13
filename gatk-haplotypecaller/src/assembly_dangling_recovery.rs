@@ -1214,16 +1214,20 @@ pub fn apply_dangling_merge_haplotypes(
         h.cigar = Some(m.cigar.clone());
         h.alignment_start_hap_wrt_ref = m.alignment_start_hap_wrt_ref;
         h.score = 25.0;
-        if let Some(ref_cigar) = ref_hap.cigar.as_ref() {
-            if let Some(assy) = calculate_haplotype_cigar_for_assembly_with_offset(
-                ref_bytes,
-                &h.bases,
-                ref_cigar.reference_length(),
-                sw,
-            ) {
-                if assy.cigar.elements.iter().any(|e| e.operator.is_indel()) {
-                    h.cigar = Some(assy.cigar);
-                    h.alignment_start_hap_wrt_ref = assy.alignment_start_hap_wrt_ref;
+        // Merge CIGAR already comes from dangling recovery SW — only re-SW when
+        // it lacks I/D (equal-length / Match-only) and we still need an indel cigar.
+        if !has_indel {
+            if let Some(ref_cigar) = ref_hap.cigar.as_ref() {
+                if let Some(assy) = calculate_haplotype_cigar_for_assembly_with_offset(
+                    ref_bytes,
+                    &h.bases,
+                    ref_cigar.reference_length(),
+                    sw,
+                ) {
+                    if assy.cigar.elements.iter().any(|e| e.operator.is_indel()) {
+                        h.cigar = Some(assy.cigar);
+                        h.alignment_start_hap_wrt_ref = assy.alignment_start_hap_wrt_ref;
+                    }
                 }
             }
         }
