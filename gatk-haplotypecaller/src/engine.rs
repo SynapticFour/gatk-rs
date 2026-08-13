@@ -468,26 +468,10 @@ impl HaplotypeCallerEngine {
         else {
             return Ok(None);
         };
-        if crate::runtime_config::hc_rss_trace_enabled() {
-            let rss = crate::runtime_config::current_rss_mib()
-                .map(|v| format!("{v:.1}"))
-                .unwrap_or_else(|| "?".into());
-            eprintln!(
-                "HC_RSS_TRACE phase=after_assemble region={}:{}-{} haps={} finalized={} rss_MiB={}",
-                region.contig,
-                region.start.get(),
-                region.end.get(),
-                assembled.assembly.haplotypes.len(),
-                assembled.finalized_reads.len(),
-                rss
-            );
-        }
-        crate::runtime_config::rss_trace_set_locus(
-            &region.contig,
-            region.start.get(),
-            region.end.get(),
+        crate::runtime_config::rss_trace_checkpoint(
+            "after_assemble",
             &format!(
-                "after_assemble haps={} finalized={}",
+                "haps={} finalized={}",
                 assembled.assembly.haplotypes.len(),
                 assembled.finalized_reads.len()
             ),

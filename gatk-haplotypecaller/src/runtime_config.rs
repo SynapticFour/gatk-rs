@@ -213,6 +213,8 @@ static RSS_SAMPLER_STARTED: Once = Once::new();
 static RSS_SAMPLER_STOP: AtomicBool = AtomicBool::new(false);
 /// High-water RSS (MiB × 10) seen by the background sampler while TRACE is on.
 static RSS_TRACE_PEAK_X10: AtomicU64 = AtomicU64::new(0);
+/// Wall clock of the previous [`rss_trace_checkpoint`] for `delta_ms` attribution.
+static RSS_TRACE_LAST_INSTANT: OnceLock<Mutex<Option<std::time::Instant>>> = OnceLock::new();
 
 fn rss_trace_locus_lock() -> &'static Mutex<String> {
     RSS_TRACE_LOCUS.get_or_init(|| Mutex::new(String::new()))
@@ -231,6 +233,7 @@ pub fn rss_trace_set_locus(contig: &str, start: u64, end: u64, detail: &str) {
             let _ = write!(s, " {detail}");
         }
     }
+    rss_trace_reset_wall_delta();
     ensure_rss_sampler();
 }
 
@@ -245,11 +248,21 @@ pub fn rss_trace_clear_locus() {
 }
 
 /// Log a named phase RSS sample when TRACE is on or an RSS abort limit is set.
+///
+/// Also emits `delta_ms` = wall since the previous checkpoint (assemble wall pie).
 pub fn rss_trace_checkpoint(phase: &str, detail: &str) {
     if !hc_rss_diagnostics_enabled() {
         return;
     }
     ensure_rss_sampler();
+    let now = std::time::Instant::now();
+    let delta_ms = {
+        let lock = RSS_TRACE_LAST_INSTANT.get_or_init(|| Mutex::new(None));
+        let mut prev = lock.lock().unwrap_or_else(|e| e.into_inner());
+        let d = prev.map(|p| now.duration_since(p).as_secs_f64() * 1000.0);
+        *prev = Some(now);
+        d
+    };
     let rss = current_rss_mib()
         .map(|v| format!("{v:.1}"))
         .unwrap_or_else(|| "?".into());
@@ -257,12 +270,26 @@ pub fn rss_trace_checkpoint(phase: &str, detail: &str) {
         .lock()
         .map(|s| s.clone())
         .unwrap_or_default();
+    let delta = delta_ms
+        .map(|ms| format!(" delta_ms={ms:.1}"))
+        .unwrap_or_default();
     if detail.is_empty() {
-        eprintln!("HC_RSS_TRACE phase={phase} locus={locus} rss_MiB={rss}");
+        eprintln!("HC_RSS_TRACE phase={phase} locus={locus}{delta} rss_MiB={rss}");
     } else {
-        eprintln!("HC_RSS_TRACE phase={phase} locus={locus} {detail} rss_MiB={rss}");
+        eprintln!("HC_RSS_TRACE phase={phase} locus={locus} {detail}{delta} rss_MiB={rss}");
     }
     let _ = std::io::Write::flush(&mut std::io::stderr());
+}
+
+/// Reset wall-delta chain (call at region start so the first phase has no stale delta).
+pub fn rss_trace_reset_wall_delta() {
+    if !hc_rss_diagnostics_enabled() {
+        return;
+    }
+    let lock = RSS_TRACE_LAST_INSTANT.get_or_init(|| Mutex::new(None));
+    if let Ok(mut prev) = lock.lock() {
+        *prev = Some(std::time::Instant::now());
+    }
 }
 
 fn ensure_rss_sampler() {

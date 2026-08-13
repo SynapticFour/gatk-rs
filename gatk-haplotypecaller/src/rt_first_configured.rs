@@ -4,7 +4,6 @@ use crate::assembly::AssemblyRead;
 use crate::cigar::{Cigar, CigarOperator};
 use crate::event_map::EventMap;
 use crate::haplotype::Haplotype;
-use crate::read_event_discovery::refresh_alt_haplotype_indel_cigars;
 use crate::read_threading_assembler::{
     finalize_assembly_haplotypes, haplotypes_have_alt_bases, just_reference_result,
     merge_rt_kbest_pre_remove_paths_at_kmer, AssemblyResult, AssemblyStatus,
@@ -17,6 +16,8 @@ use gatk_common::GatkResult;
 /// # Invariants
 /// Returns `Some` only with alt+ref haplotypes; `None` falls through to SeqGraph.
 /// Never runs on P12 / L-gate or tiny L2 k-mer sets (`k < 10`).
+/// On miss, marks each configured k-mer empty in [`crate::rt_region_cache`] so
+/// supplement/merge_rt skip re-building the same before_remove extracts.
 /// # Java equivalence
 /// Same before_remove RT extract as
 /// [`crate::read_threading_assembler::supplement_p12_cluster_coupled_haplotypes`], ordered
@@ -50,8 +51,6 @@ pub(crate) fn try_rt_configured_alts_before_seq_graph(
     );
 
     let ref_bytes = reference.bases.as_slice();
-    let pad = ctx.padded_reference_start_1based;
-    let sw = &args.haplotype_to_reference_sw;
     let mut hit_kmer = kmers.first().copied().unwrap_or(25);
     let mut haplotypes = just_reference_result(hit_kmer, reference).haplotypes;
 
@@ -73,10 +72,10 @@ pub(crate) fn try_rt_configured_alts_before_seq_graph(
             Some(kmer_size),
         )?;
         if !haplotypes.iter().any(|h| !h.is_reference) || haplotypes.len() <= 1 {
+            crate::rt_region_cache::mark_configured_kmer_empty(kmer_size);
             continue;
         }
-        refresh_alt_haplotype_indel_cigars(&mut haplotypes, ref_bytes, pad, sw);
-        crate::smith_waterman::release_sw_tls_scratch();
+        // Defer indel CIGAR refresh to assemble_reads_with_finalized.
         let mut ref_hap = Haplotype::new(ref_bytes, true);
         let mut ref_cigar = Cigar::new();
         ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
@@ -92,6 +91,7 @@ pub(crate) fn try_rt_configured_alts_before_seq_graph(
         if !matches!(status, AssemblyStatus::AssembledSomeVariation)
             || !haplotypes_have_alt_bases(&haplotypes, ref_bytes)
         {
+            crate::rt_region_cache::mark_configured_kmer_empty(kmer_size);
             haplotypes = just_reference_result(kmer_size, reference).haplotypes;
             continue;
         }
