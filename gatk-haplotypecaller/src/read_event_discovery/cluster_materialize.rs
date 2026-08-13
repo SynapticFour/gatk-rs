@@ -975,49 +975,65 @@ pub fn repair_alt_haplotype_alignment_for_event_map(
     haplotypes: &mut [Haplotype],
     sw: &SwParameters,
 ) {
-    let ref_bytes: Vec<u8> = haplotypes
-        .iter()
-        .find(|h| h.is_reference)
-        .map(|h| h.bases.clone())
-        .unwrap_or_default();
-    if ref_bytes.is_empty() {
+    let Some(ref_idx) = haplotypes.iter().position(|h| h.is_reference) else {
+        return;
+    };
+    // Borrow ref bases without cloning the reference haplotype sequence.
+    let ref_len = haplotypes[ref_idx].bases.len();
+    if ref_len == 0 {
         return;
     }
-    let ref_cigar_len = haplotypes
-        .iter()
-        .find(|h| h.is_reference)
-        .and_then(|h| h.cigar.as_ref())
+    let ref_cigar_len = haplotypes[ref_idx]
+        .cigar
+        .as_ref()
         .map(|c| c.reference_length())
-        .unwrap_or(ref_bytes.len());
-    for h in haplotypes.iter_mut() {
-        if h.is_reference {
+        .unwrap_or(ref_len);
+    // Split borrow: copy ref bytes once only when some alt actually needs SW.
+    let mut need_sw: Vec<usize> = Vec::new();
+    for i in 0..haplotypes.len() {
+        if haplotypes[i].is_reference {
             continue;
         }
-        if (h.score - SUPPLEMENT_HAPLOTYPE_SCORE).abs() < 1e-6
-            && h.cigar.as_ref().is_some_and(|c| {
+        if (haplotypes[i].score - SUPPLEMENT_HAPLOTYPE_SCORE).abs() < 1e-6
+            && haplotypes[i].cigar.as_ref().is_some_and(|c| {
                 c.elements.iter().any(|e| e.operator.is_indel())
             })
         {
             continue;
         }
-        let tail = h
-            .alignment_start_hap_wrt_ref
-            .saturating_add(h.bases.len());
-        let misaligned =
-            h.alignment_start_hap_wrt_ref >= ref_bytes.len() || tail > ref_bytes.len();
-        if h.alignment_start_hap_wrt_ref >= ref_bytes.len() {
-            h.alignment_start_hap_wrt_ref = 0;
+        let h_len = haplotypes[i].bases.len();
+        let align = haplotypes[i].alignment_start_hap_wrt_ref;
+        let tail = align.saturating_add(h_len);
+        let misaligned = align >= ref_len || tail > ref_len;
+        if align >= ref_len {
+            haplotypes[i].alignment_start_hap_wrt_ref = 0;
         }
-        if misaligned || h.cigar.is_none() || h.bases.as_slice() != ref_bytes.as_slice() {
-            if let Some(assy) = calculate_haplotype_cigar_for_assembly_with_offset(
-                &ref_bytes,
-                &h.bases,
-                ref_cigar_len,
-                sw,
-            ) {
-                h.alignment_start_hap_wrt_ref = assy.alignment_start_hap_wrt_ref;
-                h.cigar = Some(assy.cigar);
-            }
+        let has_cigar = haplotypes[i].cigar.is_some();
+        let has_indel_cigar = haplotypes[i]
+            .cigar
+            .as_ref()
+            .map(|c| c.elements.iter().any(|e| e.operator.is_indel()))
+            .unwrap_or(false);
+        // Equal-length with a CIGAR: EventMap Match path is enough — do not re-SW SNPs.
+        // Length-changing with indel CIGAR already present: keep it.
+        if !misaligned && has_cigar && (h_len == ref_len || has_indel_cigar) {
+            continue;
+        }
+        need_sw.push(i);
+    }
+    if need_sw.is_empty() {
+        return;
+    }
+    let ref_bytes = haplotypes[ref_idx].bases.clone();
+    for i in need_sw {
+        if let Some(assy) = calculate_haplotype_cigar_for_assembly_with_offset(
+            &ref_bytes,
+            &haplotypes[i].bases,
+            ref_cigar_len,
+            sw,
+        ) {
+            haplotypes[i].alignment_start_hap_wrt_ref = assy.alignment_start_hap_wrt_ref;
+            haplotypes[i].cigar = Some(assy.cigar);
         }
     }
 }

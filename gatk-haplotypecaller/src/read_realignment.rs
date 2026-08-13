@@ -53,6 +53,52 @@ pub fn realign_reads_to_best_haplotype<S: crate::shared_bam::BamRecordSlot>(
         .iter()
         .map(haplotype_alignment_tiebreak_priority)
         .collect();
+    // One pass over likelihood rows → dense [read][hap] table for best-allele search.
+    let mut max_read = 0usize;
+    for r in read_likelihoods {
+        max_read = max_read.max(r.read_index.get().saturating_add(1));
+    }
+    let n_reads = reads.len().max(max_read);
+    let n_haps = haplotypes.len();
+    let mut ll_matrix = vec![f64::NEG_INFINITY; n_reads.saturating_mul(n_haps.max(1))];
+    if n_haps > 0 {
+        for r in read_likelihoods {
+            let ri = r.read_index.get();
+            let hi = r.haplotype_index.get();
+            if ri < n_reads && hi < n_haps {
+                ll_matrix[ri * n_haps + hi] = r.log10_likelihood;
+            }
+        }
+    }
+    // Precompute hap→ref offset + consolidated pad once (Java stores these on Haplotype).
+    // Offset + consolidated only — do not clone the raw hap CIGAR into meta.
+    const CONSOLIDATED_HAP_PAD: usize = 1000;
+    let mut hap_meta: Vec<Option<(usize, Cigar)>> = Vec::with_capacity(n_haps);
+    for h in haplotypes {
+        if let Some(ref hc) = h.cigar {
+            let consolidated = consolidated_padded_cigar(hc, CONSOLIDATED_HAP_PAD);
+            hap_meta.push(Some((h.alignment_start_hap_wrt_ref, consolidated)));
+        } else if h.is_reference {
+            hap_meta.push(None);
+        } else {
+            let ref_cigar_len = ref_hap
+                .cigar
+                .as_ref()
+                .map(|c| c.reference_length())
+                .unwrap_or_else(|| ref_bases.len());
+            if let Some(assy) = calculate_haplotype_cigar_for_assembly_with_offset(
+                ref_bases,
+                &h.bases,
+                ref_cigar_len,
+                hap_to_ref_sw,
+            ) {
+                let consolidated = consolidated_padded_cigar(&assy.cigar, CONSOLIDATED_HAP_PAD);
+                hap_meta.push(Some((assy.alignment_start_hap_wrt_ref, consolidated)));
+            } else {
+                hap_meta.push(None);
+            }
+        }
+    }
     let mut changed = false;
     let mut best_per_read = vec![ref_idx; reads.len()];
     for (ri, slot) in reads.iter_mut().enumerate() {
@@ -60,14 +106,20 @@ pub fn realign_reads_to_best_haplotype<S: crate::shared_bam::BamRecordSlot>(
         if rec.is_unmapped() {
             continue;
         }
-        let best_hi = best_haplotype_index_for_read(ri, haplotypes, read_likelihoods, &priorities);
+        let row = if n_haps > 0 && ri < n_reads {
+            &ll_matrix[ri * n_haps..(ri + 1) * n_haps]
+        } else {
+            &[]
+        };
+        let best_hi = best_haplotype_index_from_ll_row(row, &priorities);
         best_per_read[ri] = best_hi;
-        if create_read_aligned_to_ref(
+        if create_read_aligned_to_ref_cached(
             rec,
             &haplotypes[best_hi],
             ref_hap,
             padded_reference_start_1based,
             hap_to_ref_sw,
+            hap_meta.get(best_hi).and_then(|m| m.as_ref()),
         )? {
             changed = true;
         }
@@ -76,6 +128,7 @@ pub fn realign_reads_to_best_haplotype<S: crate::shared_bam::BamRecordSlot>(
 }
 
 /// GATK `AlleleLikelihoods.searchBestAllele` + `HAPLOTYPE_ALIGNMENT_TIEBREAKING_PRIORITY`.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn best_haplotype_index_for_read(
     read_index: usize,
     haplotypes: &[Haplotype],
@@ -86,20 +139,28 @@ pub(crate) fn best_haplotype_index_for_read(
     if hap_count == 0 {
         return 0;
     }
-    let ll = |hi: usize| -> f64 {
-        read_likelihoods
-            .iter()
-            .find(|r| r.read_index.get() == read_index && r.haplotype_index.get() == hi)
-            .map(|r| r.log10_likelihood)
-            .unwrap_or(f64::NEG_INFINITY)
-    };
+    let mut ll_by_hap = vec![f64::NEG_INFINITY; hap_count];
+    for r in read_likelihoods {
+        if r.read_index.get() == read_index {
+            let hi = r.haplotype_index.get();
+            if hi < hap_count {
+                ll_by_hap[hi] = r.log10_likelihood;
+            }
+        }
+    }
+    best_haplotype_index_from_ll_row(&ll_by_hap, priorities)
+}
 
+fn best_haplotype_index_from_ll_row(ll_by_hap: &[f64], priorities: &[f64]) -> usize {
+    let hap_count = ll_by_hap.len();
+    if hap_count == 0 {
+        return 0;
+    }
     let mut best_a = 0usize;
     let mut second_a = 0usize;
-    let mut best_ll = ll(0);
+    let mut best_ll = ll_by_hap[0];
     let mut second_ll = f64::NEG_INFINITY;
-    for a in 1..hap_count {
-        let candidate = ll(a);
+    for (a, &candidate) in ll_by_hap.iter().enumerate().skip(1) {
         if candidate > best_ll {
             second_a = best_a;
             second_ll = best_ll;
@@ -116,8 +177,7 @@ pub(crate) fn best_haplotype_index_for_read(
         let mut tie_second = second_a;
         let mut tie_best_pri = priorities.get(best_a).copied().unwrap_or(0.0);
         let mut tie_second_pri = priorities.get(second_a).copied().unwrap_or(0.0);
-        for a in 0..hap_count {
-            let candidate = ll(a);
+        for (a, &candidate) in ll_by_hap.iter().enumerate() {
             if a == best_a || best_ll - candidate > LOG_10_INFORMATIVE_THRESHOLD {
                 continue;
             }
@@ -133,15 +193,8 @@ pub(crate) fn best_haplotype_index_for_read(
             }
         }
         best_a = tie_best;
-        second_a = tie_second;
-        best_ll = ll(best_a);
-        second_ll = if second_a != best_a {
-            ll(second_a)
-        } else {
-            f64::NEG_INFINITY
-        };
+        let _ = (tie_second, ll_by_hap[best_a]);
     }
-    let _ = (best_ll, second_ll);
     best_a
 }
 
@@ -208,6 +261,7 @@ fn append_clipped_elements_from_original(
 }
 
 /// GATK `AlignmentUtils.createReadAlignedToRef` (updates read position + CIGAR on padded ref).
+#[cfg_attr(not(test), allow(dead_code))]
 fn create_read_aligned_to_ref(
     rec: &mut Record,
     best_hap: &Haplotype,
@@ -215,18 +269,43 @@ fn create_read_aligned_to_ref(
     reference_start_1based: u64,
     hap_to_ref_sw: &SwParameters,
 ) -> GatkResult<bool> {
+    create_read_aligned_to_ref_cached(
+        rec,
+        best_hap,
+        ref_hap,
+        reference_start_1based,
+        hap_to_ref_sw,
+        None,
+    )
+}
+
+fn create_read_aligned_to_ref_cached(
+    rec: &mut Record,
+    best_hap: &Haplotype,
+    ref_hap: &Haplotype,
+    reference_start_1based: u64,
+    hap_to_ref_sw: &SwParameters,
+    precomputed: Option<&(usize, Cigar)>,
+) -> GatkResult<bool> {
     const CONSOLIDATED_HAP_PAD: usize = 1000;
 
     let original_ref_start_1based = rec.pos().max(0) as u64 + 1;
-    let read_bases: Vec<u8> = rec.seq().as_bytes().to_vec();
-    if read_bases.is_empty() {
+    if rec.seq().is_empty() {
         return Ok(false);
     }
     let ref_bases = &ref_hap.bases;
     let (leading_clips, trailing_clips) = edge_clips_from_record(rec);
 
-    let read_minus_soft = hard_clip_soft_clipped_bases(rec);
-    let clipped_bases: Vec<u8> = read_minus_soft.seq().as_bytes().to_vec();
+    // Soft-clip hard-clip is identity when no S ops — avoid Record clone + second seq decode.
+    let has_soft = rec
+        .cigar()
+        .iter()
+        .any(|c| matches!(c, HtsCigar::SoftClip(_)));
+    let clipped_bases: Vec<u8> = if has_soft {
+        hard_clip_soft_clipped_bases(rec).seq().as_bytes()
+    } else {
+        rec.seq().as_bytes()
+    };
     if clipped_bases.is_empty() {
         return Ok(false);
     }
@@ -244,8 +323,13 @@ fn create_read_aligned_to_ref(
     let read_start_hap = read_to_hap.alignment_offset.max(0) as usize;
     let read_to_hap_cigar = consolidate_cigar(&read_to_hap.cigar);
 
-    let (hap_cigar, hap_offset) = if let Some(ref hc) = best_hap.cigar {
-        (hc.clone(), best_hap.alignment_start_hap_wrt_ref)
+    // Borrow precomputed consolidated CIGAR; own only on uncached paths.
+    let owned_consolidated;
+    let (hap_offset, consolidated): (usize, &Cigar) = if let Some((off, cons)) = precomputed {
+        (*off, cons)
+    } else if let Some(ref hc) = best_hap.cigar {
+        owned_consolidated = consolidated_padded_cigar(hc, CONSOLIDATED_HAP_PAD);
+        (best_hap.alignment_start_hap_wrt_ref, &owned_consolidated)
     } else {
         let ref_cigar_len = ref_hap
             .cigar
@@ -260,33 +344,29 @@ fn create_read_aligned_to_ref(
         ) else {
             return Ok(false);
         };
-        (hap_assy.cigar, hap_assy.alignment_start_hap_wrt_ref)
+        owned_consolidated = consolidated_padded_cigar(&hap_assy.cigar, CONSOLIDATED_HAP_PAD);
+        (hap_assy.alignment_start_hap_wrt_ref, &owned_consolidated)
     };
 
-    let consolidated = consolidated_padded_cigar(&hap_cigar, CONSOLIDATED_HAP_PAD);
-    let read_start_on_ref_hap = read_start_on_reference_haplotype(&consolidated, read_start_hap);
-    let read_start_on_ref_1based = reference_start_1based
+    let read_start_on_ref_hap = read_start_on_reference_haplotype(consolidated, read_start_hap);
+    let mut read_start_on_ref_1based = reference_start_1based
         .saturating_add(hap_offset as u64)
         .saturating_add(read_start_on_ref_hap as u64);
 
-    // Java trims hap→ref to consolidated padded end, not read end on hap.
     let consolidated_hap_end = consolidated.read_length().saturating_sub(1);
     let hap_to_ref =
-        trim_cigar_by_bases_public(&consolidated, read_start_hap, consolidated_hap_end).cigar;
+        trim_cigar_by_bases_public(consolidated, read_start_hap, consolidated_hap_end).cigar;
     let read_to_ref = apply_cigar_to_cigar(&read_to_hap_cigar, &hap_to_ref);
-    // Java: leftAlignIndels(..., refHaplotype.getBases,..., readStartOnReferenceHaplotype)
     let left = left_align_indels_for_read(
         &read_to_ref,
         ref_bases,
         &clipped_bases,
         read_start_on_ref_hap,
     );
-    let read_start_on_ref_1based =
+    read_start_on_ref_1based =
         read_start_on_ref_1based.saturating_add(left.leading_deletions_removed as u64);
 
     let hap_ref_start_1based = reference_start_1based.saturating_add(hap_offset as u64);
-    // GATK `lastIndexOf` can match a read prefix to hap[0] while the read originally aligned
-    // before the haplotype reference window — collapsing to hap ref start remaps interior bases.
     if original_ref_start_1based < hap_ref_start_1based
         && read_start_on_ref_1based >= hap_ref_start_1based
         && read_start_hap == 0
@@ -299,15 +379,43 @@ fn create_read_aligned_to_ref(
 
     let pos_0based = i64::try_from(read_start_on_ref_1based.saturating_sub(1)).unwrap_or(0);
     let old_pos = rec.pos();
-    let old_cigar = format!("{:?}", rec.cigar().iter().collect::<Vec<_>>());
+    let cigar_changed = record_cigar_differs(rec, &final_cigar);
     let hts_cigar = cigar_to_hts(&final_cigar);
-    let qname = rec.qname().to_vec();
-    let seq = rec.seq().as_bytes().to_vec();
-    let qual = rec.qual().to_vec();
-    rec.set(&qname, Some(&hts_cigar), &seq, &qual);
+    // Position + CIGAR only — avoid re-encoding qname/seq/qual (Java updates alignment fields).
+    rec.set_cigar(Some(&hts_cigar));
     rec.set_pos(pos_0based);
-    let new_cigar = format!("{:?}", rec.cigar().iter().collect::<Vec<_>>());
-    Ok(old_pos != pos_0based || old_cigar != new_cigar)
+    Ok(old_pos != pos_0based || cigar_changed)
+}
+
+/// Compare BAM CIGAR to an assembled CIGAR without `format!` / Vec collect thrash.
+fn record_cigar_differs(rec: &Record, want: &Cigar) -> bool {
+    let view = rec.cigar();
+    let got: Vec<HtsCigar> = view.iter().copied().collect();
+    if got.len() != want.elements.len() {
+        return true;
+    }
+    for (hts, e) in got.iter().zip(want.elements.iter()) {
+        let Some((len, op)) = hts_to_op_len(*hts) else {
+            return true;
+        };
+        if len != e.length || op != e.operator {
+            return true;
+        }
+    }
+    false
+}
+
+fn hts_to_op_len(hts: HtsCigar) -> Option<(usize, CigarOperator)> {
+    match hts {
+        HtsCigar::Match(n) | HtsCigar::Equal(n) | HtsCigar::Diff(n) => {
+            Some((n as usize, CigarOperator::Match))
+        }
+        HtsCigar::Ins(n) => Some((n as usize, CigarOperator::Insertion)),
+        HtsCigar::Del(n) => Some((n as usize, CigarOperator::Deletion)),
+        HtsCigar::SoftClip(n) => Some((n as usize, CigarOperator::SoftClip)),
+        HtsCigar::HardClip(n) => Some((n as usize, CigarOperator::HardClip)),
+        _ => None,
+    }
 }
 
 fn clip_from_hts(hts: HtsCigar) -> Option<(usize, CigarOperator)> {

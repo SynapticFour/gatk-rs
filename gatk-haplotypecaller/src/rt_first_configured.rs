@@ -2,7 +2,6 @@
 
 use crate::assembly::AssemblyRead;
 use crate::cigar::{Cigar, CigarOperator};
-use crate::event_map::EventMap;
 use crate::haplotype::Haplotype;
 use crate::read_threading_assembler::{
     finalize_assembly_haplotypes, haplotypes_have_alt_bases, just_reference_result,
@@ -96,13 +95,7 @@ pub(crate) fn try_rt_configured_alts_before_seq_graph(
             continue;
         }
         hit_kmer = kmer_size;
-        let event_maps = haplotypes
-            .iter()
-            .map(|h| {
-                let rh = Haplotype::new(ref_bytes, true);
-                EventMap::from_haplotype_and_reference(h, &rh, &rh.bases, 1, 0)
-            })
-            .collect();
+        let event_maps = Vec::new(); // production rebuilds EventMap from CIGARs later
         crate::runtime_config::rss_trace_checkpoint(
             "rt_first_configured_hit",
             &format!("kmer={kmer_size} haps={}", haplotypes.len()),

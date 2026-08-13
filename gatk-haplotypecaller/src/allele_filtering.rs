@@ -391,6 +391,24 @@ fn select_haplotype_keep_mask(
     if non_ref_kept >= MAX_NON_REF_HAPLOTYPES_FOR_GENOTYPING {
         return Ok(keep);
     }
+    // All non-ref already retained (or none left to rank) — skip PL scoring.
+    let n_non_ref = assembly.haplotypes.len().saturating_sub(1);
+    if non_ref_kept >= n_non_ref {
+        return Ok(keep);
+    }
+    // R4-2: score-based top-N fill outside contig 2 even under strict SNP-rank options.
+    let allow_score_fill =
+        !options.strict_java_snp_rank_only || (assembly.contig != "2" && assembly.contig != "chr2");
+    // When every remaining non-ref fits under the GATK cap, ranking cannot change the keep
+    // set — skip HC-inverse PL (dominant on dense EventMaps with few haplotypes).
+    if allow_score_fill && n_non_ref <= MAX_NON_REF_HAPLOTYPES_FOR_GENOTYPING {
+        for (i, h) in assembly.haplotypes.iter().enumerate() {
+            if i != ref_idx && !h.is_reference {
+                keep[i] = true;
+            }
+        }
+        return Ok(keep);
+    }
     let sums = haplotype_log10_sums_from_region_likelihoods(likelihoods, assembly.haplotypes.len());
     let hc_scores = haplotype_hc_inverse_pl_scores(assembly, likelihoods, options);
     let mut scored: Vec<(usize, f64)> = assembly
@@ -409,9 +427,6 @@ fn select_haplotype_keep_mask(
             (i, score)
         })
         .collect();
-    // R4-2: score-based top-N fill outside contig 2 even under strict SNP-rank options.
-    let allow_score_fill =
-        !options.strict_java_snp_rank_only || (assembly.contig != "2" && assembly.contig != "chr2");
     if allow_score_fill {
         scored.sort_by(|a, b| b.1.total_cmp(&a.1));
         for (i, _) in scored {
@@ -470,6 +485,10 @@ pub fn filter_assembly_and_likelihoods(
     ensure_reference_haplotype(&mut assembly.haplotypes);
     let old_len = assembly.haplotypes.len();
     let keep = select_haplotype_keep_mask(assembly, &likelihoods, options)?;
+    // Dense NA12878: keep-mask is often all-true — skip hap rebuild + LL remap.
+    if keep.iter().all(|&k| k) {
+        return Ok(likelihoods);
+    }
     let mut old_to_new = vec![None; old_len];
     let mut haplotypes = Vec::new();
     let old = std::mem::take(&mut assembly.haplotypes);

@@ -293,13 +293,6 @@ pub fn assemble_reads_with_finalized(
         args.strict_java_assembly,
     );
     let full_ref = reference.bases.as_slice();
-    crate::read_event_discovery::refresh_alt_haplotype_indel_cigars(
-        &mut result.haplotypes,
-        full_ref,
-        padded_loc_start,
-        &args.assembler.haplotype_to_reference_sw,
-    );
-    let full_ref = reference.bases.as_slice();
     result.haplotypes = collapse_haplotypes_if_configured(
         result.haplotypes,
         args.read_error_correction.flow_assembly_collapse_hmer_size,
@@ -308,8 +301,13 @@ pub fn assemble_reads_with_finalized(
         full_ref,
         padded_loc_start,
     );
-    let mut assembly = AssemblyResultSet::from_assembly_for_calling(
-        &result,
+    let status = result.status;
+    let kmer_size = result.kmer_size;
+    let haplotypes = std::mem::take(&mut result.haplotypes);
+    let mut assembly = AssemblyResultSet::from_assembly_for_calling_owned(
+        status,
+        kmer_size,
+        haplotypes,
         reference.bases.as_slice(),
         padded_loc_start,
         &region.contig,
@@ -320,10 +318,32 @@ pub fn assemble_reads_with_finalized(
     let apply_bases = assembly.reference_bases_shared();
     let apply_pad = assembly.padded_reference_start_1based();
     let contig = region.contig.clone();
-    crate::read_event_discovery::sync_assembly_events_from_haplotype_cigars(
-        &mut assembly,
-        &contig,
-        sw,
+    // `from_assembly_for_calling` already ran `collect_variation_events`. Re-sync only when
+    // some alt still needs an indel CIGAR refresh (length≠ref-hap without I/D ops) or EventMap empty.
+    let needs_event_resync = assembly.variation_events.is_empty()
+        || crate::read_event_discovery::alt_needs_indel_cigar_refresh(&assembly.haplotypes);
+    crate::runtime_config::rss_trace_checkpoint(
+        "assemble_before_event_sync",
+        &format!(
+            "haps={} events={} resync={needs_event_resync}",
+            assembly.haplotypes.len(),
+            assembly.variation_events.len()
+        ),
+    );
+    if needs_event_resync {
+        crate::read_event_discovery::sync_assembly_events_from_haplotype_cigars(
+            &mut assembly,
+            &contig,
+            sw,
+        );
+    }
+    crate::runtime_config::rss_trace_checkpoint(
+        "assemble_after_event_sync",
+        &format!(
+            "haps={} events={} resync={needs_event_resync}",
+            assembly.haplotypes.len(),
+            assembly.variation_events.len()
+        ),
     );
     if !args.strict_java_assembly {
         if crate::read_event_discovery::assembly_cluster_inject_enabled() {

@@ -690,7 +690,7 @@ pub enum AssemblyStatus {
 
 /// Haplotypes and EventMaps produced by one assembly graph attempt.
 /// # Invariants
-/// `haplotypes.len == event_maps.len` after successful assembly materialization.
+/// `event_maps` may be empty in production (EventMap rebuilt from CIGARs later); tests may fill it.
 /// `kmer_size` records the winning k-mer attempt for this result.
 /// # Ownership
 /// Owns haplotype and event-map vectors; consumed by genotyping and trim stages.
@@ -1069,7 +1069,7 @@ fn assemble_from_ref_and_reads_seq_graph(
             &args.haplotype_to_reference_sw,
         )?;
         drop(seq); // Peak-RSS: free SeqGraph before next kmer / PairHMM
-        crate::smith_waterman::release_sw_tls_scratch();
+                   // Keep SW TLS warm across SeqGraph k-mers; released once before PairHMM.
         for h in batch.drain(..) {
             let key = (h.bases.clone(), h.is_reference);
             if seen.insert(key) {
@@ -1231,19 +1231,14 @@ fn assemble_from_ref_and_reads_seq_graph(
         pad,
         &args.haplotype_to_reference_sw,
     );
-    crate::smith_waterman::release_sw_tls_scratch();
+    // Keep SW TLS warm for caller EventMap / realign; released once before PairHMM.
     if args.ensure_reference_in_result {
         ensure_reference_haplotype(&mut haplotypes, &ref_hap);
     }
     let status =
         finalize_assembly_haplotypes(&mut haplotypes, &ref_hap, args.ensure_reference_in_result);
-    let event_maps = haplotypes
-        .iter()
-        .map(|h| {
-            let ref_hap = Haplotype::new(reference.bases.as_slice(), true);
-            EventMap::from_haplotype_and_reference(h, &ref_hap, &ref_hap.bases, 1, 0)
-        })
-        .collect();
+    // Production rebuilds EventMap from haplotype CIGARs later; skip unused per-hap maps.
+    let event_maps = Vec::new();
     // Parent [`assemble_from_ref_and_reads`] runs RT-supplement once; do not double-walk here.
     Ok(AssemblyResult {
         status,
@@ -1697,7 +1692,8 @@ fn extract_rt_haplotypes_from_built_graph(
     );
     // Peak-RSS: release RT graph before caller PairHMM.
     drop(graph);
-    crate::smith_waterman::release_sw_tls_scratch();
+    // Keep SW TLS warm for further k-mer extracts in this region; PairHMM path
+    // releases SW once before likelihoods (`engine` before_pairhmm).
     // CIGAR indel refresh is deferred to one end-of-assemble pass
     // (`assemble_reads_with_finalized`) so RT-first / merge_rt / supplement do not
     // pay SW repeatedly on the same alts.
@@ -1968,10 +1964,8 @@ fn try_assemble_kmer(
     let status =
         finalize_assembly_haplotypes(&mut haplotypes, &ref_hap, args.ensure_reference_in_result);
 
-    let event_maps = haplotypes
-        .iter()
-        .map(|h| EventMap::from_haplotype_and_reference(h, &ref_hap, &ref_hap.bases, 1, 0))
-        .collect();
+    // Production rebuilds EventMap from haplotype CIGARs later; skip unused per-hap maps.
+    let event_maps = Vec::new();
 
     Ok(Some(AssemblyResult {
         status,

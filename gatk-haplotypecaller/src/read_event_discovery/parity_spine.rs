@@ -94,6 +94,28 @@ pub fn parity_spine_read_proven_indels(
         &contig,
         max_mnp,
     );
+    // Dense RT-first hit path: EventMap indels already on haplotype CIGARs — skip the
+    // multi-pass read rediscovery (TTCT / indel / SNP-collapse / long-INS). L9 listed
+    // materialize is empty when every listed indel is graph-encoded. SNP spine still
+    // runs separately for Java SNP FNs.
+    let has_alt = assembly.haplotypes.iter().any(|h| !h.is_reference);
+    let indel_cigar_complete = has_alt
+        && assembly
+            .variation_events
+            .iter()
+            .filter(|e| e.is_indel())
+            .all(|e| graph.iter().any(|g| events_match(g, e)));
+    if indel_cigar_complete {
+        crate::runtime_config::rss_trace_checkpoint(
+            "parity_spine_indel_skip_cigar_complete",
+            &format!(
+                "events={} graph={}",
+                assembly.variation_events.len(),
+                graph.len()
+            ),
+        );
+        return Ok(());
+    }
     let existing: std::collections::BTreeSet<(u64, String, String)> = assembly
         .variation_events
         .iter()

@@ -65,15 +65,36 @@ impl AssemblyResultSet {
         contig: &str,
         max_mnp_distance: usize,
     ) -> Self {
+        // CLONE: shared API keeps `AssemblyResult` for dump callers; production prefers
+        // [`Self::from_assembly_for_calling_owned`].
+        Self::from_assembly_for_calling_owned(
+            result.status,
+            result.kmer_size,
+            result.haplotypes.clone(),
+            reference_bases,
+            padded_reference_start_1based,
+            contig,
+            max_mnp_distance,
+        )
+    }
+
+    /// Like [`Self::from_assembly_for_calling`] but takes haplotypes by move (no deep clone).
+    pub fn from_assembly_for_calling_owned(
+        status: AssemblyStatus,
+        kmer_size: usize,
+        mut haplotypes: Vec<Haplotype>,
+        reference_bases: impl Into<Arc<[u8]>>,
+        padded_reference_start_1based: u64,
+        contig: &str,
+        max_mnp_distance: usize,
+    ) -> Self {
         let reference_bases: Arc<[u8]> = reference_bases.into();
-        // Production + Java `regenerateVariationEvents`: alt haplotypes imply variation.
-        let variation_present = matches!(result.status, AssemblyStatus::AssembledSomeVariation)
-            || (result.haplotypes.iter().any(|h| !h.is_reference) && result.haplotypes.len() > 1);
+        let variation_present = matches!(status, AssemblyStatus::AssembledSomeVariation)
+            || (haplotypes.iter().any(|h| !h.is_reference) && haplotypes.len() > 1);
         let mut kmer_sizes = BTreeSet::new();
-        if result.kmer_size > 0 {
-            kmer_sizes.insert(result.kmer_size);
+        if kmer_size > 0 {
+            kmer_sizes.insert(kmer_size);
         }
-        let mut haplotypes = result.haplotypes.clone();
         Haplotype::tag_padded_reference_span(&mut haplotypes, padded_reference_start_1based);
         let variation_events = if variation_present {
             collect_variation_events(

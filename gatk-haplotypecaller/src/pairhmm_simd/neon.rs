@@ -75,6 +75,8 @@ pub fn score_haps_neon_f64(
     overall_gcp: &[u8],
 ) -> GatkResult<Vec<f64>> {
     // NEON is baseline on aarch64 Darwin/Linux for our targets.
+    // Do not reorder-by-length for packing: NEON pack2 still diverges from scalar on some
+    // equal-length packs (pairhmm_simd_vs_scalar_test); keep adjacent-only packing.
     if std::arch::is_aarch64_feature_detected!("neon") {
         // SAFETY: NEON feature detected.
         unsafe {

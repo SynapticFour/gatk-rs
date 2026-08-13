@@ -53,9 +53,14 @@ const LARGE_REGION_READS_SEQUENTIAL_DEFAULT: usize = 4_096;
 
 /// Drop PairHMM / SW TLS scratch after a region (or between SW-heavy and PairHMM-heavy phases).
 /// Full clear — soft high-water keep left sticky multi-hundred-MiB RSS on dense windows.
+///
+/// Includes SIMD/NEON planes (previously only cleared mid-`call_region` before realign,
+/// which paid multi-second `munmap` gaps on dense NA12878 while leaving sticky Peak-RSS
+/// when region-end release omitted them).
 pub(crate) fn release_region_tls_scratch() {
     crate::pairhmm_log10::release_pairhmm_tls_scratch();
     crate::pairhmm_logless::release_pairhmm_logless_tls_scratch();
+    crate::pairhmm_simd::release_pairhmm_simd_tls_scratch();
     crate::smith_waterman::release_sw_tls_scratch();
 }
 
