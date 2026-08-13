@@ -1004,7 +1004,8 @@ impl HaplotypeCallerEngine {
                     t_realign.elapsed().as_millis()
                 ),
             );
-            crate::smith_waterman::release_sw_tls_scratch();
+            // Keep SW TLS scratch warm through genotyping/realign of later regions in this
+            // thread; released at region/engine end (`release_sw_tls_scratch`).
         }
         let ref_hap = assembly.haplotypes.iter().find(|h| h.is_reference);
         let apply_pad = ref_hap

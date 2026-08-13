@@ -575,6 +575,48 @@ pub fn build_event_start_positions_1based(
     ref_loc_start_1based: u64,
     max_mnp_distance: usize,
 ) -> BTreeSet<u64> {
+    let cache = build_per_haplotype_variation_events(
+        haplotypes,
+        ref_bytes,
+        ref_loc_start_1based,
+        max_mnp_distance,
+        "",
+    );
+    build_event_start_positions_from_cache(&cache)
+}
+
+/// Per-haplotype variation events (one EventMap walk per hap).
+///
+/// Observable contract: same events as repeatedly calling [`variation_events_for_haplotype`].
+/// Dense genotyping otherwise rebuilds EventMaps O(locs × haps).
+#[derive(Debug, Clone)]
+pub struct PerHaplotypeVariationEvents {
+    events_by_hap: Vec<Vec<VariationEvent>>,
+}
+
+impl PerHaplotypeVariationEvents {
+    #[inline]
+    pub fn events_for(&self, hap_index: usize) -> &[VariationEvent] {
+        self.events_by_hap
+            .get(hap_index)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
+    }
+
+    #[inline]
+    pub fn hap_count(&self) -> usize {
+        self.events_by_hap.len()
+    }
+}
+
+/// Build EventMap-derived events once per haplotype for a region.
+pub fn build_per_haplotype_variation_events(
+    haplotypes: &[Haplotype],
+    ref_bytes: &[u8],
+    ref_loc_start_1based: u64,
+    max_mnp_distance: usize,
+    contig: &str,
+) -> PerHaplotypeVariationEvents {
     let owned_ref;
     let ref_hap = if let Some(h) = haplotypes.iter().find(|x| x.is_reference) {
         h
@@ -582,16 +624,28 @@ pub fn build_event_start_positions_1based(
         owned_ref = Haplotype::new(ref_bytes, true);
         &owned_ref
     };
+    let events_by_hap = haplotypes
+        .iter()
+        .map(|h| {
+            variation_events_for_haplotype(
+                h,
+                ref_hap,
+                ref_bytes,
+                ref_loc_start_1based,
+                max_mnp_distance,
+                contig,
+            )
+        })
+        .collect();
+    PerHaplotypeVariationEvents { events_by_hap }
+}
+
+pub fn build_event_start_positions_from_cache(
+    cache: &PerHaplotypeVariationEvents,
+) -> BTreeSet<u64> {
     let mut positions = BTreeSet::new();
-    for h in haplotypes {
-        for v in variation_events_for_haplotype(
-            h,
-            ref_hap,
-            ref_bytes,
-            ref_loc_start_1based,
-            max_mnp_distance,
-            "",
-        ) {
+    for events in &cache.events_by_hap {
+        for v in events {
             positions.insert(v.start_1based.get());
         }
     }
@@ -608,23 +662,27 @@ pub fn variation_events_at_position(
     max_mnp_distance: usize,
     contig: &str,
 ) -> Vec<VariationEvent> {
+    let cache = build_per_haplotype_variation_events(
+        haplotypes,
+        ref_bytes,
+        ref_loc_start_1based,
+        max_mnp_distance,
+        contig,
+    );
+    variation_events_at_position_from_cache(&cache, loc_1based, include_spanning_events)
+}
+
+/// Filter cached per-hap events at `loc` (same selection as [`variation_events_at_position`]).
+pub fn variation_events_at_position_from_cache(
+    cache: &PerHaplotypeVariationEvents,
+    loc_1based: u64,
+    include_spanning_events: bool,
+) -> Vec<VariationEvent> {
     let loc = GenomePosition::new_1based(loc_1based);
-    let ref_hap = haplotypes
-        .iter()
-        .find(|h| h.is_reference)
-        .cloned()
-        .unwrap_or_else(|| Haplotype::new(ref_bytes, true));
     let mut seen = BTreeSet::new();
     let mut out = Vec::new();
-    for h in haplotypes {
-        for v in variation_events_for_haplotype(
-            h,
-            &ref_hap,
-            ref_bytes,
-            ref_loc_start_1based,
-            max_mnp_distance,
-            contig,
-        ) {
+    for events in &cache.events_by_hap {
+        for v in events {
             let overlaps = v.end_1based >= loc && v.start_1based <= loc;
             if !overlaps {
                 continue;
@@ -632,18 +690,31 @@ pub fn variation_events_at_position(
             if !include_spanning_events && v.start_1based != loc {
                 continue;
             }
-            // CLONE: needed because owned composite key for dedup/lookup.
             let key = (
                 v.start_1based.get(),
                 v.ref_allele.clone(),
                 v.alt_allele.clone(),
             );
             if seen.insert(key) {
-                out.push(v);
+                out.push(v.to_owned());
             }
         }
     }
     out
+}
+
+/// Whether a haplotype's cached events support `(ref,alt)` starting at `loc` (indel EventMap path).
+#[inline]
+pub fn cached_events_support_allele_at(
+    events: &[VariationEvent],
+    loc_1based: u64,
+    ref_allele: &str,
+    alt_allele: &str,
+) -> bool {
+    let loc = GenomePosition::new_1based(loc_1based);
+    events
+        .iter()
+        .any(|e| e.start_1based == loc && e.ref_allele == ref_allele && e.alt_allele == alt_allele)
 }
 
 /// Remap a shorter-REF allele onto a longer REF that shares the same start pad
