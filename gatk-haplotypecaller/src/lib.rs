@@ -86,6 +86,7 @@ pub mod reference_vcf_emit;
 pub mod region_read_likelihood;
 pub mod region_vcf_emit;
 pub(crate) mod rt_first_configured;
+pub(crate) mod rt_region_cache;
 pub mod run;
 /// Process env → typed config (Sprint I-4). Prefer over scattered `std::env::var`.
 pub mod runtime_config;

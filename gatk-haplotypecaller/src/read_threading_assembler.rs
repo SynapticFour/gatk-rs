@@ -295,8 +295,7 @@ pub fn supplement_p12_cluster_coupled_haplotypes(
     let ref_bytes = reference.bases.as_slice();
     let sw = &args.haplotype_to_reference_sw;
 
-    refresh_alt_haplotype_indel_cigars(&mut result.haplotypes, ref_bytes, pad, sw);
-    crate::smith_waterman::release_sw_tls_scratch();
+    // Defer indel CIGAR refresh to assemble_reads_with_finalized (single SW pass).
 
     let mut seen: HashSet<(Vec<u8>, bool)> = result
         .haplotypes
@@ -326,6 +325,13 @@ pub fn supplement_p12_cluster_coupled_haplotypes(
     let mut empty_streak = 0usize;
     for kmer_size in critical_kmers {
         let is_configured = args.kmer_sizes.contains(&kmer_size);
+        if is_configured && crate::rt_region_cache::configured_kmer_already_empty(kmer_size) {
+            crate::runtime_config::rss_trace_checkpoint(
+                "rt_supplement_skip_empty_configured",
+                &format!("kmer={kmer_size}"),
+            );
+            continue;
+        }
         let allow_lc = if is_configured {
             allow_low_complexity_configured_kmer(args)
         } else {
@@ -345,11 +351,9 @@ pub fn supplement_p12_cluster_coupled_haplotypes(
         // synthetic regions) still needs those off-spine branches — `after_remove` alone yields
         // haplotype_count=1 (ref only) vs Java 2–4. Non-P12 Peak is capped by early-stop below
         // (stop once alts appear), not by switching extract mode.
-        let mut batch = extract_rt_haplotypes_before_remove_paths(
+        let batch = extract_rt_haplotypes_before_remove_paths(
             reference, reads, args, kmer_size, allow_lc, allow_nu,
         )?;
-        refresh_alt_haplotype_indel_cigars(&mut batch, ref_bytes, pad, sw);
-        crate::smith_waterman::release_sw_tls_scratch();
         let haps_before = result.haplotypes.len();
         for h in batch {
             // CLONE: needed because owned composite key for dedup/lookup.
@@ -383,14 +387,20 @@ pub fn supplement_p12_cluster_coupled_haplotypes(
         }
     }
 
-    refresh_alt_haplotype_indel_cigars(&mut result.haplotypes, ref_bytes, pad, sw);
-    crate::smith_waterman::release_sw_tls_scratch();
     if result.haplotypes.iter().any(|h| !h.is_reference) && result.haplotypes.len() > 1 {
         result.status = AssemblyStatus::AssembledSomeVariation;
     }
 
     if !p12 {
+        // Non-P12: indel CIGAR refresh deferred to assemble_reads_with_finalized.
         return Ok(());
+    }
+
+    // P12 coupled filters need indel CIGARs before injection.
+    refresh_alt_haplotype_indel_cigars(&mut result.haplotypes, ref_bytes, pad, sw);
+    crate::smith_waterman::release_sw_tls_scratch();
+    if result.haplotypes.iter().any(|h| !h.is_reference) && result.haplotypes.len() > 1 {
+        result.status = AssemblyStatus::AssembledSomeVariation;
     }
 
     filter_phantom_cluster_indel_haplotypes(
@@ -743,6 +753,17 @@ pub fn assemble_for_java_gate_dump(
 
 /// Assemble from reference + reads (GATK `runLocalAssembly`: SeqGraph + `GraphBasedKBestHaplotypeFinder` by default).
 pub fn assemble_from_ref_and_reads(
+    reference: &AssemblyRead,
+    reads: &[AssemblyRead],
+    args: &ReadThreadingAssemblerArgs,
+) -> GatkResult<AssemblyResult> {
+    crate::rt_region_cache::begin_assemble_region();
+    let out = assemble_from_ref_and_reads_inner(reference, reads, args);
+    crate::rt_region_cache::end_assemble_region();
+    out
+}
+
+fn assemble_from_ref_and_reads_inner(
     reference: &AssemblyRead,
     reads: &[AssemblyRead],
     args: &ReadThreadingAssemblerArgs,
@@ -1584,6 +1605,23 @@ fn extract_rt_haplotypes_from_built_graph(
     allow_non_unique_ref: bool,
     before_remove_paths: bool,
 ) -> GatkResult<Vec<Haplotype>> {
+    let cache_key = crate::rt_region_cache::RtExtractKey {
+        kmer_size,
+        allow_low_complexity,
+        allow_non_unique_ref,
+        before_remove_paths,
+    };
+    if let Some(cached) = crate::rt_region_cache::get_cached(&cache_key) {
+        crate::runtime_config::rss_trace_checkpoint(
+            "rt_extract_cache_hit",
+            &format!(
+                "kmer={kmer_size} before_remove={before_remove_paths} haps={}",
+                cached.len()
+            ),
+        );
+        return Ok(cached);
+    }
+
     let mut local_args = args.clone();
     if before_remove_paths {
         local_args.remove_paths_not_connected_to_ref = false;
@@ -1607,7 +1645,7 @@ fn extract_rt_haplotypes_from_built_graph(
             "rt_graph_build_none",
             &format!("kmer={kmer_size}"),
         );
-        return Ok(Vec::new());
+        return Ok(crate::rt_region_cache::put_cached(cache_key, Vec::new()));
     };
     crate::runtime_config::rss_trace_checkpoint(
         "rt_graph_built",
@@ -1634,7 +1672,7 @@ fn extract_rt_haplotypes_from_built_graph(
             ),
         );
         drop(graph);
-        return Ok(Vec::new());
+        return Ok(crate::rt_region_cache::put_cached(cache_key, Vec::new()));
     }
     let mut ref_hap = Haplotype::new(reference.bases.as_slice(), true);
     let mut ref_cigar = Cigar::new();
@@ -1657,19 +1695,14 @@ fn extract_rt_haplotypes_from_built_graph(
         reference.bases.as_slice(),
         &args.haplotype_to_reference_sw,
     );
-    // Peak-RSS: release RT graph before SW cigar refresh / caller PairHMM.
+    // Peak-RSS: release RT graph before caller PairHMM.
     drop(graph);
     crate::smith_waterman::release_sw_tls_scratch();
-    if let Some(ctx) = args.scoring.as_ref() {
-        refresh_alt_haplotype_indel_cigars(
-            &mut haps,
-            reference.bases.as_slice(),
-            ctx.padded_reference_start_1based,
-            &args.haplotype_to_reference_sw,
-        );
-        crate::smith_waterman::release_sw_tls_scratch();
-    }
-    Ok(haps)
+    // CIGAR indel refresh is deferred to one end-of-assemble pass
+    // (`assemble_reads_with_finalized`) so RT-first / merge_rt / supplement do not
+    // pay SW repeatedly on the same alts.
+    let cached = crate::rt_region_cache::put_cached(cache_key, haps);
+    Ok(cached)
 }
 
 /// ASM-7: KBest on RT graph after dangling + `remove_paths` (GATK `assembleReads` order).
@@ -1722,6 +1755,14 @@ pub fn merge_rt_kbest_pre_remove_paths_at_kmer(
             break;
         }
         let is_expanded = !configured.contains(&kmer_size);
+        // RT-first already proved this configured before_remove extract empty — do not rebuild.
+        if !is_expanded && crate::rt_region_cache::configured_kmer_already_empty(kmer_size) {
+            crate::runtime_config::rss_trace_checkpoint(
+                "merge_rt_skip_empty_configured",
+                &format!("kmer={kmer_size}"),
+            );
+            continue;
+        }
         let allow_lc = if is_expanded {
             allow_low_complexity_expanded_kmer(args, true)
         } else {
@@ -1736,17 +1777,9 @@ pub fn merge_rt_kbest_pre_remove_paths_at_kmer(
         // off-spine alt branches that after-remove drops on tiny synthetic graphs.
         // Peak-RSS on bushy non-P12 loci is gated by early-stop once alts appear (below),
         // not by switching extract mode here.
-        let mut batch = extract_rt_haplotypes_before_remove_paths(
+        let batch = extract_rt_haplotypes_before_remove_paths(
             reference, reads, args, kmer_size, allow_lc, allow_nu,
         )?;
-        if let Some(ctx) = args.scoring.as_ref() {
-            refresh_alt_haplotype_indel_cigars(
-                &mut batch,
-                reference.bases.as_slice(),
-                ctx.padded_reference_start_1based,
-                &args.haplotype_to_reference_sw,
-            );
-        }
         for h in batch {
             // CLONE: needed because owned composite key for dedup/lookup.
             let key = (h.bases.clone(), h.is_reference);
@@ -2064,6 +2097,26 @@ fn build_threading_graph_core(
         && args.abort_seq_graph_on_cycles
         && graph.has_cycle()
     {
+        return Ok(None);
+    }
+
+    // Peak-RSS / wall: graphs already past the bushy caps never enter k-best
+    // (`rt_graph_skip_huge` / `seq_rt_skip_huge`). Paying dangling SW on them only
+    // burns wall — same empty extract outcome without the SW.
+    if assembly_graph_too_bushy(
+        graph.node_count(),
+        graph.edge_count(),
+        graph.max_out_degree(),
+    ) {
+        crate::runtime_config::rss_trace_checkpoint(
+            "rt_build_skip_dangling_bushy",
+            &format!(
+                "kmer={kmer_size} nodes={} edges={} max_out={} caps={MAX_ASSEMBLY_GRAPH_NODES}/{MAX_ASSEMBLY_GRAPH_EDGES}/{MAX_ASSEMBLY_OUT_DEGREE}",
+                graph.node_count(),
+                graph.edge_count(),
+                graph.max_out_degree()
+            ),
+        );
         return Ok(None);
     }
 
