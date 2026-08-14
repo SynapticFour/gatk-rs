@@ -32,11 +32,13 @@ cargo bench -p gatk-haplotypecaller --bench pairhmm --locked -- pairhmm_logless_
 
 ## Production default
 
-**Still `LOG10_PAIRHMM`.** SIMD is available via `--pair-hmm SIMD` / `FASTEST_AVAILABLE`,
-but is **not** the HC default until a signed GIAB/hap.py run shows no F1 regression
-([`docs/CLAIM_MATRIX.md`](../CLAIM_MATRIX.md) — GIAB ci-subset not yet signed).
+**Code default is `FASTEST_AVAILABLE`** (`HcLikelihoodEngineConfig` /
+`pair_hmm_impl_from_config` when unset → host SIMD when present, else Logless).
 
-Unit gate (SIMD vs scalar Logless):  
+**Signed promotion** (claim matrix / GIAB ci-subset F1) is still required before
+marketing SIMD-as-oracle equivalence. Unit gate remains mandatory on every PairHMM
+change:
+
 `cargo test -p gatk-haplotypecaller --test pairhmm_simd_vs_scalar_test`
 
 Criterion phenotype matrix (read 100/200/300 × hap 8/32/64/128):  
@@ -64,5 +66,6 @@ See `docs/perf/runs/pairhmm_20260724T055240Z/hc_*.time` for wall/RSS from `/usr/
 
 GIAB `ci-subset` equivalence is **not signed** in [`CLAIM_MATRIX.md`](../CLAIM_MATRIX.md).
 This run validated SIMD vs scalar Logless unit tests + HC fixture smoke only.
-**Do not flip** `HcLikelihoodEngineConfig` default off `LOG10_PAIRHMM` until a
-signed hap.py F1 comparison with `--pair-hmm FASTEST_AVAILABLE` is green.
+Default is already `FASTEST_AVAILABLE` in tree; keep the **signed hap.py / L9 F1**
+gate green before claiming GIAB equivalence. Do not silently change resolve order
+(SIMD → Logless → Log10) without rematch + F1.

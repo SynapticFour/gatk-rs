@@ -47,5 +47,7 @@ mkdir -p "$OUT"
 python3 scripts/parity/giab/summarize_hc_rss_trace_wall.py "$OUT/w09_200kb.trace"
 ```
 
-Compare to [`PHASE5_WALL_BASELINE.md`](PHASE5_WALL_BASELINE.md).
-Use **hc-mem-probe** for Peak RSS in CI; ignore `/usr/bin/time` Java ~30 MiB.
+Compare to [`PHASE5_WALL_BASELINE.md`](PHASE5_WALL_BASELINE.md) and
+[`PHASE6_WALL_BASELINE.md`](PHASE6_WALL_BASELINE.md). Prefer **phase shares** when
+absolute seconds drift with host load. Use **hc-mem-probe** for Peak RSS in CI;
+ignore `/usr/bin/time` Java ~30 MiB. See [`BEAT_JAVA_WALL_NEXT.md`](BEAT_JAVA_WALL_NEXT.md).
