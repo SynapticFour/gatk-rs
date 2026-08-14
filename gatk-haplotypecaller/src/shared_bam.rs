@@ -65,6 +65,34 @@ pub fn into_unique_records(reads: Vec<SharedBamRecord>) -> Vec<bam::Record> {
         .collect()
 }
 
+/// Split region Arcs into (untrimmed genotyping Arcs, owned finalize buffer).
+///
+/// Observable: genotyping keeps the same untrimmed records as before finalize softclip.
+/// Cost: at most one deep clone per record — never unwrap-then-`Record::clone` twice
+/// (the old `into_unique` + `share_records(owned.clone())` pattern when Arcs were shared).
+#[inline]
+pub fn split_shared_for_finalize(
+    reads: Vec<SharedBamRecord>,
+) -> (Vec<SharedBamRecord>, Vec<bam::Record>) {
+    let mut shared_out = Vec::with_capacity(reads.len());
+    let mut owned = Vec::with_capacity(reads.len());
+    for arc in reads {
+        match Arc::try_unwrap(arc) {
+            Ok(rec) => {
+                // Unique: one deep clone for genotyping Arc; move the other into finalize.
+                shared_out.push(Arc::new(rec.clone()));
+                owned.push(rec);
+            }
+            Err(shared) => {
+                // Still shared (shard / prior pin): cheap Arc clone + one deep copy for owned.
+                shared_out.push(Arc::clone(&shared));
+                owned.push((*shared).clone());
+            }
+        }
+    }
+    (shared_out, owned)
+}
+
 /// Uniform mutable access for owned or Arc-backed BAM records.
 pub trait BamRecordSlot {
     fn as_record(&self) -> &bam::Record;
@@ -125,5 +153,29 @@ mod tests {
         let b = empty_shared_record();
         assert!(Arc::ptr_eq(&a, &b));
         assert_eq!(a.pos(), -1);
+    }
+
+    #[test]
+    fn split_shared_for_finalize_unique_pays_one_clone() {
+        let mut rec = bam::Record::new();
+        rec.set_pos(11);
+        let (kept, owned) = split_shared_for_finalize(vec![share_record(rec)]);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(owned.len(), 1);
+        assert_eq!(kept[0].pos(), 11);
+        assert_eq!(owned[0].pos(), 11);
+        assert_eq!(Arc::strong_count(&kept[0]), 1);
+    }
+
+    #[test]
+    fn split_shared_for_finalize_shared_keeps_arc() {
+        let mut rec = bam::Record::new();
+        rec.set_pos(22);
+        let a = share_record(rec);
+        let pin = a.clone();
+        let (kept, owned) = split_shared_for_finalize(vec![a]);
+        assert!(Arc::ptr_eq(&kept[0], &pin));
+        assert_eq!(owned[0].pos(), 22);
+        assert_eq!(pin.pos(), 22);
     }
 }

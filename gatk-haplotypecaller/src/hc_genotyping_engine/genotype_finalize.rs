@@ -364,9 +364,10 @@ fn finalize_strict_java_genotype_for_emit(
                     continue;
                 };
                 if passes_hc_variant_emit_biallelic(&gls, config.stand_emit_confidence)? {
-                    let depths = vec![rr.max(0), ra.max(0)];
                     gt.genotype_log10_likelihoods = gl_for_java_af_calculation(&gls);
-                    gt.format = emit_genotype_format_fields(&gls, &depths)?;
+                    gt.format = with_site_ad_scratch(rr, ra, |depths| {
+                        emit_genotype_format_fields(&gls, depths)
+                    })?;
                     break;
                 }
             }
@@ -472,8 +473,9 @@ fn sparse_snp_genotype_from_read_depths(
     let gls = shape.gl_vec();
     let priors = biallelic_diploid_log10_priors(config.priors)?;
     let _posterior = genotype_posteriors_from_log10_likelihoods(&gls, &priors)?;
-    let depths = vec![ref_ad, alt_ad];
-    let mut format = emit_genotype_format_fields(&gls, &depths)?;
+    let mut format = with_site_ad_scratch(ref_ad, alt_ad, |depths| {
+        emit_genotype_format_fields(&gls, depths)
+    })?;
     format.dp = ReadDepth::from_i32_saturating(dp);
     let aggregation = HaplotypeLikelihoodAggregation {
         haplotype_log10_sums: vec![0.0, 0.0],
@@ -809,7 +811,8 @@ pub fn pairhmm_locus_trace_dump(
         config,
         active_start_1based,
         active_end_1based,
-    );
+    )
+    .into_owned();
     if config.enable_java_strict()
         && (is_cluster_coupled_indel(event) || is_cluster_ctc_del(event))
         && !subset.is_empty()
@@ -1105,6 +1108,7 @@ pub fn diagnose_genotype_variation_event(
         max_mnp_distance,
         config,
         &[],
+        None,
     )? {
         Some(call) => Ok(Ok(call)),
         None => Ok(Err(classify_genotype_reject(

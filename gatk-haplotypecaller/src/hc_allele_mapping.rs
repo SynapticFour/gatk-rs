@@ -2,7 +2,10 @@
 
 use crate::bio_ids::HaplotypeIndex;
 use crate::cigar::CigarOperator;
-use crate::event_map::{variation_events_for_haplotype, EventMap, VariationEvent};
+use crate::event_map::{
+    cached_events_support_allele_at, variation_events_for_haplotype, EventMap,
+    PerHaplotypeVariationEvents, VariationEvent,
+};
 use crate::genome_loc::GenomePosition;
 use crate::haplotype::Haplotype;
 
@@ -168,6 +171,37 @@ pub fn haplotype_supports_allele_at_with_ref(
     max_mnp_distance: usize,
     contig: &str,
 ) -> bool {
+    haplotype_supports_allele_at_with_events(
+        hap,
+        ref_hap,
+        loc_1based,
+        pad_start,
+        ref_allele,
+        alt_allele,
+        ref_bytes,
+        max_mnp_distance,
+        contig,
+        None,
+    )
+}
+
+/// Same as [`haplotype_supports_allele_at_with_ref`], but reuses a precomputed EventMap
+/// event list for the indel path when the caller holds [`crate::event_map::PerHaplotypeVariationEvents`].
+///
+/// Observable contract: identical truth; skips `EventMap::from_haplotype_and_reference` when
+/// `precomputed_events` is `Some` (cache hit or miss still falls through to slice/oracle checks).
+pub fn haplotype_supports_allele_at_with_events(
+    hap: &Haplotype,
+    ref_hap: &Haplotype,
+    loc_1based: u64,
+    pad_start: u64,
+    ref_allele: &str,
+    alt_allele: &str,
+    ref_bytes: &[u8],
+    max_mnp_distance: usize,
+    contig: &str,
+    precomputed_events: Option<&[VariationEvent]>,
+) -> bool {
     if alt_allele == SPAN_DEL_ALLELE {
         return !hap.is_reference;
     }
@@ -185,22 +219,25 @@ pub fn haplotype_supports_allele_at_with_ref(
     }
     if let Some(cigar) = &hap.cigar {
         if cigar.elements.iter().any(|e| e.operator.is_indel()) {
-            let map = EventMap::from_haplotype_and_reference(
-                hap,
-                ref_hap,
-                ref_bytes,
-                pad_start,
-                max_mnp_distance,
-            );
-            if map
-                .variation_events(contig, pad_start)
-                .into_iter()
-                .any(|e| {
-                    e.ref_allele == ref_allele
-                        && e.alt_allele == alt_allele
-                        && e.start_1based == GenomePosition::new_1based(loc_1based)
-                })
-            {
+            let indel_hit = if let Some(events) = precomputed_events {
+                cached_events_support_allele_at(events, loc_1based, ref_allele, alt_allele)
+            } else {
+                let map = EventMap::from_haplotype_and_reference(
+                    hap,
+                    ref_hap,
+                    ref_bytes,
+                    pad_start,
+                    max_mnp_distance,
+                );
+                map.variation_events(contig, pad_start)
+                    .into_iter()
+                    .any(|e| {
+                        e.ref_allele == ref_allele
+                            && e.alt_allele == alt_allele
+                            && e.start_1based == GenomePosition::new_1based(loc_1based)
+                    })
+            };
+            if indel_hit {
                 return true;
             }
             // Coupled cluster haps: CIGAR may not place EventMap at genomic cluster coords.
@@ -208,9 +245,9 @@ pub fn haplotype_supports_allele_at_with_ref(
     }
     let off = loc_1based.saturating_sub(pad_start) as usize;
     let hap_slice = hap.bases.get(off..).unwrap_or(&[]);
-    let ref_bytes = ref_allele.as_bytes();
+    let ref_bytes_allele = ref_allele.as_bytes();
     let alt_bytes = alt_allele.as_bytes();
-    if hap_slice.starts_with(alt_bytes) && !hap_slice.starts_with(ref_bytes) {
+    if hap_slice.starts_with(alt_bytes) && !hap_slice.starts_with(ref_bytes_allele) {
         return true;
     }
     // A preceding deletion shifts the raw sequence offset for the paired A→ATG insertion.
@@ -224,10 +261,19 @@ pub fn haplotype_supports_allele_at_with_ref(
         ref_allele: ref_allele.to_string(),
         alt_allele: alt_allele.to_string(),
     }) && ref_hap.bases.get(off..).is_some_and(|ref_slice| {
-        ref_slice.starts_with(ref_bytes)
-            && !hap_slice.starts_with(ref_bytes)
+        ref_slice.starts_with(ref_bytes_allele)
+            && !hap_slice.starts_with(ref_bytes_allele)
             && !hap_slice.starts_with(alt_bytes)
     })
+}
+
+/// Overlapping events at `loc` from a precomputed per-hap EventMap list.
+fn overlapping_events_at_loc(events: &[VariationEvent], loc_1based: u64) -> Vec<&VariationEvent> {
+    let loc = GenomePosition::new_1based(loc_1based);
+    events
+        .iter()
+        .filter(|e| e.end_1based >= loc && e.start_1based <= loc)
+        .collect()
 }
 
 /// Overlapping per-hap EventMap events at `loc` (GATK `getOverlappingEvents`).
@@ -266,6 +312,32 @@ pub fn create_allele_mapper(
     max_mnp_distance: usize,
     emit_spanning_dels: bool,
 ) -> AlleleHaplotypeMapping {
+    create_allele_mapper_with_events(
+        merged,
+        loc_1based,
+        haplotypes,
+        pad_start_1based,
+        ref_bytes,
+        max_mnp_distance,
+        emit_spanning_dels,
+        None,
+    )
+}
+
+/// Same as [`create_allele_mapper`], reusing region [`PerHaplotypeVariationEvents`] when present.
+///
+/// Observable contract: identical allele↔hap pools; skips per-hap `EventMap` rebuilds on the
+/// overlapping-events walk and indel support fallback when `hap_events` matches `pad_start`.
+pub fn create_allele_mapper_with_events(
+    merged: &VariationEvent,
+    loc_1based: u64,
+    haplotypes: &[Haplotype],
+    pad_start_1based: u64,
+    ref_bytes: &[u8],
+    max_mnp_distance: usize,
+    emit_spanning_dels: bool,
+    hap_events: Option<&PerHaplotypeVariationEvents>,
+) -> AlleleHaplotypeMapping {
     let contig = merged.contig.as_str();
     let ref_idx = haplotypes.iter().position(|h| h.is_reference).unwrap_or(0);
     let ref_hap = &haplotypes[ref_idx];
@@ -283,17 +355,25 @@ pub fn create_allele_mapper(
 
     let mut ref_haps = Vec::new();
     let mut alt_haps = Vec::new();
+    // Owned spanning list only when cache miss (avoids clone-per-hap on cache hit).
+    #[allow(unused_assignments)]
+    let mut spanning_owned: Vec<VariationEvent> = Vec::new();
     'hap_map: for (i, h) in haplotypes.iter().enumerate() {
-        let spanning = hap_overlapping_events_at(
-            h,
-            ref_hap,
-            loc_1based,
-            pad_start_1based,
-            ref_bytes,
-            max_mnp_distance,
-            contig,
-        );
-        if spanning.is_empty() {
+        let spanning_refs: Vec<&VariationEvent> = if let Some(cache) = hap_events {
+            overlapping_events_at_loc(cache.events_for(i), loc_1based)
+        } else {
+            spanning_owned = hap_overlapping_events_at(
+                h,
+                ref_hap,
+                loc_1based,
+                pad_start_1based,
+                ref_bytes,
+                max_mnp_distance,
+                contig,
+            );
+            spanning_owned.iter().collect()
+        };
+        if spanning_refs.is_empty() {
             // Java: no EventMap at locus — SNP pools by base at `loc` (biallelic merged site).
             if merged.ref_allele.len() == 1 && merged.alt_allele.len() == 1 {
                 if let (Some(rb), Some(ab)) = (
@@ -325,7 +405,7 @@ pub fn create_allele_mapper(
             ref_haps.push(i);
             continue;
         }
-        for ev in &spanning {
+        for ev in &spanning_refs {
             if ev.start_1based == GenomePosition::new_1based(loc_1based) {
                 if ev.ref_allele.len() > merged.ref_allele.len() {
                     // GATK: spanning ref longer than merged VC — not an allele at this site.
@@ -387,7 +467,8 @@ pub fn create_allele_mapper(
     // EventMap may miss merged allele on materialized hap (P12 SNPs + cluster indels).
     if alt_haps.is_empty() {
         for (i, h) in haplotypes.iter().enumerate() {
-            if haplotype_supports_allele_at_with_ref(
+            let pre = hap_events.map(|c| c.events_for(i));
+            if haplotype_supports_allele_at_with_events(
                 h,
                 ref_hap,
                 loc_1based,
@@ -397,6 +478,7 @@ pub fn create_allele_mapper(
                 ref_bytes,
                 max_mnp_distance,
                 contig,
+                pre,
             ) {
                 alt_haps.push(i);
             }

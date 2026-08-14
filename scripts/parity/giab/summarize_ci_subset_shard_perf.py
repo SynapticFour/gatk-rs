@@ -92,21 +92,29 @@ def download_run_artifacts(run_id: str, dest: Path) -> Path:
         )
     )
     owner, repo = meta["nameWithOwner"].split("/", 1)
-    arts = json.loads(
-        subprocess.check_output(
-            [
-                "gh",
-                "api",
-                f"repos/{owner}/{repo}/actions/runs/{run_id}/artifacts?per_page=100",
-            ],
-            text=True,
+    names: list[str] = []
+    page = 1
+    while True:
+        arts = json.loads(
+            subprocess.check_output(
+                [
+                    "gh",
+                    "api",
+                    f"repos/{owner}/{repo}/actions/runs/{run_id}/artifacts"
+                    f"?per_page=100&page={page}",
+                ],
+                text=True,
+            )
         )
-    )
-    names = [
-        a["name"]
-        for a in arts.get("artifacts", [])
-        if a["name"].startswith("giab-hc-") and not a.get("expired")
-    ]
+        batch = arts.get("artifacts") or []
+        if not batch:
+            break
+        for a in batch:
+            if a["name"].startswith("giab-hc-") and not a.get("expired"):
+                names.append(a["name"])
+        if len(batch) < 100:
+            break
+        page += 1
     if not names:
         # Fallback: download all (may be heavy once finalize lands).
         subprocess.check_call(

@@ -920,7 +920,7 @@ impl HaplotypeCallerEngine {
                 && !defer_early_allele_filter
             {
                 let t_early = std::time::Instant::now();
-                // Skip pre-filter sync when trim/assemble EventMap is already CIGAR-complete.
+                // Skip EventMap sync when already CIGAR-complete with a non-empty event list.
                 let need_pre_filter_sync = assembly.variation_events.is_empty()
                     || crate::read_event_discovery::alt_needs_indel_cigar_refresh(
                         &assembly.haplotypes,
@@ -2317,6 +2317,7 @@ fn score_pairhmm_from_records<R: std::borrow::Borrow<rust_htslib::bam::Record> +
     // Parallel across reads when the rayon pool has >1 worker (Java `--native-pair-hmm-threads`).
     // `GATK_RS_HC_SEQUENTIAL` only serializes *regions* for Peak-RSS — PairHMM within a region
     // stays threaded so we can undercut Java wall without stacking mid-size regions.
+    // Hap scoring inside each read stays sequential when nested (one parallel axis).
     let parallel = rayon::current_num_threads() > 1 && reads.len() >= 8;
     if !parallel {
         let mut out = Vec::with_capacity(reads.len() * eligible.len());

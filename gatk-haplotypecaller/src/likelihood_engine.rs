@@ -12,6 +12,41 @@ use crate::pairhmm_simd::{
 use crate::pcr_error_model::PcrErrorModel;
 use gatk_common::GatkResult;
 use rayon::prelude::*;
+use std::cell::RefCell;
+
+/// Per-read PairHMM input planes (BQ-capped quals + GOP/GCP). TLS avoids alloc-per-read
+/// on dense regions (observable contract: same fills as fresh `Vec`s each call).
+struct PairHmmReadScratch {
+    capped: Vec<u8>,
+    ins: Vec<u8>,
+    del: Vec<u8>,
+    gcp: Vec<u8>,
+}
+
+impl PairHmmReadScratch {
+    fn empty() -> Self {
+        Self {
+            capped: Vec::new(),
+            ins: Vec::new(),
+            del: Vec::new(),
+            gcp: Vec::new(),
+        }
+    }
+
+    fn ensure(&mut self, n: usize) {
+        if self.capped.len() < n {
+            self.capped.resize(n, 0);
+            self.ins.resize(n, 0);
+            self.del.resize(n, 0);
+            self.gcp.resize(n, 0);
+        }
+    }
+}
+
+thread_local! {
+    static PAIRHMM_READ_SCRATCH: RefCell<PairHmmReadScratch> =
+        RefCell::new(PairHmmReadScratch::empty());
+}
 
 /// GATK `PairHMMLikelihoodCalculationEngine` default (`--base-quality-score-threshold`).
 pub const HC_DEFAULT_BASE_QUALITY_SCORE_THRESHOLD: u8 = 18;
@@ -173,6 +208,9 @@ pub fn log10_read_haplotype_likelihood(
 /// Result order matches `haplotype_bases` (algorithm-identical to sequential scoring).
 /// Under `GATK_RS_HC_SEQUENTIAL=1`, scalar Log10/Logless use a plain iterator (no rayon) so
 /// haplotype score order still matches sequential collect; SIMD path unchanged.
+///
+/// When already inside a Rayon worker (engine read-parallel), haplotype scoring stays
+/// sequential — one parallel axis only (Peak TLS + oversubscription).
 /// Dispatches on [`HcLikelihoodEngineConfig::implementation`] (FlowBased errors until enabled).
 pub fn score_read_against_haplotypes(
     config: &HcLikelihoodEngineConfig,
@@ -189,78 +227,106 @@ pub fn score_read_against_haplotypes(
     if haplotype_bases.is_empty() {
         return Ok(Vec::new());
     }
-    let mut capped = read_quals.to_vec();
-    prepare_read_quals_for_pairhmm_inplace(&mut capped, read_mapq, config);
     let n = read_bases.len();
-    let mut ins = vec![GATK_PARITY_DEFAULT_INS_QUAL; n];
-    let mut del = vec![GATK_PARITY_DEFAULT_DEL_QUAL; n];
-    let gcp = vec![GATK_PARITY_DEFAULT_GCP; n];
-    if !config.uses_dragstr_pair_hmm() {
-        crate::pcr_error_model::apply_pcr_error_model(
-            read_bases,
-            &mut ins,
-            &mut del,
-            config.pcr_error_model,
-        );
+    if n == 0 {
+        return Ok(vec![0.0; haplotype_bases.len()]);
     }
+    // Nested Rayon: engine already `par_iter`s reads — do not also `par_iter` haps.
+    let hap_parallel = rayon::current_num_threads() > 1
+        && rayon::current_thread_index().is_none()
+        && !crate::runtime_config::hc_force_sequential_regions();
     let backend = config.resolved_pair_hmm_backend();
-    let sequential = crate::runtime_config::hc_force_sequential_regions();
-    match backend {
-        PairHmmBackend::Log10Scalar => {
-            if sequential {
-                // Order matches haplotype_bases (algorithm-identical to par_iter collect).
-                haplotype_bases
-                    .iter()
-                    .map(|hap| {
-                        crate::pairhmm_log10::log10_pairhmm_likelihood(
-                            read_bases, &capped, hap, &ins, &del, &gcp,
-                        )
-                    })
-                    .collect()
-            } else {
-                // Parallel across haplotypes; each rayon worker has its own PairHMM TLS scratch.
-                haplotype_bases
+
+    PAIRHMM_READ_SCRATCH.with(|cell| {
+        let mut scratch = cell.borrow_mut();
+        scratch.ensure(n);
+        scratch.capped[..n].copy_from_slice(read_quals);
+        prepare_read_quals_for_pairhmm_inplace(&mut scratch.capped[..n], read_mapq, config);
+        scratch.ins[..n].fill(GATK_PARITY_DEFAULT_INS_QUAL);
+        scratch.del[..n].fill(GATK_PARITY_DEFAULT_DEL_QUAL);
+        scratch.gcp[..n].fill(GATK_PARITY_DEFAULT_GCP);
+        if !config.uses_dragstr_pair_hmm() {
+            let PairHmmReadScratch {
+                ins,
+                del,
+                capped: _,
+                gcp: _,
+            } = &mut *scratch;
+            crate::pcr_error_model::apply_pcr_error_model(
+                read_bases,
+                &mut ins[..n],
+                &mut del[..n],
+                config.pcr_error_model,
+            );
+        }
+        // Hap-parallel needs owned planes (`Send`); nested/serial reuses TLS slices.
+        if hap_parallel {
+            let capped = scratch.capped[..n].to_vec();
+            let ins = scratch.ins[..n].to_vec();
+            let del = scratch.del[..n].to_vec();
+            let gcp = scratch.gcp[..n].to_vec();
+            drop(scratch);
+            match backend {
+                PairHmmBackend::Log10Scalar => haplotype_bases
                     .par_iter()
                     .map(|hap| {
                         crate::pairhmm_log10::log10_pairhmm_likelihood(
                             read_bases, &capped, hap, &ins, &del, &gcp,
                         )
                     })
-                    .collect()
-            }
-        }
-        PairHmmBackend::LoglessScalar => {
-            if sequential {
-                haplotype_bases
-                    .iter()
-                    .map(|hap| {
-                        crate::pairhmm_logless::logless_pairhmm_likelihood(
-                            read_bases, &capped, hap, &ins, &del, &gcp,
-                        )
-                    })
-                    .collect()
-            } else {
-                haplotype_bases
+                    .collect(),
+                PairHmmBackend::LoglessScalar => haplotype_bases
                     .par_iter()
                     .map(|hap| {
                         crate::pairhmm_logless::logless_pairhmm_likelihood(
                             read_bases, &capped, hap, &ins, &del, &gcp,
                         )
                     })
-                    .collect()
+                    .collect(),
+                _ => score_read_haps_logless(
+                    backend,
+                    read_bases,
+                    &capped,
+                    haplotype_bases,
+                    &ins,
+                    &del,
+                    &gcp,
+                ),
+            }
+        } else {
+            let capped = &scratch.capped[..n];
+            let ins = &scratch.ins[..n];
+            let del = &scratch.del[..n];
+            let gcp = &scratch.gcp[..n];
+            match backend {
+                PairHmmBackend::Log10Scalar => haplotype_bases
+                    .iter()
+                    .map(|hap| {
+                        crate::pairhmm_log10::log10_pairhmm_likelihood(
+                            read_bases, capped, hap, ins, del, gcp,
+                        )
+                    })
+                    .collect(),
+                PairHmmBackend::LoglessScalar => haplotype_bases
+                    .iter()
+                    .map(|hap| {
+                        crate::pairhmm_logless::logless_pairhmm_likelihood(
+                            read_bases, capped, hap, ins, del, gcp,
+                        )
+                    })
+                    .collect(),
+                _ => score_read_haps_logless(
+                    backend,
+                    read_bases,
+                    capped,
+                    haplotype_bases,
+                    ins,
+                    del,
+                    gcp,
+                ),
             }
         }
-        // SIMD / packed kernels already batch haplotypes; keep single-threaded here.
-        _ => score_read_haps_logless(
-            backend,
-            read_bases,
-            &capped,
-            haplotype_bases,
-            &ins,
-            &del,
-            &gcp,
-        ),
-    }
+    })
 }
 
 #[cfg(test)]

@@ -52,8 +52,8 @@ use crate::genotyping::{
 };
 use crate::haplotype::Haplotype;
 use crate::hc_allele_mapping::{
-    create_allele_mapper, hap_base_at_ref_locus, replace_span_del_events, AlleleHaplotypeMapping,
-    SPAN_DEL_ALLELE,
+    create_allele_mapper, create_allele_mapper_with_events, hap_base_at_ref_locus,
+    replace_span_del_events, AlleleHaplotypeMapping, SPAN_DEL_ALLELE,
 };
 use crate::hc_joint_is_active::log10_one_minus_pow10;
 use crate::java_hc_site_semantics::{
@@ -82,6 +82,8 @@ use crate::region_read_likelihood::RegionReadLikelihood;
 use crate::shared_bam::SharedBamRecord;
 use gatk_common::GatkResult;
 use rust_htslib::bam::Record;
+use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Why a variation event did not become a [`GenotypedSiteCall`] (P12 trace / A2).
@@ -830,14 +832,19 @@ fn filter_likelihoods_for_variant(
     Vec::new()
 }
 
-fn likelihood_subset_for_event(
-    likelihoods: &[RegionReadLikelihood],
+fn likelihood_subset_for_event<'a>(
+    likelihoods: &'a [RegionReadLikelihood],
     reads: &[SharedBamRecord],
     event: &VariationEvent,
     config: &HcGenotypingConfig,
     active_start_1based: u64,
     active_end_1based: u64,
-) -> Vec<RegionReadLikelihood> {
+) -> Cow<'a, [RegionReadLikelihood]> {
+    // Without BAM geometry the overlap filter cannot retain rows; prior code drained empty
+    // filters then `likelihoods.to_vec()`. Borrow the full table instead.
+    if reads.is_empty() && !likelihoods.is_empty() {
+        return Cow::Borrowed(likelihoods);
+    }
     let var_end = event.end_1based.get().max(
         event
             .start_1based
@@ -855,13 +862,10 @@ fn likelihood_subset_for_event(
             margin,
             config,
         );
-        if subset.is_empty() && reads.is_empty() && !likelihoods.is_empty() {
-            subset = likelihoods.to_vec();
-        }
-        if !reads.is_empty() && !subset.is_empty() {
+        if !subset.is_empty() {
             subset = dedupe_likelihood_subset_by_qname(subset, reads);
         }
-        return subset;
+        return Cow::Owned(subset);
     }
     let mut subset = filter_likelihoods_for_variant(
         likelihoods,
@@ -917,11 +921,8 @@ fn likelihood_subset_for_event(
         );
     }
     if subset.is_empty() && config.genotype_stored_events_only && event.is_indel() {
-        subset = likelihoods.to_vec();
-    }
-    // PairHMM rows without read overlap filter (unit tests / callers with empty `reads`).
-    if subset.is_empty() && reads.is_empty() && !likelihoods.is_empty() {
-        subset = likelihoods.to_vec();
+        // Same evidence table as before; borrow until a caller needs a mut owned copy.
+        return Cow::Borrowed(likelihoods);
     }
     if subset.is_empty() && config.enable_sparse_read_genotype {
         subset = likelihoods
@@ -930,10 +931,10 @@ fn likelihood_subset_for_event(
             .cloned()
             .collect();
     }
-    if config.enable_java_strict() && !reads.is_empty() && !subset.is_empty() {
+    if config.enable_java_strict() && !subset.is_empty() {
         subset = dedupe_likelihood_subset_by_qname(subset, reads);
     }
-    subset
+    Cow::Owned(subset)
 }
 
 /// Java fragment: one evidence unit per template; keep the read with best max log10 LL per QNAME.
@@ -1047,7 +1048,8 @@ fn genotype_from_java_shaped_gls(
 ) -> GatkResult<RegionGenotypeResult> {
     let priors = biallelic_diploid_log10_priors(config.priors)?;
     let _posterior = genotype_posteriors_from_log10_likelihoods(&gls, &priors)?;
-    let depths = vec![ref_ad.max(0), alt_ad.max(0)];
+    // Stack AD — avoid per-site `vec![ref, alt]` in the shaped-GL hot path.
+    let depths = [ref_ad.max(0), alt_ad.max(0)];
     let mut format = emit_genotype_format_fields(&gls, &depths)?;
     format.dp = ReadDepth::from_i32_saturating(depths.iter().sum());
     let best_idx = biallelic_genotype_index_from_pl(&format.pl).as_usize();
@@ -1061,6 +1063,22 @@ fn genotype_from_java_shaped_gls(
         alt_haplotype_index: 1,
         genotype_log10_likelihoods: gls,
         format,
+    })
+}
+
+thread_local! {
+    /// Reusable AD scratch for biallelic site finalize (avoids per-site `vec![ref, alt]`).
+    static SITE_AD_SCRATCH: RefCell<Vec<i32>> = RefCell::new(Vec::with_capacity(2));
+}
+
+/// Borrow TLS AD buffer filled with `[ref_ad, alt_ad]` for emit helpers.
+fn with_site_ad_scratch<R>(ref_ad: i32, alt_ad: i32, f: impl FnOnce(&[i32]) -> R) -> R {
+    SITE_AD_SCRATCH.with(|c| {
+        let mut v = c.borrow_mut();
+        v.clear();
+        v.push(ref_ad.max(0));
+        v.push(alt_ad.max(0));
+        f(&v)
     })
 }
 

@@ -563,12 +563,18 @@ impl AssemblyGraph {
             return;
         }
         let old_nodes = std::mem::take(&mut self.nodes);
-        let mut new_nodes = Vec::new();
-        let mut remap = HashMap::new();
+        let old_edges = std::mem::take(&mut self.edges);
+        let old_ref_edges = std::mem::take(&mut self.ref_edges);
+        let mut new_nodes = Vec::with_capacity(old_nodes.len().saturating_sub(remove.len()));
+        let mut remap = HashMap::with_capacity(new_nodes.capacity());
+        self.kmer_to_id.clear();
         for n in old_nodes {
             if !remove.contains(&n.id) {
                 let new_id = new_nodes.len();
                 remap.insert(n.id, new_id);
+                // One Arc bump for the index; move the existing Arc into the node (no second clone loop).
+                self.kmer_to_id
+                    .insert(std::sync::Arc::clone(&n.kmer), new_id);
                 new_nodes.push(KmerNode {
                     id: new_id,
                     kmer: n.kmer,
@@ -576,14 +582,19 @@ impl AssemblyGraph {
                 });
             }
         }
-        let mut new_edges = HashMap::new();
-        let mut new_ref_edges = HashSet::new();
-        for ((from, to), support) in &self.edges {
-            if let (Some(&nf), Some(&nt)) = (remap.get(from), remap.get(to)) {
-                new_edges.insert((nf, nt), *support);
-                if self.ref_edges.contains(&(*from, *to)) {
-                    new_ref_edges.insert((nf, nt));
+        self.edges.clear();
+        self.ref_edges.clear();
+        self.outgoing.clear();
+        self.incoming.clear();
+        self.edges.reserve(old_edges.len());
+        for ((from, to), support) in old_edges {
+            if let (Some(&nf), Some(&nt)) = (remap.get(&from), remap.get(&to)) {
+                self.edges.insert((nf, nt), support);
+                if old_ref_edges.contains(&(from, to)) {
+                    self.ref_edges.insert((nf, nt));
                 }
+                self.outgoing.entry(nf).or_default().insert(nt);
+                self.incoming.entry(nt).or_default().insert(nf);
             }
         }
         let new_ref_nodes: HashSet<usize> = self
@@ -592,20 +603,7 @@ impl AssemblyGraph {
             .filter_map(|n| remap.get(n).copied())
             .collect();
         self.nodes = new_nodes;
-        self.edges = new_edges;
-        self.ref_edges = new_ref_edges;
         self.ref_nodes = new_ref_nodes;
-        self.kmer_to_id.clear();
-        self.outgoing.clear();
-        self.incoming.clear();
-        for n in &self.nodes {
-            // Arc clone — shared bytes with `nodes` (no second kmer allocation).
-            self.kmer_to_id.insert(std::sync::Arc::clone(&n.kmer), n.id);
-        }
-        for (from, to) in self.edges.keys() {
-            self.outgoing.entry(*from).or_default().insert(*to);
-            self.incoming.entry(*to).or_default().insert(*from);
-        }
     }
 
     pub fn extract_candidate_haplotypes(

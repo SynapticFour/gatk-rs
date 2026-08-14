@@ -7,6 +7,9 @@ impl SiteMap {
     /// Build the allele↔haplotype mapping for a variation event.
     /// When the trim-pad EventMap/linear slice misses indel alt haps (empty mapper),
     /// retries against the full padded reference (L9 SparsePlShape avoidance).
+    ///
+    /// `hap_events` must be built against `pad_start_1based` (trim pad); full-pad retry
+    /// rebuilds EventMaps (coordinates differ).
     pub(crate) fn build_mapping(
         event: &VariationEvent,
         haplotypes: &[Haplotype],
@@ -16,9 +19,10 @@ impl SiteMap {
         full_reference_pad_1based: u64,
         max_mnp_distance: usize,
         config: &HcGenotypingConfig,
+        hap_events: Option<&crate::event_map::PerHaplotypeVariationEvents>,
     ) -> AlleleHaplotypeMapping {
         let loc = event.start_1based.get();
-        let mut mapping = create_allele_mapper(
+        let mut mapping = create_allele_mapper_with_events(
             event,
             loc,
             haplotypes,
@@ -26,6 +30,7 @@ impl SiteMap {
             ref_bytes,
             max_mnp_distance,
             !config.disable_spanning_event_genotyping,
+            hap_events,
         );
         if mapping.alt_haplotype_indices.is_empty()
             && event.is_indel()

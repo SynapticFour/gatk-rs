@@ -15,6 +15,76 @@ use crate::java_hc_site_semantics::is_cluster_anchor_snp;
 use crate::smith_waterman::SwOverhangStrategy;
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
+use std::fmt;
+use std::sync::Arc;
+
+/// Arc-backed allele display bytes for hot remap / EventMap paths.
+///
+/// Prefer this over cloning `String` allele fields when the same REF/ALT is remapped
+/// repeatedly (`AllelePair`). `VariationEvent` still owns `String` alleles in this PR.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AlleleBytes(Arc<[u8]>);
+
+impl AlleleBytes {
+    #[inline]
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        Self(Arc::from(bytes.to_vec().into_boxed_slice()))
+    }
+
+    #[inline]
+    pub fn from_vec(bytes: Vec<u8>) -> Self {
+        Self(Arc::from(bytes.into_boxed_slice()))
+    }
+
+    #[inline]
+    pub fn from_str(s: &str) -> Self {
+        Self::from_bytes(s.as_bytes())
+    }
+
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.0).unwrap_or("")
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl fmt::Display for AlleleBytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl AsRef<[u8]> for AlleleBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl From<&str> for AlleleBytes {
+    fn from(s: &str) -> Self {
+        Self::from_str(s)
+    }
+}
+
+impl From<String> for AlleleBytes {
+    fn from(s: String) -> Self {
+        Self::from_vec(s.into_bytes())
+    }
+}
 
 /// One variant event on the reference haplotype byte axis (pad-relative).
 /// `start` is a [`PadOffset0`] into the reference haplotype sequence used to build the map.
@@ -550,7 +620,7 @@ pub fn collect_variation_events(
     };
     let mut set = BTreeSet::new();
     for h in haplotypes {
-        for mut v in variation_events_for_haplotype(
+        for v in variation_events_for_haplotype(
             h,
             ref_hap,
             ref_bytes,
@@ -558,7 +628,7 @@ pub fn collect_variation_events(
             max_mnp_distance,
             contig,
         ) {
-            v.contig = contig.to_string();
+            // Contig already set by variation_events_for_haplotype — avoid re-clone.
             set.insert(v);
         }
     }
@@ -723,13 +793,13 @@ pub fn cached_events_support_allele_at(
 /// Typed REF/ALT pair for longest-REF remap and fragment predicates (L12-D3).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AllelePair {
-    ref_allele: String,
-    alt_allele: String,
+    ref_allele: AlleleBytes,
+    alt_allele: AlleleBytes,
 }
 
 impl AllelePair {
     #[inline]
-    pub fn new(ref_allele: impl Into<String>, alt_allele: impl Into<String>) -> Self {
+    pub fn new(ref_allele: impl Into<AlleleBytes>, alt_allele: impl Into<AlleleBytes>) -> Self {
         Self {
             ref_allele: ref_allele.into(),
             alt_allele: alt_allele.into(),
@@ -738,36 +808,40 @@ impl AllelePair {
 
     #[inline]
     pub fn from_event(event: &VariationEvent) -> Self {
-        Self::new(&event.ref_allele, &event.alt_allele)
+        Self::new(event.ref_allele.as_str(), event.alt_allele.as_str())
     }
 
     #[inline]
     pub fn ref_allele(&self) -> &str {
-        &self.ref_allele
+        self.ref_allele.as_str()
     }
 
     #[inline]
     pub fn alt_allele(&self) -> &str {
-        &self.alt_allele
+        self.alt_allele.as_str()
     }
 
     /// Remap a shorter-REF allele onto `long_ref` (nested STR deletions).
     pub fn remap_onto_longer_ref(&self, long_ref: &str) -> Option<Self> {
-        if self.ref_allele == long_ref {
+        let short_ref = self.ref_allele.as_str();
+        let short_alt = self.alt_allele.as_str();
+        if short_ref == long_ref {
             // CLONE: needed because graph fork needs owned duplicate for speculative path.
             return Some(self.clone());
         }
-        if self.ref_allele.is_empty() || !long_ref.starts_with(&self.ref_allele) {
+        if short_ref.is_empty() || !long_ref.starts_with(short_ref) {
             return None;
         }
-        let mut out =
-            String::with_capacity(self.alt_allele.len() + long_ref.len() - self.ref_allele.len());
-        out.push_str(&self.alt_allele);
-        out.push_str(&long_ref[self.ref_allele.len()..]);
+        let mut out = String::with_capacity(short_alt.len() + long_ref.len() - short_ref.len());
+        out.push_str(short_alt);
+        out.push_str(&long_ref[short_ref.len()..]);
         if out == long_ref || out.is_empty() {
             return None;
         }
-        Some(Self::new(long_ref, out))
+        Some(Self::new(
+            AlleleBytes::from_str(long_ref),
+            AlleleBytes::from_vec(out.into_bytes()),
+        ))
     }
 }
 
@@ -778,7 +852,7 @@ pub fn remap_alt_onto_longer_ref(
 ) -> Option<String> {
     AllelePair::new(short_ref, short_alt)
         .remap_onto_longer_ref(long_ref)
-        .map(|p| p.alt_allele)
+        .map(|p| p.alt_allele().to_string())
 }
 
 /// GATK `makeMergedVariantContext` lite: one biallelic site per unique ALT at `loc`.
@@ -805,8 +879,8 @@ pub fn merged_biallelic_sites_at_position(
         .unwrap_or("N")
         .to_string();
     let mut alts = BTreeSet::new();
-    // CLONE: needed because multi-owner or ownership transfer into new structure.
-    let contig = at_loc.first().map(|e| e.contig.clone()).unwrap_or_default();
+    // Contig shared across remapped biallelics at this locus (clone once per ALT below).
+    let contig = at_loc.first().map(|e| e.contig.as_str()).unwrap_or("");
     for e in &at_loc {
         if e.ref_allele == ref_allele {
             if e.alt_allele != ref_allele {
@@ -823,8 +897,7 @@ pub fn merged_biallelic_sites_at_position(
     }
     alts.into_iter()
         .map(|alt| VariationEvent {
-            // CLONE: needed because owned contig id for output record.
-            contig: contig.clone(),
+            contig: contig.to_string(),
             start_1based: loc,
             end_1based: GenomePosition::new_1based(
                 loc.get()

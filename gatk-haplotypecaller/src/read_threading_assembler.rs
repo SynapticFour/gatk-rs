@@ -1068,8 +1068,9 @@ fn assemble_from_ref_and_reads_seq_graph(
             ref_cigar_len,
             &args.haplotype_to_reference_sw,
         )?;
-        drop(seq); // Peak-RSS: free SeqGraph before next kmer / PairHMM
-                   // Keep SW TLS warm across SeqGraph k-mers; released once before PairHMM.
+        // Peak-RSS: free SeqGraph before next kmer / PairHMM (clear maps via take).
+        let _seq_freed = seq;
+        // Keep SW TLS warm across SeqGraph k-mers; released once before PairHMM.
         for h in batch.drain(..) {
             let key = (h.bases.clone(), h.is_reference);
             if seen.insert(key) {
@@ -1674,7 +1675,7 @@ fn extract_rt_haplotypes_from_built_graph(
     ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
     ref_hap.cigar = Some(ref_cigar);
     let ref_cigar_len = ref_hap.cigar.as_ref().unwrap().reference_length();
-    let (paths, graph) =
+    let (paths, mut graph) =
         find_best_haplotypes_for_assembly(graph, args.num_best_haplotypes_per_graph)?;
     let mut haps = extract_haplotypes_from_kbest_paths(
         &paths,
@@ -1683,15 +1684,16 @@ fn extract_rt_haplotypes_from_built_graph(
         ref_cigar_len,
         &args.haplotype_to_reference_sw,
     )?;
+    let dangling = std::mem::take(&mut graph.dangling_merge_haps);
+    // Peak-RSS: clear RT topology before dangling-merge SW / PairHMM.
+    let _rt_freed = std::mem::take(&mut graph);
     crate::assembly_dangling_recovery::apply_dangling_merge_haplotypes(
         &mut haps,
         &ref_hap,
-        &graph.dangling_merge_haps,
+        &dangling,
         reference.bases.as_slice(),
         &args.haplotype_to_reference_sw,
     );
-    // Peak-RSS: release RT graph before caller PairHMM.
-    drop(graph);
     // Keep SW TLS warm for further k-mer extracts in this region; PairHMM path
     // releases SW once before likelihoods (`engine` before_pairhmm).
     // CIGAR indel refresh is deferred to one end-of-assemble pass
@@ -1930,7 +1932,7 @@ fn try_assemble_kmer(
     ref_hap.cigar = Some(ref_cigar);
     let ref_cigar_len = ref_hap.cigar.as_ref().unwrap().reference_length();
 
-    let (paths, graph) =
+    let (paths, mut graph) =
         find_best_haplotypes_for_assembly(graph, args.num_best_haplotypes_per_graph)?;
     let mut haplotypes = extract_haplotypes_from_kbest_paths(
         &paths,
@@ -1939,14 +1941,16 @@ fn try_assemble_kmer(
         ref_cigar_len,
         &args.haplotype_to_reference_sw,
     )?;
+    let dangling = std::mem::take(&mut graph.dangling_merge_haps);
+    // Peak-RSS: clear RT topology before dangling-merge SW / PairHMM.
+    let _rt_freed = std::mem::take(&mut graph);
     crate::assembly_dangling_recovery::apply_dangling_merge_haplotypes(
         &mut haplotypes,
         &ref_hap,
-        &graph.dangling_merge_haps,
+        &dangling,
         reference.bases.as_slice(),
         &args.haplotype_to_reference_sw,
     );
-    drop(graph);
     if args.ensure_reference_in_result {
         ensure_reference_haplotype(&mut haplotypes, &ref_hap);
     }
