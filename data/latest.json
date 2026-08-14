@@ -1,9 +1,9 @@
 {
-  "id": "nightly-2026-08-13T11:31:46Z",
+  "id": "nightly-2026-08-14T11:31:23Z",
   "workflow": "nightly-equivalence",
-  "generated_utc": "2026-08-13T11:31:46Z",
-  "commit_sha": "007ae487a8bbd2ac3e7512b17d48ea1ab63dfdc3",
-  "workflow_run_url": "https://github.com/SynapticFour/gatk-rs/actions/runs/31670607593",
+  "generated_utc": "2026-08-14T11:31:23Z",
+  "commit_sha": "03445555bcea4bd70a4c75f31226b47ed90833ec",
+  "workflow_run_url": "https://github.com/SynapticFour/gatk-rs/actions/runs/31773247165",
   "scope": {
     "kind": "trio_joint_e2e",
     "pipeline": "HaplotypeCaller (GVCF) \u2192 CombineGVCFs \u2192 GenotypeGVCFs \u2192 VariantFiltration",
@@ -13,8 +13,7 @@
       "HG004"
     ],
     "regions": [
-      "chr20",
-      "chr21"
+      "chr20"
     ],
     "assembly": "hs37d5 (GRCh37)",
     "truth": "GIAB HG002 NISTv4.2.1 (joint callset scored on HG002)",
