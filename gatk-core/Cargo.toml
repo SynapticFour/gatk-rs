@@ -17,57 +17,33 @@ bench = false
 
 [dependencies]
 # Workspace dependencies
-rayon.workspace = true
-anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-ndarray.workspace = true
-statrs.workspace = true
 num-traits.workspace = true
-uuid.workspace = true
-chrono.workspace = true
 indexmap.workspace = true
 itertools.workspace = true
 memmap2.workspace = true
-crossbeam.workspace = true
-dashmap.workspace = true
-lru.workspace = true
-bytes.workspace = true
-tokio.workspace = true
-parking_lot.workspace = true
 gatk-common = { path = "../gatk-common" }
 
 # External dependencies
 tracing = "0.1"
-smallvec = "1.11"
-bytemuck = "1.14"
 flate2 = "1.0"
 rust-htslib = "1.0"
 hts-sys = { workspace = true }
 
-# Benchmarking dependencies
-num_cpus.workspace = true
+# Benchmarking / tests
 fastrand.workspace = true
 tempfile.workspace = true
-
-# Distributed Computing dependencies
-polars.workspace = true
-futures.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
 proptest.workspace = true
 tempfile.workspace = true
 fastrand = "2.0"
-tokio-test = "0.4"
 
 [[bench]]
 name = "benchmarks"
-harness = false
-
-[[bench]]
-name = "benchmark_suite"
 harness = false
 
 [[bench]]

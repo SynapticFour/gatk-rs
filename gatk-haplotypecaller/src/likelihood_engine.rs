@@ -11,7 +11,6 @@ use crate::pairhmm_simd::{
 };
 use crate::pcr_error_model::PcrErrorModel;
 use gatk_common::GatkResult;
-use rayon::prelude::*;
 use std::cell::RefCell;
 
 /// Per-read PairHMM input planes (BQ-capped quals + GOP/GCP). TLS avoids alloc-per-read
@@ -231,10 +230,6 @@ pub fn score_read_against_haplotypes(
     if n == 0 {
         return Ok(vec![0.0; haplotype_bases.len()]);
     }
-    // Nested Rayon: engine already `par_iter`s reads — do not also `par_iter` haps.
-    let hap_parallel = rayon::current_num_threads() > 1
-        && rayon::current_thread_index().is_none()
-        && !crate::runtime_config::hc_force_sequential_regions();
     let backend = config.resolved_pair_hmm_backend();
 
     PAIRHMM_READ_SCRATCH.with(|cell| {
@@ -259,71 +254,29 @@ pub fn score_read_against_haplotypes(
                 config.pcr_error_model,
             );
         }
-        // Hap-parallel needs owned planes (`Send`); nested/serial reuses TLS slices.
-        if hap_parallel {
-            let capped = scratch.capped[..n].to_vec();
-            let ins = scratch.ins[..n].to_vec();
-            let del = scratch.del[..n].to_vec();
-            let gcp = scratch.gcp[..n].to_vec();
-            drop(scratch);
-            match backend {
-                PairHmmBackend::Log10Scalar => haplotype_bases
-                    .par_iter()
-                    .map(|hap| {
-                        crate::pairhmm_log10::log10_pairhmm_likelihood(
-                            read_bases, &capped, hap, &ins, &del, &gcp,
-                        )
-                    })
-                    .collect(),
-                PairHmmBackend::LoglessScalar => haplotype_bases
-                    .par_iter()
-                    .map(|hap| {
-                        crate::pairhmm_logless::logless_pairhmm_likelihood(
-                            read_bases, &capped, hap, &ins, &del, &gcp,
-                        )
-                    })
-                    .collect(),
-                _ => score_read_haps_logless(
-                    backend,
-                    read_bases,
-                    &capped,
-                    haplotype_bases,
-                    &ins,
-                    &del,
-                    &gcp,
-                ),
-            }
-        } else {
-            let capped = &scratch.capped[..n];
-            let ins = &scratch.ins[..n];
-            let del = &scratch.del[..n];
-            let gcp = &scratch.gcp[..n];
-            match backend {
-                PairHmmBackend::Log10Scalar => haplotype_bases
-                    .iter()
-                    .map(|hap| {
-                        crate::pairhmm_log10::log10_pairhmm_likelihood(
-                            read_bases, capped, hap, ins, del, gcp,
-                        )
-                    })
-                    .collect(),
-                PairHmmBackend::LoglessScalar => haplotype_bases
-                    .iter()
-                    .map(|hap| {
-                        crate::pairhmm_logless::logless_pairhmm_likelihood(
-                            read_bases, capped, hap, ins, del, gcp,
-                        )
-                    })
-                    .collect(),
-                _ => score_read_haps_logless(
-                    backend,
-                    read_bases,
-                    capped,
-                    haplotype_bases,
-                    ins,
-                    del,
-                    gcp,
-                ),
+        let capped = &scratch.capped[..n];
+        let ins = &scratch.ins[..n];
+        let del = &scratch.del[..n];
+        let gcp = &scratch.gcp[..n];
+        match backend {
+            PairHmmBackend::Log10Scalar => haplotype_bases
+                .iter()
+                .map(|hap| {
+                    crate::pairhmm_log10::log10_pairhmm_likelihood(
+                        read_bases, capped, hap, ins, del, gcp,
+                    )
+                })
+                .collect(),
+            PairHmmBackend::LoglessScalar => haplotype_bases
+                .iter()
+                .map(|hap| {
+                    crate::pairhmm_logless::logless_pairhmm_likelihood(
+                        read_bases, capped, hap, ins, del, gcp,
+                    )
+                })
+                .collect(),
+            _ => {
+                score_read_haps_logless(backend, read_bases, capped, haplotype_bases, ins, del, gcp)
             }
         }
     })

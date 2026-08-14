@@ -34,15 +34,10 @@ anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-ndarray.workspace = true
 statrs.workspace = true
 num-traits.workspace = true
-uuid.workspace = true
-chrono.workspace = true
 indexmap.workspace = true
 itertools.workspace = true
-memmap2.workspace = true
-crossbeam.workspace = true
 tracing.workspace = true
 
 # Internal dependencies

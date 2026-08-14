@@ -2,9 +2,8 @@
 
 use crate::assembly::AssemblyRead;
 use crate::assembly_region_finalize::{
-    assembly_reference_read, finalize_region_reads_for_assembly_owned,
-    gatk_min_tail_quality_for_assembly, padded_reference_loc, records_to_assembly_reads,
-    reference_haplotype_for_assembly_region,
+    assembly_reference_read, gatk_min_tail_quality_for_assembly, padded_reference_loc,
+    records_to_assembly_reads, reference_haplotype_for_assembly_region,
 };
 use crate::assembly_region_iterator::AssemblyRegion;
 use crate::assembly_result_set::AssemblyResultSet;
@@ -26,7 +25,7 @@ use rust_htslib::bam;
 /// Owns haplotypes/events and the finalized read records from one assemble pass.
 /// # Observable contract
 /// Same haplotypes as [`assemble_reads`]; `finalized_reads` matches
-/// [`finalize_region_reads_for_assembly_owned`] for the input region (softclip/adaptor applied once).
+/// [`crate::assembly_region_finalize::finalize_region_reads_for_assembly_owned`] for the input region (softclip/adaptor applied once).
 pub struct AssembledRegion {
     pub assembly: AssemblyResultSet,
     pub finalized_reads: Vec<bam::Record>,

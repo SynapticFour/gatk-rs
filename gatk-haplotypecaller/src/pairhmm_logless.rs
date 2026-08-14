@@ -29,6 +29,12 @@ const DELETION_TO_DELETION: usize = 5;
 pub const MIN_ACCEPTED_LINEAR_SUM: f64 = 1e-28;
 
 #[inline]
+pub(crate) fn logless_match_mismatch_prior(qual: u8) -> (f64, f64) {
+    let mismatch = qual_to_error_prob(qual) / 3.0;
+    (qual_to_prob(qual), mismatch)
+}
+
+#[inline]
 fn qual_to_error_prob(qual: u8) -> f64 {
     10f64.powf(-(qual as f64) / 10.0)
 }
@@ -77,7 +83,7 @@ fn match_to_match_prob_table() -> &'static [f64; ((MAX_QUAL + 1) * (MAX_QUAL + 2
     })
 }
 
-fn qual_to_trans_probs(ins_qual: u8, del_qual: u8, gcp: u8) -> [f64; 6] {
+pub(crate) fn logless_qual_to_trans_probs(ins_qual: u8, del_qual: u8, gcp: u8) -> [f64; 6] {
     let gcp_err = qual_to_error_prob(gcp);
     [
         match_to_match_prob(ins_qual, del_qual),
@@ -87,6 +93,20 @@ fn qual_to_trans_probs(ins_qual: u8, del_qual: u8, gcp: u8) -> [f64; 6] {
         qual_to_error_prob(del_qual),
         gcp_err,
     ]
+}
+
+pub(crate) fn logless_build_transitions(
+    rn: usize,
+    insertion_gop: &[u8],
+    deletion_gop: &[u8],
+    overall_gcp: &[u8],
+) -> Vec<[f64; 6]> {
+    let mut transitions = vec![[0.0f64; 6]; rn + 1];
+    for i in 0..rn {
+        transitions[i + 1] =
+            logless_qual_to_trans_probs(insertion_gop[i], deletion_gop[i], overall_gcp[i]);
+    }
+    transitions
 }
 
 struct LoglessScratch {
@@ -244,7 +264,7 @@ fn logless_pairhmm_likelihood_into(
 
     for i in 0..rn {
         scratch.transition[i + 1] =
-            qual_to_trans_probs(insertion_gop[i], deletion_gop[i], overall_gcp[i]);
+            logless_qual_to_trans_probs(insertion_gop[i], deletion_gop[i], overall_gcp[i]);
     }
 
     let cells = (rn + 1) * cols;

@@ -3,8 +3,13 @@
 #![cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 
 use super::pack::score_haps_logless_packed_f64;
-use crate::pairhmm_logless::{INITIAL_CONDITION, INITIAL_CONDITION_LOG10};
+use crate::pairhmm_logless::{
+    logless_build_transitions, logless_match_mismatch_prior, INITIAL_CONDITION,
+    INITIAL_CONDITION_LOG10,
+};
 use gatk_common::GatkResult;
+use std::cell::RefCell;
+use std::collections::HashMap;
 
 #[cfg(target_arch = "x86")]
 use std::arch::x86::*;
@@ -19,6 +24,55 @@ const MATCH_TO_DELETION: usize = 4;
 const DELETION_TO_DELETION: usize = 5;
 
 const LANES: usize = 4;
+
+struct Avx2Scratch {
+    m: Vec<f64>,
+    ins: Vec<f64>,
+    del: Vec<f64>,
+    prior: Vec<f64>,
+}
+
+impl Avx2Scratch {
+    fn new() -> Self {
+        Self {
+            m: Vec::new(),
+            ins: Vec::new(),
+            del: Vec::new(),
+            prior: Vec::new(),
+        }
+    }
+
+    fn ensure(&mut self, cells: usize) {
+        let need = cells * LANES;
+        if self.m.len() < need {
+            self.m.resize(need, 0.0);
+            self.ins.resize(need, 0.0);
+            self.del.resize(need, 0.0);
+            self.prior.resize(need, 0.0);
+        }
+        // Always clear the active prefix. On grow, `resize` only zeroes the new
+        // tail — leaving stale row-0 M/I from a prior smaller pack, which corrupts DP.
+        self.m[..need].fill(0.0);
+        self.ins[..need].fill(0.0);
+        self.del[..need].fill(0.0);
+        self.prior[..need].fill(0.0);
+    }
+}
+
+thread_local! {
+    static AVX2_SCRATCH: RefCell<Avx2Scratch> = RefCell::new(Avx2Scratch::new());
+}
+
+/// Drop AVX2 PairHMM TLS planes (Peak hygiene after a region).
+pub fn release_pairhmm_avx2_tls_scratch() {
+    AVX2_SCRATCH.with(|c| {
+        let mut s = c.borrow_mut();
+        s.m = Vec::new();
+        s.ins = Vec::new();
+        s.del = Vec::new();
+        s.prior = Vec::new();
+    });
+}
 
 /// Score haplotypes with AVX2 when available; otherwise portable packed f64.
 pub fn score_haps_avx2_f64(
@@ -69,86 +123,51 @@ unsafe fn score_haps_avx2_f64_unchecked(
         return Ok(vec![0.0; haplotypes.len()]);
     }
 
-    let transitions = build_transitions(rn, insertion_gop, deletion_gop, overall_gcp);
+    let transitions = logless_build_transitions(rn, insertion_gop, deletion_gop, overall_gcp);
     let mut out = vec![0.0f64; haplotypes.len()];
-    let mut done = vec![false; haplotypes.len()];
-    let mut i = 0;
-    while i < haplotypes.len() {
-        if done[i] {
-            i += 1;
-            continue;
-        }
-        // Look ahead for LANES-1 more equal-length partners (no full sort/scatter).
-        let mut pack_idx = [i; 4];
-        let mut found = 1usize;
-        let target_len = haplotypes[i].len();
-        for j in (i + 1)..haplotypes.len() {
-            if found == LANES {
-                break;
+    let mut by_len: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (i, h) in haplotypes.iter().enumerate() {
+        by_len.entry(h.len()).or_default().push(i);
+    }
+    let mut err = None;
+    AVX2_SCRATCH.with(|cell| {
+        let mut scratch = cell.borrow_mut();
+        for idxs in by_len.values() {
+            let mut chunks = idxs.chunks_exact(LANES);
+            for pack_src in chunks.by_ref() {
+                let pack = [
+                    haplotypes[pack_src[0]],
+                    haplotypes[pack_src[1]],
+                    haplotypes[pack_src[2]],
+                    haplotypes[pack_src[3]],
+                ];
+                let scores = score_pack4(read_bases, read_quals, &pack, &transitions, &mut scratch);
+                for (k, &idx) in pack_src.iter().enumerate() {
+                    out[idx] = scores[k];
+                }
             }
-            if !done[j] && haplotypes[j].len() == target_len {
-                pack_idx[found] = j;
-                found += 1;
+            for &i in chunks.remainder() {
+                match score_haps_logless_packed_f64(
+                    read_bases,
+                    read_quals,
+                    &haplotypes[i..=i],
+                    insertion_gop,
+                    deletion_gop,
+                    overall_gcp,
+                ) {
+                    Ok(rest) => out[i] = rest[0],
+                    Err(e) => {
+                        err = Some(e);
+                        return;
+                    }
+                }
             }
         }
-        if found == LANES {
-            let pack = [
-                haplotypes[pack_idx[0]],
-                haplotypes[pack_idx[1]],
-                haplotypes[pack_idx[2]],
-                haplotypes[pack_idx[3]],
-            ];
-            let scores = score_pack4(read_bases, read_quals, &pack, &transitions);
-            for (k, &idx) in pack_idx.iter().enumerate() {
-                out[idx] = scores[k];
-                done[idx] = true;
-            }
-        } else {
-            let rest = score_haps_logless_packed_f64(
-                read_bases,
-                read_quals,
-                &haplotypes[i..=i],
-                insertion_gop,
-                deletion_gop,
-                overall_gcp,
-            )?;
-            out[i] = rest[0];
-            done[i] = true;
-        }
-        i += 1;
+    });
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(out)
-}
-
-fn build_transitions(
-    rn: usize,
-    insertion_gop: &[u8],
-    deletion_gop: &[u8],
-    overall_gcp: &[u8],
-) -> Vec<[f64; 6]> {
-    let mut transitions = vec![[0.0f64; 6]; rn + 1];
-    for i in 0..rn {
-        let ins_q = insertion_gop[i];
-        let del_q = deletion_gop[i];
-        let gcp = overall_gcp[i];
-        let gcp_err = 10f64.powf(-(gcp as f64) / 10.0);
-        let ins_err = 10f64.powf(-(ins_q as f64) / 10.0);
-        let del_err = 10f64.powf(-(del_q as f64) / 10.0);
-        let (min_q, max_q) = if ins_q <= del_q {
-            (ins_q as f64, del_q as f64)
-        } else {
-            (del_q as f64, ins_q as f64)
-        };
-        let log10_sum = {
-            let a = -0.1 * min_q;
-            let b = -0.1 * max_q;
-            let (x, y) = if a > b { (b, a) } else { (a, b) };
-            y + (1.0 + 10f64.powf(x - y)).log10()
-        };
-        let m2m = 1.0 - 10f64.powf(log10_sum).min(1.0);
-        transitions[i + 1] = [m2m, 1.0 - gcp_err, ins_err, gcp_err, del_err, gcp_err];
-    }
-    transitions
 }
 
 /// SAFETY: caller must ensure AVX2 is available (`#[target_feature(enable = "avx2")]`).
@@ -158,18 +177,18 @@ unsafe fn score_pack4(
     read_quals: &[u8],
     haps: &[&[u8]; 4],
     transitions: &[[f64; 6]],
+    scratch: &mut Avx2Scratch,
 ) -> [f64; 4] {
     let rn = read_bases.len();
     let hn = [haps[0].len(), haps[1].len(), haps[2].len(), haps[3].len()];
     let hn_max = hn.iter().copied().max().unwrap_or(1);
     let cols = hn_max + 1;
     let cells = (rn + 1) * cols;
-
-    // SoA: cell-major, 4 lanes contiguous for SIMD load.
-    let mut m = vec![0.0f64; cells * LANES];
-    let mut ins = vec![0.0f64; cells * LANES];
-    let mut del = vec![0.0f64; cells * LANES];
-    let mut prior = vec![0.0f64; cells * LANES];
+    scratch.ensure(cells);
+    let m = &mut scratch.m;
+    let ins = &mut scratch.ins;
+    let del = &mut scratch.del;
+    let prior = &mut scratch.prior;
 
     for lane in 0..LANES {
         let init = INITIAL_CONDITION / hn[lane] as f64;
@@ -180,8 +199,7 @@ unsafe fn score_pack4(
 
     for i in 0..rn {
         let x = read_bases[i];
-        let match_p = 1.0 - 10f64.powf(-(read_quals[i] as f64) / 10.0);
-        let mismatch_p = 10f64.powf(-(read_quals[i] as f64) / 10.0) / 3.0;
+        let (match_p, mismatch_p) = logless_match_mismatch_prior(read_quals[i]);
         let row = (i + 1) * cols;
         for lane in 0..LANES {
             for j in 0..hn[lane] {

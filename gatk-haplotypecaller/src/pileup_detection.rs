@@ -8,7 +8,6 @@ use crate::alignment::SwParameters;
 use crate::assembly_result_set::AssemblyResultSet;
 use crate::read_event_discovery::supplement_assembly_pileup_events_from_reads;
 use gatk_common::GatkResult;
-use rust_htslib::bam::Record;
 
 /// GATK `PileupDetectionArgumentCollection.usePileupDetection` default for HC.
 pub const GATK_HC_USE_PILEUP_DETECTION_DEFAULT: bool = false;

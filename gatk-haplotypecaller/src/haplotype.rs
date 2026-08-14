@@ -9,6 +9,8 @@ use crate::cigar::{Cigar, CigarElement};
 use crate::cigar_builder::CigarBuilder;
 use crate::genome_loc::GenomeLoc;
 use crate::haplotype_cigar::{get_bases_covering_ref_interval, trim_cigar_by_reference};
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
 /// Assembled haplotype with optional CIGAR vs padded reference.
 /// # Invariants
@@ -259,6 +261,59 @@ pub fn prune_fragment_non_reference_haplotypes(
     }
     let min_alt_len = ref_len.saturating_mul(3).saturating_div(4).max(min_bases);
     haplotypes.retain(|h| h.is_reference || h.bases.len() >= min_alt_len);
+}
+
+fn hash_hap_bases(bases: &[u8]) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bases.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Sequence-identity set that does not clone haplotype bases into the key.
+/// Hash collisions fall back to byte equality against already-accepted haplotypes.
+pub(crate) struct HapSeqSet {
+    by_hash: HashMap<(u64, bool), Vec<usize>>,
+}
+
+impl HapSeqSet {
+    pub(crate) fn from_haps(haps: &[Haplotype]) -> Self {
+        let mut s = Self {
+            by_hash: HashMap::new(),
+        };
+        for (i, h) in haps.iter().enumerate() {
+            s.by_hash
+                .entry((hash_hap_bases(&h.bases), h.is_reference))
+                .or_default()
+                .push(i);
+        }
+        s
+    }
+
+    pub(crate) fn new() -> Self {
+        Self {
+            by_hash: HashMap::new(),
+        }
+    }
+
+    /// Push `h` onto `haps` if no existing haplotype has the same bases + ref flag.
+    pub(crate) fn insert(&mut self, haps: &mut Vec<Haplotype>, h: Haplotype) -> bool {
+        let key = (hash_hap_bases(&h.bases), h.is_reference);
+        if let Some(idxs) = self.by_hash.get(&key) {
+            if idxs.iter().any(|&i| haps[i].bases == h.bases) {
+                return false;
+            }
+        }
+        self.by_hash.entry(key).or_default().push(haps.len());
+        haps.push(h);
+        true
+    }
+
+    pub(crate) fn contains(&self, haps: &[Haplotype], bases: &[u8], is_reference: bool) -> bool {
+        let key = (hash_hap_bases(bases), is_reference);
+        self.by_hash
+            .get(&key)
+            .is_some_and(|idxs| idxs.iter().any(|&i| haps[i].bases == bases))
+    }
 }
 
 #[cfg(test)]

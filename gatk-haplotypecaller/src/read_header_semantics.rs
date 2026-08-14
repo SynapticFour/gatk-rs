@@ -189,7 +189,7 @@ mod tests {
         let header = "@RG\tID:rg1\tSM:s1\n@RG\tID:rg1\tSM:s2\n";
         let err = ReadHeaderSemantics::from_sam_header_text(header).unwrap_err();
         match err {
-            GatkError::Validation { message, .. } => assert!(message.contains("duplicate @RG ID")),
+            GatkError::Config { message, .. } => assert!(message.contains("duplicate @RG ID")),
             other => panic!("expected Validation error, got {other:?}"),
         }
     }
@@ -205,11 +205,11 @@ mod tests {
             .validate_record_links(Some("rg1"), Some("missing-pg"))
             .unwrap_err();
         match rg_err {
-            GatkError::Validation { message, .. } => assert!(message.contains("record RG")),
+            GatkError::Config { message, .. } => assert!(message.contains("record RG")),
             other => panic!("expected Validation error, got {other:?}"),
         }
         match pg_err {
-            GatkError::Validation { message, .. } => assert!(message.contains("record PG")),
+            GatkError::Config { message, .. } => assert!(message.contains("record PG")),
             other => panic!("expected Validation error, got {other:?}"),
         }
     }

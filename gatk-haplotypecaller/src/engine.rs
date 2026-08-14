@@ -39,7 +39,6 @@ use crate::ref_confidence::{
     ReferenceConfidenceConfig,
 };
 use crate::reference_context::ReferenceContext;
-use crate::shared_bam::share_records;
 use gatk_common::{GatkError, GatkResult};
 use gatk_core::reference::{IntervalSpec, ReferenceWindowCache, SequenceDictionary};
 use std::path::Path;
@@ -2069,6 +2068,29 @@ fn retain_marginal_sparse_softclip_read(
     qual_len >= 50 && best >= P12_CLUSTER_UPSTREAM_MARGINAL_READ_KEEP_LOG10 && !align_overlaps
 }
 
+/// Per-read max log10 likelihood in one pass (O(|LL|), not O(R²H)).
+fn best_ll_per_read(ll: &[RegionReadLikelihood]) -> Vec<f64> {
+    let max_read = ll.iter().map(|e| e.read_index.get()).max().unwrap_or(0);
+    let mut best = vec![f64::NEG_INFINITY; max_read + 1];
+    for e in ll {
+        let i = e.read_index.get();
+        if e.log10_likelihood > best[i] {
+            best[i] = e.log10_likelihood;
+        }
+    }
+    best
+}
+
+fn compact_likelihoods_for_kept_reads(
+    ll: &[RegionReadLikelihood],
+    keep: &[bool],
+) -> Vec<RegionReadLikelihood> {
+    ll.iter()
+        .filter(|e| keep.get(e.read_index.get()).copied().unwrap_or(false))
+        .cloned()
+        .collect()
+}
+
 /// When static filter drops every read, retain all marginal soft-clip reads in the active span.
 fn retain_marginal_sparse_softclip_likelihoods<R: std::borrow::Borrow<rust_htslib::bam::Record>>(
     ll: &[RegionReadLikelihood],
@@ -2081,30 +2103,22 @@ fn retain_marginal_sparse_softclip_likelihoods<R: std::borrow::Borrow<rust_htsli
     if ll.is_empty() {
         return Vec::new();
     }
-    let max_read = ll.iter().map(|e| e.read_index.get()).max().unwrap_or(0);
-    let mut keep = std::collections::BTreeSet::new();
-    for read_idx in 0..=max_read {
+    let best = best_ll_per_read(ll);
+    let mut keep = vec![false; best.len()];
+    for (read_idx, &best_ll) in best.iter().enumerate() {
         let Some(rec) = reads.get(read_idx) else {
             continue;
         };
-        let rec = rec.borrow();
-        let best = ll
-            .iter()
-            .filter(|e| e.read_index.get() == read_idx)
-            .map(|e| e.log10_likelihood)
-            .fold(f64::NEG_INFINITY, f64::max);
-        if !best.is_finite() {
+        if !best_ll.is_finite() {
             continue;
         }
+        let rec = rec.borrow();
         let qual_len = rec.qual().len().max(1);
-        if retain_marginal_sparse_softclip_read(best, qual_len, rec, active_start, active_end) {
-            keep.insert(read_idx);
+        if retain_marginal_sparse_softclip_read(best_ll, qual_len, rec, active_start, active_end) {
+            keep[read_idx] = true;
         }
     }
-    ll.iter()
-        .filter(|e| keep.contains(&e.read_index.get()))
-        .cloned()
-        .collect()
+    compact_likelihoods_for_kept_reads(ll, &keep)
 }
 
 /// Java `ReadLikelihoodCalculationEngine.log10MinTrueLikelihood` (capLikelihoods=true).
@@ -2142,34 +2156,43 @@ fn normalize_region_read_likelihoods(
     if ll.is_empty() {
         return;
     }
-    let eligible: std::collections::BTreeSet<usize> =
-        eligible_hap_indices.iter().copied().collect();
     let max_read = ll.iter().map(|e| e.read_index.get()).max().unwrap_or(0);
-    for read_idx in 0..=max_read {
-        let mut best = f64::NEG_INFINITY;
-        for entry in ll.iter().filter(|e| e.read_index.get() == read_idx) {
-            if !eligible.contains(&entry.haplotype_index.get()) {
-                continue;
-            }
-            if entry.log10_likelihood > best {
-                best = entry.log10_likelihood;
-            }
+    let max_hap = ll
+        .iter()
+        .map(|e| e.haplotype_index.get())
+        .max()
+        .unwrap_or(0);
+    let mut eligible = vec![false; max_hap + 1];
+    for &i in eligible_hap_indices {
+        if i < eligible.len() {
+            eligible[i] = true;
         }
-        if !best.is_finite() {
-            for entry in ll.iter().filter(|e| e.read_index.get() == read_idx) {
-                if entry.log10_likelihood > best {
-                    best = entry.log10_likelihood;
-                }
-            }
+    }
+    let mut best = vec![f64::NEG_INFINITY; max_read + 1];
+    for entry in ll.iter() {
+        if eligible
+            .get(entry.haplotype_index.get())
+            .copied()
+            .unwrap_or(false)
+            && entry.log10_likelihood > best[entry.read_index.get()]
+        {
+            best[entry.read_index.get()] = entry.log10_likelihood;
         }
-        if !best.is_finite() {
+    }
+    for entry in ll.iter() {
+        let i = entry.read_index.get();
+        if !best[i].is_finite() && entry.log10_likelihood > best[i] {
+            best[i] = entry.log10_likelihood;
+        }
+    }
+    for entry in ll.iter_mut() {
+        let b = best[entry.read_index.get()];
+        if !b.is_finite() {
             continue;
         }
-        let floor = best + LOG10_GLOBAL_READ_MISMATCHING_RATE;
-        for entry in ll.iter_mut().filter(|e| e.read_index.get() == read_idx) {
-            if entry.log10_likelihood < floor {
-                entry.log10_likelihood = floor;
-            }
+        let floor = b + LOG10_GLOBAL_READ_MISMATCHING_RATE;
+        if entry.log10_likelihood < floor {
+            entry.log10_likelihood = floor;
         }
     }
 }
@@ -2185,29 +2208,23 @@ fn filter_poorly_modeled_region_read_likelihoods<
     if ll.is_empty() {
         return Vec::new();
     }
-    let max_read = ll.iter().map(|e| e.read_index.get()).max().unwrap_or(0);
-    let mut keep = std::collections::BTreeSet::new();
-    for read_idx in 0..=max_read {
+    let best = best_ll_per_read(ll);
+    let mut keep = vec![false; best.len()];
+    for (read_idx, &best_ll) in best.iter().enumerate() {
         let Some(rec) = reads.get(read_idx) else {
             continue;
         };
-        let rec = rec.borrow();
-        let best = ll
-            .iter()
-            .filter(|e| e.read_index.get() == read_idx)
-            .map(|e| e.log10_likelihood)
-            .fold(f64::NEG_INFINITY, f64::max);
-        if !best.is_finite() {
+        if !best_ll.is_finite() {
             continue;
         }
-        // Java: HMM base-qual array length when present, else read length.
+        let rec = rec.borrow();
         let qual_len = rec.qual().len().max(1);
-        let mut retain = best >= log10_min_true_likelihood_for_read(qual_len)
-            || retain_marginal_p12_cluster_upstream_read(best, qual_len, rec);
+        let mut retain = best_ll >= log10_min_true_likelihood_for_read(qual_len)
+            || retain_marginal_p12_cluster_upstream_read(best_ll, qual_len, rec);
         if !retain {
             if let Some((active_start, active_end)) = active_span {
                 retain = retain_marginal_sparse_softclip_read(
-                    best,
+                    best_ll,
                     qual_len,
                     rec,
                     active_start,
@@ -2216,13 +2233,10 @@ fn filter_poorly_modeled_region_read_likelihoods<
             }
         }
         if retain {
-            keep.insert(read_idx);
+            keep[read_idx] = true;
         }
     }
-    ll.iter()
-        .filter(|e| keep.contains(&e.read_index.get()))
-        .cloned()
-        .collect()
+    compact_likelihoods_for_kept_reads(ll, &keep)
 }
 
 /// When every read fails the static threshold, Java may still keep P12 upstream marginal evidence.
@@ -2235,30 +2249,22 @@ fn retain_marginal_cluster_upstream_likelihoods<
     if ll.is_empty() {
         return Vec::new();
     }
-    let max_read = ll.iter().map(|e| e.read_index.get()).max().unwrap_or(0);
-    let mut keep = std::collections::BTreeSet::new();
-    for read_idx in 0..=max_read {
+    let best = best_ll_per_read(ll);
+    let mut keep = vec![false; best.len()];
+    for (read_idx, &best_ll) in best.iter().enumerate() {
         let Some(rec) = reads.get(read_idx) else {
             continue;
         };
-        let rec = rec.borrow();
-        let best = ll
-            .iter()
-            .filter(|e| e.read_index.get() == read_idx)
-            .map(|e| e.log10_likelihood)
-            .fold(f64::NEG_INFINITY, f64::max);
-        if !best.is_finite() {
+        if !best_ll.is_finite() {
             continue;
         }
+        let rec = rec.borrow();
         let qual_len = rec.qual().len().max(1);
-        if retain_marginal_p12_cluster_upstream_read(best, qual_len, rec) {
-            keep.insert(read_idx);
+        if retain_marginal_p12_cluster_upstream_read(best_ll, qual_len, rec) {
+            keep[read_idx] = true;
         }
     }
-    ll.iter()
-        .filter(|e| keep.contains(&e.read_index.get()))
-        .cloned()
-        .collect()
+    compact_likelihoods_for_kept_reads(ll, &keep)
 }
 
 fn filter_normalized_region_read_likelihoods<R: std::borrow::Borrow<rust_htslib::bam::Record>>(

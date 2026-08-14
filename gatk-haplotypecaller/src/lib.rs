@@ -8,9 +8,6 @@
 //! helpers are crate-private unless `parity_harness` is enabled (integration
 //! tests + the `hc_full_parity_gate` example).
 #![allow(clippy::result_large_err)]
-// Without `parity_harness`, P12/compat/dump scaffolding stays compiled but unwired
-// into the product path — suppress that dead-code noise. CI uses `--all-features`.
-#![cfg_attr(not(feature = "parity_harness"), allow(dead_code, unused_imports))]
 
 // --------------------------------------------------------------------------
 // Product modules (stable / embedding surface)
@@ -123,6 +120,7 @@ pub(crate) mod mann_whitney_u;
 pub(crate) mod nearby_kmer_error_corrector;
 pub(crate) mod read_binding;
 pub(crate) mod read_error_correction;
+#[cfg_attr(not(feature = "parity_harness"), allow(dead_code))]
 pub(crate) mod read_optional_tags;
 pub(crate) mod read_pre_len;
 pub(crate) mod read_pre_mate;
@@ -178,6 +176,7 @@ pub(crate) mod assembly_regions_dump;
 #[cfg(feature = "parity_harness")]
 pub mod compatibility;
 #[cfg(not(feature = "parity_harness"))]
+#[allow(dead_code, unused_imports)]
 pub(crate) mod compatibility;
 #[cfg(feature = "dev-dumps")]
 pub mod genotyping_dump;
@@ -206,6 +205,7 @@ pub(crate) mod locus_pileup_detail_dump;
 #[cfg(feature = "parity_harness")]
 pub mod p12_java_format_fixup;
 #[cfg(not(feature = "parity_harness"))]
+#[allow(dead_code, unused_imports)]
 pub(crate) mod p12_java_format_fixup;
 #[cfg(feature = "dev-dumps")]
 pub mod pairhmm_dump;
@@ -222,10 +222,12 @@ pub(crate) mod pairhmm_native_dump;
 #[cfg(feature = "parity_harness")]
 pub mod parity_harness;
 #[cfg(not(feature = "parity_harness"))]
+#[allow(dead_code, unused_imports)]
 pub(crate) mod parity_harness;
 #[cfg(feature = "parity_harness")]
 pub mod parity_region_genotype;
 #[cfg(not(feature = "parity_harness"))]
+#[allow(dead_code, unused_imports)]
 pub(crate) mod parity_region_genotype;
 #[cfg(feature = "dev-dumps")]
 pub mod ploidy_dump;
@@ -241,6 +243,7 @@ pub(crate) mod pre_dragstr_dump;
 pub mod read_event_discovery;
 #[doc(hidden)]
 #[cfg(not(feature = "parity_harness"))]
+#[allow(dead_code, unused_imports)]
 pub(crate) mod read_event_discovery;
 #[cfg(feature = "dev-dumps")]
 pub mod read_filter_dump;

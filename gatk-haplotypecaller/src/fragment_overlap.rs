@@ -90,7 +90,7 @@ fn mate_start_1based(rec: &bam::Record) -> i32 {
 }
 
 /// `FragmentCollection.create` for sorted `GATKRead` lists.
-/// Returns [`GatkError::Read`] if `reads` are not sorted by alignment start
+/// Returns [`GatkError::read`] if `reads` are not sorted by alignment start
 /// (unsorted BAM shards / bad caller input — must not panic).
 pub fn overlapping_pairs_indices(reads: &[bam::Record]) -> GatkResult<Vec<(usize, usize)>> {
     let mut pairs = Vec::new();

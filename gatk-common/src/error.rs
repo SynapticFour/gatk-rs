@@ -1,7 +1,6 @@
-//! Error handling for GATK-RS
-//! This module provides comprehensive error handling that mirrors GATK's exception hierarchy
-//! while providing Rust-native error handling with proper context and chaining.
-#![allow(clippy::result_large_err)]
+//! Error handling for GATK-RS.
+//! Small thiserror enum (`Io` / `Parse` / `Config` / `Algorithm`) plus named constructors
+//! that preserve Display prefixes and CLI classification.
 
 use std::backtrace::Backtrace;
 use thiserror::Error;
@@ -51,7 +50,11 @@ impl ErrorContext {
             tool: None,
             operation: None,
             position: None,
-            backtrace: Backtrace::capture().into(),
+            backtrace: if std::env::var_os("RUST_BACKTRACE").is_some() {
+                Backtrace::capture().into()
+            } else {
+                None
+            },
             severity: ErrorSeverity::Error,
             context: std::collections::HashMap::new(),
         }
@@ -105,7 +108,13 @@ pub enum GatkErrorClass {
     Internal,
 }
 
-/// Main error type for GATK-RS
+fn boxed_ctx(context: ErrorContext) -> Box<ErrorContext> {
+    Box::new(context)
+}
+
+/// Main error type for GATK-RS.
+/// Named constructors (`argument`, `read`, `assembly`, …) keep Display prefixes and
+/// [`GatkError::classification`] the same as the former Java-shaped variants.
 #[derive(Error, Debug)]
 pub enum GatkError {
     /// I/O related errors
@@ -114,152 +123,57 @@ pub enum GatkError {
         message: String,
         #[source]
         source: std::io::Error,
-        context: ErrorContext,
+        context: Box<ErrorContext>,
     },
 
-    /// File format errors
-    #[error("File format error: {message}")]
-    FileFormat {
-        message: String,
-        context: ErrorContext,
-    },
-
-    /// Parsing errors
+    /// Parsing / file-format errors
     #[error("Parse error: {message} at line {line}")]
     Parse {
         message: String,
         line: usize,
-        context: ErrorContext,
+        context: Box<ErrorContext>,
     },
 
-    /// Validation errors
-    #[error("Validation error: {message}")]
-    Validation {
+    /// User-facing argument / configuration / validation / interval / reference errors.
+    /// `message` already includes the historical Display prefix (e.g. `Argument error: …`).
+    #[error("{message}")]
+    Config {
         message: String,
-        context: ErrorContext,
+        context: Box<ErrorContext>,
     },
 
-    /// Algorithm errors
-    #[error("Algorithm error: {message}")]
+    /// Algorithm / assembly / generic internal failures.
+    /// `message` already includes the historical Display prefix.
+    #[error("{message}")]
     Algorithm {
         message: String,
-        context: ErrorContext,
-    },
-
-    /// Memory errors
-    #[error("Memory error: {message}")]
-    Memory {
-        message: String,
-        context: ErrorContext,
-    },
-
-    /// Configuration errors
-    #[error("Configuration error: {message}")]
-    Configuration {
-        message: String,
-        context: ErrorContext,
-    },
-
-    /// Argument parsing errors
-    #[error("Argument error: {message}")]
-    Argument {
-        message: String,
-        context: ErrorContext,
-    },
-
-    /// Reference genome errors
-    #[error("Reference error: {message}")]
-    Reference {
-        message: String,
-        context: ErrorContext,
-    },
-
-    /// Read processing errors
-    #[error("Read error: {message}")]
-    Read {
-        message: String,
-        context: ErrorContext,
-    },
-
-    /// Variant calling errors
-    #[error("Variant calling error: {message}")]
-    Variant {
-        message: String,
-        context: ErrorContext,
-    },
-
-    /// Statistical calculation errors
-    #[error("Statistical error: {message}")]
-    Statistical {
-        message: String,
-        context: ErrorContext,
-    },
-
-    /// Quality score errors
-    #[error("Quality score error: {message}")]
-    Quality {
-        message: String,
-        context: ErrorContext,
-    },
-
-    /// Interval errors
-    #[error("Interval error: {message}")]
-    Interval {
-        message: String,
-        context: ErrorContext,
-    },
-
-    /// Assembly errors
-    #[error("Assembly error: {message}")]
-    Assembly {
-        message: String,
-        context: ErrorContext,
-    },
-
-    /// Alignment errors
-    #[error("Alignment error: {message}")]
-    Alignment {
-        message: String,
-        context: ErrorContext,
-    },
-
-    /// Genotype errors
-    #[error("Genotype error: {message}")]
-    Genotype {
-        message: String,
-        context: ErrorContext,
-    },
-
-    /// Haplotype errors
-    #[error("Haplotype error: {message}")]
-    Haplotype {
-        message: String,
-        context: ErrorContext,
-    },
-
-    /// Generic error with context
-    #[error("Error: {message}")]
-    Generic {
-        message: String,
-        context: ErrorContext,
+        context: Box<ErrorContext>,
     },
 }
 
 impl GatkError {
+    fn config_msg(prefix: &str, message: impl Into<String>, context: ErrorContext) -> Self {
+        Self::Config {
+            message: format!("{prefix}: {}", message.into()),
+            context: boxed_ctx(context),
+        }
+    }
+
+    fn algorithm_msg(prefix: &str, message: impl Into<String>, context: ErrorContext) -> Self {
+        Self::Algorithm {
+            message: format!("{prefix}: {}", message.into()),
+            context: boxed_ctx(context),
+        }
+    }
+
     /// Create a file format error
     pub fn file_format<S: Into<String>>(message: S) -> Self {
-        Self::FileFormat {
-            message: message.into(),
-            context: ErrorContext::new(),
-        }
+        Self::algorithm_msg("File format error", message, ErrorContext::new())
     }
 
     /// Create a file format error with context
     pub fn file_format_with_context<S: Into<String>>(message: S, context: ErrorContext) -> Self {
-        Self::FileFormat {
-            message: message.into(),
-            context,
-        }
+        Self::algorithm_msg("File format error", message, context)
     }
 
     /// Create a parse error
@@ -267,7 +181,7 @@ impl GatkError {
         Self::Parse {
             message: message.into(),
             line,
-            context: ErrorContext::new(),
+            context: boxed_ctx(ErrorContext::new()),
         }
     }
 
@@ -280,264 +194,168 @@ impl GatkError {
         Self::Parse {
             message: message.into(),
             line,
-            context,
+            context: boxed_ctx(context),
         }
     }
 
     /// Create a validation error
     pub fn validation<S: Into<String>>(message: S) -> Self {
-        Self::Validation {
-            message: message.into(),
-            context: ErrorContext::new(),
-        }
+        Self::config_msg("Validation error", message, ErrorContext::new())
     }
 
     /// Create a validation error with context
     pub fn validation_with_context<S: Into<String>>(message: S, context: ErrorContext) -> Self {
-        Self::Validation {
-            message: message.into(),
-            context,
-        }
+        Self::config_msg("Validation error", message, context)
     }
 
     /// Create an algorithm error
     pub fn algorithm<S: Into<String>>(message: S) -> Self {
-        Self::Algorithm {
-            message: message.into(),
-            context: ErrorContext::new(),
-        }
+        Self::algorithm_msg("Algorithm error", message, ErrorContext::new())
     }
 
     /// Create an algorithm error with context
     pub fn algorithm_with_context<S: Into<String>>(message: S, context: ErrorContext) -> Self {
-        Self::Algorithm {
-            message: message.into(),
-            context,
-        }
+        Self::algorithm_msg("Algorithm error", message, context)
     }
 
     /// Create a memory error
     pub fn memory<S: Into<String>>(message: S) -> Self {
-        Self::Memory {
-            message: message.into(),
-            context: ErrorContext::new(),
-        }
+        Self::algorithm_msg("Memory error", message, ErrorContext::new())
     }
 
     /// Create a memory error with context
     pub fn memory_with_context<S: Into<String>>(message: S, context: ErrorContext) -> Self {
-        Self::Memory {
-            message: message.into(),
-            context,
-        }
+        Self::algorithm_msg("Memory error", message, context)
     }
 
     /// Create a configuration error
     pub fn configuration<S: Into<String>>(message: S) -> Self {
-        Self::Configuration {
-            message: message.into(),
-            context: ErrorContext::new(),
-        }
+        Self::config_msg("Configuration error", message, ErrorContext::new())
     }
 
     /// Create a configuration error with context
     pub fn configuration_with_context<S: Into<String>>(message: S, context: ErrorContext) -> Self {
-        Self::Configuration {
-            message: message.into(),
-            context,
-        }
+        Self::config_msg("Configuration error", message, context)
     }
 
     /// Create an argument error
     pub fn argument<S: Into<String>>(message: S) -> Self {
-        Self::Argument {
-            message: message.into(),
-            context: ErrorContext::new(),
-        }
+        Self::config_msg("Argument error", message, ErrorContext::new())
     }
 
     /// Create an argument error with context
     pub fn argument_with_context<S: Into<String>>(message: S, context: ErrorContext) -> Self {
-        Self::Argument {
-            message: message.into(),
-            context,
-        }
+        Self::config_msg("Argument error", message, context)
     }
 
     /// Create a reference error
     pub fn reference<S: Into<String>>(message: S) -> Self {
-        Self::Reference {
-            message: message.into(),
-            context: ErrorContext::new(),
-        }
+        Self::config_msg("Reference error", message, ErrorContext::new())
     }
 
     /// Create a reference error with context
     pub fn reference_with_context<S: Into<String>>(message: S, context: ErrorContext) -> Self {
-        Self::Reference {
-            message: message.into(),
-            context,
-        }
+        Self::config_msg("Reference error", message, context)
     }
 
     /// Create a read error
     pub fn read<S: Into<String>>(message: S) -> Self {
-        Self::Read {
-            message: message.into(),
-            context: ErrorContext::new(),
-        }
+        Self::algorithm_msg("Read error", message, ErrorContext::new())
     }
 
     /// Create a read error with context
     pub fn read_with_context<S: Into<String>>(message: S, context: ErrorContext) -> Self {
-        Self::Read {
-            message: message.into(),
-            context,
-        }
+        Self::algorithm_msg("Read error", message, context)
     }
 
     /// Create a variant error
     pub fn variant<S: Into<String>>(message: S) -> Self {
-        Self::Variant {
-            message: message.into(),
-            context: ErrorContext::new(),
-        }
+        Self::algorithm_msg("Variant calling error", message, ErrorContext::new())
     }
 
     /// Create a variant error with context
     pub fn variant_with_context<S: Into<String>>(message: S, context: ErrorContext) -> Self {
-        Self::Variant {
-            message: message.into(),
-            context,
-        }
+        Self::algorithm_msg("Variant calling error", message, context)
     }
 
     /// Create a statistical error
     pub fn statistical<S: Into<String>>(message: S) -> Self {
-        Self::Statistical {
-            message: message.into(),
-            context: ErrorContext::new(),
-        }
+        Self::algorithm_msg("Statistical error", message, ErrorContext::new())
     }
 
     /// Create a statistical error with context
     pub fn statistical_with_context<S: Into<String>>(message: S, context: ErrorContext) -> Self {
-        Self::Statistical {
-            message: message.into(),
-            context,
-        }
+        Self::algorithm_msg("Statistical error", message, context)
     }
 
     /// Create a quality error
     pub fn quality<S: Into<String>>(message: S) -> Self {
-        Self::Quality {
-            message: message.into(),
-            context: ErrorContext::new(),
-        }
+        Self::algorithm_msg("Quality score error", message, ErrorContext::new())
     }
 
     /// Create a quality error with context
     pub fn quality_with_context<S: Into<String>>(message: S, context: ErrorContext) -> Self {
-        Self::Quality {
-            message: message.into(),
-            context,
-        }
+        Self::algorithm_msg("Quality score error", message, context)
     }
 
     /// Create an interval error
     pub fn interval<S: Into<String>>(message: S) -> Self {
-        Self::Interval {
-            message: message.into(),
-            context: ErrorContext::new(),
-        }
+        Self::config_msg("Interval error", message, ErrorContext::new())
     }
 
     /// Create an interval error with context
     pub fn interval_with_context<S: Into<String>>(message: S, context: ErrorContext) -> Self {
-        Self::Interval {
-            message: message.into(),
-            context,
-        }
+        Self::config_msg("Interval error", message, context)
     }
 
     /// Create an assembly error
     pub fn assembly<S: Into<String>>(message: S) -> Self {
-        Self::Assembly {
-            message: message.into(),
-            context: ErrorContext::new(),
-        }
+        Self::algorithm_msg("Assembly error", message, ErrorContext::new())
     }
 
     /// Create an assembly error with context
     pub fn assembly_with_context<S: Into<String>>(message: S, context: ErrorContext) -> Self {
-        Self::Assembly {
-            message: message.into(),
-            context,
-        }
+        Self::algorithm_msg("Assembly error", message, context)
     }
 
     /// Create an alignment error
     pub fn alignment<S: Into<String>>(message: S) -> Self {
-        Self::Alignment {
-            message: message.into(),
-            context: ErrorContext::new(),
-        }
+        Self::algorithm_msg("Alignment error", message, ErrorContext::new())
     }
 
     /// Create an alignment error with context
     pub fn alignment_with_context<S: Into<String>>(message: S, context: ErrorContext) -> Self {
-        Self::Alignment {
-            message: message.into(),
-            context,
-        }
+        Self::algorithm_msg("Alignment error", message, context)
     }
 
     /// Create a genotype error
     pub fn genotype<S: Into<String>>(message: S) -> Self {
-        Self::Genotype {
-            message: message.into(),
-            context: ErrorContext::new(),
-        }
+        Self::algorithm_msg("Genotype error", message, ErrorContext::new())
     }
 
     /// Create a genotype error with context
     pub fn genotype_with_context<S: Into<String>>(message: S, context: ErrorContext) -> Self {
-        Self::Genotype {
-            message: message.into(),
-            context,
-        }
+        Self::algorithm_msg("Genotype error", message, context)
     }
 
     /// Create a haplotype error
     pub fn haplotype<S: Into<String>>(message: S) -> Self {
-        Self::Haplotype {
-            message: message.into(),
-            context: ErrorContext::new(),
-        }
+        Self::algorithm_msg("Haplotype error", message, ErrorContext::new())
     }
 
     /// Create a haplotype error with context
     pub fn haplotype_with_context<S: Into<String>>(message: S, context: ErrorContext) -> Self {
-        Self::Haplotype {
-            message: message.into(),
-            context,
-        }
+        Self::algorithm_msg("Haplotype error", message, context)
     }
 
     /// Create a generic error
     pub fn generic<S: Into<String>>(message: S) -> Self {
-        Self::Generic {
-            message: message.into(),
-            context: ErrorContext::new(),
-        }
+        Self::algorithm_msg("Error", message, ErrorContext::new())
     }
 
     /// Create a generic error with context
     pub fn generic_with_context<S: Into<String>>(message: S, context: ErrorContext) -> Self {
-        Self::Generic {
-            message: message.into(),
-            context,
-        }
+        Self::algorithm_msg("Error", message, context)
     }
 
     /// Create an I/O error from std::io::Error
@@ -545,7 +363,7 @@ impl GatkError {
         Self::Io {
             message: message.into(),
             source,
-            context: ErrorContext::new(),
+            context: boxed_ctx(ErrorContext::new()),
         }
     }
 
@@ -558,7 +376,7 @@ impl GatkError {
         Self::Io {
             message: message.into(),
             source,
-            context,
+            context: boxed_ctx(context),
         }
     }
 
@@ -592,19 +410,14 @@ impl GatkError {
     }
 
     /// Classify this error for CLI exit codes and reporting.
-    /// User: `Argument`, `Configuration`, `Validation`, `Interval`, `Parse`, `Reference`.
+    /// User: argument / configuration / validation / interval / parse / reference.
     /// Io: `Io`.
-    /// Internal: all other variants (algorithm, assembly, generic, …).
+    /// Internal: algorithm / file-format / generic / …
     pub fn classification(&self) -> GatkErrorClass {
         match self {
-            Self::Argument { .. }
-            | Self::Configuration { .. }
-            | Self::Validation { .. }
-            | Self::Interval { .. }
-            | Self::Parse { .. }
-            | Self::Reference { .. } => GatkErrorClass::User,
+            Self::Config { .. } | Self::Parse { .. } => GatkErrorClass::User,
             Self::Io { .. } => GatkErrorClass::Io,
-            _ => GatkErrorClass::Internal,
+            Self::Algorithm { .. } => GatkErrorClass::Internal,
         }
     }
 
@@ -637,50 +450,20 @@ impl GatkError {
     /// Get the error context
     pub fn context(&self) -> &ErrorContext {
         match self {
-            Self::Io { context, .. } => context,
-            Self::FileFormat { context, .. } => context,
-            Self::Parse { context, .. } => context,
-            Self::Validation { context, .. } => context,
-            Self::Algorithm { context, .. } => context,
-            Self::Memory { context, .. } => context,
-            Self::Configuration { context, .. } => context,
-            Self::Argument { context, .. } => context,
-            Self::Reference { context, .. } => context,
-            Self::Read { context, .. } => context,
-            Self::Variant { context, .. } => context,
-            Self::Statistical { context, .. } => context,
-            Self::Quality { context, .. } => context,
-            Self::Interval { context, .. } => context,
-            Self::Assembly { context, .. } => context,
-            Self::Alignment { context, .. } => context,
-            Self::Genotype { context, .. } => context,
-            Self::Haplotype { context, .. } => context,
-            Self::Generic { context, .. } => context,
+            Self::Io { context, .. }
+            | Self::Parse { context, .. }
+            | Self::Config { context, .. }
+            | Self::Algorithm { context, .. } => context,
         }
     }
 
     /// Get mutable reference to error context
     pub fn context_mut(&mut self) -> &mut ErrorContext {
         match self {
-            Self::Io { context, .. } => context,
-            Self::FileFormat { context, .. } => context,
-            Self::Parse { context, .. } => context,
-            Self::Validation { context, .. } => context,
-            Self::Algorithm { context, .. } => context,
-            Self::Memory { context, .. } => context,
-            Self::Configuration { context, .. } => context,
-            Self::Argument { context, .. } => context,
-            Self::Reference { context, .. } => context,
-            Self::Read { context, .. } => context,
-            Self::Variant { context, .. } => context,
-            Self::Statistical { context, .. } => context,
-            Self::Quality { context, .. } => context,
-            Self::Interval { context, .. } => context,
-            Self::Assembly { context, .. } => context,
-            Self::Alignment { context, .. } => context,
-            Self::Genotype { context, .. } => context,
-            Self::Haplotype { context, .. } => context,
-            Self::Generic { context, .. } => context,
+            Self::Io { context, .. }
+            | Self::Parse { context, .. }
+            | Self::Config { context, .. }
+            | Self::Algorithm { context, .. } => context,
         }
     }
 }
@@ -768,11 +551,14 @@ where
 /// Macro for creating errors with formatted strings
 #[macro_export]
 macro_rules! gatk_error {
+    (Validation, $($arg:tt)*) => {
+        $crate::error::GatkError::validation(format!($($arg)*))
+    };
+    (Algorithm, $($arg:tt)*) => {
+        $crate::error::GatkError::algorithm(format!($($arg)*))
+    };
     ($variant:ident, $($arg:tt)*) => {
-        $crate::error::GatkError::$variant {
-            message: format!($($arg)*),
-            context: $crate::error::ErrorContext::new(),
-        }
+        $crate::error::GatkError::algorithm(format!($($arg)*))
     };
 }
 
@@ -795,11 +581,8 @@ macro_rules! algorithm_error {
 /// Macro for creating errors with context
 #[macro_export]
 macro_rules! gatk_error_with_context {
-    ($variant:ident, $context:expr, $($arg:tt)*) => {
-        $crate::error::GatkError::$variant {
-            message: format!($($arg)*),
-            context: $context,
-        }
+    ($context:expr, $($arg:tt)*) => {
+        $crate::error::GatkError::algorithm_with_context(format!($($arg)*), $context)
     };
 }
 
@@ -817,11 +600,11 @@ macro_rules! validation_error_with_tool {
 /// Macro for creating errors with genomic position context
 #[macro_export]
 macro_rules! gatk_error_at_position {
-    ($variant:ident, $pos:expr, $($arg:tt)*) => {
-        $crate::error::GatkError::$variant {
-            message: format!($($arg)*),
-            context: $crate::error::ErrorContext::new().with_position($pos)
-        }
+    ($pos:expr, $($arg:tt)*) => {
+        $crate::error::GatkError::algorithm_with_context(
+            format!($($arg)*),
+            $crate::error::ErrorContext::new().with_position($pos)
+        )
     };
 }
 
@@ -832,7 +615,8 @@ mod tests {
     #[test]
     fn test_error_creation() {
         let err = GatkError::file_format("Invalid VCF format");
-        assert!(matches!(err, GatkError::FileFormat { .. }));
+        assert!(matches!(err, GatkError::Algorithm { .. }));
+        assert!(err.to_string().contains("Invalid VCF format"));
 
         let err = GatkError::parse("Expected integer", 42);
         assert!(matches!(err, GatkError::Parse { line: 42, .. }));
@@ -842,7 +626,7 @@ mod tests {
     fn with_context_preserves_variant_and_classification() {
         let result: Result<i32, GatkError> = Err(GatkError::argument("bad ploidy"));
         let err = result.with_context("activity scoring").unwrap_err();
-        assert!(matches!(err, GatkError::Argument { .. }));
+        assert!(matches!(err, GatkError::Config { .. }));
         assert_eq!(err.classification(), GatkErrorClass::User);
         assert_eq!(err.context().operation.as_deref(), Some("activity scoring"));
         assert!(err
@@ -856,7 +640,7 @@ mod tests {
         let err = result
             .with_tool_context("HaplotypeCaller", "parse args")
             .unwrap_err();
-        assert!(matches!(err, GatkError::Argument { .. }));
+        assert!(matches!(err, GatkError::Config { .. }));
         assert_eq!(err.context().tool.as_deref(), Some("HaplotypeCaller"));
         assert_eq!(gatk_cli_exit_code(&err), 2);
     }
@@ -865,10 +649,10 @@ mod tests {
     fn test_error_macros() {
         let err = gatk_error!(Validation, "Invalid value: {}", 42);
         match err {
-            GatkError::Validation { message, .. } => {
-                assert_eq!(message, "Invalid value: 42");
+            GatkError::Config { message, .. } => {
+                assert!(message.contains("Invalid value: 42"));
             }
-            _ => panic!("Expected Validation error"),
+            _ => panic!("Expected Config error"),
         }
     }
 
@@ -891,7 +675,7 @@ mod tests {
     #[test]
     fn invalid_argument_attaches_parameter_metadata() {
         let err = GatkError::invalid_argument("kmer_size", "kmer_size must be ≥ 2, got 1");
-        assert!(matches!(err, GatkError::Argument { .. }));
+        assert!(matches!(err, GatkError::Config { .. }));
         assert_eq!(
             err.context().context.get("parameter").map(String::as_str),
             Some("kmer_size")

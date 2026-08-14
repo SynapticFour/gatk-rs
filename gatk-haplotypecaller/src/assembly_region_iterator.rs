@@ -35,6 +35,7 @@ use rust_htslib::bam;
 use rust_htslib::bam::Read as _;
 use std::borrow::Borrow;
 use std::collections::VecDeque;
+use std::hash::{Hash, Hasher};
 #[cfg(any(feature = "dev-dumps", test))]
 use std::io::Write;
 use std::path::Path;
@@ -447,8 +448,32 @@ pub fn load_records_for_shard_raw(
 /// One alignment per `(qname, pos, flags)` when padded shard spans overlap.
 /// Preserves first-seen order; keeps both mates (same POS, different `flags`).
 fn dedupe_shared_records_by_alignment_start(records: &mut Vec<SharedBamRecord>) {
-    let mut seen = std::collections::HashSet::new();
-    records.retain(|rec| seen.insert((rec.qname().to_vec(), rec.pos(), rec.flags())));
+    let mut first_idx: std::collections::HashMap<(u64, i64, u16), Vec<usize>> =
+        std::collections::HashMap::new();
+    let mut keep = vec![true; records.len()];
+    for (i, rec) in records.iter().enumerate() {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        rec.qname().hash(&mut hasher);
+        let key = (hasher.finish(), rec.pos(), rec.flags());
+        match first_idx.entry(key) {
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(vec![i]);
+            }
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                if e.get().iter().any(|&j| records[j].qname() == rec.qname()) {
+                    keep[i] = false;
+                } else {
+                    e.get_mut().push(i);
+                }
+            }
+        }
+    }
+    let mut i = 0;
+    records.retain(|_| {
+        let k = keep[i];
+        i += 1;
+        k
+    });
 }
 
 /// Iterator over [`AssemblyRegion`] values for one [`ReadShard`].

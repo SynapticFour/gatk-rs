@@ -24,7 +24,7 @@ fn missing_rg_in_header_is_validation_error() {
         .unwrap_err();
 
     match err {
-        GatkError::Validation { message, .. } => {
+        GatkError::Config { message, .. } => {
             assert!(message.contains("record RG"));
             assert!(message.contains("not found"));
         }

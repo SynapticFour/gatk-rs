@@ -343,7 +343,7 @@ impl ReadThreadingGraphBuilder {
         kmer_start: usize,
         count: u32,
         is_ref: bool,
-    ) -> usize {
+    ) -> GatkResult<usize> {
         let k = self.kmer_size;
         let next_pos = kmer_start + k - 1;
         let next_base = bases[next_pos];
@@ -356,16 +356,16 @@ impl ReadThreadingGraphBuilder {
         for to in outs {
             if Self::suffix_of_kmer(&self.nodes[to]) == next_base {
                 self.inc_edge(prev, to, count, is_ref);
-                return to;
+                return Ok(to);
             }
         }
         let kmer = Self::kmer_at(bases, kmer_start, k);
         let next = if let Some(merge) = self.get_unique_kmer_vertex(&kmer, false) {
             if is_ref {
-                panic!(
+                return Err(GatkError::algorithm(format!(
                     "reference threading attempted to merge into unique vertex for kmer {}",
                     String::from_utf8_lossy(&kmer)
-                );
+                )));
             }
             merge
         } else {
@@ -376,12 +376,12 @@ impl ReadThreadingGraphBuilder {
             self.ref_nodes.insert(prev);
             self.ref_nodes.insert(next);
         }
-        next
+        Ok(next)
     }
 
-    fn thread_sequence(&mut self, seq: &SequenceForKmers) {
+    fn thread_sequence(&mut self, seq: &SequenceForKmers) -> GatkResult<()> {
         let Some(start_pos) = self.find_start(seq) else {
-            return;
+            return Ok(());
         };
         let k = self.kmer_size;
         if seq.is_ref && self.ref_source_kmer.is_none() {
@@ -394,13 +394,14 @@ impl ReadThreadingGraphBuilder {
         }
         let mut vertex = start_vertex;
         for i in (start_pos + 1)..=(seq.stop.saturating_sub(k)) {
-            vertex = self.extend_chain_by_one(vertex, &seq.bases, i, seq.count, seq.is_ref);
+            vertex = self.extend_chain_by_one(vertex, &seq.bases, i, seq.count, seq.is_ref)?;
         }
+        Ok(())
     }
 
-    pub fn build(&mut self) {
+    pub fn build(&mut self) -> GatkResult<()> {
         if self.built {
-            return;
+            return Ok(());
         }
         self.preprocess_reads();
         // Lifetime: after preprocess, pending is only read for threading; take moves it
@@ -408,18 +409,19 @@ impl ReadThreadingGraphBuilder {
         let pending = std::mem::take(&mut self.pending);
         for seqs in pending.values() {
             for seq in seqs {
-                self.thread_sequence(seq);
+                self.thread_sequence(seq)?;
             }
             for e in self.edges.values_mut() {
                 e.flush_sample();
             }
         }
         self.built = true;
+        Ok(())
     }
 
-    pub fn into_assembly_graph(mut self) -> AssemblyGraph {
-        self.build();
-        self.finish_into_assembly_graph()
+    pub fn into_assembly_graph(mut self) -> GatkResult<AssemblyGraph> {
+        self.build()?;
+        Ok(self.finish_into_assembly_graph())
     }
 
     /// Consume a built builder into an [`AssemblyGraph`] (no second threading pass).
@@ -458,10 +460,10 @@ impl ReadThreadingGraphBuilder {
     /// Build once and return graph + low-complexity summary (no dual-graph Peak).
     pub fn into_assembly_graph_with_summary(
         mut self,
-    ) -> (AssemblyGraph, ThreadingNonUniqueSummary) {
-        self.build();
+    ) -> GatkResult<(AssemblyGraph, ThreadingNonUniqueSummary)> {
+        self.build()?;
         let summary = self.non_unique_summary();
-        (self.finish_into_assembly_graph(), summary)
+        Ok((self.finish_into_assembly_graph(), summary))
     }
 }
 
@@ -477,7 +479,7 @@ pub fn assembly_graph_from_ref_and_reads_threading(
     params: &AssemblyGraphParams,
 ) -> GatkResult<AssemblyGraph> {
     let builder = build_threading_builder(Some(reference), reads, params)?;
-    Ok(builder.into_assembly_graph())
+    builder.into_assembly_graph()
 }
 
 /// Single threading build returning graph + non-unique / low-complexity summary.
@@ -490,7 +492,7 @@ pub fn assembly_graph_from_ref_and_reads_threading_with_summary(
     params: &AssemblyGraphParams,
 ) -> GatkResult<(AssemblyGraph, ThreadingNonUniqueSummary)> {
     let builder = build_threading_builder(Some(reference), reads, params)?;
-    Ok(builder.into_assembly_graph_with_summary())
+    builder.into_assembly_graph_with_summary()
 }
 
 fn build_threading_builder(
@@ -555,7 +557,7 @@ pub fn threading_non_unique_summary(
     params: &AssemblyGraphParams,
 ) -> GatkResult<ThreadingNonUniqueSummary> {
     let mut builder = build_threading_builder(reference, reads, params)?;
-    builder.build();
+    builder.build()?;
     Ok(builder.non_unique_summary())
 }
 
@@ -564,7 +566,7 @@ pub fn assembly_graph_from_reads_threading(
     params: &AssemblyGraphParams,
 ) -> GatkResult<AssemblyGraph> {
     let builder = build_threading_builder(None, reads, params)?;
-    Ok(builder.into_assembly_graph())
+    builder.into_assembly_graph()
 }
 
 #[cfg(test)]

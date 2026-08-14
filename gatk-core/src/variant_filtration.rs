@@ -299,11 +299,28 @@ pub fn run_variant_filtration(args: &VariantFiltrationArgs) -> GatkResult<()> {
         );
     }
     header.source = Some("gatk-rs VariantFiltration".to_string());
-    let records = reader.read_all_records()?;
-    let filtered = filter_records(&records, &args.filters)?;
+    let parsed = args
+        .filters
+        .iter()
+        .map(|f| parse_filter_expression(&f.expression).map(|p| (f.name.clone(), p)))
+        .collect::<GatkResult<Vec<_>>>()?;
     let mut writer = VcfWriter::new(&args.output, header)?;
     writer.write_header()?;
-    writer.write_records(&filtered)?;
+    while let Some(rec) = reader.read_next_record()? {
+        let mut failed = Vec::new();
+        for (name, expr) in &parsed {
+            if expression_fails(&rec, expr) {
+                failed.push(name.clone());
+            }
+        }
+        let mut cloned = rec;
+        cloned.filter = if failed.is_empty() {
+            vec!["PASS".to_string()]
+        } else {
+            failed
+        };
+        writer.write_record(&cloned)?;
+    }
     let _ = args.reference.as_ref(); // accepted for CLI familiarity
     Ok(())
 }

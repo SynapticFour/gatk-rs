@@ -45,7 +45,7 @@ fn malformed_read_fixture_corpus_matches_error_contracts() {
 
         let err = res.unwrap_err();
         match err {
-            GatkError::Read { message, .. } => assert!(
+            GatkError::Algorithm { message, .. } => assert!(
                 message.contains(&case.expect_error_contains),
                 "fixture '{}' message mismatch: '{}'",
                 case.label,

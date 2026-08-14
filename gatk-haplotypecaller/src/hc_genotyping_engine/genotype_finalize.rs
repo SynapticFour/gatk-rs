@@ -8,7 +8,6 @@ include!("genotype_site_score.rs");
 include!("genotype_site_reshape.rs");
 include!("genotype_site_early_template.rs");
 include!("genotype_site_pileup_rescue.rs");
-include!("genotype_pipeline.rs");
 
 /// Parity/L4 experiments: template rescues + repair (not used on [`HcGenotypingConfig::strict_java`]).
 #[cfg(any(test, feature = "parity_harness"))]
