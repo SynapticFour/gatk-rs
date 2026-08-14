@@ -53,6 +53,13 @@ pub fn assign_genotype_likelihoods_for_region(
         genotype_from_read_rows(&rows, haplotypes, config)?
     };
     let emit_spanning = !config.disable_spanning_event_genotyping;
+    let hap_events = build_per_haplotype_variation_events(
+        haplotypes,
+        ref_bytes,
+        pad_start_1based,
+        max_mnp_distance,
+        contig,
+    );
     let supplement_events = if config.enable_java_strict() {
         stored_events_with_p12_cluster_anchors(
             stored_events,
@@ -99,6 +106,7 @@ pub fn assign_genotype_likelihoods_for_region(
                 max_mnp_distance,
                 config,
                 &stored_events,
+                Some(&hap_events),
             )? {
                 let call = maybe_post_finalize_strict_java_call(
                     call,
@@ -119,13 +127,6 @@ pub fn assign_genotype_likelihoods_for_region(
         });
     }
 
-    let hap_events = build_per_haplotype_variation_events(
-        haplotypes,
-        ref_bytes,
-        pad_start_1based,
-        max_mnp_distance,
-        contig,
-    );
     let mut positions = build_event_start_positions_from_cache(&hap_events);
     for e in &supplement_events {
         if e.start_1based >= GenomePosition::new_1based(active_start_1based) && e.start_1based <= GenomePosition::new_1based(active_end_1based) {
@@ -213,6 +214,7 @@ pub fn assign_genotype_likelihoods_for_region(
                 max_mnp_distance,
                 config,
                 &supplement_events,
+                Some(&hap_events),
             )? {
                 let call = maybe_post_finalize_strict_java_call(
                     call,
@@ -250,6 +252,7 @@ pub fn assign_genotype_likelihoods_for_region(
                     max_mnp_distance,
                     config,
                     &supplement_events,
+                    Some(&hap_events),
                 )? {
                     let call = maybe_post_finalize_strict_java_call(
                         call,
@@ -290,6 +293,7 @@ pub fn assign_genotype_likelihoods_for_region(
                 max_mnp_distance,
                 config,
                 &supplement_events,
+                Some(&hap_events),
             )? {
                 let call = maybe_post_finalize_strict_java_call(
                     call,
@@ -329,6 +333,7 @@ pub fn assign_genotype_likelihoods_for_region(
                 max_mnp_distance,
                 config,
                 stored_events,
+                Some(&hap_events),
             )? {
                 let call = maybe_post_finalize_strict_java_call(
                     call,
@@ -389,7 +394,7 @@ fn hap_supports_allele_for_sort(
     ) {
         return true;
     }
-    crate::hc_allele_mapping::haplotype_supports_allele_at_with_ref(
+    crate::hc_allele_mapping::haplotype_supports_allele_at_with_events(
         hap,
         ref_hap,
         loc_1based,
@@ -399,6 +404,7 @@ fn hap_supports_allele_for_sort(
         ref_bytes,
         max_mnp_distance,
         contig,
+        Some(hap_events.events_for(hap_index)),
     )
 }
 

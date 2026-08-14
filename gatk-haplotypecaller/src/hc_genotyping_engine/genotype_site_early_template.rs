@@ -229,7 +229,8 @@ impl SiteEarlyTemplate {
                 config,
                 active_start_1based,
                 active_end_1based,
-            );
+            )
+            .into_owned();
             let gap_alt_strict_pre_augment = if base_gap_subset.is_empty() {
                 0
             } else {

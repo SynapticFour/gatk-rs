@@ -230,11 +230,11 @@ pub fn assemble_reads_with_finalized(
         "before_finalize",
         &format!("reads={}", region.reads.len()),
     );
-    // Peak-RSS: take unique Arcs (for_each cleared previous-region pin), unwrap without
-    // deep-copy, re-share untrimmed for genotyping, then softclip the owned buffer once.
+    // Peak-RSS: keep untrimmed originals on `region.reads` (genotyping/realign) and an owned
+    // finalize buffer for PairHMM — at most one deep clone per record (never unwrap+reclone).
     let arcs = std::mem::take(&mut region.reads);
-    let owned = crate::shared_bam::into_unique_records(arcs);
-    region.reads = crate::shared_bam::share_records(owned.iter().map(|r| r.clone()).collect());
+    let (kept, owned) = crate::shared_bam::split_shared_for_finalize(arcs);
+    region.reads = kept;
     let finalized = crate::assembly_region_finalize::finalize_owned_bam_records(
         owned,
         region,

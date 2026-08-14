@@ -363,6 +363,7 @@ fn try_genotype_variation_event(
     max_mnp_distance: usize,
     config: &HcGenotypingConfig,
     region_events: &[VariationEvent],
+    hap_events: Option<&crate::event_map::PerHaplotypeVariationEvents>,
 ) -> GatkResult<Option<GenotypedSiteCall>> {
     let loc = event.start_1based.get();
     // L13-B: allele map owned by [`SiteMap`] (behavior-neutral extract).
@@ -375,6 +376,7 @@ fn try_genotype_variation_event(
         full_reference_pad_1based,
         max_mnp_distance,
         config,
+        hap_events,
     );
     let (read_ref_ad, read_alt_ad) = read_allele_depths_for_strict_emit(
         pileup_reads,
@@ -613,7 +615,8 @@ fn try_genotype_variation_event(
             config,
             active_start_1based,
             active_end_1based,
-        );
+        )
+        .into_owned();
         if subset.is_empty() {
             if let Some(sup) = supplemental_pileup_reads.filter(|s| !s.is_empty()) {
                 let var_end = event.end_1based.get().max(

@@ -228,15 +228,29 @@ fn align_uppercase_ready(
             ncol,
             overhang_strategy,
         );
-        scratch.sw = sw;
-        scratch.btrack = btrack;
-        scratch.best_gap_v = best_gap_v;
-        scratch.gap_size_v = gap_size_v;
-        scratch.best_gap_h = best_gap_h;
-        scratch.gap_size_h = gap_size_h;
+        // Soft-keep normal-sized planes; drop oversized allocations so Peak does not retain
+        // multi-megabase matrices between calls. Region/engine end still hard-clears via
+        // [`release_sw_tls_scratch`].
+        if cells > SW_TLS_SOFT_KEEP_CELLS
+            || sw.capacity() > SW_TLS_SOFT_KEEP_CELLS
+            || btrack.capacity() > SW_TLS_SOFT_KEEP_CELLS
+        {
+            scratch.clear();
+        } else {
+            scratch.sw = sw;
+            scratch.btrack = btrack;
+            scratch.best_gap_v = best_gap_v;
+            scratch.gap_size_v = gap_size_v;
+            scratch.best_gap_h = best_gap_h;
+            scratch.gap_size_h = gap_size_h;
+        }
         Ok(aln)
     })
 }
+
+/// Soft-keep ceiling for SW TLS matrix cells (sw + btrack). Larger requests still compute,
+/// but planes are not retained afterward.
+const SW_TLS_SOFT_KEEP_CELLS: usize = 1 << 20; // 1_048_576 cells
 
 struct SwScratch {
     sw: Vec<i32>,
@@ -260,6 +274,15 @@ impl SwScratch {
     }
 
     fn ensure(&mut self, cells: usize, nrow: usize, ncol: usize) {
+        // Do not grow retained capacity past the soft-keep ceiling without clearing first.
+        if cells > SW_TLS_SOFT_KEEP_CELLS
+            || self.sw.capacity() > SW_TLS_SOFT_KEEP_CELLS
+            || self.btrack.capacity() > SW_TLS_SOFT_KEEP_CELLS
+        {
+            if !self.sw.is_empty() || self.sw.capacity() > 0 {
+                self.clear();
+            }
+        }
         if self.sw.len() < cells {
             self.sw.resize(cells, 0);
             self.btrack.resize(cells, 0);

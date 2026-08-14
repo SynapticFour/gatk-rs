@@ -352,7 +352,7 @@ pub use bio_ids::{
 };
 pub use combine_gvcfs::{run_combine_gvcfs, CombineGvcfsArgs};
 pub use engine::{CallRegionArgs, CallRegionMode, CallRegionOutcome, HaplotypeCallerEngine};
-pub use event_map::{Event, EventMap, IndelSpan};
+pub use event_map::{AlleleBytes, Event, EventMap, IndelSpan};
 pub use feature_context::{FeatureContext, FeatureDataSources, FeatureLocatable};
 pub use gatk_well_rng::{Well19937c, GATK_WELL19937C_SEED};
 pub use genome_loc::{GenomeLoc, GenomePosition};
@@ -465,7 +465,8 @@ pub use region_vcf_emit::{
 pub use run::run_haplotype_caller;
 pub use shared_bam::{
     empty_shared_record, empty_shared_record_ref, into_unique_records, is_empty_shared_record,
-    record_make_mut, share_record, share_records, BamRecordSlot, SharedBamRecord,
+    record_make_mut, share_record, share_records, split_shared_for_finalize, BamRecordSlot,
+    SharedBamRecord,
 };
 pub use walker::{
     make_read_shards, make_read_shards_default_padding, ReadShard,

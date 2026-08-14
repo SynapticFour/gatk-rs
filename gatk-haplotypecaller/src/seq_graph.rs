@@ -355,7 +355,8 @@ impl SeqGraph {
         }
         let keep = chain[0];
         let remove: HashSet<usize> = chain[1..].iter().copied().collect();
-        let mut merged_seq = self.vertices[keep].sequence.clone();
+        // Take keep sequence then extend — avoid cloning every vertex seq on the chain.
+        let mut merged_seq = std::mem::take(&mut self.vertices[keep].sequence);
         for &v in &chain[1..] {
             merged_seq.extend_from_slice(&self.vertices[v].sequence);
         }
@@ -371,12 +372,15 @@ impl SeqGraph {
 
         let mut new_vertices = Vec::with_capacity(kept.len());
         for &old_id in &kept {
-            let mut v = self.vertices[old_id].clone();
-            if old_id == keep {
-                v.sequence = merged_seq.clone();
-            }
-            v.id = old_to_new[&old_id];
-            new_vertices.push(v);
+            let sequence = if old_id == keep {
+                std::mem::take(&mut merged_seq)
+            } else {
+                std::mem::take(&mut self.vertices[old_id].sequence)
+            };
+            new_vertices.push(SeqVertex {
+                id: old_to_new[&old_id],
+                sequence,
+            });
         }
 
         let mut new_edges = Vec::new();
@@ -407,15 +411,12 @@ impl SeqGraph {
     }
 
     fn rebuild_index(&mut self) {
-        let mut outgoing: HashMap<usize, Vec<usize>> = HashMap::new();
-        let mut incoming: HashMap<usize, Vec<usize>> = HashMap::new();
-        for (i, e) in self.edges.iter().enumerate() {
-            let _ = i;
-            outgoing.entry(e.from).or_default().push(e.to);
-            incoming.entry(e.to).or_default().push(e.from);
+        self.outgoing.clear();
+        self.incoming.clear();
+        for e in &self.edges {
+            self.outgoing.entry(e.from).or_default().push(e.to);
+            self.incoming.entry(e.to).or_default().push(e.from);
         }
-        self.outgoing = outgoing;
-        self.incoming = incoming;
     }
 
     pub fn remove_singleton_orphan_vertices(&mut self) {
