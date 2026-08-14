@@ -134,67 +134,71 @@ impl Eq for HeapItem {}
 ///
 /// On failure returns the **original** graph in [`Err`] so callers can fall back to a
 /// preserving search without `graph.clone()` (Peak-RSS on bushy cyclic loci).
+///
+/// Observable contract: same cycle-edge / non-reaching-vertex removal as GATK; Rust-native
+/// cuts avoid per-edge `Vec` allocs and fold isolated cleanup into one remapping pass.
 pub fn graph_for_kbest(mut graph: AssemblyGraph) -> Result<AssemblyGraph, AssemblyGraph> {
     if !graph.has_cycle() {
         return Ok(graph);
     }
-    let sources: Vec<usize> = graph.reference_source_vertex().into_iter().collect();
-    let sinks: Vec<usize> = graph.reference_sink_vertex().into_iter().collect();
-    if sources.is_empty() || sinks.is_empty() {
+    let Some(source) = graph.reference_source_vertex() else {
         return Err(graph);
+    };
+    let Some(sink) = graph.reference_sink_vertex() else {
+        return Err(graph);
+    };
+    let n = graph.node_count();
+    let mut is_sink = vec![false; n];
+    if sink < n {
+        is_sink[sink] = true;
     }
-    let sink_set: HashSet<usize> = sinks.into_iter().collect();
     let mut edges_to_remove = HashSet::new();
     let mut vertices_to_remove = HashSet::new();
-    let mut found_path = false;
-    for source in sources {
-        let mut parents = HashSet::new();
-        if find_cycle_guilty(
-            &graph,
-            source,
-            &sink_set,
-            &mut edges_to_remove,
-            &mut vertices_to_remove,
-            &mut parents,
-        ) {
-            found_path = true;
-        }
-    }
+    let mut on_path = vec![false; n];
+    let found_path = find_cycle_guilty(
+        &graph,
+        source,
+        &is_sink,
+        &mut edges_to_remove,
+        &mut vertices_to_remove,
+        &mut on_path,
+    );
     if !found_path || (edges_to_remove.is_empty() && vertices_to_remove.is_empty()) {
         return Err(graph);
     }
     for (f, t) in edges_to_remove {
         graph.remove_edge(f, t);
     }
-    graph.remove_nodes(&vertices_to_remove);
-    graph.cleanup_isolated_nodes();
+    // Fold isolated cleanup into one remapping pass (was remove_nodes + cleanup_isolated).
+    graph.remove_nodes_and_isolated(vertices_to_remove);
     Ok(graph)
 }
 
 fn find_cycle_guilty(
     graph: &AssemblyGraph,
     current: usize,
-    sinks: &HashSet<usize>,
+    is_sink: &[bool],
     edges_to_remove: &mut HashSet<(usize, usize)>,
     vertices_to_remove: &mut HashSet<usize>,
-    parent_vertices: &mut HashSet<usize>,
+    on_path: &mut [bool],
 ) -> bool {
-    if sinks.contains(&current) {
+    if current < is_sink.len() && is_sink[current] {
         return true;
     }
-    parent_vertices.insert(current);
-    let outs = graph.outgoing_nodes(current);
+    if current < on_path.len() {
+        on_path[current] = true;
+    }
     let mut reaches_sink = false;
-    for to in outs {
-        if parent_vertices.contains(&to) {
+    for to in graph.outgoing_targets(current) {
+        if to < on_path.len() && on_path[to] {
             edges_to_remove.insert((current, to));
         } else if find_cycle_guilty(
             graph,
             to,
-            sinks,
+            is_sink,
             edges_to_remove,
             vertices_to_remove,
-            parent_vertices,
+            on_path,
         ) {
             reaches_sink = true;
         }
@@ -202,7 +206,9 @@ fn find_cycle_guilty(
     if !reaches_sink {
         vertices_to_remove.insert(current);
     }
-    parent_vertices.remove(&current);
+    if current < on_path.len() {
+        on_path[current] = false;
+    }
     reaches_sink
 }
 

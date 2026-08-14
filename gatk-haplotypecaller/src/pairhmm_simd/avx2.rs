@@ -71,22 +71,38 @@ unsafe fn score_haps_avx2_f64_unchecked(
 
     let transitions = build_transitions(rn, insertion_gop, deletion_gop, overall_gcp);
     let mut out = vec![0.0f64; haplotypes.len()];
+    let mut done = vec![false; haplotypes.len()];
     let mut i = 0;
     while i < haplotypes.len() {
-        let remaining = haplotypes.len() - i;
-        let equal_lens = remaining >= LANES
-            && (1..LANES).all(|k| haplotypes[i + k].len() == haplotypes[i].len());
-        // Uneven hap lengths in one AVX pack corrupt lane DP (mask path); fall back.
-        if equal_lens {
+        if done[i] {
+            i += 1;
+            continue;
+        }
+        // Look ahead for LANES-1 more equal-length partners (no full sort/scatter).
+        let mut pack_idx = [i; 4];
+        let mut found = 1usize;
+        let target_len = haplotypes[i].len();
+        for j in (i + 1)..haplotypes.len() {
+            if found == LANES {
+                break;
+            }
+            if !done[j] && haplotypes[j].len() == target_len {
+                pack_idx[found] = j;
+                found += 1;
+            }
+        }
+        if found == LANES {
             let pack = [
-                haplotypes[i],
-                haplotypes[i + 1],
-                haplotypes[i + 2],
-                haplotypes[i + 3],
+                haplotypes[pack_idx[0]],
+                haplotypes[pack_idx[1]],
+                haplotypes[pack_idx[2]],
+                haplotypes[pack_idx[3]],
             ];
             let scores = score_pack4(read_bases, read_quals, &pack, &transitions);
-            out[i..i + LANES].copy_from_slice(&scores);
-            i += LANES;
+            for (k, &idx) in pack_idx.iter().enumerate() {
+                out[idx] = scores[k];
+                done[idx] = true;
+            }
         } else {
             let rest = score_haps_logless_packed_f64(
                 read_bases,
@@ -97,8 +113,9 @@ unsafe fn score_haps_avx2_f64_unchecked(
                 overall_gcp,
             )?;
             out[i] = rest[0];
-            i += 1;
+            done[i] = true;
         }
+        i += 1;
     }
     Ok(out)
 }

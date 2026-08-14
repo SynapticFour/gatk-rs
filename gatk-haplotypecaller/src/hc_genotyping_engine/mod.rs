@@ -39,8 +39,9 @@ use crate::emit_gates::{
     passes_hc_variant_emit_biallelic_inner, qual_to_error_prob_log10, AFC_EMIT_EPSILON,
 };
 use crate::event_map::{
-    build_event_start_positions_1based, merged_biallelic_sites_at_position,
-    variation_events_at_position, VariationEvent,
+    build_event_start_positions_from_cache, build_per_haplotype_variation_events,
+    cached_events_support_allele_at, merged_biallelic_sites_at_position,
+    variation_events_at_position_from_cache, VariationEvent,
 };
 use crate::genome_loc::GenomePosition;
 use crate::genotyping::{

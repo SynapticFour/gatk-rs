@@ -252,11 +252,27 @@ impl AssemblyGraph {
             .unwrap_or_default()
     }
 
+    /// Borrow outgoing targets without allocating (cycle-strip / DFS hot path).
+    pub(crate) fn outgoing_targets(&self, from: usize) -> impl Iterator<Item = usize> + '_ {
+        self.outgoing
+            .get(&from)
+            .into_iter()
+            .flat_map(|s| s.iter().copied())
+    }
+
     pub(crate) fn incoming_nodes(&self, to: usize) -> Vec<usize> {
         self.incoming
             .get(&to)
             .map(|s| s.iter().copied().collect())
             .unwrap_or_default()
+    }
+
+    /// Borrow incoming sources without allocating.
+    pub(crate) fn incoming_sources(&self, to: usize) -> impl Iterator<Item = usize> + '_ {
+        self.incoming
+            .get(&to)
+            .into_iter()
+            .flat_map(|s| s.iter().copied())
     }
 
     pub(crate) fn incoming_count(&self, node: usize) -> usize {
@@ -272,16 +288,10 @@ impl AssemblyGraph {
         if self.node_count() == 1 {
             return true;
         }
-        if self
-            .incoming_nodes(v)
-            .iter()
-            .any(|&p| self.edge_is_ref(p, v))
-        {
+        if self.incoming_sources(v).any(|p| self.edge_is_ref(p, v)) {
             return false;
         }
-        self.outgoing_nodes(v)
-            .iter()
-            .any(|&t| self.edge_is_ref(v, t))
+        self.outgoing_targets(v).any(|t| self.edge_is_ref(v, t))
     }
 
     /// GATK `BaseGraph.isRefSink`.
@@ -289,16 +299,10 @@ impl AssemblyGraph {
         if self.node_count() == 1 {
             return true;
         }
-        if self
-            .outgoing_nodes(v)
-            .iter()
-            .any(|&t| self.edge_is_ref(v, t))
-        {
+        if self.outgoing_targets(v).any(|t| self.edge_is_ref(v, t)) {
             return false;
         }
-        self.incoming_nodes(v)
-            .iter()
-            .any(|&p| self.edge_is_ref(p, v))
+        self.incoming_sources(v).any(|p| self.edge_is_ref(p, v))
     }
 
     pub fn has_ref_threading(&self) -> bool {
@@ -532,6 +536,25 @@ impl AssemblyGraph {
         let remove = (0..self.nodes.len())
             .filter(|n| !keep.contains(n))
             .collect::<HashSet<_>>();
+        self.remove_nodes(&remove);
+    }
+
+    /// One remapping pass: remove `remove` plus any nodes that would be isolated once those
+    /// (and their incident edges) are gone. Used by cycle-strip instead of
+    /// `remove_nodes` + `cleanup_isolated_nodes` (two full rebuilds).
+    pub(crate) fn remove_nodes_and_isolated(&mut self, mut remove: HashSet<usize>) {
+        let mut keep = HashSet::new();
+        for (from, to) in self.edges.keys() {
+            if !remove.contains(from) && !remove.contains(to) {
+                keep.insert(*from);
+                keep.insert(*to);
+            }
+        }
+        for id in 0..self.nodes.len() {
+            if !keep.contains(&id) {
+                remove.insert(id);
+            }
+        }
         self.remove_nodes(&remove);
     }
 

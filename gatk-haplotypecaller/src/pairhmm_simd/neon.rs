@@ -75,8 +75,8 @@ pub fn score_haps_neon_f64(
     deletion_gop: &[u8],
     overall_gcp: &[u8],
 ) -> GatkResult<Vec<f64>> {
-    // Adjacent equal-length packs only. Length-grouping was measured slower on dense
-    // NA12878 (sort/scatter tax > pack win under SEQUENTIAL=1); keep TLS ensure fix.
+    // Equal-length look-ahead packs (no full sort). Length-grouping sort was measured
+    // slower on dense NA12878 (sort/scatter tax > pack win under SEQUENTIAL=1); keep TLS ensure fix.
     if std::arch::is_aarch64_feature_detected!("neon") {
         // SAFETY: NEON feature detected.
         unsafe {
@@ -119,18 +119,27 @@ unsafe fn score_haps_neon_f64_unchecked(
 
     let transitions = build_transitions(rn, insertion_gop, deletion_gop, overall_gcp);
     let mut out = vec![0.0f64; haplotypes.len()];
+    let mut done = vec![false; haplotypes.len()];
     let mut err: Option<gatk_common::GatkError> = None;
     NEON_SCRATCH.with(|cell| {
         let mut scratch = cell.borrow_mut();
         let mut i = 0;
         while i < haplotypes.len() {
-            let remaining = haplotypes.len() - i;
-            // Uneven hap lengths in one NEON pack corrupt lane DP (mask path); fall back.
-            if remaining >= LANES && haplotypes[i].len() == haplotypes[i + 1].len() {
-                let pack = [haplotypes[i], haplotypes[i + 1]];
+            if done[i] {
+                i += 1;
+                continue;
+            }
+            // Look ahead for any remaining equal-length partner (no full sort/scatter).
+            // Uneven lengths in one NEON pack corrupt lane DP — never pack mismatched lens.
+            let partner = ((i + 1)..haplotypes.len())
+                .find(|&j| !done[j] && haplotypes[j].len() == haplotypes[i].len());
+            if let Some(j) = partner {
+                let pack = [haplotypes[i], haplotypes[j]];
                 let scores = score_pack2(read_bases, read_quals, &pack, &transitions, &mut scratch);
-                out[i..i + LANES].copy_from_slice(&scores);
-                i += LANES;
+                out[i] = scores[0];
+                out[j] = scores[1];
+                done[i] = true;
+                done[j] = true;
             } else {
                 match score_haps_logless_packed_f64(
                     read_bases,
@@ -146,8 +155,9 @@ unsafe fn score_haps_neon_f64_unchecked(
                         break;
                     }
                 }
-                i += 1;
+                done[i] = true;
             }
+            i += 1;
         }
     });
     if let Some(e) = err {

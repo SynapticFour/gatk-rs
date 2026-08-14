@@ -119,12 +119,14 @@ pub fn assign_genotype_likelihoods_for_region(
         });
     }
 
-    let mut positions = build_event_start_positions_1based(
+    let hap_events = build_per_haplotype_variation_events(
         haplotypes,
         ref_bytes,
         pad_start_1based,
         max_mnp_distance,
+        contig,
     );
+    let mut positions = build_event_start_positions_from_cache(&hap_events);
     for e in &supplement_events {
         if e.start_1based >= GenomePosition::new_1based(active_start_1based) && e.start_1based <= GenomePosition::new_1based(active_end_1based) {
             positions.insert(e.start_1based.get());
@@ -136,15 +138,7 @@ pub fn assign_genotype_likelihoods_for_region(
         if loc < active_start_1based || loc > active_end_1based {
             continue;
         }
-        let mut raw = variation_events_at_position(
-            haplotypes,
-            ref_bytes,
-            pad_start_1based,
-            loc,
-            emit_spanning,
-            max_mnp_distance,
-            contig,
-        );
+        let mut raw = variation_events_at_position_from_cache(&hap_events, loc, emit_spanning);
         merge_stored_variation_events_at_position(&mut raw, &supplement_events, loc, emit_spanning);
         let with_span = replace_span_del_events(&raw, loc, pad_start_1based, ref_bytes);
         let mut merged = merged_biallelic_sites_at_position(&with_span, loc);
@@ -158,9 +152,12 @@ pub fn assign_genotype_likelihoods_for_region(
         merged.sort_by(|a, b| {
             let sa = haplotypes
                 .iter()
-                .filter(|h| {
-                    crate::hc_allele_mapping::haplotype_supports_allele_at_with_ref(
+                .enumerate()
+                .filter(|(hi, h)| {
+                    hap_supports_allele_for_sort(
                         h,
+                        *hi,
+                        &hap_events,
                         ref_hap,
                         loc,
                         pad_start_1based,
@@ -171,13 +168,16 @@ pub fn assign_genotype_likelihoods_for_region(
                         contig,
                     )
                 })
-                .map(|h| h.score)
+                .map(|(_, h)| h.score)
                 .fold(f64::NEG_INFINITY, f64::max);
             let sb = haplotypes
                 .iter()
-                .filter(|h| {
-                    crate::hc_allele_mapping::haplotype_supports_allele_at_with_ref(
+                .enumerate()
+                .filter(|(hi, h)| {
+                    hap_supports_allele_for_sort(
                         h,
+                        *hi,
+                        &hap_events,
                         ref_hap,
                         loc,
                         pad_start_1based,
@@ -188,7 +188,7 @@ pub fn assign_genotype_likelihoods_for_region(
                         contig,
                     )
                 })
-                .map(|h| h.score)
+                .map(|(_, h)| h.score)
                 .fold(f64::NEG_INFINITY, f64::max);
             sb.total_cmp(&sa)
         });
@@ -347,6 +347,59 @@ pub fn assign_genotype_likelihoods_for_region(
         calls,
         region_summary,
     })
+}
+
+/// Sort-key allele support using the region EventMap cache when possible.
+///
+/// Observable contract: same truth as [`haplotype_supports_allele_at_with_ref`]; avoid
+/// rebuilding EventMaps O(alleles × haps) on the dense position walk.
+fn hap_supports_allele_for_sort(
+    hap: &Haplotype,
+    hap_index: usize,
+    hap_events: &crate::event_map::PerHaplotypeVariationEvents,
+    ref_hap: &Haplotype,
+    loc_1based: u64,
+    pad_start: u64,
+    ref_allele: &str,
+    alt_allele: &str,
+    ref_bytes: &[u8],
+    max_mnp_distance: usize,
+    contig: &str,
+) -> bool {
+    if alt_allele == SPAN_DEL_ALLELE {
+        return !hap.is_reference;
+    }
+    if ref_allele.len() == 1 && alt_allele.len() == 1 {
+        let Some(alt_byte) = alt_allele
+            .as_bytes()
+            .first()
+            .map(|b| b.to_ascii_uppercase())
+        else {
+            return false;
+        };
+        return hap_base_at_ref_locus(hap, pad_start, loc_1based)
+            .map(|b| b.to_ascii_uppercase() == alt_byte)
+            .unwrap_or(false);
+    }
+    if cached_events_support_allele_at(
+        hap_events.events_for(hap_index),
+        loc_1based,
+        ref_allele,
+        alt_allele,
+    ) {
+        return true;
+    }
+    crate::hc_allele_mapping::haplotype_supports_allele_at_with_ref(
+        hap,
+        ref_hap,
+        loc_1based,
+        pad_start,
+        ref_allele,
+        alt_allele,
+        ref_bytes,
+        max_mnp_distance,
+        contig,
+    )
 }
 
 fn merge_stored_variation_events_at_position(

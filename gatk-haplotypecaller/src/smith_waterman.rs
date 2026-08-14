@@ -193,9 +193,13 @@ fn align_uppercase_ready(
     SW_SCRATCH.with(|cell| {
         let mut scratch = cell.borrow_mut();
         scratch.ensure(cells, nrow, ncol);
-        // Take buffers out so we can mutably borrow both planes without aliasing `scratch`.
+        // Take buffers out so we can mutably borrow planes without aliasing `scratch`.
         let mut sw = std::mem::take(&mut scratch.sw);
         let mut btrack = std::mem::take(&mut scratch.btrack);
+        let mut best_gap_v = std::mem::take(&mut scratch.best_gap_v);
+        let mut gap_size_v = std::mem::take(&mut scratch.gap_size_v);
+        let mut best_gap_h = std::mem::take(&mut scratch.best_gap_h);
+        let mut gap_size_h = std::mem::take(&mut scratch.gap_size_h);
         if sw.len() < cells {
             sw.resize(cells, 0);
             btrack.resize(cells, 0);
@@ -210,6 +214,10 @@ fn align_uppercase_ready(
             ncol,
             &mut sw[..cells],
             &mut btrack[..cells],
+            &mut best_gap_v,
+            &mut gap_size_v,
+            &mut best_gap_h,
+            &mut gap_size_h,
             overhang_strategy,
             parameters,
         );
@@ -222,6 +230,10 @@ fn align_uppercase_ready(
         );
         scratch.sw = sw;
         scratch.btrack = btrack;
+        scratch.best_gap_v = best_gap_v;
+        scratch.gap_size_v = gap_size_v;
+        scratch.best_gap_h = best_gap_h;
+        scratch.gap_size_h = gap_size_h;
         Ok(aln)
     })
 }
@@ -229,6 +241,10 @@ fn align_uppercase_ready(
 struct SwScratch {
     sw: Vec<i32>,
     btrack: Vec<i32>,
+    best_gap_v: Vec<i32>,
+    gap_size_v: Vec<i32>,
+    best_gap_h: Vec<i32>,
+    gap_size_h: Vec<i32>,
 }
 
 impl SwScratch {
@@ -236,17 +252,28 @@ impl SwScratch {
         Self {
             sw: Vec::new(),
             btrack: Vec::new(),
+            best_gap_v: Vec::new(),
+            gap_size_v: Vec::new(),
+            best_gap_h: Vec::new(),
+            gap_size_h: Vec::new(),
         }
     }
 
     fn ensure(&mut self, cells: usize, nrow: usize, ncol: usize) {
-        let _ = (nrow, ncol); // dimensions carried by cells; kept for call-site clarity
         if self.sw.len() < cells {
             self.sw.resize(cells, 0);
             self.btrack.resize(cells, 0);
         } else {
             self.sw[..cells].fill(0);
             self.btrack[..cells].fill(0);
+        }
+        if self.best_gap_v.len() < ncol + 1 {
+            self.best_gap_v.resize(ncol + 1, 0);
+            self.gap_size_v.resize(ncol + 1, 0);
+        }
+        if self.best_gap_h.len() < nrow + 1 {
+            self.best_gap_h.resize(nrow + 1, 0);
+            self.gap_size_h.resize(nrow + 1, 0);
         }
     }
 
@@ -273,15 +300,27 @@ fn calculate_matrix(
     ncol: usize,
     sw: &mut [i32],
     btrack: &mut [i32],
+    best_gap_v: &mut Vec<i32>,
+    gap_size_v: &mut Vec<i32>,
+    best_gap_h: &mut Vec<i32>,
+    gap_size_h: &mut Vec<i32>,
     overhang_strategy: SwOverhangStrategy,
     parameters: &SwParameters,
 ) {
     const MATRIX_MIN_CUTOFF: i32 = -100_000_000;
     let low_init = i32::MIN / 4;
-    let mut best_gap_v = vec![low_init; ncol + 1];
-    let mut gap_size_v = vec![0i32; ncol + 1];
-    let mut best_gap_h = vec![low_init; nrow + 1];
-    let mut gap_size_h = vec![0i32; nrow + 1];
+    if best_gap_v.len() < ncol + 1 {
+        best_gap_v.resize(ncol + 1, low_init);
+        gap_size_v.resize(ncol + 1, 0);
+    }
+    if best_gap_h.len() < nrow + 1 {
+        best_gap_h.resize(nrow + 1, low_init);
+        gap_size_h.resize(nrow + 1, 0);
+    }
+    best_gap_v[..ncol + 1].fill(low_init);
+    gap_size_v[..ncol + 1].fill(0);
+    best_gap_h[..nrow + 1].fill(low_init);
+    gap_size_h[..nrow + 1].fill(0);
 
     if matches!(
         overhang_strategy,

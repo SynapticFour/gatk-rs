@@ -8,6 +8,7 @@ use crate::pairhmm_logless::{
     logless_pairhmm_likelihood, INITIAL_CONDITION, INITIAL_CONDITION_LOG10, MIN_ACCEPTED_LINEAR_SUM,
 };
 use gatk_common::{GatkError, GatkResult};
+use std::cell::RefCell;
 
 const MATCH_TO_MATCH: usize = 0;
 const INDEL_TO_MATCH: usize = 1;
@@ -17,6 +18,10 @@ const MATCH_TO_DELETION: usize = 4;
 const DELETION_TO_DELETION: usize = 5;
 
 const MAX_QUAL: usize = 127;
+
+thread_local! {
+    static PACK_F64_SCRATCH: RefCell<F64Scratch> = RefCell::new(F64Scratch::empty());
+}
 
 #[inline]
 fn qual_to_error_prob(qual: u8) -> f64 {
@@ -72,12 +77,21 @@ struct F64Scratch {
 }
 
 impl F64Scratch {
-    fn with_capacity_cells(cells: usize) -> Self {
+    fn empty() -> Self {
         Self {
-            m: vec![0.0; cells],
-            ins: vec![0.0; cells],
-            del: vec![0.0; cells],
-            prior: vec![0.0; cells],
+            m: Vec::new(),
+            ins: Vec::new(),
+            del: Vec::new(),
+            prior: Vec::new(),
+        }
+    }
+
+    fn ensure_cells(&mut self, cells: usize) {
+        if self.m.len() < cells {
+            self.m.resize(cells, 0.0);
+            self.ins.resize(cells, 0.0);
+            self.del.resize(cells, 0.0);
+            self.prior.resize(cells, 0.0);
         }
     }
 
@@ -124,18 +138,21 @@ pub fn score_haps_logless_packed_f64(
              inputs must be assembly-region scale, not contig scale"
         )));
     }
-    let mut scratch = F64Scratch::with_capacity_cells(max_cells);
 
     let mut out = Vec::with_capacity(haplotypes.len());
-    for &hap in haplotypes {
-        out.push(score_one_f64(
-            read_bases,
-            read_quals,
-            hap,
-            &transitions,
-            &mut scratch,
-        ));
-    }
+    PACK_F64_SCRATCH.with(|cell| {
+        let mut scratch = cell.borrow_mut();
+        scratch.ensure_cells(max_cells);
+        for &hap in haplotypes {
+            out.push(score_one_f64(
+                read_bases,
+                read_quals,
+                hap,
+                &transitions,
+                &mut scratch,
+            ));
+        }
+    });
     Ok(out)
 }
 
