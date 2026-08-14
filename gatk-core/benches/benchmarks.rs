@@ -3,12 +3,10 @@
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use gatk_core::io::FastaSequence;
-use gatk_core::memory::{
-    GenomicCache, GenomicInterval, IntervalTree, MemoryMappedFile, MemoryPool, StreamProcessor,
-};
-use gatk_core::tests::{mocks, TestData};
+use gatk_core::memory::MemoryMappedFile;
+use gatk_core::tests::TestData;
 use gatk_core::types::{Allele, Base, BaseQuality, GenomicPosition, VariantContext};
-use gatk_core::{math, utils};
+use gatk_core::utils;
 use std::hint::black_box;
 
 fn benchmark_fasta_sequence_ops(c: &mut Criterion) {
@@ -24,48 +22,7 @@ fn benchmark_fasta_sequence_ops(c: &mut Criterion) {
     });
 }
 
-fn benchmark_memory_ops(c: &mut Criterion) {
-    let pool = MemoryPool::new(100);
-    c.bench_function("memory_pool_allocation", |b| {
-        b.iter(|| {
-            let buffer = pool.get_buffer(1024);
-            black_box(buffer.len());
-            pool.return_buffer(buffer);
-        })
-    });
-
-    let cache: GenomicCache<String, String> = GenomicCache::new(1000);
-    c.bench_function("cache_put_get", |b| {
-        b.iter(|| {
-            for i in 0..1000 {
-                cache.put(format!("key_{i}"), format!("value_{i}"));
-            }
-            black_box(cache.get(&"key_500".to_string()));
-        })
-    });
-}
-
-fn benchmark_interval_tree(c: &mut Criterion) {
-    let mut tree: IntervalTree<i32> = IntervalTree::new();
-    for i in 0..10_000 {
-        tree.insert(GenomicInterval {
-            chromosome: format!("chr{}", i % 10),
-            start: i * 10,
-            end: i * 10 + 5,
-            data: i as i32,
-        });
-    }
-    tree.sort();
-    c.bench_function("interval_query", |b| {
-        b.iter(|| {
-            for i in 0..1000 {
-                black_box(tree.find_overlapping("chr1", i * 10 + 2));
-            }
-        })
-    });
-}
-
-fn benchmark_variant_and_math(c: &mut Criterion) {
+fn benchmark_variant_ops(c: &mut Criterion) {
     let variants: Vec<VariantContext> = (0..1000)
         .map(|i| {
             VariantContext::new(
@@ -99,25 +56,9 @@ fn benchmark_variant_and_math(c: &mut Criterion) {
             }
         })
     });
-
-    c.bench_function("log_addition", |b| {
-        b.iter(|| black_box(math::likelihood::log_add(-10.0, -12.0)))
-    });
 }
 
-fn benchmark_stream_and_mmap(c: &mut Criterion) {
-    let pool = std::sync::Arc::new(MemoryPool::new(100));
-    let processor = StreamProcessor::new(1024, pool);
-    c.bench_function("stream_processing", |b| {
-        b.iter(|| {
-            let mock_reader = mocks::MockFileReader::new(&"A".repeat(10_000));
-            let _ = processor.process_chunks(mock_reader, |chunk: &[u8]| {
-                black_box(chunk.len());
-                Ok(())
-            });
-        })
-    });
-
+fn benchmark_mmap(c: &mut Criterion) {
     let data = TestData::new();
     let file_path = data.create_file("benchmark.txt", &"A".repeat(1_000_000));
     c.bench_function("memory_mapped_access", |b| {
@@ -140,10 +81,8 @@ fn benchmark_hamming_distance(c: &mut Criterion) {
 criterion_group!(
     benches,
     benchmark_fasta_sequence_ops,
-    benchmark_memory_ops,
-    benchmark_interval_tree,
-    benchmark_variant_and_math,
-    benchmark_stream_and_mmap,
+    benchmark_variant_ops,
+    benchmark_mmap,
     benchmark_hamming_distance
 );
 

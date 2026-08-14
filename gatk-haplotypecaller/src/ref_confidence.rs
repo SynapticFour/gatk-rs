@@ -235,6 +235,23 @@ fn prefer_region_reads_when_gt_misaligned(
     region_hom == region_pileup.len()
 }
 
+fn nonempty_or<'a>(
+    owned: &'a Option<Vec<PileupObservation>>,
+    fallback: &'a [PileupObservation],
+) -> &'a [PileupObservation] {
+    match owned {
+        Some(p) if !p.is_empty() => p.as_slice(),
+        _ => fallback,
+    }
+}
+
+fn owned_or<'a>(
+    owned: &'a Option<Vec<PileupObservation>>,
+    fallback: &'a [PileupObservation],
+) -> &'a [PileupObservation] {
+    owned.as_deref().unwrap_or(fallback)
+}
+
 /// Pileup source for cluster-band RCM (production vs narrow-interval reconcile).
 /// # Invariants
 /// [`Self::Production`] is default genome-wide behavior; reconcile variants select pileup provenance.
@@ -745,22 +762,20 @@ pub fn reference_confidence_loci_for_active_region(
                 region_pileup
             }
         } else if is_cluster_interior_block_pos(pos) {
-            let gt_pileup = cluster_gt_state
+            let cluster_owned = cluster_gt_state
                 .as_mut()
                 .map(|s| s.pileup_at(genotyping_reads, &gt_pileup_filters, pos, ref_base))
-                .transpose()?
-                .filter(|p| !p.is_empty())
-                // CLONE: needed — fallback owns pileup when cluster_gt_state miss/empty.
-                .unwrap_or_else(|| gt.clone());
+                .transpose()?;
+            let gt_pileup = nonempty_or(&cluster_owned, &gt);
             if prefer_region_reads_when_gt_misaligned(
                 genotyping_reads,
                 region,
-                &gt_pileup,
+                gt_pileup,
                 &region_pileup,
             ) {
                 region_pileup
-            } else if !gt_pileup.is_empty() {
-                gt_pileup
+            } else if let Some(p) = cluster_owned.filter(|p| !p.is_empty()) {
+                p
             } else if !gt.is_empty() {
                 gt
             } else {
@@ -775,40 +790,33 @@ pub fn reference_confidence_loci_for_active_region(
                 gt
             }
         } else if is_cluster_pre_upstream_hom_ref_pos(pos) {
-            let region_alt = interior_region_state
+            let region_alt_owned = interior_region_state
                 .as_mut()
                 .map(|s| s.pileup_at(&region.reads, read_filters, pos, ref_base))
-                .transpose()?
-                // CLONE: needed — fallback owns region pileup when interior state missing.
-                .unwrap_or(region_pileup.clone());
-            if prefer_region_reads_when_gt_misaligned(genotyping_reads, region, &gt, &region_alt) {
-                region_alt
-            } else if gt.is_empty() {
-                region_alt
+                .transpose()?;
+            let region_alt = owned_or(&region_alt_owned, &region_pileup);
+            if prefer_region_reads_when_gt_misaligned(genotyping_reads, region, &gt, region_alt)
+                || gt.is_empty()
+            {
+                region_alt_owned.unwrap_or(region_pileup)
             } else {
                 gt
             }
         } else if is_cluster_upstream_interstitial_pos(pos) {
-            // CLONE: needed — cluster RCM fallbacks below own pileup vectors when optional states miss.
-            let gt_pileup = cluster_gt_dedup_state
+            let gt_owned = cluster_gt_dedup_state
                 .as_mut()
                 .map(|s| s.pileup_at(genotyping_reads, &gt_pileup_filters, pos, ref_base))
-                .transpose()?
-                .filter(|p| !p.is_empty())
-                // CLONE: needed because fallback owns pileup/value when Option miss.
-                .unwrap_or_else(|| gt.clone());
-            let dedup_region = interior_region_state
+                .transpose()?;
+            let region_owned = interior_region_state
                 .as_mut()
                 .map(|s| s.pileup_at(&region.reads, read_filters, pos, ref_base))
-                .transpose()?
-                // CLONE: needed because fallback owns pileup/value when Option miss.
-                .unwrap_or(region_pileup.clone());
+                .transpose()?;
             cap_cluster_upstream_interstitial_pileup(
                 &cluster_band_hom_ref_pileup(
                     genotyping_reads,
                     region,
-                    &gt_pileup,
-                    &dedup_region,
+                    nonempty_or(&gt_owned, &gt),
+                    owned_or(&region_owned, &region_pileup),
                     &region_pileup,
                     &gt,
                     ClusterRcmEvidenceMode::ReconcileInterstitialRegion,
@@ -816,54 +824,42 @@ pub fn reference_confidence_loci_for_active_region(
                 pos,
             )
         } else if is_cluster_post_upstream_tail_pos(pos) {
-            let gt_pileup = cluster_gt_dedup_state
+            let gt_owned = cluster_gt_dedup_state
                 .as_mut()
                 .map(|s| s.pileup_at(genotyping_reads, &gt_pileup_filters, pos, ref_base))
-                .transpose()?
-                .filter(|p| !p.is_empty())
-                // CLONE: needed because fallback owns pileup/value when Option miss.
-                .unwrap_or_else(|| gt.clone());
-            let dedup_region = interior_region_state
+                .transpose()?;
+            let region_owned = interior_region_state
                 .as_mut()
                 .map(|s| s.pileup_at(&region.reads, read_filters, pos, ref_base))
-                .transpose()?
-                // CLONE: needed because fallback owns pileup/value when Option miss.
-                .unwrap_or(region_pileup.clone());
+                .transpose()?;
+            let dedup_region = owned_or(&region_owned, &region_pileup);
             enrich_cluster_post_upstream_tail_pileup(
                 &cluster_band_hom_ref_pileup(
                     genotyping_reads,
                     region,
-                    &gt_pileup,
-                    &dedup_region,
+                    nonempty_or(&gt_owned, &gt),
+                    dedup_region,
                     &region_pileup,
                     &gt,
                     evidence_mode,
                 ),
-                &dedup_region,
+                dedup_region,
                 &region_pileup,
                 pos,
             )
         } else if is_dense_cluster_rcm_band_pos(pos) {
-            let gt_pileup = cluster_gt_dedup_state
+            let gt_owned = cluster_gt_dedup_state
                 .as_mut()
                 .map(|s| s.pileup_at(genotyping_reads, &gt_pileup_filters, pos, ref_base))
-                .transpose()?
-                .filter(|p| !p.is_empty())
-                // CLONE: needed because fallback owns pileup/value when Option miss.
-                .unwrap_or_else(|| gt.clone());
-            let gt_nondedup = cluster_gt_state
+                .transpose()?;
+            let gt_nondedup_owned = cluster_gt_state
                 .as_mut()
                 .map(|s| s.pileup_at(genotyping_reads, &gt_pileup_filters, pos, ref_base))
-                .transpose()?
-                .filter(|p| !p.is_empty())
-                // CLONE: needed because fallback owns pileup/value when Option miss.
-                .unwrap_or_else(|| gt.clone());
-            let dedup_region = interior_region_state
+                .transpose()?;
+            let region_owned = interior_region_state
                 .as_mut()
                 .map(|s| s.pileup_at(&region.reads, read_filters, pos, ref_base))
-                .transpose()?
-                // CLONE: needed because fallback owns pileup/value when Option miss.
-                .unwrap_or(region_pileup.clone());
+                .transpose()?;
             let dense_mode = if is_downstream_first_sparse_shadow_gap(pos, emitted_variant_starts) {
                 ClusterRcmEvidenceMode::DenseClusterDownstreamSparse
             } else if is_downstream_dense_cluster_pos(pos) {
@@ -874,33 +870,28 @@ pub fn reference_confidence_loci_for_active_region(
             cluster_band_hom_ref_pileup(
                 genotyping_reads,
                 region,
-                &gt_pileup,
-                &dedup_region,
+                nonempty_or(&gt_owned, &gt),
+                owned_or(&region_owned, &region_pileup),
                 &region_pileup,
-                &gt_nondedup,
+                nonempty_or(&gt_nondedup_owned, &gt),
                 dense_mode,
             )
         } else if cluster_rcm_band_in_span
             && (P12_CLUSTER_INTERIOR_BLOCK_START..=P12_CLUSTER_UPSTREAM_END).contains(&pos)
         {
-            let gt_pileup = cluster_gt_dedup_state
+            let gt_owned = cluster_gt_dedup_state
                 .as_mut()
                 .map(|s| s.pileup_at(genotyping_reads, &gt_pileup_filters, pos, ref_base))
-                .transpose()?
-                .filter(|p| !p.is_empty())
-                // CLONE: needed because fallback owns pileup/value when Option miss.
-                .unwrap_or_else(|| gt.clone());
-            let dedup_region = interior_region_state
+                .transpose()?;
+            let region_owned = interior_region_state
                 .as_mut()
                 .map(|s| s.pileup_at(&region.reads, read_filters, pos, ref_base))
-                .transpose()?
-                // CLONE: needed because fallback owns pileup/value when Option miss.
-                .unwrap_or(region_pileup.clone());
+                .transpose()?;
             cluster_band_hom_ref_pileup(
                 genotyping_reads,
                 region,
-                &gt_pileup,
-                &dedup_region,
+                nonempty_or(&gt_owned, &gt),
+                owned_or(&region_owned, &region_pileup),
                 &region_pileup,
                 &gt,
                 evidence_mode,

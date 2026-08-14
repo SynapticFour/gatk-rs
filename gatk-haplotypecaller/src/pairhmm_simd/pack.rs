@@ -5,7 +5,8 @@
 //! cache locality (phenotype: many haps × shared read). Numerics match scalar Logless.
 
 use crate::pairhmm_logless::{
-    logless_pairhmm_likelihood, INITIAL_CONDITION, INITIAL_CONDITION_LOG10, MIN_ACCEPTED_LINEAR_SUM,
+    logless_match_mismatch_prior, logless_pairhmm_likelihood, logless_qual_to_trans_probs,
+    INITIAL_CONDITION, INITIAL_CONDITION_LOG10, MIN_ACCEPTED_LINEAR_SUM,
 };
 use gatk_common::{GatkError, GatkResult};
 use std::cell::RefCell;
@@ -17,56 +18,9 @@ const INSERTION_TO_INSERTION: usize = 3;
 const MATCH_TO_DELETION: usize = 4;
 const DELETION_TO_DELETION: usize = 5;
 
-const MAX_QUAL: usize = 127;
-
 thread_local! {
     static PACK_F64_SCRATCH: RefCell<F64Scratch> = RefCell::new(F64Scratch::empty());
-}
-
-#[inline]
-fn qual_to_error_prob(qual: u8) -> f64 {
-    10f64.powf(-(qual as f64) / 10.0)
-}
-
-#[inline]
-fn qual_to_prob(qual: u8) -> f64 {
-    1.0 - qual_to_error_prob(qual)
-}
-
-fn approximate_log10_sum_log10(a: f64, b: f64) -> f64 {
-    let (x, y) = if a > b { (b, a) } else { (a, b) };
-    if x.is_infinite() && x.is_sign_negative() {
-        return y;
-    }
-    y + (1.0 + 10f64.powf(x - y)).log10()
-}
-
-fn match_to_match_prob(ins_qual: u8, del_qual: u8) -> f64 {
-    let (min_q, max_q) = if ins_qual <= del_qual {
-        (ins_qual as usize, del_qual as usize)
-    } else {
-        (del_qual as usize, ins_qual as usize)
-    };
-    if max_q > MAX_QUAL {
-        let log10_sum = approximate_log10_sum_log10(-0.1 * min_q as f64, -0.1 * max_q as f64);
-        1.0 - 10f64.powf(log10_sum).min(1.0)
-    } else {
-        // Same closed form as the table builder in pairhmm_logless.
-        let log10_sum = approximate_log10_sum_log10(-0.1 * min_q as f64, -0.1 * max_q as f64);
-        1.0 - 10f64.powf(log10_sum).min(1.0)
-    }
-}
-
-fn qual_to_trans_probs(ins_qual: u8, del_qual: u8, gcp: u8) -> [f64; 6] {
-    let gcp_err = qual_to_error_prob(gcp);
-    [
-        match_to_match_prob(ins_qual, del_qual),
-        qual_to_prob(gcp),
-        qual_to_error_prob(ins_qual),
-        gcp_err,
-        qual_to_error_prob(del_qual),
-        gcp_err,
-    ]
+    static PACK_F32_SCRATCH: RefCell<F32Scratch> = RefCell::new(F32Scratch::empty());
 }
 
 struct F64Scratch {
@@ -123,7 +77,8 @@ pub fn score_haps_logless_packed_f64(
 
     let mut transitions = vec![[0.0f64; 6]; rn + 1];
     for i in 0..rn {
-        transitions[i + 1] = qual_to_trans_probs(insertion_gop[i], deletion_gop[i], overall_gcp[i]);
+        transitions[i + 1] =
+            logless_qual_to_trans_probs(insertion_gop[i], deletion_gop[i], overall_gcp[i]);
     }
 
     let max_hn = haplotypes.iter().map(|h| h.len()).max().unwrap_or(0);
@@ -175,8 +130,7 @@ fn score_one_f64(
 
     for i in 0..rn {
         let x = read_bases[i];
-        let match_p = qual_to_prob(read_quals[i]);
-        let mismatch_p = qual_to_error_prob(read_quals[i]) / 3.0;
+        let (match_p, mismatch_p) = logless_match_mismatch_prior(read_quals[i]);
         let row = (i + 1) * cols;
         for j in 0..hn {
             let y = hap[j];
@@ -229,16 +183,26 @@ struct F32Scratch {
 }
 
 impl F32Scratch {
-    fn with_capacity_cells(cells: usize) -> Self {
+    fn empty() -> Self {
         Self {
-            m: vec![0.0; cells],
-            ins: vec![0.0; cells],
-            del: vec![0.0; cells],
-            prior: vec![0.0; cells],
+            m: Vec::new(),
+            ins: Vec::new(),
+            del: Vec::new(),
+            prior: Vec::new(),
+        }
+    }
+
+    fn ensure_cells(&mut self, cells: usize) {
+        if self.m.len() < cells {
+            self.m.resize(cells, 0.0);
+            self.ins.resize(cells, 0.0);
+            self.del.resize(cells, 0.0);
+            self.prior.resize(cells, 0.0);
         }
     }
 
     fn clear_prefix(&mut self, cells: usize) {
+        self.ensure_cells(cells);
         self.m[..cells].fill(0.0);
         self.ins[..cells].fill(0.0);
         self.del[..cells].fill(0.0);
@@ -265,7 +229,7 @@ pub fn score_haps_logless_packed_f32(
 
     let mut transitions_f32 = vec![[0.0f32; 6]; rn + 1];
     for i in 0..rn {
-        let t = qual_to_trans_probs(insertion_gop[i], deletion_gop[i], overall_gcp[i]);
+        let t = logless_qual_to_trans_probs(insertion_gop[i], deletion_gop[i], overall_gcp[i]);
         transitions_f32[i + 1] = [
             t[0] as f32,
             t[1] as f32,
@@ -286,24 +250,36 @@ pub fn score_haps_logless_packed_f32(
              inputs must be assembly-region scale, not contig scale"
         )));
     }
-    let mut scratch = F32Scratch::with_capacity_cells(max_cells);
-
     let mut out = Vec::with_capacity(haplotypes.len());
-    for &hap in haplotypes {
-        let (ll, linear_sum) =
-            score_one_f32(read_bases, read_quals, hap, &transitions_f32, &mut scratch);
-        if !linear_sum.is_finite() || (linear_sum as f64) < MIN_ACCEPTED_LINEAR_SUM {
-            out.push(logless_pairhmm_likelihood(
-                read_bases,
-                read_quals,
-                hap,
-                insertion_gop,
-                deletion_gop,
-                overall_gcp,
-            )?);
-        } else {
-            out.push(ll);
+    let mut err = None;
+    PACK_F32_SCRATCH.with(|cell| {
+        let mut scratch = cell.borrow_mut();
+        scratch.ensure_cells(max_cells);
+        for &hap in haplotypes {
+            let (ll, linear_sum) =
+                score_one_f32(read_bases, read_quals, hap, &transitions_f32, &mut scratch);
+            if !linear_sum.is_finite() || (linear_sum as f64) < MIN_ACCEPTED_LINEAR_SUM {
+                match logless_pairhmm_likelihood(
+                    read_bases,
+                    read_quals,
+                    hap,
+                    insertion_gop,
+                    deletion_gop,
+                    overall_gcp,
+                ) {
+                    Ok(v) => out.push(v),
+                    Err(e) => {
+                        err = Some(e);
+                        break;
+                    }
+                }
+            } else {
+                out.push(ll);
+            }
         }
+    });
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(out)
 }
@@ -327,8 +303,9 @@ fn score_one_f32(
 
     for i in 0..rn {
         let x = read_bases[i];
-        let match_p = qual_to_prob(read_quals[i]) as f32;
-        let mismatch_p = (qual_to_error_prob(read_quals[i]) / 3.0) as f32;
+        let (match_p, mismatch_p) = logless_match_mismatch_prior(read_quals[i]);
+        let match_p = match_p as f32;
+        let mismatch_p = mismatch_p as f32;
         let row = (i + 1) * cols;
         for j in 0..hn {
             let y = hap[j];

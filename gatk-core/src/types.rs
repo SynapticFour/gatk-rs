@@ -2,7 +2,6 @@
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 /// Represents a genomic position on a reference contig.
 /// # Invariants
@@ -322,7 +321,7 @@ impl Genotype {
 /// Variant at a genomic locus with alleles, per-sample genotypes, and INFO-like attributes.
 /// # Invariants
 /// `position` anchors the variant; `reference` is allele index 0 conceptually.
-/// `id` is a unique [`uuid::Uuid`] assigned at construction.
+/// `id` is a VCF-style identifier (`"."` when unset).
 /// # Ownership
 /// Owns allele vectors, genotype map, and attribute map; clone for snapshots.
 /// # Mutation
@@ -333,7 +332,7 @@ impl Genotype {
 /// Approximates GATK `VariantContext` / htsjdk `VariantContext`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariantContext {
-    pub id: Uuid,
+    pub id: String,
     pub position: GenomicPosition,
     pub reference: Allele,
     pub alternate_alleles: Vec<Allele>,
@@ -350,7 +349,7 @@ impl VariantContext {
         alternate_alleles: Vec<Allele>,
     ) -> Self {
         Self {
-            id: Uuid::new_v4(),
+            id: ".".to_string(),
             position,
             reference,
             alternate_alleles,

@@ -188,11 +188,10 @@ pub fn load_gvcf(path: &Path) -> GatkResult<LoadedGvcf> {
         header.samples.first().cloned().ok_or_else(|| {
             GatkError::argument(format!("gVCF has no samples: {}", path.display()))
         })?;
-    let raw = reader.read_all_records()?;
-    let sites = raw
-        .into_iter()
-        .map(|rec| record_to_site(rec, &sample_name, path))
-        .collect::<GatkResult<Vec<_>>>()?;
+    let mut sites = Vec::new();
+    while let Some(rec) = reader.read_next_record()? {
+        sites.push(record_to_site(rec, &sample_name, path)?);
+    }
     Ok(LoadedGvcf {
         path: path.to_path_buf(),
         sample_name,

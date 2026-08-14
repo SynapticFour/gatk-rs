@@ -397,6 +397,8 @@ fn macos_task_rss_mib() -> Option<f64> {
     }
     let mut info = std::mem::MaybeUninit::<MachTaskBasicInfo>::uninit();
     let mut count = MACH_TASK_BASIC_INFO_COUNT;
+    // SAFETY: `task_info` writes `MachTaskBasicInfo` through `task_info_out` when
+    // flavor is MACH_TASK_BASIC_INFO and `count` is the struct's u32-word size.
     let kr = unsafe {
         task_info(
             mach_task_self(),
@@ -408,6 +410,7 @@ fn macos_task_rss_mib() -> Option<f64> {
     if kr != 0 {
         return None;
     }
+    // SAFETY: `kr == 0` means `task_info` initialized `info` (and `count` words).
     let info = unsafe { info.assume_init() };
     Some(info.resident_size as f64 / (1024.0 * 1024.0))
 }

@@ -5,7 +5,6 @@
 //! numerically stable log-sum transitions.
 
 use gatk_common::{GatkError, GatkResult};
-use rayon::prelude::*;
 
 const LOG10_NEG_INF: f64 = f64::NEG_INFINITY;
 
@@ -278,7 +277,7 @@ pub fn pairhmm_log10_likelihoods_vectorized_slices(
         return Ok(Vec::new());
     }
     haplotype_bases
-        .par_iter()
+        .iter()
         .map(|hap| {
             pairhmm_log10_likelihood_slices(
                 read_bases,

@@ -84,7 +84,7 @@ use gatk_common::GatkResult;
 use rust_htslib::bam::Record;
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 /// Why a variation event did not become a [`GenotypedSiteCall`] (P12 trace / A2).
 /// # Invariants
@@ -165,23 +165,30 @@ pub fn region_likelihoods_to_rows(
     likelihoods: &[RegionReadLikelihood],
     n_haplotypes: usize,
 ) -> Vec<ReadLikelihoodRow> {
-    let mut by_read: BTreeMap<usize, Vec<f64>> = BTreeMap::new();
+    if likelihoods.is_empty() {
+        return Vec::new();
+    }
+    let max_read = likelihoods
+        .iter()
+        .map(|rl| rl.read_index.get())
+        .max()
+        .unwrap_or(0);
+    let mut rows: Vec<Option<Vec<f64>>> = (0..=max_read).map(|_| None).collect();
     for rl in likelihoods {
-        let row = by_read
-            .entry(rl.read_index.get())
-            .or_insert_with(|| vec![f64::NEG_INFINITY; n_haplotypes]);
+        let row =
+            rows[rl.read_index.get()].get_or_insert_with(|| vec![f64::NEG_INFINITY; n_haplotypes]);
         if rl.haplotype_index.get() < row.len() {
             row[rl.haplotype_index.get()] = rl.log10_likelihood;
         }
     }
-    by_read
-        .into_iter()
-        .map(
-            |(read_index, haplotype_log10_likelihoods)| ReadLikelihoodRow {
+    rows.into_iter()
+        .enumerate()
+        .filter_map(|(read_index, haplotype_log10_likelihoods)| {
+            haplotype_log10_likelihoods.map(|haplotype_log10_likelihoods| ReadLikelihoodRow {
                 read_id: format!("read_{read_index}"),
                 haplotype_log10_likelihoods,
-            },
-        )
+            })
+        })
         .collect()
 }
 

@@ -13,7 +13,7 @@ use crate::event_map::variation_events_for_haplotype;
 use crate::event_map::EventMap;
 use crate::event_map::VariationEvent;
 use crate::genome_loc::GenomePosition;
-use crate::haplotype::Haplotype;
+use crate::haplotype::{HapSeqSet, Haplotype};
 use crate::java_hc_site_semantics::is_cluster_coupled_indel;
 use crate::kbest_haplotype::{find_best_haplotypes_for_assembly, KBestPath};
 use crate::read_event_discovery::{
@@ -297,11 +297,7 @@ pub fn supplement_p12_cluster_coupled_haplotypes(
 
     // Defer indel CIGAR refresh to assemble_reads_with_finalized (single SW pass).
 
-    let mut seen: HashSet<(Vec<u8>, bool)> = result
-        .haplotypes
-        .iter()
-        .map(|h| (h.bases.clone(), h.is_reference))
-        .collect();
+    let mut seen = HapSeqSet::from_haps(&result.haplotypes);
 
     let p12 = ctx.overlaps_p12_cluster();
     // Full k-mer walk on the P12 L* gate slice (and TTC coupled bridges); elsewhere
@@ -356,11 +352,7 @@ pub fn supplement_p12_cluster_coupled_haplotypes(
         )?;
         let haps_before = result.haplotypes.len();
         for h in batch {
-            // CLONE: needed because owned composite key for dedup/lookup.
-            let key = (h.bases.clone(), h.is_reference);
-            if seen.insert(key) {
-                result.haplotypes.push(h);
-            }
+            seen.insert(&mut result.haplotypes, h);
         }
         if result.haplotypes.len() == haps_before {
             empty_streak += 1;
@@ -1035,7 +1027,7 @@ fn assemble_from_ref_and_reads_seq_graph(
     let mut variation_kmers: Vec<usize> = Vec::new();
     let mut last_just_ref: Option<AssemblyResult> = None;
     let mut haplotypes = Vec::new();
-    let mut seen: HashSet<(Vec<u8>, bool)> = HashSet::new();
+    let mut seen = HapSeqSet::new();
 
     let mut ref_hap = Haplotype::new(reference.bases.as_slice(), true);
     let mut ref_cigar = Cigar::new();
@@ -1047,7 +1039,7 @@ fn assemble_from_ref_and_reads_seq_graph(
                             kmer: usize,
                             variation_kmers: &mut Vec<usize>,
                             haplotypes: &mut Vec<Haplotype>,
-                            seen: &mut HashSet<(Vec<u8>, bool)>,
+                            seen: &mut HapSeqSet,
                             ref_hap: &Haplotype|
      -> GatkResult<()> {
         variation_kmers.push(kmer);
@@ -1072,10 +1064,7 @@ fn assemble_from_ref_and_reads_seq_graph(
         let _seq_freed = seq;
         // Keep SW TLS warm across SeqGraph k-mers; released once before PairHMM.
         for h in batch.drain(..) {
-            let key = (h.bases.clone(), h.is_reference);
-            if seen.insert(key) {
-                haplotypes.push(h);
-            }
+            seen.insert(haplotypes, h);
         }
         Ok(())
     };
@@ -1738,10 +1727,7 @@ pub fn merge_rt_kbest_pre_remove_paths_at_kmer(
     ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
     ref_hap.cigar = Some(ref_cigar);
 
-    let mut seen: HashSet<(Vec<u8>, bool)> = haplotypes
-        .iter()
-        .map(|h| (h.bases.clone(), h.is_reference))
-        .collect();
+    let mut seen = HapSeqSet::from_haps(haplotypes);
     let configured: HashSet<usize> = args.kmer_sizes.iter().copied().collect();
 
     for kmer_size in kmer_sizes_for_rt_merge(args, variation_kmers) {
@@ -1779,11 +1765,7 @@ pub fn merge_rt_kbest_pre_remove_paths_at_kmer(
             reference, reads, args, kmer_size, allow_lc, allow_nu,
         )?;
         for h in batch {
-            // CLONE: needed because owned composite key for dedup/lookup.
-            let key = (h.bases.clone(), h.is_reference);
-            if seen.insert(key) {
-                haplotypes.push(h);
-            }
+            seen.insert(haplotypes, h);
         }
         // Peak-RSS: once we have alt+ref, further expanded k-mers on bushy loci dominate RSS.
         // L2 tiny fixtures often need a later/earlier k-mer than `min(variation)` before alts
@@ -1824,17 +1806,14 @@ pub fn extract_haplotypes_from_seq_kbest_paths(
 ) -> GatkResult<Vec<Haplotype>> {
     let ref_bytes = &ref_haplotype.bases;
     let mut out = Vec::new();
-    let mut seen: HashSet<(Vec<u8>, bool)> = HashSet::new();
+    let mut seen = HapSeqSet::new();
 
     for path in paths {
         let bases = graph.path_bases_bytes(path.start, &path.edges);
-        // CLONE: needed because owned composite key for dedup/lookup.
-        let key = (bases.clone(), path.is_reference);
-        if seen.contains(&key) {
+        if seen.contains(&out, &bases, path.is_reference) {
             continue;
         }
         // GATK `KBestHaplotype.haplotype` — `isReference` from path edges only, not base equality.
-        // L14-E2: move bases into haplotype (avoid second full-sequence clone).
         let mut h = Haplotype::new(bases, path.is_reference);
         h.score = path.score;
         h.kmer_size = kmer_size;
@@ -1854,8 +1833,7 @@ pub fn extract_haplotypes_from_seq_kbest_paths(
         }
         h.cigar = Some(assy.cigar);
         h.alignment_start_hap_wrt_ref = assy.alignment_start_hap_wrt_ref;
-        seen.insert(key);
-        out.push(h);
+        seen.insert(&mut out, h);
     }
     Ok(out)
 }
@@ -2312,17 +2290,19 @@ pub fn audit_kbest_extract(
     sw: &SwParameters,
 ) -> Vec<KbestExtractAuditRow> {
     let ref_bytes = &ref_haplotype.bases;
-    let mut seen: HashSet<(Vec<u8>, bool)> = HashSet::new();
+    let mut seen = HapSeqSet::new();
+    let mut seen_haps = Vec::new();
     let mut rows = Vec::new();
     for (path_index, path) in paths.iter().enumerate() {
         let bases = path.bases(graph);
-        // CLONE: needed because owned composite key for dedup/lookup.
-        let key = (bases.clone(), path.is_reference);
         let eq_ref_bases = bases.as_slice() == ref_bytes.as_slice();
-        let outcome = if seen.contains(&key) {
+        let outcome = if seen.contains(&seen_haps, &bases, path.is_reference) {
             Err(KbestExtractReject::DuplicateBasesLabel)
         } else {
-            seen.insert(key);
+            seen.insert(
+                &mut seen_haps,
+                Haplotype::new(bases.clone(), path.is_reference),
+            );
             match calculate_haplotype_cigar_for_assembly(ref_bytes, &bases, ref_cigar_length, sw) {
                 None => Err(KbestExtractReject::SwFailed),
                 Some(cigar) if path_is_too_divergent_from_reference(&cigar) => {
@@ -2358,16 +2338,13 @@ pub fn extract_haplotypes_from_kbest_paths(
 ) -> GatkResult<Vec<Haplotype>> {
     let ref_bytes = &ref_haplotype.bases;
     let mut out = Vec::new();
-    let mut seen: HashSet<(Vec<u8>, bool)> = HashSet::new();
+    let mut seen = HapSeqSet::new();
 
     for path in paths {
         let bases = path.bases(graph);
-        // CLONE: needed because owned composite key for dedup/lookup.
-        let key = (bases.clone(), path.is_reference);
-        if seen.contains(&key) {
+        if seen.contains(&out, &bases, path.is_reference) {
             continue;
         }
-        // L14-E2: move bases into haplotype (avoid second full-sequence clone).
         let mut h = Haplotype::new(bases, path.is_reference);
         h.score = path.score;
         h.kmer_size = graph.kmer_size;
@@ -2390,8 +2367,7 @@ pub fn extract_haplotypes_from_kbest_paths(
         }
         h.cigar = Some(assy.cigar);
         h.alignment_start_hap_wrt_ref = assy.alignment_start_hap_wrt_ref;
-        seen.insert(key);
-        out.push(h);
+        seen.insert(&mut out, h);
     }
     Ok(out)
 }

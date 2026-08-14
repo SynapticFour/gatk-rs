@@ -28,9 +28,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"
 
-# Parallelism and async
+# Parallelism
 rayon = "1.8"
-tokio = { version = "1.0", features = ["full"] }
 parking_lot = "0.12"
 
 # Memory management
@@ -73,10 +72,6 @@ itertools = "0.15"
 num_cpus = "1.16"
 fastrand = "2.0"
 
-# Distributed Computing
-polars = { version = "0.38", features = ["lazy", "temporal", "strings", "parquet"] }
-futures = "0.3"
-
 
 [profile.release]
 lto = true
@@ -85,7 +80,7 @@ panic = "abort"
 opt-level = 3
 
 # Benchmarks inherit `release` settings; disable LTO here so `cargo bench` stays
-# within typical CI/Docker memory limits while compiling heavy workspace deps (e.g. polars).
+# within typical CI/Docker memory limits.
 [profile.bench]
 inherits = "release"
 debug = true

@@ -36,7 +36,7 @@ mod tests {
     fn malformed_read_empty_bases_class_and_message() {
         let err = validate_mapped_read_sanity(0, 0, 10, 12).unwrap_err();
         match err {
-            GatkError::Read { message, .. } => assert!(message.contains("empty read bases")),
+            GatkError::Algorithm { message, .. } => assert!(message.contains("empty read bases")),
             other => panic!("expected Read error, got {other:?}"),
         }
     }
@@ -45,7 +45,7 @@ mod tests {
     fn malformed_read_qual_len_mismatch_class_and_message() {
         let err = validate_mapped_read_sanity(10, 9, 10, 20).unwrap_err();
         match err {
-            GatkError::Read { message, .. } => {
+            GatkError::Algorithm { message, .. } => {
                 assert!(message.contains("base/quality length mismatch"))
             }
             other => panic!("expected Read error, got {other:?}"),

@@ -70,21 +70,22 @@ pub fn run_genotype_gvcfs(args: &GenotypeGvcfsArgs) -> GatkResult<()> {
     let mut reader = VcfReader::from_file(&args.variant)?;
     let in_header = reader.header().clone();
     let samples = in_header.samples.clone();
-    let raw = reader.read_all_records()?;
-    let genotyped = genotype_gvcf_records(
-        &raw,
-        &samples,
-        &GenotypeGvcfsConfig {
-            stand_call_conf: args.stand_call_conf,
-            include_non_variant_sites: args.include_non_variant_sites,
-            clip,
-        },
-    )?;
-    let out_recs: Vec<VcfRecord> = genotyped.into_iter().map(|g| g.record).collect();
     let header = build_output_header(&in_header, Some(args.reference.as_path()))?;
+    let config = GenotypeGvcfsConfig {
+        stand_call_conf: args.stand_call_conf,
+        include_non_variant_sites: args.include_non_variant_sites,
+        clip,
+    };
     let mut writer = VcfWriter::new(&args.output, header)?;
     writer.write_header()?;
-    writer.write_records(&out_recs)?;
+    while let Some(rec) = reader.read_next_record()? {
+        if let Some(g) = genotype_gvcf_records(std::slice::from_ref(&rec), &samples, &config)?
+            .into_iter()
+            .next()
+        {
+            writer.write_record(&g.record)?;
+        }
+    }
     Ok(())
 }
 

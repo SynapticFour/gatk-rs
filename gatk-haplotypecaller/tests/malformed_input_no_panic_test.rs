@@ -83,10 +83,7 @@ fn empty_fasta_returns_err_from_hc_run() {
     assert!(
         msg.contains("no sequences")
             || msg.contains("Failed to read reference")
-            || matches!(
-                err,
-                GatkError::Argument { .. } | GatkError::Configuration { .. } | GatkError::Io { .. }
-            ),
+            || matches!(err, GatkError::Config { .. } | GatkError::Io { .. }),
         "unexpected error shape: {err:?}"
     );
 }
@@ -161,7 +158,7 @@ fn unsorted_reads_overlap_returns_err_not_panic() {
     r2.set_tid(0);
     r2.set_pos(1); // earlier than r1 → unsorted
     let err = overlapping_pairs_indices(&[r1, r2]).expect_err("unsorted must Err");
-    assert!(matches!(err, GatkError::Read { .. }));
+    assert!(matches!(err, GatkError::Algorithm { .. }));
 }
 
 #[test]

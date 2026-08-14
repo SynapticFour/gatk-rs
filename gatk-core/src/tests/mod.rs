@@ -280,16 +280,13 @@ pub mod performance {
         (result, duration)
     }
 
-    /// Benchmark memory usage
+    /// Benchmark memory usage (RSS probe lives on the HC runtime path; this helper
+    /// only times the closure and reports 0 bytes so callers stay compiling).
     pub fn benchmark_memory<F, R>(f: F) -> (R, usize)
     where
         F: FnOnce() -> R,
     {
-        let initial_memory = crate::memory::MemoryMonitor::current_memory_usage();
-        let result = f();
-        let final_memory = crate::memory::MemoryMonitor::current_memory_usage();
-        let memory_used = final_memory.saturating_sub(initial_memory);
-        (result, memory_used)
+        (f(), 0)
     }
 
     /// Assert performance requirements

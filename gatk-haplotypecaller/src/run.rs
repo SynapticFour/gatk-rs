@@ -38,7 +38,8 @@ use gatk_core::reference::{
 use rayon::prelude::*;
 use rust_htslib::bam;
 use rust_htslib::bam::Read as _;
-use std::path::Path;
+use std::cell::RefCell;
+use std::path::{Path, PathBuf};
 use tracing::info;
 
 /// Regions at or above this read count are flushed alone (no Rayon siblings).
@@ -76,6 +77,50 @@ pub(crate) fn release_region_tls_scratch_all_threads() {
 #[inline]
 fn owned_bam_header(reader: &bam::Reader) -> bam::HeaderView {
     reader.header().clone()
+}
+
+thread_local! {
+    #[allow(clippy::missing_const_for_thread_local)]
+    static TLS_BAM_HEADER: RefCell<Option<(PathBuf, bam::HeaderView)>> = RefCell::new(None);
+    #[allow(clippy::missing_const_for_thread_local)]
+    static TLS_REF_CACHE: RefCell<Option<(PathBuf, ReferenceWindowCache)>> = RefCell::new(None);
+}
+
+fn tls_bam_header(bam_path: &Path) -> GatkResult<bam::HeaderView> {
+    TLS_BAM_HEADER.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        if let Some((p, h)) = slot.as_ref() {
+            if p.as_path() == bam_path {
+                return Ok(h.clone());
+            }
+        }
+        let reader = bam::Reader::from_path(bam_path)
+            .map_err(|e| GatkError::generic(format!("open BAM for region parallel worker: {e}")))?;
+        let header = owned_bam_header(&reader);
+        *slot = Some((bam_path.to_path_buf(), header.clone()));
+        Ok(header)
+    })
+}
+
+fn with_tls_ref_cache<T>(
+    ref_path: &Path,
+    f: impl FnOnce(&mut ReferenceWindowCache) -> GatkResult<T>,
+) -> GatkResult<T> {
+    TLS_REF_CACHE.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        let reuse = slot.as_ref().is_some_and(|(p, _)| p.as_path() == ref_path);
+        if !reuse {
+            *slot = Some((
+                ref_path.to_path_buf(),
+                ReferenceWindowCache::new(ref_path.to_path_buf(), 4),
+            ));
+        }
+        let cache = slot
+            .as_mut()
+            .map(|(_, c)| c)
+            .ok_or_else(|| GatkError::generic("TLS reference cache missing after insert"))?;
+        f(cache)
+    })
 }
 
 /// Owned per-region emission batch (Send) for parallel Active-Region processing.
@@ -605,33 +650,25 @@ fn assembly_region_variant_records(
                         let out = chunk
                             .into_par_iter()
                             .map(|(region_index, mut region)| {
-                                let reader =
-                                    bam::Reader::from_path(&bam_path_owned).map_err(|e| {
-                                        GatkError::generic(format!(
-                                            "open BAM for region parallel worker: {e}"
-                                        ))
-                                    })?;
-                                let header = owned_bam_header(&reader);
-                                let mut local_cache =
-                                    ReferenceWindowCache::new(ref_path.clone(), 4);
-                                let batch = process_one_region_vcf(
-                                    region_index,
-                                    &mut region,
-                                    &header,
-                                    &dict,
-                                    &ref_path,
-                                    &args,
-                                    *read_filters,
-                                    stand_emit_confidence,
-                                    emit_mode,
-                                    ref_confidence_config,
-                                    &mut local_cache,
-                                    &sample,
-                                )?;
-                                // Clears this worker's TLS; broadcast below clears siblings
-                                // that may have grown PairHMM arenas during hap scoring.
-                                release_region_tls_scratch();
-                                Ok(batch)
+                                let header = tls_bam_header(&bam_path_owned)?;
+                                with_tls_ref_cache(&ref_path, |local_cache| {
+                                    let batch = process_one_region_vcf(
+                                        region_index,
+                                        &mut region,
+                                        &header,
+                                        &dict,
+                                        &ref_path,
+                                        &args,
+                                        *read_filters,
+                                        stand_emit_confidence,
+                                        emit_mode,
+                                        ref_confidence_config,
+                                        local_cache,
+                                        &sample,
+                                    )?;
+                                    release_region_tls_scratch();
+                                    Ok(batch)
+                                })
                             })
                             .collect::<GatkResult<Vec<_>>>()?;
                         release_region_tls_scratch_all_threads();

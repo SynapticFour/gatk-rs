@@ -3,7 +3,10 @@
 #![cfg(target_arch = "aarch64")]
 
 use super::pack::score_haps_logless_packed_f64;
-use crate::pairhmm_logless::{INITIAL_CONDITION, INITIAL_CONDITION_LOG10};
+use crate::pairhmm_logless::{
+    logless_build_transitions, logless_match_mismatch_prior, INITIAL_CONDITION,
+    INITIAL_CONDITION_LOG10,
+};
 use gatk_common::GatkResult;
 use std::arch::aarch64::*;
 use std::cell::RefCell;
@@ -117,7 +120,7 @@ unsafe fn score_haps_neon_f64_unchecked(
         return Ok(vec![0.0; haplotypes.len()]);
     }
 
-    let transitions = build_transitions(rn, insertion_gop, deletion_gop, overall_gcp);
+    let transitions = logless_build_transitions(rn, insertion_gop, deletion_gop, overall_gcp);
     let mut out = vec![0.0f64; haplotypes.len()];
     let mut done = vec![false; haplotypes.len()];
     let mut err: Option<gatk_common::GatkError> = None;
@@ -166,37 +169,6 @@ unsafe fn score_haps_neon_f64_unchecked(
     Ok(out)
 }
 
-fn build_transitions(
-    rn: usize,
-    insertion_gop: &[u8],
-    deletion_gop: &[u8],
-    overall_gcp: &[u8],
-) -> Vec<[f64; 6]> {
-    let mut transitions = vec![[0.0f64; 6]; rn + 1];
-    for i in 0..rn {
-        let ins_q = insertion_gop[i];
-        let del_q = deletion_gop[i];
-        let gcp = overall_gcp[i];
-        let gcp_err = 10f64.powf(-(gcp as f64) / 10.0);
-        let ins_err = 10f64.powf(-(ins_q as f64) / 10.0);
-        let del_err = 10f64.powf(-(del_q as f64) / 10.0);
-        let (min_q, max_q) = if ins_q <= del_q {
-            (ins_q as f64, del_q as f64)
-        } else {
-            (del_q as f64, ins_q as f64)
-        };
-        let log10_sum = {
-            let a = -0.1 * min_q;
-            let b = -0.1 * max_q;
-            let (x, y) = if a > b { (b, a) } else { (a, b) };
-            y + (1.0 + 10f64.powf(x - y)).log10()
-        };
-        let m2m = 1.0 - 10f64.powf(log10_sum).min(1.0);
-        transitions[i + 1] = [m2m, 1.0 - gcp_err, ins_err, gcp_err, del_err, gcp_err];
-    }
-    transitions
-}
-
 #[target_feature(enable = "neon")]
 unsafe fn score_pack2(
     read_bases: &[u8],
@@ -227,8 +199,7 @@ unsafe fn score_pack2(
 
     for i in 0..rn {
         let x = read_bases[i];
-        let match_p = 1.0 - 10f64.powf(-(read_quals[i] as f64) / 10.0);
-        let mismatch_p = 10f64.powf(-(read_quals[i] as f64) / 10.0) / 3.0;
+        let (match_p, mismatch_p) = logless_match_mismatch_prior(read_quals[i]);
         let row = (i + 1) * cols;
         for j in 0..hn {
             let idx = (row + j + 1) * LANES;

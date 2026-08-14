@@ -32,8 +32,6 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-mod benchmarking;
-use benchmarking::*;
 
 const DISCLAIMER_HELP: &str = "\
 DISCLAIMER: gatk-rs is an independent, community-driven reimplementation and is \
@@ -346,13 +344,6 @@ enum Tool {
         /// Optional reference FASTA for dictionary compatibility checks
         #[arg(short = 'R', long)]
         reference: Option<String>,
-    },
-
-    /// Benchmarking commands (dev/perf harness — not a product surface)
-    #[command(hide = true)]
-    Benchmark {
-        #[command(flatten)]
-        args: BenchmarkingArgs,
     },
 }
 
@@ -793,7 +784,7 @@ gatk-rs is a native Rust binary and does not start a JVM \
                 println!();
                 println!("Experimental utilities (hidden from --help; prefer samtools/bcftools):");
                 println!("  PrintReads, FilterReads, CountBasesInReference, CountReadsInRegion,");
-                println!("  ListReadsInRegion, Validate, Benchmark");
+                println!("  ListReadsInRegion, Validate");
                 println!();
                 println!("Claims authority: docs/CLAIM_MATRIX.md");
 
@@ -925,12 +916,6 @@ gatk-rs is a native Rust binary and does not start a JVM \
                     }
                 }
 
-                Ok(())
-            }
-
-            Tool::Benchmark { args } => {
-                info!("Running benchmarking command");
-                run_benchmarking_command(args)?;
                 Ok(())
             }
         }
