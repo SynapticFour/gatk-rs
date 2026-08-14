@@ -66,11 +66,39 @@ sample() {
   cg_max="$(cgroup_mem_max)"
   cg_peak="$(cgroup_mem_peak)"
 
-  local pid=""
-  pid="$(pgrep -n -f '/gatk-rs( |$)|HaplotypeCaller' 2>/dev/null | head -n1 || true)"
-  if [[ -n "${pid}" && -r "/proc/${pid}/status" ]]; then
-    rss_kb="$(awk '/^VmRSS:/ {print $2}' "/proc/${pid}/status" 2>/dev/null || echo 0)"
-    cmd="$(tr '\0' ' ' <"/proc/${pid}/cmdline" 2>/dev/null | cut -c1-80 || echo "?")"
+  # Prefer the true HC process Peak, not the newest match (docker wrappers often
+  # match `HaplotypeCaller` with tiny host RSS while JVM / gatk-rs is the real Peak).
+  local pid="" rss_kb=0 cmd="-"
+  local cand best_rss=0 best_pid="" best_cmd="-"
+  local any_rss=0 any_pid="" any_cmd="-"
+  while IFS= read -r cand; do
+    [[ -z "${cand}" || ! -r "/proc/${cand}/status" ]] && continue
+    local this_rss this_cmd
+    this_rss="$(awk '/^VmRSS:/ {print $2}' "/proc/${cand}/status" 2>/dev/null || echo 0)"
+    this_cmd="$(tr '\0' ' ' <"/proc/${cand}/cmdline" 2>/dev/null | cut -c1-120 || echo "?")"
+    if [[ "${this_rss}" =~ ^[0-9]+$ ]] && (( this_rss >= any_rss )); then
+      any_rss="${this_rss}"
+      any_pid="${cand}"
+      any_cmd="${this_cmd}"
+    fi
+    # Skip docker/cli wrappers when a heavier java/gatk-rs child exists.
+    if [[ "${this_cmd}" == docker\ * || "${this_cmd}" == */docker\ * ]]; then
+      continue
+    fi
+    if [[ "${this_rss}" =~ ^[0-9]+$ ]] && (( this_rss >= best_rss )); then
+      best_rss="${this_rss}"
+      best_pid="${cand}"
+      best_cmd="${this_cmd}"
+    fi
+  done < <(pgrep -f '/gatk-rs( |$)|HaplotypeCaller|/gatk[[:space:]]' 2>/dev/null || true)
+  if [[ -n "${best_pid}" ]]; then
+    pid="${best_pid}"
+    rss_kb="${best_rss}"
+    cmd="${best_cmd}"
+  elif [[ -n "${any_pid}" ]]; then
+    pid="${any_pid}"
+    rss_kb="${any_rss}"
+    cmd="${any_cmd}"
   fi
   local load
   load="$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || echo "?")"
@@ -90,9 +118,27 @@ sample() {
   echo "${line}" | tee -a "${log}"
 }
 
+# Final sample on TERM/INT/EXIT so short-lived kills (and CI `trap cleanup EXIT`)
+# still record Peak near process teardown instead of truncating mid-climb.
+_probe_stop=0
+_on_probe_signal() {
+  if [[ "${_probe_stop}" -ne 0 ]]; then
+    return 0
+  fi
+  _probe_stop=1
+  trap - TERM INT EXIT
+  sample || true
+  echo "[hc-mem] probe stop signal=${1:-exit}" | tee -a "${log}" || true
+  exit 0
+}
+trap '_on_probe_signal TERM' TERM
+trap '_on_probe_signal INT' INT
+trap '_on_probe_signal EXIT' EXIT
+
 echo "[hc-mem] probe start interval=${interval_sec}s log=${log}" | tee -a "${log}"
 sample
-while true; do
+while [[ "${_probe_stop}" -eq 0 ]]; do
   sleep "${interval_sec}"
   sample || true
 done
+_on_probe_signal loop_end

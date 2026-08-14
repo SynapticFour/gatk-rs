@@ -147,14 +147,24 @@ def fmt_mib(kb: int | None) -> str:
     return f"{kb / 1024:.1f} MiB"
 
 
+def prefer_rss_kb(cell: dict) -> int | None:
+    """Prefer hc-mem-probe Peak over `/usr/bin/time` (JVM docker time RSS is ~30 MiB junk)."""
+    probe = cell.get("probe_peak_rss_kb")
+    timed = cell.get("max_rss_kb")
+    if probe is not None and timed is not None:
+        # Probe wins unless time RSS is clearly larger (rare; keep max for safety).
+        return max(probe, timed)
+    return probe if probe is not None else timed
+
+
 def build_rows(by_shard: dict[str, dict[str, dict]]) -> list[dict]:
     rows = []
     for shard in sorted(by_shard):
         j = by_shard[shard].get("java") or {}
         r = by_shard[shard].get("rust") or {}
         jw, rw = j.get("wall_sec"), r.get("wall_sec")
-        jr = j.get("max_rss_kb") or j.get("probe_peak_rss_kb")
-        rr = r.get("max_rss_kb") or r.get("probe_peak_rss_kb")
+        jr = prefer_rss_kb(j)
+        rr = prefer_rss_kb(r)
         wall_ratio = (rw / jw) if (jw and rw and jw > 0) else None
         rss_ratio = (rr / jr) if (jr and rr and jr > 0) else None
         if wall_ratio is None:
@@ -174,6 +184,8 @@ def build_rows(by_shard: dict[str, dict[str, dict]]) -> list[dict]:
                 "java_rss_kb": jr,
                 "rust_rss_kb": rr,
                 "rss_ratio_rust_over_java": rss_ratio,
+                "java_probe_peak_rss_kb": j.get("probe_peak_rss_kb"),
+                "rust_probe_peak_rss_kb": r.get("probe_peak_rss_kb"),
                 "verdict": verdict,
             }
         )
