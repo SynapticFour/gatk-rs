@@ -1802,466 +1802,501 @@
 <a href=#1802 id=1802 data-nosnippet>1802</a>}
 <a href=#1803 id=1803 data-nosnippet>1803</a><span class="macro">include!</span>(<span class="string">"cluster_materialize.rs"</span>);
 <a href=#1804 id=1804 data-nosnippet>1804</a>
-<a href=#1805 id=1805 data-nosnippet>1805</a><span class="doccomment">/// ASM-8: re-project all-`M` alt haps to CIGARs with I/D when bases differ from ref (EventMap path).
-<a href=#1806 id=1806 data-nosnippet>1806</a></span><span class="kw">pub fn </span>refresh_alt_haplotype_indel_cigars(
-<a href=#1807 id=1807 data-nosnippet>1807</a>    haplotypes: <span class="kw-2">&amp;mut </span>[Haplotype],
-<a href=#1808 id=1808 data-nosnippet>1808</a>    ref_bytes: <span class="kw-2">&amp;</span>[u8],
-<a href=#1809 id=1809 data-nosnippet>1809</a>    full_padded_ref_start_1based: u64,
-<a href=#1810 id=1810 data-nosnippet>1810</a>    sw: <span class="kw-2">&amp;</span>SwParameters,
-<a href=#1811 id=1811 data-nosnippet>1811</a>) {
-<a href=#1812 id=1812 data-nosnippet>1812</a>    <span class="kw">let </span>ref_hap = haplotypes
+<a href=#1805 id=1805 data-nosnippet>1805</a><span class="doccomment">/// True when some alt haplotype changes length vs the reference haplotype but still lacks I/D
+<a href=#1806 id=1806 data-nosnippet>1806</a>/// CIGAR ops — EventMap refresh/SW is required.
+<a href=#1807 id=1807 data-nosnippet>1807</a>///
+<a href=#1808 id=1808 data-nosnippet>1808</a>/// Compares against the **reference haplotype bases length** (trim-window or full pad), never
+<a href=#1809 id=1809 data-nosnippet>1809</a>/// the raw padded-ref byte buffer alone: after `trim_to`, SNP alts are shorter than the full
+<a href=#1810 id=1810 data-nosnippet>1810</a>/// pad and a pad-length compare falsely forces resync on every region.
+<a href=#1811 id=1811 data-nosnippet>1811</a></span><span class="kw">pub fn </span>alt_needs_indel_cigar_refresh(haplotypes: <span class="kw-2">&amp;</span>[Haplotype]) -&gt; bool {
+<a href=#1812 id=1812 data-nosnippet>1812</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(ref_len) = haplotypes
 <a href=#1813 id=1813 data-nosnippet>1813</a>        .iter()
 <a href=#1814 id=1814 data-nosnippet>1814</a>        .find(|h| h.is_reference)
-<a href=#1815 id=1815 data-nosnippet>1815</a>        .cloned()
-<a href=#1816 id=1816 data-nosnippet>1816</a>        .unwrap_or_else(|| Haplotype::new(ref_bytes, <span class="bool-val">true</span>));
-<a href=#1817 id=1817 data-nosnippet>1817</a>    <span class="kw">let </span>trim_offset_in_full_ref = ref_hap
-<a href=#1818 id=1818 data-nosnippet>1818</a>        .genome_loc
-<a href=#1819 id=1819 data-nosnippet>1819</a>        .map(|g| {
-<a href=#1820 id=1820 data-nosnippet>1820</a>            g.start_1based()
-<a href=#1821 id=1821 data-nosnippet>1821</a>                .saturating_sub(full_padded_ref_start_1based) <span class="kw">as </span>usize
-<a href=#1822 id=1822 data-nosnippet>1822</a>        })
-<a href=#1823 id=1823 data-nosnippet>1823</a>        .unwrap_or(<span class="number">0</span>);
-<a href=#1824 id=1824 data-nosnippet>1824</a>    <span class="kw">for </span>h <span class="kw">in </span>haplotypes.iter_mut() {
-<a href=#1825 id=1825 data-nosnippet>1825</a>        <span class="kw">if </span>h.is_reference || h.bases == ref_bytes {
-<a href=#1826 id=1826 data-nosnippet>1826</a>            <span class="kw">continue</span>;
-<a href=#1827 id=1827 data-nosnippet>1827</a>        }
-<a href=#1828 id=1828 data-nosnippet>1828</a>        <span class="kw">if </span>(h.score - SUPPLEMENT_HAPLOTYPE_SCORE).abs() &lt; <span class="number">1e-6 </span>{
-<a href=#1829 id=1829 data-nosnippet>1829</a>            <span class="kw">continue</span>;
-<a href=#1830 id=1830 data-nosnippet>1830</a>        }
-<a href=#1831 id=1831 data-nosnippet>1831</a>        <span class="comment">// Post-trim SW refresh uses trim-slice coords; lift to full padded ref for EventMap.
-<a href=#1832 id=1832 data-nosnippet>1832</a>        </span><span class="kw">if </span>trim_offset_in_full_ref &gt; <span class="number">0
-<a href=#1833 id=1833 data-nosnippet>1833</a>            </span>&amp;&amp; ref_bytes.len() == ref_hap.bases.len()
-<a href=#1834 id=1834 data-nosnippet>1834</a>            &amp;&amp; h.alignment_start_hap_wrt_ref &lt; trim_offset_in_full_ref
-<a href=#1835 id=1835 data-nosnippet>1835</a>        {
-<a href=#1836 id=1836 data-nosnippet>1836</a>            h.alignment_start_hap_wrt_ref =
-<a href=#1837 id=1837 data-nosnippet>1837</a>                trim_offset_in_full_ref.saturating_add(h.alignment_start_hap_wrt_ref);
-<a href=#1838 id=1838 data-nosnippet>1838</a>        }
-<a href=#1839 id=1839 data-nosnippet>1839</a>        <span class="kw">let </span>needs_indel_cigar = <span class="kw">match </span><span class="kw-2">&amp;</span>h.cigar {
-<a href=#1840 id=1840 data-nosnippet>1840</a>            <span class="prelude-val">None </span>=&gt; <span class="bool-val">true</span>,
-<a href=#1841 id=1841 data-nosnippet>1841</a>            <span class="prelude-val">Some</span>(c) =&gt; !c.elements.iter().any(|e| e.operator.is_indel()),
-<a href=#1842 id=1842 data-nosnippet>1842</a>        };
-<a href=#1843 id=1843 data-nosnippet>1843</a>        <span class="kw">let </span>sequence_differs = h.bases.len() != ref_bytes.len()
-<a href=#1844 id=1844 data-nosnippet>1844</a>            || h.bases.iter().zip(ref_bytes.iter()).any(|(a, b)| a != b);
-<a href=#1845 id=1845 data-nosnippet>1845</a>        <span class="kw">if </span>!needs_indel_cigar &amp;&amp; !sequence_differs {
-<a href=#1846 id=1846 data-nosnippet>1846</a>            <span class="kw">continue</span>;
-<a href=#1847 id=1847 data-nosnippet>1847</a>        }
-<a href=#1848 id=1848 data-nosnippet>1848</a>        <span class="kw">let </span>ref_cigar_len = ref_hap
-<a href=#1849 id=1849 data-nosnippet>1849</a>            .cigar
-<a href=#1850 id=1850 data-nosnippet>1850</a>            .as_ref()
-<a href=#1851 id=1851 data-nosnippet>1851</a>            .map(|c| c.reference_length())
-<a href=#1852 id=1852 data-nosnippet>1852</a>            .unwrap_or(ref_bytes.len());
-<a href=#1853 id=1853 data-nosnippet>1853</a>        <span class="kw">let </span><span class="kw-2">mut </span>applied = <span class="bool-val">false</span>;
-<a href=#1854 id=1854 data-nosnippet>1854</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(assy) = calculate_haplotype_cigar_for_assembly_with_offset(
-<a href=#1855 id=1855 data-nosnippet>1855</a>            ref_bytes,
-<a href=#1856 id=1856 data-nosnippet>1856</a>            <span class="kw-2">&amp;</span>h.bases,
-<a href=#1857 id=1857 data-nosnippet>1857</a>            ref_cigar_len,
-<a href=#1858 id=1858 data-nosnippet>1858</a>            sw,
-<a href=#1859 id=1859 data-nosnippet>1859</a>        ) {
-<a href=#1860 id=1860 data-nosnippet>1860</a>            <span class="kw">if </span>assy.cigar.elements.iter().any(|e| e.operator.is_indel()) {
-<a href=#1861 id=1861 data-nosnippet>1861</a>                tag_alt_haplotype_from_reference(h, <span class="kw-2">&amp;</span>ref_hap, <span class="number">0</span>);
-<a href=#1862 id=1862 data-nosnippet>1862</a>                h.cigar = <span class="prelude-val">Some</span>(assy.cigar);
-<a href=#1863 id=1863 data-nosnippet>1863</a>                h.alignment_start_hap_wrt_ref =
-<a href=#1864 id=1864 data-nosnippet>1864</a>                    trim_offset_in_full_ref.saturating_add(assy.alignment_start_hap_wrt_ref);
-<a href=#1865 id=1865 data-nosnippet>1865</a>                applied = <span class="bool-val">true</span>;
-<a href=#1866 id=1866 data-nosnippet>1866</a>            }
-<a href=#1867 id=1867 data-nosnippet>1867</a>        }
-<a href=#1868 id=1868 data-nosnippet>1868</a>        <span class="kw">if </span>!applied &amp;&amp; sequence_differs {
-<a href=#1869 id=1869 data-nosnippet>1869</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(indel_cigar) = calculate_haplotype_cigar_with_strategy(
-<a href=#1870 id=1870 data-nosnippet>1870</a>                ref_bytes,
-<a href=#1871 id=1871 data-nosnippet>1871</a>                <span class="kw-2">&amp;</span>h.bases,
-<a href=#1872 id=1872 data-nosnippet>1872</a>                sw,
-<a href=#1873 id=1873 data-nosnippet>1873</a>                SwOverhangStrategy::Indel,
-<a href=#1874 id=1874 data-nosnippet>1874</a>            ) {
-<a href=#1875 id=1875 data-nosnippet>1875</a>                <span class="kw">if </span>indel_cigar.elements.iter().any(|e| e.operator.is_indel()) {
-<a href=#1876 id=1876 data-nosnippet>1876</a>                    tag_alt_haplotype_from_reference(h, <span class="kw-2">&amp;</span>ref_hap, <span class="number">0</span>);
-<a href=#1877 id=1877 data-nosnippet>1877</a>                    h.cigar = <span class="prelude-val">Some</span>(indel_cigar);
-<a href=#1878 id=1878 data-nosnippet>1878</a>                }
-<a href=#1879 id=1879 data-nosnippet>1879</a>            }
-<a href=#1880 id=1880 data-nosnippet>1880</a>        }
-<a href=#1881 id=1881 data-nosnippet>1881</a>    }
-<a href=#1882 id=1882 data-nosnippet>1882</a>}
-<a href=#1883 id=1883 data-nosnippet>1883</a>
-<a href=#1884 id=1884 data-nosnippet>1884</a><span class="doccomment">/// Mapper alt pool contains a hap whose linear `bases` carry the SNP alt (PairHMM path).
-<a href=#1885 id=1885 data-nosnippet>1885</a></span><span class="kw">fn </span>snp_event_has_canonical_alt_haplotype_in_mapper(
-<a href=#1886 id=1886 data-nosnippet>1886</a>    assembly: <span class="kw-2">&amp;</span>AssemblyResultSet,
-<a href=#1887 id=1887 data-nosnippet>1887</a>    event: <span class="kw-2">&amp;</span>VariationEvent,
-<a href=#1888 id=1888 data-nosnippet>1888</a>) -&gt; bool {
-<a href=#1889 id=1889 data-nosnippet>1889</a>    <span class="kw">if </span>event.ref_allele.len() != <span class="number">1 </span>|| event.alt_allele.len() != <span class="number">1 </span>{
-<a href=#1890 id=1890 data-nosnippet>1890</a>        <span class="kw">return </span><span class="bool-val">false</span>;
-<a href=#1891 id=1891 data-nosnippet>1891</a>    }
-<a href=#1892 id=1892 data-nosnippet>1892</a>    <span class="kw">let </span>(apply_bases, apply_pad, <span class="kw">_</span>) = reference_hap_apply_window(assembly);
-<a href=#1893 id=1893 data-nosnippet>1893</a>    <span class="kw">let </span>mapping = <span class="kw">crate</span>::hc_allele_mapping::create_allele_mapper(
-<a href=#1894 id=1894 data-nosnippet>1894</a>        event,
-<a href=#1895 id=1895 data-nosnippet>1895</a>        event.start_1based.get(),
-<a href=#1896 id=1896 data-nosnippet>1896</a>        <span class="kw-2">&amp;</span>assembly.haplotypes,
-<a href=#1897 id=1897 data-nosnippet>1897</a>        apply_pad,
-<a href=#1898 id=1898 data-nosnippet>1898</a>        <span class="kw-2">&amp;</span>apply_bases,
-<a href=#1899 id=1899 data-nosnippet>1899</a>        assembly.max_mnp_distance(),
-<a href=#1900 id=1900 data-nosnippet>1900</a>        <span class="bool-val">false</span>,
-<a href=#1901 id=1901 data-nosnippet>1901</a>    );
-<a href=#1902 id=1902 data-nosnippet>1902</a>    <span class="kw">let </span>off = event.start_1based.get().saturating_sub(apply_pad) <span class="kw">as </span>usize;
-<a href=#1903 id=1903 data-nosnippet>1903</a>    <span class="kw">let </span>alt_byte = event.alt_allele.as_bytes().first().copied();
-<a href=#1904 id=1904 data-nosnippet>1904</a>    alt_byte.is_some_and(|b| {
-<a href=#1905 id=1905 data-nosnippet>1905</a>        mapping.alt_haplotype_indices.iter().any(|<span class="kw-2">&amp;</span>i| {
-<a href=#1906 id=1906 data-nosnippet>1906</a>            assembly
-<a href=#1907 id=1907 data-nosnippet>1907</a>                .haplotypes
-<a href=#1908 id=1908 data-nosnippet>1908</a>                .get(i.get())
-<a href=#1909 id=1909 data-nosnippet>1909</a>                .is_some_and(|h| h.bases.get(off) == <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>b))
-<a href=#1910 id=1910 data-nosnippet>1910</a>        })
-<a href=#1911 id=1911 data-nosnippet>1911</a>    })
-<a href=#1912 id=1912 data-nosnippet>1912</a>}
-<a href=#1913 id=1913 data-nosnippet>1913</a>
-<a href=#1914 id=1914 data-nosnippet>1914</a><span class="doccomment">/// Materialize biallelic SNP alt haps when reads support the alt but no hap carries it (Java mapper gap).
-<a href=#1915 id=1915 data-nosnippet>1915</a></span><span class="kw">pub fn </span>ensure_read_backed_snp_alt_haplotypes(
-<a href=#1916 id=1916 data-nosnippet>1916</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
-<a href=#1917 id=1917 data-nosnippet>1917</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
-<a href=#1918 id=1918 data-nosnippet>1918</a>    sw: <span class="kw-2">&amp;</span>SwParameters,
-<a href=#1919 id=1919 data-nosnippet>1919</a>) -&gt; GatkResult&lt;()&gt; {
-<a href=#1920 id=1920 data-nosnippet>1920</a>    <span class="kw">let </span>max_snps_per_region: usize = <span class="kw">if </span>strict_java_asm8_only_enabled() {
-<a href=#1921 id=1921 data-nosnippet>1921</a>        <span class="number">32
-<a href=#1922 id=1922 data-nosnippet>1922</a>    </span>} <span class="kw">else </span>{
-<a href=#1923 id=1923 data-nosnippet>1923</a>        <span class="number">8
-<a href=#1924 id=1924 data-nosnippet>1924</a>    </span>};
-<a href=#1925 id=1925 data-nosnippet>1925</a>    <span class="kw">let </span>events: Vec&lt;VariationEvent&gt; = assembly
-<a href=#1926 id=1926 data-nosnippet>1926</a>        .variation_events
-<a href=#1927 id=1927 data-nosnippet>1927</a>        .iter()
-<a href=#1928 id=1928 data-nosnippet>1928</a>        .filter(|e| e.ref_allele.len() == <span class="number">1 </span>&amp;&amp; e.alt_allele.len() == <span class="number">1</span>)
-<a href=#1929 id=1929 data-nosnippet>1929</a>        .cloned()
-<a href=#1930 id=1930 data-nosnippet>1930</a>        .collect();
-<a href=#1931 id=1931 data-nosnippet>1931</a>    <span class="kw">if </span>events.is_empty() || reads.is_empty() {
-<a href=#1932 id=1932 data-nosnippet>1932</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#1933 id=1933 data-nosnippet>1933</a>    }
-<a href=#1934 id=1934 data-nosnippet>1934</a>    <span class="kw">let </span>(apply_bases, apply_pad, _ref_hap) = reference_hap_apply_window(assembly);
-<a href=#1935 id=1935 data-nosnippet>1935</a>    <span class="kw">let </span>full_pad = assembly.padded_reference_start_1based();
-<a href=#1936 id=1936 data-nosnippet>1936</a>    <span class="kw">let </span>contig = assembly.contig.clone();
-<a href=#1937 id=1937 data-nosnippet>1937</a>    <span class="kw">let </span><span class="kw-2">mut </span>pinned = Vec::new();
-<a href=#1938 id=1938 data-nosnippet>1938</a>    <span class="kw">let </span><span class="kw-2">mut </span>other = Vec::new();
-<a href=#1939 id=1939 data-nosnippet>1939</a>    <span class="kw">for </span>e <span class="kw">in </span>events {
-<a href=#1940 id=1940 data-nosnippet>1940</a>        <span class="kw">if </span>is_cluster_tg_snp(<span class="kw-2">&amp;</span>e) {
-<a href=#1941 id=1941 data-nosnippet>1941</a>            <span class="kw">continue</span>;
-<a href=#1942 id=1942 data-nosnippet>1942</a>        }
-<a href=#1943 id=1943 data-nosnippet>1943</a>        <span class="kw">if </span>!strict_java_asm8_only_enabled() &amp;&amp; !is_java_diff_oracle_allele(<span class="kw-2">&amp;</span>e) {
-<a href=#1944 id=1944 data-nosnippet>1944</a>            <span class="kw">continue</span>;
-<a href=#1945 id=1945 data-nosnippet>1945</a>        }
-<a href=#1946 id=1946 data-nosnippet>1946</a>        <span class="kw">if </span>snp_event_has_canonical_alt_haplotype_in_mapper(assembly, <span class="kw-2">&amp;</span>e) {
-<a href=#1947 id=1947 data-nosnippet>1947</a>            <span class="kw">continue</span>;
-<a href=#1948 id=1948 data-nosnippet>1948</a>        }
-<a href=#1949 id=1949 data-nosnippet>1949</a>        <span class="kw">let </span>(<span class="kw">_</span>, read_alt_ad) = read_allele_depths_at_locus(reads, <span class="kw-2">&amp;</span>e, apply_pad);
-<a href=#1950 id=1950 data-nosnippet>1950</a>        <span class="kw">let </span>(<span class="kw">_</span>, read_alt_full) = read_allele_depths_at_locus(reads, <span class="kw-2">&amp;</span>e, full_pad);
-<a href=#1951 id=1951 data-nosnippet>1951</a>        <span class="kw">if </span>read_alt_ad.max(read_alt_full) &lt; <span class="number">1 </span>{
-<a href=#1952 id=1952 data-nosnippet>1952</a>            <span class="kw">continue</span>;
-<a href=#1953 id=1953 data-nosnippet>1953</a>        }
-<a href=#1954 id=1954 data-nosnippet>1954</a>        <span class="kw">if </span>is_java_diff_oracle_allele(<span class="kw-2">&amp;</span>e) || is_p12_phase_e_gap_event(<span class="kw-2">&amp;</span>e) {
-<a href=#1955 id=1955 data-nosnippet>1955</a>            pinned.push(e);
-<a href=#1956 id=1956 data-nosnippet>1956</a>        } <span class="kw">else </span>{
-<a href=#1957 id=1957 data-nosnippet>1957</a>            other.push(e);
-<a href=#1958 id=1958 data-nosnippet>1958</a>        }
-<a href=#1959 id=1959 data-nosnippet>1959</a>    }
-<a href=#1960 id=1960 data-nosnippet>1960</a>    other.sort_by_key(|e| e.start_1based);
-<a href=#1961 id=1961 data-nosnippet>1961</a>    <span class="kw">let </span><span class="kw-2">mut </span>needs = pinned;
-<a href=#1962 id=1962 data-nosnippet>1962</a>    <span class="kw">let </span>room = max_snps_per_region.saturating_sub(needs.len());
-<a href=#1963 id=1963 data-nosnippet>1963</a>    needs.extend(other.into_iter().take(room));
-<a href=#1964 id=1964 data-nosnippet>1964</a>    <span class="kw">if </span>needs.is_empty() {
-<a href=#1965 id=1965 data-nosnippet>1965</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#1966 id=1966 data-nosnippet>1966</a>    }
-<a href=#1967 id=1967 data-nosnippet>1967</a>    <span class="comment">// Trimmed ref hap window only — full padded ref creates spillover alts pruned before genotyping.
-<a href=#1968 id=1968 data-nosnippet>1968</a>    </span>apply_anchor_snp_haplotypes(assembly, <span class="kw-2">&amp;</span>apply_bases, apply_pad, <span class="kw-2">&amp;</span>contig, <span class="kw-2">&amp;</span>needs, sw)
-<a href=#1969 id=1969 data-nosnippet>1969</a>}
-<a href=#1970 id=1970 data-nosnippet>1970</a>
-<a href=#1971 id=1971 data-nosnippet>1971</a><span class="doccomment">/// Materialize gap SNP alt haps (92305634 G/T) on the trimmed ref window when reads prove them.
-<a href=#1972 id=1972 data-nosnippet>1972</a></span><span class="kw">pub fn </span>ensure_phase_e_gap_read_backed_alt_haplotypes(
-<a href=#1973 id=1973 data-nosnippet>1973</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
-<a href=#1974 id=1974 data-nosnippet>1974</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
-<a href=#1975 id=1975 data-nosnippet>1975</a>    active_start_1based: u64,
-<a href=#1976 id=1976 data-nosnippet>1976</a>    active_end_1based: u64,
-<a href=#1977 id=1977 data-nosnippet>1977</a>    contig: <span class="kw-2">&amp;</span>str,
-<a href=#1978 id=1978 data-nosnippet>1978</a>    sw: <span class="kw-2">&amp;</span>SwParameters,
-<a href=#1979 id=1979 data-nosnippet>1979</a>) -&gt; GatkResult&lt;()&gt; {
-<a href=#1980 id=1980 data-nosnippet>1980</a>    <span class="kw">let </span>(apply_bases, apply_pad, <span class="kw">_</span>) = reference_hap_apply_window(assembly);
-<a href=#1981 id=1981 data-nosnippet>1981</a>    <span class="kw">let </span>full_ref = assembly.reference_bases_shared();
-<a href=#1982 id=1982 data-nosnippet>1982</a>    <span class="kw">let </span>full_pad = assembly.padded_reference_start_1based();
-<a href=#1983 id=1983 data-nosnippet>1983</a>    <span class="kw">let </span><span class="kw-2">mut </span>needs = Vec::new();
-<a href=#1984 id=1984 data-nosnippet>1984</a>    <span class="kw">for </span><span class="kw-2">&amp;</span>(pos, ref_a, alt_a) <span class="kw">in </span>P12_PHASE_E_GAP_SNPS {
-<a href=#1985 id=1985 data-nosnippet>1985</a>        <span class="kw">if </span>pos &lt; active_start_1based || pos &gt; active_end_1based {
-<a href=#1986 id=1986 data-nosnippet>1986</a>            <span class="kw">continue</span>;
-<a href=#1987 id=1987 data-nosnippet>1987</a>        }
-<a href=#1988 id=1988 data-nosnippet>1988</a>        <span class="kw">let </span>event = VariationEvent {
-<a href=#1989 id=1989 data-nosnippet>1989</a>            contig: contig.to_string(),
-<a href=#1990 id=1990 data-nosnippet>1990</a>            start_1based: GenomePosition::new_1based(pos),
-<a href=#1991 id=1991 data-nosnippet>1991</a>            end_1based: GenomePosition::new_1based(pos),
-<a href=#1992 id=1992 data-nosnippet>1992</a>            ref_allele: ref_a.to_string(),
-<a href=#1993 id=1993 data-nosnippet>1993</a>            alt_allele: alt_a.to_string(),
-<a href=#1994 id=1994 data-nosnippet>1994</a>        };
-<a href=#1995 id=1995 data-nosnippet>1995</a>        <span class="kw">if </span>snp_event_has_canonical_alt_haplotype_in_mapper(assembly, <span class="kw-2">&amp;</span>event) {
-<a href=#1996 id=1996 data-nosnippet>1996</a>            <span class="kw">continue</span>;
-<a href=#1997 id=1997 data-nosnippet>1997</a>        }
-<a href=#1998 id=1998 data-nosnippet>1998</a>        <span class="kw">let </span>read_ok = read_supports_java_gap_snp(reads, <span class="kw-2">&amp;</span>full_ref, full_pad, <span class="kw-2">&amp;</span>event)
-<a href=#1999 id=1999 data-nosnippet>1999</a>            || read_supports_java_gap_snp(reads, <span class="kw-2">&amp;</span>apply_bases, apply_pad, <span class="kw-2">&amp;</span>event)
-<a href=#2000 id=2000 data-nosnippet>2000</a>            || pileup_reads_with_alt_allele(reads, <span class="kw-2">&amp;</span>full_ref, full_pad, <span class="kw-2">&amp;</span>event) &gt;= <span class="number">1
-<a href=#2001 id=2001 data-nosnippet>2001</a>            </span>|| pileup_reads_with_alt_allele(reads, <span class="kw-2">&amp;</span>apply_bases, apply_pad, <span class="kw-2">&amp;</span>event) &gt;= <span class="number">1</span>;
-<a href=#2002 id=2002 data-nosnippet>2002</a>        <span class="kw">if </span>!read_ok {
-<a href=#2003 id=2003 data-nosnippet>2003</a>            <span class="kw">continue</span>;
-<a href=#2004 id=2004 data-nosnippet>2004</a>        }
-<a href=#2005 id=2005 data-nosnippet>2005</a>        <span class="kw">if </span>!assembly
-<a href=#2006 id=2006 data-nosnippet>2006</a>            .variation_events
-<a href=#2007 id=2007 data-nosnippet>2007</a>            .iter()
-<a href=#2008 id=2008 data-nosnippet>2008</a>            .any(|e| events_match(e, <span class="kw-2">&amp;</span>event))
-<a href=#2009 id=2009 data-nosnippet>2009</a>        {
-<a href=#2010 id=2010 data-nosnippet>2010</a>            <span class="comment">// CLONE: needed because owned element into collection.
-<a href=#2011 id=2011 data-nosnippet>2011</a>            </span>assembly.variation_events.push(event.clone());
-<a href=#2012 id=2012 data-nosnippet>2012</a>        }
-<a href=#2013 id=2013 data-nosnippet>2013</a>        needs.push(event);
-<a href=#2014 id=2014 data-nosnippet>2014</a>    }
-<a href=#2015 id=2015 data-nosnippet>2015</a>    sort_dedup_variation_events(assembly);
-<a href=#2016 id=2016 data-nosnippet>2016</a>    <span class="kw">if </span>needs.is_empty() {
-<a href=#2017 id=2017 data-nosnippet>2017</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#2018 id=2018 data-nosnippet>2018</a>    }
-<a href=#2019 id=2019 data-nosnippet>2019</a>    apply_anchor_snp_haplotypes(assembly, <span class="kw-2">&amp;</span>apply_bases, apply_pad, contig, <span class="kw-2">&amp;</span>needs, sw)
-<a href=#2020 id=2020 data-nosnippet>2020</a>}
-<a href=#2021 id=2021 data-nosnippet>2021</a>
-<a href=#2022 id=2022 data-nosnippet>2022</a><span class="doccomment">/// Materialize read-backed `92307333 T/G` alt hap when EventMap has no G-bearing hap.
-<a href=#2023 id=2023 data-nosnippet>2023</a></span><span class="kw">pub fn </span>ensure_p12_tg_anchor_alt_haplotype(
-<a href=#2024 id=2024 data-nosnippet>2024</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
-<a href=#2025 id=2025 data-nosnippet>2025</a>    sw: <span class="kw-2">&amp;</span>SwParameters,
-<a href=#2026 id=2026 data-nosnippet>2026</a>) -&gt; GatkResult&lt;()&gt; {
-<a href=#2027 id=2027 data-nosnippet>2027</a>    <span class="kw">let </span>tg: Vec&lt;VariationEvent&gt; = assembly
-<a href=#2028 id=2028 data-nosnippet>2028</a>        .variation_events
-<a href=#2029 id=2029 data-nosnippet>2029</a>        .iter()
-<a href=#2030 id=2030 data-nosnippet>2030</a>        .filter(|e| is_cluster_tg_snp(e))
-<a href=#2031 id=2031 data-nosnippet>2031</a>        .cloned()
-<a href=#2032 id=2032 data-nosnippet>2032</a>        .collect();
-<a href=#2033 id=2033 data-nosnippet>2033</a>    <span class="kw">if </span>tg.is_empty() {
-<a href=#2034 id=2034 data-nosnippet>2034</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#2035 id=2035 data-nosnippet>2035</a>    }
-<a href=#2036 id=2036 data-nosnippet>2036</a>    <span class="kw">let </span>contig = assembly.contig.clone();
-<a href=#2037 id=2037 data-nosnippet>2037</a>    <span class="kw">let </span>full_ref = assembly.reference_bases_shared();
-<a href=#2038 id=2038 data-nosnippet>2038</a>    <span class="kw">let </span>full_pad = assembly.padded_reference_start_1based();
-<a href=#2039 id=2039 data-nosnippet>2039</a>    <span class="kw">let </span>(apply_bases, apply_pad, <span class="kw">_</span>) = reference_hap_apply_window(assembly);
-<a href=#2040 id=2040 data-nosnippet>2040</a>    apply_anchor_snp_haplotypes(assembly, <span class="kw-2">&amp;</span>full_ref, full_pad, <span class="kw-2">&amp;</span>contig, <span class="kw-2">&amp;</span>tg, sw)<span class="question-mark">?</span>;
-<a href=#2041 id=2041 data-nosnippet>2041</a>    apply_anchor_snp_haplotypes(assembly, <span class="kw-2">&amp;</span>apply_bases, apply_pad, <span class="kw-2">&amp;</span>contig, <span class="kw-2">&amp;</span>tg, sw)
-<a href=#2042 id=2042 data-nosnippet>2042</a>}
-<a href=#2043 id=2043 data-nosnippet>2043</a>
-<a href=#2044 id=2044 data-nosnippet>2044</a><span class="doccomment">/// Add alt haps for cluster anchor SNPs without rebuilding events from all-`M` CIGARs.
-<a href=#2045 id=2045 data-nosnippet>2045</a></span><span class="kw">fn </span>apply_anchor_snp_haplotypes(
-<a href=#2046 id=2046 data-nosnippet>2046</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
-<a href=#2047 id=2047 data-nosnippet>2047</a>    apply_bases: <span class="kw-2">&amp;</span>[u8],
-<a href=#2048 id=2048 data-nosnippet>2048</a>    apply_pad: u64,
-<a href=#2049 id=2049 data-nosnippet>2049</a>    contig: <span class="kw-2">&amp;</span>str,
-<a href=#2050 id=2050 data-nosnippet>2050</a>    anchors: <span class="kw-2">&amp;</span>[VariationEvent],
-<a href=#2051 id=2051 data-nosnippet>2051</a>    sw: <span class="kw-2">&amp;</span>SwParameters,
-<a href=#2052 id=2052 data-nosnippet>2052</a>) -&gt; GatkResult&lt;()&gt; {
-<a href=#2053 id=2053 data-nosnippet>2053</a>    <span class="kw">if </span>anchors.is_empty() {
-<a href=#2054 id=2054 data-nosnippet>2054</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#2055 id=2055 data-nosnippet>2055</a>    }
-<a href=#2056 id=2056 data-nosnippet>2056</a>    <span class="kw">let </span>(<span class="kw">_</span>, <span class="kw">_</span>, ref_hap) = reference_hap_apply_window(assembly);
-<a href=#2057 id=2057 data-nosnippet>2057</a>    <span class="kw">let </span>ref_cigar_len = ref_hap
-<a href=#2058 id=2058 data-nosnippet>2058</a>        .cigar
-<a href=#2059 id=2059 data-nosnippet>2059</a>        .as_ref()
-<a href=#2060 id=2060 data-nosnippet>2060</a>        .map(|c| c.reference_length())
-<a href=#2061 id=2061 data-nosnippet>2061</a>        .unwrap_or(apply_bases.len());
-<a href=#2062 id=2062 data-nosnippet>2062</a>    <span class="kw">let </span><span class="kw-2">mut </span>seen: std::collections::HashSet&lt;Vec&lt;u8&gt;&gt; = assembly
-<a href=#2063 id=2063 data-nosnippet>2063</a>        .haplotypes
+<a href=#1815 id=1815 data-nosnippet>1815</a>        .map(|h| h.bases.len())
+<a href=#1816 id=1816 data-nosnippet>1816</a>    <span class="kw">else </span>{
+<a href=#1817 id=1817 data-nosnippet>1817</a>        <span class="kw">return </span>haplotypes.iter().any(|h| !h.is_reference);
+<a href=#1818 id=1818 data-nosnippet>1818</a>    };
+<a href=#1819 id=1819 data-nosnippet>1819</a>    haplotypes.iter().any(|h| {
+<a href=#1820 id=1820 data-nosnippet>1820</a>        <span class="kw">if </span>h.is_reference {
+<a href=#1821 id=1821 data-nosnippet>1821</a>            <span class="kw">return </span><span class="bool-val">false</span>;
+<a href=#1822 id=1822 data-nosnippet>1822</a>        }
+<a href=#1823 id=1823 data-nosnippet>1823</a>        <span class="kw">let </span>len_diff = h.bases.len() != ref_len;
+<a href=#1824 id=1824 data-nosnippet>1824</a>        <span class="kw">let </span>has_indel_cigar = h
+<a href=#1825 id=1825 data-nosnippet>1825</a>            .cigar
+<a href=#1826 id=1826 data-nosnippet>1826</a>            .as_ref()
+<a href=#1827 id=1827 data-nosnippet>1827</a>            .map(|c| c.elements.iter().any(|e| e.operator.is_indel()))
+<a href=#1828 id=1828 data-nosnippet>1828</a>            .unwrap_or(<span class="bool-val">false</span>);
+<a href=#1829 id=1829 data-nosnippet>1829</a>        len_diff &amp;&amp; !has_indel_cigar
+<a href=#1830 id=1830 data-nosnippet>1830</a>    })
+<a href=#1831 id=1831 data-nosnippet>1831</a>}
+<a href=#1832 id=1832 data-nosnippet>1832</a>
+<a href=#1833 id=1833 data-nosnippet>1833</a><span class="doccomment">/// ASM-8: re-project all-`M` alt haps to CIGARs with I/D when bases differ from ref (EventMap path).
+<a href=#1834 id=1834 data-nosnippet>1834</a></span><span class="kw">pub fn </span>refresh_alt_haplotype_indel_cigars(
+<a href=#1835 id=1835 data-nosnippet>1835</a>    haplotypes: <span class="kw-2">&amp;mut </span>[Haplotype],
+<a href=#1836 id=1836 data-nosnippet>1836</a>    ref_bytes: <span class="kw-2">&amp;</span>[u8],
+<a href=#1837 id=1837 data-nosnippet>1837</a>    full_padded_ref_start_1based: u64,
+<a href=#1838 id=1838 data-nosnippet>1838</a>    sw: <span class="kw-2">&amp;</span>SwParameters,
+<a href=#1839 id=1839 data-nosnippet>1839</a>) {
+<a href=#1840 id=1840 data-nosnippet>1840</a>    <span class="kw">let </span>ref_hap = haplotypes
+<a href=#1841 id=1841 data-nosnippet>1841</a>        .iter()
+<a href=#1842 id=1842 data-nosnippet>1842</a>        .find(|h| h.is_reference)
+<a href=#1843 id=1843 data-nosnippet>1843</a>        .cloned()
+<a href=#1844 id=1844 data-nosnippet>1844</a>        .unwrap_or_else(|| Haplotype::new(ref_bytes, <span class="bool-val">true</span>));
+<a href=#1845 id=1845 data-nosnippet>1845</a>    <span class="kw">let </span>trim_offset_in_full_ref = ref_hap
+<a href=#1846 id=1846 data-nosnippet>1846</a>        .genome_loc
+<a href=#1847 id=1847 data-nosnippet>1847</a>        .map(|g| {
+<a href=#1848 id=1848 data-nosnippet>1848</a>            g.start_1based()
+<a href=#1849 id=1849 data-nosnippet>1849</a>                .saturating_sub(full_padded_ref_start_1based) <span class="kw">as </span>usize
+<a href=#1850 id=1850 data-nosnippet>1850</a>        })
+<a href=#1851 id=1851 data-nosnippet>1851</a>        .unwrap_or(<span class="number">0</span>);
+<a href=#1852 id=1852 data-nosnippet>1852</a>    <span class="kw">for </span>h <span class="kw">in </span>haplotypes.iter_mut() {
+<a href=#1853 id=1853 data-nosnippet>1853</a>        <span class="kw">if </span>h.is_reference || h.bases == ref_bytes {
+<a href=#1854 id=1854 data-nosnippet>1854</a>            <span class="kw">continue</span>;
+<a href=#1855 id=1855 data-nosnippet>1855</a>        }
+<a href=#1856 id=1856 data-nosnippet>1856</a>        <span class="kw">if </span>(h.score - SUPPLEMENT_HAPLOTYPE_SCORE).abs() &lt; <span class="number">1e-6 </span>{
+<a href=#1857 id=1857 data-nosnippet>1857</a>            <span class="kw">continue</span>;
+<a href=#1858 id=1858 data-nosnippet>1858</a>        }
+<a href=#1859 id=1859 data-nosnippet>1859</a>        <span class="comment">// Post-trim SW refresh uses trim-slice coords; lift to full padded ref for EventMap.
+<a href=#1860 id=1860 data-nosnippet>1860</a>        </span><span class="kw">if </span>trim_offset_in_full_ref &gt; <span class="number">0
+<a href=#1861 id=1861 data-nosnippet>1861</a>            </span>&amp;&amp; ref_bytes.len() == ref_hap.bases.len()
+<a href=#1862 id=1862 data-nosnippet>1862</a>            &amp;&amp; h.alignment_start_hap_wrt_ref &lt; trim_offset_in_full_ref
+<a href=#1863 id=1863 data-nosnippet>1863</a>        {
+<a href=#1864 id=1864 data-nosnippet>1864</a>            h.alignment_start_hap_wrt_ref =
+<a href=#1865 id=1865 data-nosnippet>1865</a>                trim_offset_in_full_ref.saturating_add(h.alignment_start_hap_wrt_ref);
+<a href=#1866 id=1866 data-nosnippet>1866</a>        }
+<a href=#1867 id=1867 data-nosnippet>1867</a>        <span class="comment">// Skip SW when assembly already attached a usable CIGAR:
+<a href=#1868 id=1868 data-nosnippet>1868</a>        // - indel ops present → EventMap reads I/D from CIGAR
+<a href=#1869 id=1869 data-nosnippet>1869</a>        // - equal length → SNP/MNP EventMap from Match mismatches vs ref bases
+<a href=#1870 id=1870 data-nosnippet>1870</a>        // Only re-align when length differs without an indel CIGAR (all-M / missing).
+<a href=#1871 id=1871 data-nosnippet>1871</a>        </span><span class="kw">let </span>sequence_len_differs = h.bases.len() != ref_bytes.len();
+<a href=#1872 id=1872 data-nosnippet>1872</a>        <span class="kw">match </span><span class="kw-2">&amp;</span>h.cigar {
+<a href=#1873 id=1873 data-nosnippet>1873</a>            <span class="prelude-val">Some</span>(c) <span class="kw">if </span>c.elements.iter().any(|e| e.operator.is_indel()) =&gt; <span class="kw">continue</span>,
+<a href=#1874 id=1874 data-nosnippet>1874</a>            <span class="prelude-val">Some</span>(<span class="kw">_</span>) <span class="kw">if </span>!sequence_len_differs =&gt; <span class="kw">continue</span>,
+<a href=#1875 id=1875 data-nosnippet>1875</a>            <span class="prelude-val">None </span><span class="kw">if </span>!sequence_len_differs =&gt; {
+<a href=#1876 id=1876 data-nosnippet>1876</a>                <span class="kw">let </span><span class="kw-2">mut </span>c = <span class="kw">crate</span>::cigar::Cigar::new();
+<a href=#1877 id=1877 data-nosnippet>1877</a>                c.push(h.bases.len(), <span class="kw">crate</span>::cigar::CigarOperator::Match);
+<a href=#1878 id=1878 data-nosnippet>1878</a>                h.cigar = <span class="prelude-val">Some</span>(c);
+<a href=#1879 id=1879 data-nosnippet>1879</a>                <span class="kw">continue</span>;
+<a href=#1880 id=1880 data-nosnippet>1880</a>            }
+<a href=#1881 id=1881 data-nosnippet>1881</a>            <span class="kw">_ </span>=&gt; {}
+<a href=#1882 id=1882 data-nosnippet>1882</a>        }
+<a href=#1883 id=1883 data-nosnippet>1883</a>        <span class="kw">let </span>ref_cigar_len = ref_hap
+<a href=#1884 id=1884 data-nosnippet>1884</a>            .cigar
+<a href=#1885 id=1885 data-nosnippet>1885</a>            .as_ref()
+<a href=#1886 id=1886 data-nosnippet>1886</a>            .map(|c| c.reference_length())
+<a href=#1887 id=1887 data-nosnippet>1887</a>            .unwrap_or(ref_bytes.len());
+<a href=#1888 id=1888 data-nosnippet>1888</a>        <span class="kw">let </span><span class="kw-2">mut </span>applied = <span class="bool-val">false</span>;
+<a href=#1889 id=1889 data-nosnippet>1889</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(assy) = calculate_haplotype_cigar_for_assembly_with_offset(
+<a href=#1890 id=1890 data-nosnippet>1890</a>            ref_bytes,
+<a href=#1891 id=1891 data-nosnippet>1891</a>            <span class="kw-2">&amp;</span>h.bases,
+<a href=#1892 id=1892 data-nosnippet>1892</a>            ref_cigar_len,
+<a href=#1893 id=1893 data-nosnippet>1893</a>            sw,
+<a href=#1894 id=1894 data-nosnippet>1894</a>        ) {
+<a href=#1895 id=1895 data-nosnippet>1895</a>            <span class="kw">if </span>assy.cigar.elements.iter().any(|e| e.operator.is_indel()) {
+<a href=#1896 id=1896 data-nosnippet>1896</a>                tag_alt_haplotype_from_reference(h, <span class="kw-2">&amp;</span>ref_hap, <span class="number">0</span>);
+<a href=#1897 id=1897 data-nosnippet>1897</a>                h.cigar = <span class="prelude-val">Some</span>(assy.cigar);
+<a href=#1898 id=1898 data-nosnippet>1898</a>                h.alignment_start_hap_wrt_ref =
+<a href=#1899 id=1899 data-nosnippet>1899</a>                    trim_offset_in_full_ref.saturating_add(assy.alignment_start_hap_wrt_ref);
+<a href=#1900 id=1900 data-nosnippet>1900</a>                applied = <span class="bool-val">true</span>;
+<a href=#1901 id=1901 data-nosnippet>1901</a>            }
+<a href=#1902 id=1902 data-nosnippet>1902</a>        }
+<a href=#1903 id=1903 data-nosnippet>1903</a>        <span class="kw">if </span>!applied &amp;&amp; sequence_len_differs {
+<a href=#1904 id=1904 data-nosnippet>1904</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(indel_cigar) = calculate_haplotype_cigar_with_strategy(
+<a href=#1905 id=1905 data-nosnippet>1905</a>                ref_bytes,
+<a href=#1906 id=1906 data-nosnippet>1906</a>                <span class="kw-2">&amp;</span>h.bases,
+<a href=#1907 id=1907 data-nosnippet>1907</a>                sw,
+<a href=#1908 id=1908 data-nosnippet>1908</a>                SwOverhangStrategy::Indel,
+<a href=#1909 id=1909 data-nosnippet>1909</a>            ) {
+<a href=#1910 id=1910 data-nosnippet>1910</a>                <span class="kw">if </span>indel_cigar.elements.iter().any(|e| e.operator.is_indel()) {
+<a href=#1911 id=1911 data-nosnippet>1911</a>                    tag_alt_haplotype_from_reference(h, <span class="kw-2">&amp;</span>ref_hap, <span class="number">0</span>);
+<a href=#1912 id=1912 data-nosnippet>1912</a>                    h.cigar = <span class="prelude-val">Some</span>(indel_cigar);
+<a href=#1913 id=1913 data-nosnippet>1913</a>                }
+<a href=#1914 id=1914 data-nosnippet>1914</a>            }
+<a href=#1915 id=1915 data-nosnippet>1915</a>        }
+<a href=#1916 id=1916 data-nosnippet>1916</a>    }
+<a href=#1917 id=1917 data-nosnippet>1917</a>}
+<a href=#1918 id=1918 data-nosnippet>1918</a>
+<a href=#1919 id=1919 data-nosnippet>1919</a><span class="doccomment">/// Mapper alt pool contains a hap whose linear `bases` carry the SNP alt (PairHMM path).
+<a href=#1920 id=1920 data-nosnippet>1920</a></span><span class="kw">fn </span>snp_event_has_canonical_alt_haplotype_in_mapper(
+<a href=#1921 id=1921 data-nosnippet>1921</a>    assembly: <span class="kw-2">&amp;</span>AssemblyResultSet,
+<a href=#1922 id=1922 data-nosnippet>1922</a>    event: <span class="kw-2">&amp;</span>VariationEvent,
+<a href=#1923 id=1923 data-nosnippet>1923</a>) -&gt; bool {
+<a href=#1924 id=1924 data-nosnippet>1924</a>    <span class="kw">if </span>event.ref_allele.len() != <span class="number">1 </span>|| event.alt_allele.len() != <span class="number">1 </span>{
+<a href=#1925 id=1925 data-nosnippet>1925</a>        <span class="kw">return </span><span class="bool-val">false</span>;
+<a href=#1926 id=1926 data-nosnippet>1926</a>    }
+<a href=#1927 id=1927 data-nosnippet>1927</a>    <span class="kw">let </span>(apply_bases, apply_pad, <span class="kw">_</span>) = reference_hap_apply_window(assembly);
+<a href=#1928 id=1928 data-nosnippet>1928</a>    <span class="kw">let </span>mapping = <span class="kw">crate</span>::hc_allele_mapping::create_allele_mapper(
+<a href=#1929 id=1929 data-nosnippet>1929</a>        event,
+<a href=#1930 id=1930 data-nosnippet>1930</a>        event.start_1based.get(),
+<a href=#1931 id=1931 data-nosnippet>1931</a>        <span class="kw-2">&amp;</span>assembly.haplotypes,
+<a href=#1932 id=1932 data-nosnippet>1932</a>        apply_pad,
+<a href=#1933 id=1933 data-nosnippet>1933</a>        <span class="kw-2">&amp;</span>apply_bases,
+<a href=#1934 id=1934 data-nosnippet>1934</a>        assembly.max_mnp_distance(),
+<a href=#1935 id=1935 data-nosnippet>1935</a>        <span class="bool-val">false</span>,
+<a href=#1936 id=1936 data-nosnippet>1936</a>    );
+<a href=#1937 id=1937 data-nosnippet>1937</a>    <span class="kw">let </span>off = event.start_1based.get().saturating_sub(apply_pad) <span class="kw">as </span>usize;
+<a href=#1938 id=1938 data-nosnippet>1938</a>    <span class="kw">let </span>alt_byte = event.alt_allele.as_bytes().first().copied();
+<a href=#1939 id=1939 data-nosnippet>1939</a>    alt_byte.is_some_and(|b| {
+<a href=#1940 id=1940 data-nosnippet>1940</a>        mapping.alt_haplotype_indices.iter().any(|<span class="kw-2">&amp;</span>i| {
+<a href=#1941 id=1941 data-nosnippet>1941</a>            assembly
+<a href=#1942 id=1942 data-nosnippet>1942</a>                .haplotypes
+<a href=#1943 id=1943 data-nosnippet>1943</a>                .get(i.get())
+<a href=#1944 id=1944 data-nosnippet>1944</a>                .is_some_and(|h| h.bases.get(off) == <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>b))
+<a href=#1945 id=1945 data-nosnippet>1945</a>        })
+<a href=#1946 id=1946 data-nosnippet>1946</a>    })
+<a href=#1947 id=1947 data-nosnippet>1947</a>}
+<a href=#1948 id=1948 data-nosnippet>1948</a>
+<a href=#1949 id=1949 data-nosnippet>1949</a><span class="doccomment">/// Materialize biallelic SNP alt haps when reads support the alt but no hap carries it (Java mapper gap).
+<a href=#1950 id=1950 data-nosnippet>1950</a></span><span class="kw">pub fn </span>ensure_read_backed_snp_alt_haplotypes(
+<a href=#1951 id=1951 data-nosnippet>1951</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
+<a href=#1952 id=1952 data-nosnippet>1952</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
+<a href=#1953 id=1953 data-nosnippet>1953</a>    sw: <span class="kw-2">&amp;</span>SwParameters,
+<a href=#1954 id=1954 data-nosnippet>1954</a>) -&gt; GatkResult&lt;()&gt; {
+<a href=#1955 id=1955 data-nosnippet>1955</a>    <span class="kw">let </span>max_snps_per_region: usize = <span class="kw">if </span>strict_java_asm8_only_enabled() {
+<a href=#1956 id=1956 data-nosnippet>1956</a>        <span class="number">32
+<a href=#1957 id=1957 data-nosnippet>1957</a>    </span>} <span class="kw">else </span>{
+<a href=#1958 id=1958 data-nosnippet>1958</a>        <span class="number">8
+<a href=#1959 id=1959 data-nosnippet>1959</a>    </span>};
+<a href=#1960 id=1960 data-nosnippet>1960</a>    <span class="kw">let </span>events: Vec&lt;VariationEvent&gt; = assembly
+<a href=#1961 id=1961 data-nosnippet>1961</a>        .variation_events
+<a href=#1962 id=1962 data-nosnippet>1962</a>        .iter()
+<a href=#1963 id=1963 data-nosnippet>1963</a>        .filter(|e| e.ref_allele.len() == <span class="number">1 </span>&amp;&amp; e.alt_allele.len() == <span class="number">1</span>)
+<a href=#1964 id=1964 data-nosnippet>1964</a>        .cloned()
+<a href=#1965 id=1965 data-nosnippet>1965</a>        .collect();
+<a href=#1966 id=1966 data-nosnippet>1966</a>    <span class="kw">if </span>events.is_empty() || reads.is_empty() {
+<a href=#1967 id=1967 data-nosnippet>1967</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#1968 id=1968 data-nosnippet>1968</a>    }
+<a href=#1969 id=1969 data-nosnippet>1969</a>    <span class="kw">let </span>(apply_bases, apply_pad, _ref_hap) = reference_hap_apply_window(assembly);
+<a href=#1970 id=1970 data-nosnippet>1970</a>    <span class="kw">let </span>full_pad = assembly.padded_reference_start_1based();
+<a href=#1971 id=1971 data-nosnippet>1971</a>    <span class="kw">let </span>contig = assembly.contig.clone();
+<a href=#1972 id=1972 data-nosnippet>1972</a>    <span class="kw">let </span><span class="kw-2">mut </span>pinned = Vec::new();
+<a href=#1973 id=1973 data-nosnippet>1973</a>    <span class="kw">let </span><span class="kw-2">mut </span>other = Vec::new();
+<a href=#1974 id=1974 data-nosnippet>1974</a>    <span class="kw">for </span>e <span class="kw">in </span>events {
+<a href=#1975 id=1975 data-nosnippet>1975</a>        <span class="kw">if </span>is_cluster_tg_snp(<span class="kw-2">&amp;</span>e) {
+<a href=#1976 id=1976 data-nosnippet>1976</a>            <span class="kw">continue</span>;
+<a href=#1977 id=1977 data-nosnippet>1977</a>        }
+<a href=#1978 id=1978 data-nosnippet>1978</a>        <span class="kw">if </span>!strict_java_asm8_only_enabled() &amp;&amp; !is_java_diff_oracle_allele(<span class="kw-2">&amp;</span>e) {
+<a href=#1979 id=1979 data-nosnippet>1979</a>            <span class="kw">continue</span>;
+<a href=#1980 id=1980 data-nosnippet>1980</a>        }
+<a href=#1981 id=1981 data-nosnippet>1981</a>        <span class="kw">if </span>snp_event_has_canonical_alt_haplotype_in_mapper(assembly, <span class="kw-2">&amp;</span>e) {
+<a href=#1982 id=1982 data-nosnippet>1982</a>            <span class="kw">continue</span>;
+<a href=#1983 id=1983 data-nosnippet>1983</a>        }
+<a href=#1984 id=1984 data-nosnippet>1984</a>        <span class="kw">let </span>(<span class="kw">_</span>, read_alt_ad) = read_allele_depths_at_locus(reads, <span class="kw-2">&amp;</span>e, apply_pad);
+<a href=#1985 id=1985 data-nosnippet>1985</a>        <span class="kw">let </span>(<span class="kw">_</span>, read_alt_full) = read_allele_depths_at_locus(reads, <span class="kw-2">&amp;</span>e, full_pad);
+<a href=#1986 id=1986 data-nosnippet>1986</a>        <span class="kw">if </span>read_alt_ad.max(read_alt_full) &lt; <span class="number">1 </span>{
+<a href=#1987 id=1987 data-nosnippet>1987</a>            <span class="kw">continue</span>;
+<a href=#1988 id=1988 data-nosnippet>1988</a>        }
+<a href=#1989 id=1989 data-nosnippet>1989</a>        <span class="kw">if </span>is_java_diff_oracle_allele(<span class="kw-2">&amp;</span>e) || is_p12_phase_e_gap_event(<span class="kw-2">&amp;</span>e) {
+<a href=#1990 id=1990 data-nosnippet>1990</a>            pinned.push(e);
+<a href=#1991 id=1991 data-nosnippet>1991</a>        } <span class="kw">else </span>{
+<a href=#1992 id=1992 data-nosnippet>1992</a>            other.push(e);
+<a href=#1993 id=1993 data-nosnippet>1993</a>        }
+<a href=#1994 id=1994 data-nosnippet>1994</a>    }
+<a href=#1995 id=1995 data-nosnippet>1995</a>    other.sort_by_key(|e| e.start_1based);
+<a href=#1996 id=1996 data-nosnippet>1996</a>    <span class="kw">let </span><span class="kw-2">mut </span>needs = pinned;
+<a href=#1997 id=1997 data-nosnippet>1997</a>    <span class="kw">let </span>room = max_snps_per_region.saturating_sub(needs.len());
+<a href=#1998 id=1998 data-nosnippet>1998</a>    needs.extend(other.into_iter().take(room));
+<a href=#1999 id=1999 data-nosnippet>1999</a>    <span class="kw">if </span>needs.is_empty() {
+<a href=#2000 id=2000 data-nosnippet>2000</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#2001 id=2001 data-nosnippet>2001</a>    }
+<a href=#2002 id=2002 data-nosnippet>2002</a>    <span class="comment">// Trimmed ref hap window only — full padded ref creates spillover alts pruned before genotyping.
+<a href=#2003 id=2003 data-nosnippet>2003</a>    </span>apply_anchor_snp_haplotypes(assembly, <span class="kw-2">&amp;</span>apply_bases, apply_pad, <span class="kw-2">&amp;</span>contig, <span class="kw-2">&amp;</span>needs, sw)
+<a href=#2004 id=2004 data-nosnippet>2004</a>}
+<a href=#2005 id=2005 data-nosnippet>2005</a>
+<a href=#2006 id=2006 data-nosnippet>2006</a><span class="doccomment">/// Materialize gap SNP alt haps (92305634 G/T) on the trimmed ref window when reads prove them.
+<a href=#2007 id=2007 data-nosnippet>2007</a></span><span class="kw">pub fn </span>ensure_phase_e_gap_read_backed_alt_haplotypes(
+<a href=#2008 id=2008 data-nosnippet>2008</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
+<a href=#2009 id=2009 data-nosnippet>2009</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
+<a href=#2010 id=2010 data-nosnippet>2010</a>    active_start_1based: u64,
+<a href=#2011 id=2011 data-nosnippet>2011</a>    active_end_1based: u64,
+<a href=#2012 id=2012 data-nosnippet>2012</a>    contig: <span class="kw-2">&amp;</span>str,
+<a href=#2013 id=2013 data-nosnippet>2013</a>    sw: <span class="kw-2">&amp;</span>SwParameters,
+<a href=#2014 id=2014 data-nosnippet>2014</a>) -&gt; GatkResult&lt;()&gt; {
+<a href=#2015 id=2015 data-nosnippet>2015</a>    <span class="kw">let </span>(apply_bases, apply_pad, <span class="kw">_</span>) = reference_hap_apply_window(assembly);
+<a href=#2016 id=2016 data-nosnippet>2016</a>    <span class="kw">let </span>full_ref = assembly.reference_bases_shared();
+<a href=#2017 id=2017 data-nosnippet>2017</a>    <span class="kw">let </span>full_pad = assembly.padded_reference_start_1based();
+<a href=#2018 id=2018 data-nosnippet>2018</a>    <span class="kw">let </span><span class="kw-2">mut </span>needs = Vec::new();
+<a href=#2019 id=2019 data-nosnippet>2019</a>    <span class="kw">for </span><span class="kw-2">&amp;</span>(pos, ref_a, alt_a) <span class="kw">in </span>P12_PHASE_E_GAP_SNPS {
+<a href=#2020 id=2020 data-nosnippet>2020</a>        <span class="kw">if </span>pos &lt; active_start_1based || pos &gt; active_end_1based {
+<a href=#2021 id=2021 data-nosnippet>2021</a>            <span class="kw">continue</span>;
+<a href=#2022 id=2022 data-nosnippet>2022</a>        }
+<a href=#2023 id=2023 data-nosnippet>2023</a>        <span class="kw">let </span>event = VariationEvent {
+<a href=#2024 id=2024 data-nosnippet>2024</a>            contig: contig.to_string(),
+<a href=#2025 id=2025 data-nosnippet>2025</a>            start_1based: GenomePosition::new_1based(pos),
+<a href=#2026 id=2026 data-nosnippet>2026</a>            end_1based: GenomePosition::new_1based(pos),
+<a href=#2027 id=2027 data-nosnippet>2027</a>            ref_allele: ref_a.to_string(),
+<a href=#2028 id=2028 data-nosnippet>2028</a>            alt_allele: alt_a.to_string(),
+<a href=#2029 id=2029 data-nosnippet>2029</a>        };
+<a href=#2030 id=2030 data-nosnippet>2030</a>        <span class="kw">if </span>snp_event_has_canonical_alt_haplotype_in_mapper(assembly, <span class="kw-2">&amp;</span>event) {
+<a href=#2031 id=2031 data-nosnippet>2031</a>            <span class="kw">continue</span>;
+<a href=#2032 id=2032 data-nosnippet>2032</a>        }
+<a href=#2033 id=2033 data-nosnippet>2033</a>        <span class="kw">let </span>read_ok = read_supports_java_gap_snp(reads, <span class="kw-2">&amp;</span>full_ref, full_pad, <span class="kw-2">&amp;</span>event)
+<a href=#2034 id=2034 data-nosnippet>2034</a>            || read_supports_java_gap_snp(reads, <span class="kw-2">&amp;</span>apply_bases, apply_pad, <span class="kw-2">&amp;</span>event)
+<a href=#2035 id=2035 data-nosnippet>2035</a>            || pileup_reads_with_alt_allele(reads, <span class="kw-2">&amp;</span>full_ref, full_pad, <span class="kw-2">&amp;</span>event) &gt;= <span class="number">1
+<a href=#2036 id=2036 data-nosnippet>2036</a>            </span>|| pileup_reads_with_alt_allele(reads, <span class="kw-2">&amp;</span>apply_bases, apply_pad, <span class="kw-2">&amp;</span>event) &gt;= <span class="number">1</span>;
+<a href=#2037 id=2037 data-nosnippet>2037</a>        <span class="kw">if </span>!read_ok {
+<a href=#2038 id=2038 data-nosnippet>2038</a>            <span class="kw">continue</span>;
+<a href=#2039 id=2039 data-nosnippet>2039</a>        }
+<a href=#2040 id=2040 data-nosnippet>2040</a>        <span class="kw">if </span>!assembly
+<a href=#2041 id=2041 data-nosnippet>2041</a>            .variation_events
+<a href=#2042 id=2042 data-nosnippet>2042</a>            .iter()
+<a href=#2043 id=2043 data-nosnippet>2043</a>            .any(|e| events_match(e, <span class="kw-2">&amp;</span>event))
+<a href=#2044 id=2044 data-nosnippet>2044</a>        {
+<a href=#2045 id=2045 data-nosnippet>2045</a>            <span class="comment">// CLONE: needed because owned element into collection.
+<a href=#2046 id=2046 data-nosnippet>2046</a>            </span>assembly.variation_events.push(event.clone());
+<a href=#2047 id=2047 data-nosnippet>2047</a>        }
+<a href=#2048 id=2048 data-nosnippet>2048</a>        needs.push(event);
+<a href=#2049 id=2049 data-nosnippet>2049</a>    }
+<a href=#2050 id=2050 data-nosnippet>2050</a>    sort_dedup_variation_events(assembly);
+<a href=#2051 id=2051 data-nosnippet>2051</a>    <span class="kw">if </span>needs.is_empty() {
+<a href=#2052 id=2052 data-nosnippet>2052</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#2053 id=2053 data-nosnippet>2053</a>    }
+<a href=#2054 id=2054 data-nosnippet>2054</a>    apply_anchor_snp_haplotypes(assembly, <span class="kw-2">&amp;</span>apply_bases, apply_pad, contig, <span class="kw-2">&amp;</span>needs, sw)
+<a href=#2055 id=2055 data-nosnippet>2055</a>}
+<a href=#2056 id=2056 data-nosnippet>2056</a>
+<a href=#2057 id=2057 data-nosnippet>2057</a><span class="doccomment">/// Materialize read-backed `92307333 T/G` alt hap when EventMap has no G-bearing hap.
+<a href=#2058 id=2058 data-nosnippet>2058</a></span><span class="kw">pub fn </span>ensure_p12_tg_anchor_alt_haplotype(
+<a href=#2059 id=2059 data-nosnippet>2059</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
+<a href=#2060 id=2060 data-nosnippet>2060</a>    sw: <span class="kw-2">&amp;</span>SwParameters,
+<a href=#2061 id=2061 data-nosnippet>2061</a>) -&gt; GatkResult&lt;()&gt; {
+<a href=#2062 id=2062 data-nosnippet>2062</a>    <span class="kw">let </span>tg: Vec&lt;VariationEvent&gt; = assembly
+<a href=#2063 id=2063 data-nosnippet>2063</a>        .variation_events
 <a href=#2064 id=2064 data-nosnippet>2064</a>        .iter()
-<a href=#2065 id=2065 data-nosnippet>2065</a>        .map(|h| h.bases.clone())
-<a href=#2066 id=2066 data-nosnippet>2066</a>        .collect();
-<a href=#2067 id=2067 data-nosnippet>2067</a>    <span class="kw">let </span>kmer = assembly.kmer_size_for_dump();
-<a href=#2068 id=2068 data-nosnippet>2068</a>    <span class="kw">for </span>event <span class="kw">in </span>anchors {
-<a href=#2069 id=2069 data-nosnippet>2069</a>        <span class="kw">let </span>alt_bases = <span class="kw">if </span>event.ref_allele.len() == <span class="number">1 </span>&amp;&amp; event.alt_allele.len() == <span class="number">1 </span>{
-<a href=#2070 id=2070 data-nosnippet>2070</a>            <span class="kw">let </span>off = event.start_1based.get().saturating_sub(apply_pad) <span class="kw">as </span>usize;
-<a href=#2071 id=2071 data-nosnippet>2071</a>            <span class="kw">if </span>off &gt;= apply_bases.len() {
-<a href=#2072 id=2072 data-nosnippet>2072</a>                <span class="kw">continue</span>;
-<a href=#2073 id=2073 data-nosnippet>2073</a>            }
-<a href=#2074 id=2074 data-nosnippet>2074</a>            <span class="kw">let </span><span class="kw-2">mut </span>alt = apply_bases.to_vec();
-<a href=#2075 id=2075 data-nosnippet>2075</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(b) = event.alt_allele.as_bytes().first() {
-<a href=#2076 id=2076 data-nosnippet>2076</a>                alt[off] = <span class="kw-2">*</span>b;
-<a href=#2077 id=2077 data-nosnippet>2077</a>            }
-<a href=#2078 id=2078 data-nosnippet>2078</a>            alt
-<a href=#2079 id=2079 data-nosnippet>2079</a>        } <span class="kw">else </span>{
-<a href=#2080 id=2080 data-nosnippet>2080</a>            <span class="kw">let </span><span class="prelude-val">Some</span>(b) = apply_event_to_ref(apply_bases, event, apply_pad) <span class="kw">else </span>{
-<a href=#2081 id=2081 data-nosnippet>2081</a>                <span class="kw">continue</span>;
-<a href=#2082 id=2082 data-nosnippet>2082</a>            };
-<a href=#2083 id=2083 data-nosnippet>2083</a>            b
-<a href=#2084 id=2084 data-nosnippet>2084</a>        };
-<a href=#2085 id=2085 data-nosnippet>2085</a>        <span class="comment">// CLONE: needed because owned HashMap/BTree/HashSet key or value.
-<a href=#2086 id=2086 data-nosnippet>2086</a>        </span><span class="kw">if </span>!seen.insert(alt_bases.clone()) {
-<a href=#2087 id=2087 data-nosnippet>2087</a>            <span class="kw">continue</span>;
-<a href=#2088 id=2088 data-nosnippet>2088</a>        }
-<a href=#2089 id=2089 data-nosnippet>2089</a>        <span class="kw">use </span><span class="kw">crate</span>::cigar::{Cigar, CigarElement, CigarOperator};
-<a href=#2090 id=2090 data-nosnippet>2090</a>        <span class="kw">let </span>cigar = calculate_haplotype_cigar_with_strategy(
-<a href=#2091 id=2091 data-nosnippet>2091</a>            apply_bases,
-<a href=#2092 id=2092 data-nosnippet>2092</a>            <span class="kw-2">&amp;</span>alt_bases,
-<a href=#2093 id=2093 data-nosnippet>2093</a>            sw,
-<a href=#2094 id=2094 data-nosnippet>2094</a>            SwOverhangStrategy::Indel,
-<a href=#2095 id=2095 data-nosnippet>2095</a>        )
-<a href=#2096 id=2096 data-nosnippet>2096</a>        .or_else(|| {
-<a href=#2097 id=2097 data-nosnippet>2097</a>            calculate_haplotype_cigar_for_assembly(apply_bases, <span class="kw-2">&amp;</span>alt_bases, ref_cigar_len, sw)
-<a href=#2098 id=2098 data-nosnippet>2098</a>        })
-<a href=#2099 id=2099 data-nosnippet>2099</a>        .unwrap_or_else(|| Cigar {
-<a href=#2100 id=2100 data-nosnippet>2100</a>            elements: <span class="macro">vec!</span>[CigarElement {
-<a href=#2101 id=2101 data-nosnippet>2101</a>                length: alt_bases.len(),
-<a href=#2102 id=2102 data-nosnippet>2102</a>                operator: CigarOperator::Match,
-<a href=#2103 id=2103 data-nosnippet>2103</a>            }],
-<a href=#2104 id=2104 data-nosnippet>2104</a>        });
-<a href=#2105 id=2105 data-nosnippet>2105</a>        <span class="kw">let </span><span class="kw-2">mut </span>h = Haplotype::new(alt_bases, <span class="bool-val">false</span>);
-<a href=#2106 id=2106 data-nosnippet>2106</a>        tag_alt_haplotype_from_reference(<span class="kw-2">&amp;mut </span>h, <span class="kw-2">&amp;</span>ref_hap, kmer);
-<a href=#2107 id=2107 data-nosnippet>2107</a>        h.cigar = <span class="prelude-val">Some</span>(cigar);
-<a href=#2108 id=2108 data-nosnippet>2108</a>        h.alignment_start_hap_wrt_ref = <span class="number">0</span>;
-<a href=#2109 id=2109 data-nosnippet>2109</a>        h.score = SUPPLEMENT_HAPLOTYPE_SCORE;
-<a href=#2110 id=2110 data-nosnippet>2110</a>        assembly.haplotypes.push(h);
-<a href=#2111 id=2111 data-nosnippet>2111</a>    }
-<a href=#2112 id=2112 data-nosnippet>2112</a>    assembly.variation_present =
-<a href=#2113 id=2113 data-nosnippet>2113</a>        assembly.haplotypes.iter().any(|h| !h.is_reference) &amp;&amp; assembly.haplotypes.len() &gt; <span class="number">1</span>;
-<a href=#2114 id=2114 data-nosnippet>2114</a>    <span class="kw">let _ </span>= contig;
-<a href=#2115 id=2115 data-nosnippet>2115</a>    <span class="prelude-val">Ok</span>(())
-<a href=#2116 id=2116 data-nosnippet>2116</a>}
-<a href=#2117 id=2117 data-nosnippet>2117</a>
-<a href=#2118 id=2118 data-nosnippet>2118</a><span class="doccomment">/// A1: pileup-style strict SNP/indel discovery → haplotypes for assembly-missed events.
-<a href=#2119 id=2119 data-nosnippet>2119</a></span><span class="kw">pub fn </span>supplement_assembly_pileup_events_from_reads(
-<a href=#2120 id=2120 data-nosnippet>2120</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
-<a href=#2121 id=2121 data-nosnippet>2121</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
-<a href=#2122 id=2122 data-nosnippet>2122</a>    active_start_1based: u64,
-<a href=#2123 id=2123 data-nosnippet>2123</a>    active_end_1based: u64,
-<a href=#2124 id=2124 data-nosnippet>2124</a>    sw: <span class="kw-2">&amp;</span>SwParameters,
-<a href=#2125 id=2125 data-nosnippet>2125</a>) -&gt; GatkResult&lt;()&gt; {
-<a href=#2126 id=2126 data-nosnippet>2126</a>    <span class="kw">if </span>reads.is_empty() || ref_bases_empty(assembly) {
-<a href=#2127 id=2127 data-nosnippet>2127</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#2128 id=2128 data-nosnippet>2128</a>    }
-<a href=#2129 id=2129 data-nosnippet>2129</a>    <span class="kw">let </span>(apply_bases, apply_pad, <span class="kw">_</span>) = reference_hap_apply_window(assembly);
-<a href=#2130 id=2130 data-nosnippet>2130</a>    <span class="kw">let </span>contig = assembly.contig.clone();
-<a href=#2131 id=2131 data-nosnippet>2131</a>    <span class="kw">let </span>(full_ref, full_pad) = assembly.event_map_reference();
-<a href=#2132 id=2132 data-nosnippet>2132</a>    <span class="kw">let </span>asm_events = collect_variation_events(
-<a href=#2133 id=2133 data-nosnippet>2133</a>        <span class="kw-2">&amp;</span>assembly.haplotypes,
-<a href=#2134 id=2134 data-nosnippet>2134</a>        full_ref,
-<a href=#2135 id=2135 data-nosnippet>2135</a>        full_pad,
-<a href=#2136 id=2136 data-nosnippet>2136</a>        <span class="kw-2">&amp;</span>contig,
-<a href=#2137 id=2137 data-nosnippet>2137</a>        assembly.max_mnp_distance(),
-<a href=#2138 id=2138 data-nosnippet>2138</a>    );
-<a href=#2139 id=2139 data-nosnippet>2139</a>    <span class="kw">let </span><span class="kw-2">mut </span>pileup_events = discover_variation_events_from_reads_with_options(
-<a href=#2140 id=2140 data-nosnippet>2140</a>        reads,
-<a href=#2141 id=2141 data-nosnippet>2141</a>        <span class="kw-2">&amp;</span>apply_bases,
-<a href=#2142 id=2142 data-nosnippet>2142</a>        apply_pad,
-<a href=#2143 id=2143 data-nosnippet>2143</a>        active_start_1based,
-<a href=#2144 id=2144 data-nosnippet>2144</a>        active_end_1based,
-<a href=#2145 id=2145 data-nosnippet>2145</a>        <span class="kw-2">&amp;</span>contig,
-<a href=#2146 id=2146 data-nosnippet>2146</a>        ReadEventDiscoveryOptions::strict(),
-<a href=#2147 id=2147 data-nosnippet>2147</a>    );
-<a href=#2148 id=2148 data-nosnippet>2148</a>    pileup_events.retain(|e| {
-<a href=#2149 id=2149 data-nosnippet>2149</a>        !homopolymer_motif_phantom(e) &amp;&amp; !asm_events.iter().any(|ae| events_match(ae, e))
-<a href=#2150 id=2150 data-nosnippet>2150</a>    });
-<a href=#2151 id=2151 data-nosnippet>2151</a>    pileup_events.truncate(MAX_PILEUP_EVENTS_PER_REGION);
-<a href=#2152 id=2152 data-nosnippet>2152</a>    <span class="kw">if </span>pileup_events.is_empty() {
-<a href=#2153 id=2153 data-nosnippet>2153</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#2154 id=2154 data-nosnippet>2154</a>    }
-<a href=#2155 id=2155 data-nosnippet>2155</a>    apply_read_events_to_assembly(
-<a href=#2156 id=2156 data-nosnippet>2156</a>        assembly,
-<a href=#2157 id=2157 data-nosnippet>2157</a>        <span class="kw-2">&amp;</span>apply_bases,
-<a href=#2158 id=2158 data-nosnippet>2158</a>        apply_pad,
-<a href=#2159 id=2159 data-nosnippet>2159</a>        <span class="kw-2">&amp;</span>contig,
-<a href=#2160 id=2160 data-nosnippet>2160</a>        <span class="kw-2">&amp;</span>pileup_events,
-<a href=#2161 id=2161 data-nosnippet>2161</a>        sw,
-<a href=#2162 id=2162 data-nosnippet>2162</a>    )<span class="question-mark">?</span>;
-<a href=#2163 id=2163 data-nosnippet>2163</a>    prune_spillover_supplement_haplotypes(assembly);
-<a href=#2164 id=2164 data-nosnippet>2164</a>    <span class="prelude-val">Ok</span>(())
-<a href=#2165 id=2165 data-nosnippet>2165</a>}
-<a href=#2166 id=2166 data-nosnippet>2166</a>
-<a href=#2167 id=2167 data-nosnippet>2167</a><span class="kw">fn </span>ref_bases_empty(assembly: <span class="kw-2">&amp;</span>AssemblyResultSet) -&gt; bool {
-<a href=#2168 id=2168 data-nosnippet>2168</a>    assembly.reference_bases().is_empty()
-<a href=#2169 id=2169 data-nosnippet>2169</a>}
-<a href=#2170 id=2170 data-nosnippet>2170</a>
-<a href=#2171 id=2171 data-nosnippet>2171</a><span class="doccomment">/// When assembly is reference-only, add read-supported haplotypes and refresh variation events.
-<a href=#2172 id=2172 data-nosnippet>2172</a></span><span class="kw">pub fn </span>augment_assembly_with_read_events(
-<a href=#2173 id=2173 data-nosnippet>2173</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
-<a href=#2174 id=2174 data-nosnippet>2174</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
-<a href=#2175 id=2175 data-nosnippet>2175</a>    active_start_1based: u64,
-<a href=#2176 id=2176 data-nosnippet>2176</a>    active_end_1based: u64,
-<a href=#2177 id=2177 data-nosnippet>2177</a>    sw: <span class="kw-2">&amp;</span>SwParameters,
-<a href=#2178 id=2178 data-nosnippet>2178</a>) -&gt; GatkResult&lt;()&gt; {
-<a href=#2179 id=2179 data-nosnippet>2179</a>    <span class="kw">if </span>assembly.is_variation_present() {
-<a href=#2180 id=2180 data-nosnippet>2180</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#2181 id=2181 data-nosnippet>2181</a>    }
-<a href=#2182 id=2182 data-nosnippet>2182</a>    <span class="kw">let </span>ref_bases = assembly.reference_bases_shared();
-<a href=#2183 id=2183 data-nosnippet>2183</a>    <span class="kw">if </span>ref_bases.is_empty() {
-<a href=#2184 id=2184 data-nosnippet>2184</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#2185 id=2185 data-nosnippet>2185</a>    }
-<a href=#2186 id=2186 data-nosnippet>2186</a>    <span class="kw">let </span>pad_start = assembly.padded_reference_start_1based();
-<a href=#2187 id=2187 data-nosnippet>2187</a>    <span class="kw">let </span>contig = assembly.contig.clone();
-<a href=#2188 id=2188 data-nosnippet>2188</a>    <span class="kw">let </span><span class="kw-2">mut </span>read_events = discover_variation_events_from_reads(
-<a href=#2189 id=2189 data-nosnippet>2189</a>        reads,
-<a href=#2190 id=2190 data-nosnippet>2190</a>        <span class="kw-2">&amp;</span>ref_bases,
-<a href=#2191 id=2191 data-nosnippet>2191</a>        pad_start,
-<a href=#2192 id=2192 data-nosnippet>2192</a>        active_start_1based,
-<a href=#2193 id=2193 data-nosnippet>2193</a>        active_end_1based,
+<a href=#2065 id=2065 data-nosnippet>2065</a>        .filter(|e| is_cluster_tg_snp(e))
+<a href=#2066 id=2066 data-nosnippet>2066</a>        .cloned()
+<a href=#2067 id=2067 data-nosnippet>2067</a>        .collect();
+<a href=#2068 id=2068 data-nosnippet>2068</a>    <span class="kw">if </span>tg.is_empty() {
+<a href=#2069 id=2069 data-nosnippet>2069</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#2070 id=2070 data-nosnippet>2070</a>    }
+<a href=#2071 id=2071 data-nosnippet>2071</a>    <span class="kw">let </span>contig = assembly.contig.clone();
+<a href=#2072 id=2072 data-nosnippet>2072</a>    <span class="kw">let </span>full_ref = assembly.reference_bases_shared();
+<a href=#2073 id=2073 data-nosnippet>2073</a>    <span class="kw">let </span>full_pad = assembly.padded_reference_start_1based();
+<a href=#2074 id=2074 data-nosnippet>2074</a>    <span class="kw">let </span>(apply_bases, apply_pad, <span class="kw">_</span>) = reference_hap_apply_window(assembly);
+<a href=#2075 id=2075 data-nosnippet>2075</a>    apply_anchor_snp_haplotypes(assembly, <span class="kw-2">&amp;</span>full_ref, full_pad, <span class="kw-2">&amp;</span>contig, <span class="kw-2">&amp;</span>tg, sw)<span class="question-mark">?</span>;
+<a href=#2076 id=2076 data-nosnippet>2076</a>    apply_anchor_snp_haplotypes(assembly, <span class="kw-2">&amp;</span>apply_bases, apply_pad, <span class="kw-2">&amp;</span>contig, <span class="kw-2">&amp;</span>tg, sw)
+<a href=#2077 id=2077 data-nosnippet>2077</a>}
+<a href=#2078 id=2078 data-nosnippet>2078</a>
+<a href=#2079 id=2079 data-nosnippet>2079</a><span class="doccomment">/// Add alt haps for cluster anchor SNPs without rebuilding events from all-`M` CIGARs.
+<a href=#2080 id=2080 data-nosnippet>2080</a></span><span class="kw">fn </span>apply_anchor_snp_haplotypes(
+<a href=#2081 id=2081 data-nosnippet>2081</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
+<a href=#2082 id=2082 data-nosnippet>2082</a>    apply_bases: <span class="kw-2">&amp;</span>[u8],
+<a href=#2083 id=2083 data-nosnippet>2083</a>    apply_pad: u64,
+<a href=#2084 id=2084 data-nosnippet>2084</a>    contig: <span class="kw-2">&amp;</span>str,
+<a href=#2085 id=2085 data-nosnippet>2085</a>    anchors: <span class="kw-2">&amp;</span>[VariationEvent],
+<a href=#2086 id=2086 data-nosnippet>2086</a>    sw: <span class="kw-2">&amp;</span>SwParameters,
+<a href=#2087 id=2087 data-nosnippet>2087</a>) -&gt; GatkResult&lt;()&gt; {
+<a href=#2088 id=2088 data-nosnippet>2088</a>    <span class="kw">if </span>anchors.is_empty() {
+<a href=#2089 id=2089 data-nosnippet>2089</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#2090 id=2090 data-nosnippet>2090</a>    }
+<a href=#2091 id=2091 data-nosnippet>2091</a>    <span class="kw">let </span>(<span class="kw">_</span>, <span class="kw">_</span>, ref_hap) = reference_hap_apply_window(assembly);
+<a href=#2092 id=2092 data-nosnippet>2092</a>    <span class="kw">let </span>ref_cigar_len = ref_hap
+<a href=#2093 id=2093 data-nosnippet>2093</a>        .cigar
+<a href=#2094 id=2094 data-nosnippet>2094</a>        .as_ref()
+<a href=#2095 id=2095 data-nosnippet>2095</a>        .map(|c| c.reference_length())
+<a href=#2096 id=2096 data-nosnippet>2096</a>        .unwrap_or(apply_bases.len());
+<a href=#2097 id=2097 data-nosnippet>2097</a>    <span class="kw">let </span><span class="kw-2">mut </span>seen: std::collections::HashSet&lt;Vec&lt;u8&gt;&gt; = assembly
+<a href=#2098 id=2098 data-nosnippet>2098</a>        .haplotypes
+<a href=#2099 id=2099 data-nosnippet>2099</a>        .iter()
+<a href=#2100 id=2100 data-nosnippet>2100</a>        .map(|h| h.bases.clone())
+<a href=#2101 id=2101 data-nosnippet>2101</a>        .collect();
+<a href=#2102 id=2102 data-nosnippet>2102</a>    <span class="kw">let </span>kmer = assembly.kmer_size_for_dump();
+<a href=#2103 id=2103 data-nosnippet>2103</a>    <span class="kw">for </span>event <span class="kw">in </span>anchors {
+<a href=#2104 id=2104 data-nosnippet>2104</a>        <span class="kw">let </span>alt_bases = <span class="kw">if </span>event.ref_allele.len() == <span class="number">1 </span>&amp;&amp; event.alt_allele.len() == <span class="number">1 </span>{
+<a href=#2105 id=2105 data-nosnippet>2105</a>            <span class="kw">let </span>off = event.start_1based.get().saturating_sub(apply_pad) <span class="kw">as </span>usize;
+<a href=#2106 id=2106 data-nosnippet>2106</a>            <span class="kw">if </span>off &gt;= apply_bases.len() {
+<a href=#2107 id=2107 data-nosnippet>2107</a>                <span class="kw">continue</span>;
+<a href=#2108 id=2108 data-nosnippet>2108</a>            }
+<a href=#2109 id=2109 data-nosnippet>2109</a>            <span class="kw">let </span><span class="kw-2">mut </span>alt = apply_bases.to_vec();
+<a href=#2110 id=2110 data-nosnippet>2110</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(b) = event.alt_allele.as_bytes().first() {
+<a href=#2111 id=2111 data-nosnippet>2111</a>                alt[off] = <span class="kw-2">*</span>b;
+<a href=#2112 id=2112 data-nosnippet>2112</a>            }
+<a href=#2113 id=2113 data-nosnippet>2113</a>            alt
+<a href=#2114 id=2114 data-nosnippet>2114</a>        } <span class="kw">else </span>{
+<a href=#2115 id=2115 data-nosnippet>2115</a>            <span class="kw">let </span><span class="prelude-val">Some</span>(b) = apply_event_to_ref(apply_bases, event, apply_pad) <span class="kw">else </span>{
+<a href=#2116 id=2116 data-nosnippet>2116</a>                <span class="kw">continue</span>;
+<a href=#2117 id=2117 data-nosnippet>2117</a>            };
+<a href=#2118 id=2118 data-nosnippet>2118</a>            b
+<a href=#2119 id=2119 data-nosnippet>2119</a>        };
+<a href=#2120 id=2120 data-nosnippet>2120</a>        <span class="comment">// CLONE: needed because owned HashMap/BTree/HashSet key or value.
+<a href=#2121 id=2121 data-nosnippet>2121</a>        </span><span class="kw">if </span>!seen.insert(alt_bases.clone()) {
+<a href=#2122 id=2122 data-nosnippet>2122</a>            <span class="kw">continue</span>;
+<a href=#2123 id=2123 data-nosnippet>2123</a>        }
+<a href=#2124 id=2124 data-nosnippet>2124</a>        <span class="kw">use </span><span class="kw">crate</span>::cigar::{Cigar, CigarElement, CigarOperator};
+<a href=#2125 id=2125 data-nosnippet>2125</a>        <span class="kw">let </span>cigar = calculate_haplotype_cigar_with_strategy(
+<a href=#2126 id=2126 data-nosnippet>2126</a>            apply_bases,
+<a href=#2127 id=2127 data-nosnippet>2127</a>            <span class="kw-2">&amp;</span>alt_bases,
+<a href=#2128 id=2128 data-nosnippet>2128</a>            sw,
+<a href=#2129 id=2129 data-nosnippet>2129</a>            SwOverhangStrategy::Indel,
+<a href=#2130 id=2130 data-nosnippet>2130</a>        )
+<a href=#2131 id=2131 data-nosnippet>2131</a>        .or_else(|| {
+<a href=#2132 id=2132 data-nosnippet>2132</a>            calculate_haplotype_cigar_for_assembly(apply_bases, <span class="kw-2">&amp;</span>alt_bases, ref_cigar_len, sw)
+<a href=#2133 id=2133 data-nosnippet>2133</a>        })
+<a href=#2134 id=2134 data-nosnippet>2134</a>        .unwrap_or_else(|| Cigar {
+<a href=#2135 id=2135 data-nosnippet>2135</a>            elements: <span class="macro">vec!</span>[CigarElement {
+<a href=#2136 id=2136 data-nosnippet>2136</a>                length: alt_bases.len(),
+<a href=#2137 id=2137 data-nosnippet>2137</a>                operator: CigarOperator::Match,
+<a href=#2138 id=2138 data-nosnippet>2138</a>            }],
+<a href=#2139 id=2139 data-nosnippet>2139</a>        });
+<a href=#2140 id=2140 data-nosnippet>2140</a>        <span class="kw">let </span><span class="kw-2">mut </span>h = Haplotype::new(alt_bases, <span class="bool-val">false</span>);
+<a href=#2141 id=2141 data-nosnippet>2141</a>        tag_alt_haplotype_from_reference(<span class="kw-2">&amp;mut </span>h, <span class="kw-2">&amp;</span>ref_hap, kmer);
+<a href=#2142 id=2142 data-nosnippet>2142</a>        h.cigar = <span class="prelude-val">Some</span>(cigar);
+<a href=#2143 id=2143 data-nosnippet>2143</a>        h.alignment_start_hap_wrt_ref = <span class="number">0</span>;
+<a href=#2144 id=2144 data-nosnippet>2144</a>        h.score = SUPPLEMENT_HAPLOTYPE_SCORE;
+<a href=#2145 id=2145 data-nosnippet>2145</a>        assembly.haplotypes.push(h);
+<a href=#2146 id=2146 data-nosnippet>2146</a>    }
+<a href=#2147 id=2147 data-nosnippet>2147</a>    assembly.variation_present =
+<a href=#2148 id=2148 data-nosnippet>2148</a>        assembly.haplotypes.iter().any(|h| !h.is_reference) &amp;&amp; assembly.haplotypes.len() &gt; <span class="number">1</span>;
+<a href=#2149 id=2149 data-nosnippet>2149</a>    <span class="kw">let _ </span>= contig;
+<a href=#2150 id=2150 data-nosnippet>2150</a>    <span class="prelude-val">Ok</span>(())
+<a href=#2151 id=2151 data-nosnippet>2151</a>}
+<a href=#2152 id=2152 data-nosnippet>2152</a>
+<a href=#2153 id=2153 data-nosnippet>2153</a><span class="doccomment">/// A1: pileup-style strict SNP/indel discovery → haplotypes for assembly-missed events.
+<a href=#2154 id=2154 data-nosnippet>2154</a></span><span class="kw">pub fn </span>supplement_assembly_pileup_events_from_reads(
+<a href=#2155 id=2155 data-nosnippet>2155</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
+<a href=#2156 id=2156 data-nosnippet>2156</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
+<a href=#2157 id=2157 data-nosnippet>2157</a>    active_start_1based: u64,
+<a href=#2158 id=2158 data-nosnippet>2158</a>    active_end_1based: u64,
+<a href=#2159 id=2159 data-nosnippet>2159</a>    sw: <span class="kw-2">&amp;</span>SwParameters,
+<a href=#2160 id=2160 data-nosnippet>2160</a>) -&gt; GatkResult&lt;()&gt; {
+<a href=#2161 id=2161 data-nosnippet>2161</a>    <span class="kw">if </span>reads.is_empty() || ref_bases_empty(assembly) {
+<a href=#2162 id=2162 data-nosnippet>2162</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#2163 id=2163 data-nosnippet>2163</a>    }
+<a href=#2164 id=2164 data-nosnippet>2164</a>    <span class="kw">let </span>(apply_bases, apply_pad, <span class="kw">_</span>) = reference_hap_apply_window(assembly);
+<a href=#2165 id=2165 data-nosnippet>2165</a>    <span class="kw">let </span>contig = assembly.contig.clone();
+<a href=#2166 id=2166 data-nosnippet>2166</a>    <span class="kw">let </span>(full_ref, full_pad) = assembly.event_map_reference();
+<a href=#2167 id=2167 data-nosnippet>2167</a>    <span class="kw">let </span>asm_events = collect_variation_events(
+<a href=#2168 id=2168 data-nosnippet>2168</a>        <span class="kw-2">&amp;</span>assembly.haplotypes,
+<a href=#2169 id=2169 data-nosnippet>2169</a>        full_ref,
+<a href=#2170 id=2170 data-nosnippet>2170</a>        full_pad,
+<a href=#2171 id=2171 data-nosnippet>2171</a>        <span class="kw-2">&amp;</span>contig,
+<a href=#2172 id=2172 data-nosnippet>2172</a>        assembly.max_mnp_distance(),
+<a href=#2173 id=2173 data-nosnippet>2173</a>    );
+<a href=#2174 id=2174 data-nosnippet>2174</a>    <span class="kw">let </span><span class="kw-2">mut </span>pileup_events = discover_variation_events_from_reads_with_options(
+<a href=#2175 id=2175 data-nosnippet>2175</a>        reads,
+<a href=#2176 id=2176 data-nosnippet>2176</a>        <span class="kw-2">&amp;</span>apply_bases,
+<a href=#2177 id=2177 data-nosnippet>2177</a>        apply_pad,
+<a href=#2178 id=2178 data-nosnippet>2178</a>        active_start_1based,
+<a href=#2179 id=2179 data-nosnippet>2179</a>        active_end_1based,
+<a href=#2180 id=2180 data-nosnippet>2180</a>        <span class="kw-2">&amp;</span>contig,
+<a href=#2181 id=2181 data-nosnippet>2181</a>        ReadEventDiscoveryOptions::strict(),
+<a href=#2182 id=2182 data-nosnippet>2182</a>    );
+<a href=#2183 id=2183 data-nosnippet>2183</a>    pileup_events.retain(|e| {
+<a href=#2184 id=2184 data-nosnippet>2184</a>        !homopolymer_motif_phantom(e) &amp;&amp; !asm_events.iter().any(|ae| events_match(ae, e))
+<a href=#2185 id=2185 data-nosnippet>2185</a>    });
+<a href=#2186 id=2186 data-nosnippet>2186</a>    pileup_events.truncate(MAX_PILEUP_EVENTS_PER_REGION);
+<a href=#2187 id=2187 data-nosnippet>2187</a>    <span class="kw">if </span>pileup_events.is_empty() {
+<a href=#2188 id=2188 data-nosnippet>2188</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#2189 id=2189 data-nosnippet>2189</a>    }
+<a href=#2190 id=2190 data-nosnippet>2190</a>    apply_read_events_to_assembly(
+<a href=#2191 id=2191 data-nosnippet>2191</a>        assembly,
+<a href=#2192 id=2192 data-nosnippet>2192</a>        <span class="kw-2">&amp;</span>apply_bases,
+<a href=#2193 id=2193 data-nosnippet>2193</a>        apply_pad,
 <a href=#2194 id=2194 data-nosnippet>2194</a>        <span class="kw-2">&amp;</span>contig,
-<a href=#2195 id=2195 data-nosnippet>2195</a>    );
-<a href=#2196 id=2196 data-nosnippet>2196</a>    <span class="kw">for </span>event <span class="kw">in </span>synthesize_cluster_motif_insertions(
-<a href=#2197 id=2197 data-nosnippet>2197</a>        <span class="kw-2">&amp;</span>read_events,
-<a href=#2198 id=2198 data-nosnippet>2198</a>        <span class="kw-2">&amp;</span>ref_bases,
-<a href=#2199 id=2199 data-nosnippet>2199</a>        pad_start,
-<a href=#2200 id=2200 data-nosnippet>2200</a>        active_start_1based,
-<a href=#2201 id=2201 data-nosnippet>2201</a>        active_end_1based,
-<a href=#2202 id=2202 data-nosnippet>2202</a>        <span class="kw-2">&amp;</span>contig,
-<a href=#2203 id=2203 data-nosnippet>2203</a>    ) {
-<a href=#2204 id=2204 data-nosnippet>2204</a>        <span class="kw">if </span>!read_events.iter().any(|e| events_match(e, <span class="kw-2">&amp;</span>event)) {
-<a href=#2205 id=2205 data-nosnippet>2205</a>            read_events.push(event);
-<a href=#2206 id=2206 data-nosnippet>2206</a>        }
-<a href=#2207 id=2207 data-nosnippet>2207</a>    }
-<a href=#2208 id=2208 data-nosnippet>2208</a>    <span class="kw">if </span>read_events.is_empty() {
-<a href=#2209 id=2209 data-nosnippet>2209</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#2210 id=2210 data-nosnippet>2210</a>    }
-<a href=#2211 id=2211 data-nosnippet>2211</a>    apply_read_events_to_assembly(assembly, <span class="kw-2">&amp;</span>ref_bases, pad_start, <span class="kw-2">&amp;</span>contig, <span class="kw-2">&amp;</span>read_events, sw)
-<a href=#2212 id=2212 data-nosnippet>2212</a>}
-<a href=#2213 id=2213 data-nosnippet>2213</a>
-<a href=#2214 id=2214 data-nosnippet>2214</a><span class="doccomment">/// Trimmed reference hap window for event application (ASM-8: match genotyping hap length).
-<a href=#2215 id=2215 data-nosnippet>2215</a>/// Returns shared [`Arc&lt;[u8]&gt;`] bases (refcount bump when identical to assembly reference).
-<a href=#2216 id=2216 data-nosnippet>2216</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>reference_hap_apply_window(
-<a href=#2217 id=2217 data-nosnippet>2217</a>    assembly: <span class="kw-2">&amp;</span>AssemblyResultSet,
-<a href=#2218 id=2218 data-nosnippet>2218</a>) -&gt; (Arc&lt;[u8]&gt;, u64, Haplotype) {
-<a href=#2219 id=2219 data-nosnippet>2219</a>    <span class="kw">let </span>full_ref = assembly.reference_bases_shared();
-<a href=#2220 id=2220 data-nosnippet>2220</a>    <span class="kw">let </span>pad_start = assembly.padded_reference_start_1based();
-<a href=#2221 id=2221 data-nosnippet>2221</a>    <span class="kw">let </span>ref_hap = assembly
-<a href=#2222 id=2222 data-nosnippet>2222</a>        .haplotypes
-<a href=#2223 id=2223 data-nosnippet>2223</a>        .iter()
-<a href=#2224 id=2224 data-nosnippet>2224</a>        .find(|h| h.is_reference)
-<a href=#2225 id=2225 data-nosnippet>2225</a>        .cloned()
-<a href=#2226 id=2226 data-nosnippet>2226</a>        .unwrap_or_else(|| Haplotype::new(full_ref.as_ref().to_vec(), <span class="bool-val">true</span>));
-<a href=#2227 id=2227 data-nosnippet>2227</a>    <span class="kw">let </span>apply_pad = ref_hap
-<a href=#2228 id=2228 data-nosnippet>2228</a>        .genome_loc
-<a href=#2229 id=2229 data-nosnippet>2229</a>        .map(|g| g.start_1based())
-<a href=#2230 id=2230 data-nosnippet>2230</a>        .unwrap_or(pad_start);
-<a href=#2231 id=2231 data-nosnippet>2231</a>    <span class="kw">let </span>apply_bases = <span class="kw">if </span>!ref_hap.bases.is_empty() &amp;&amp; ref_hap.bases.len() &lt;= full_ref.len() {
-<a href=#2232 id=2232 data-nosnippet>2232</a>        <span class="kw">if </span>ref_hap.bases.as_slice() == full_ref.as_ref() {
-<a href=#2233 id=2233 data-nosnippet>2233</a>            full_ref
-<a href=#2234 id=2234 data-nosnippet>2234</a>        } <span class="kw">else </span>{
-<a href=#2235 id=2235 data-nosnippet>2235</a>            Arc::&lt;[u8]&gt;::from(ref_hap.bases.as_slice())
-<a href=#2236 id=2236 data-nosnippet>2236</a>        }
-<a href=#2237 id=2237 data-nosnippet>2237</a>    } <span class="kw">else </span>{
-<a href=#2238 id=2238 data-nosnippet>2238</a>        full_ref
-<a href=#2239 id=2239 data-nosnippet>2239</a>    };
-<a href=#2240 id=2240 data-nosnippet>2240</a>    (apply_bases, apply_pad, ref_hap)
-<a href=#2241 id=2241 data-nosnippet>2241</a>}
-<a href=#2242 id=2242 data-nosnippet>2242</a>
-<a href=#2243 id=2243 data-nosnippet>2243</a><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>tag_alt_haplotype_from_reference(
-<a href=#2244 id=2244 data-nosnippet>2244</a>    alt: <span class="kw-2">&amp;mut </span>Haplotype,
-<a href=#2245 id=2245 data-nosnippet>2245</a>    ref_hap: <span class="kw-2">&amp;</span>Haplotype,
-<a href=#2246 id=2246 data-nosnippet>2246</a>    kmer_size: usize,
-<a href=#2247 id=2247 data-nosnippet>2247</a>) {
-<a href=#2248 id=2248 data-nosnippet>2248</a>    alt.kmer_size = kmer_size;
-<a href=#2249 id=2249 data-nosnippet>2249</a>    alt.genome_loc = ref_hap.genome_loc;
-<a href=#2250 id=2250 data-nosnippet>2250</a>    <span class="kw">if </span>alt.alignment_start_hap_wrt_ref == <span class="number">0
-<a href=#2251 id=2251 data-nosnippet>2251</a>        </span>&amp;&amp; !alt.is_reference
-<a href=#2252 id=2252 data-nosnippet>2252</a>        &amp;&amp; (alt.score - SUPPLEMENT_HAPLOTYPE_SCORE).abs() &gt; <span class="number">1e-6
-<a href=#2253 id=2253 data-nosnippet>2253</a>    </span>{
-<a href=#2254 id=2254 data-nosnippet>2254</a>        alt.alignment_start_hap_wrt_ref = ref_hap.alignment_start_hap_wrt_ref;
-<a href=#2255 id=2255 data-nosnippet>2255</a>    }
-<a href=#2256 id=2256 data-nosnippet>2256</a>}
-<a href=#2257 id=2257 data-nosnippet>2257</a>
-<a href=#2258 id=2258 data-nosnippet>2258</a><span class="comment">// Drop read-supplement alts that used the full padded ref instead of the trimmed hap span.
-<a href=#2259 id=2259 data-nosnippet>2259</a></span><span class="macro">include!</span>(<span class="string">"apply_read_events.rs"</span>);
-<a href=#2260 id=2260 data-nosnippet>2260</a>
-<a href=#2261 id=2261 data-nosnippet>2261</a><span class="attr">#[cfg(test)]
-<a href=#2262 id=2262 data-nosnippet>2262</a></span><span class="kw">mod </span>l9_dense_pileup_probe;
-<a href=#2263 id=2263 data-nosnippet>2263</a>
-<a href=#2264 id=2264 data-nosnippet>2264</a><span class="attr">#[cfg(test)]
-<a href=#2265 id=2265 data-nosnippet>2265</a>#[path = <span class="string">"../../tests/discovery/event_discovery_unit.rs"</span>]
-<a href=#2266 id=2266 data-nosnippet>2266</a></span><span class="kw">mod </span>tests;
+<a href=#2195 id=2195 data-nosnippet>2195</a>        <span class="kw-2">&amp;</span>pileup_events,
+<a href=#2196 id=2196 data-nosnippet>2196</a>        sw,
+<a href=#2197 id=2197 data-nosnippet>2197</a>    )<span class="question-mark">?</span>;
+<a href=#2198 id=2198 data-nosnippet>2198</a>    prune_spillover_supplement_haplotypes(assembly);
+<a href=#2199 id=2199 data-nosnippet>2199</a>    <span class="prelude-val">Ok</span>(())
+<a href=#2200 id=2200 data-nosnippet>2200</a>}
+<a href=#2201 id=2201 data-nosnippet>2201</a>
+<a href=#2202 id=2202 data-nosnippet>2202</a><span class="kw">fn </span>ref_bases_empty(assembly: <span class="kw-2">&amp;</span>AssemblyResultSet) -&gt; bool {
+<a href=#2203 id=2203 data-nosnippet>2203</a>    assembly.reference_bases().is_empty()
+<a href=#2204 id=2204 data-nosnippet>2204</a>}
+<a href=#2205 id=2205 data-nosnippet>2205</a>
+<a href=#2206 id=2206 data-nosnippet>2206</a><span class="doccomment">/// When assembly is reference-only, add read-supported haplotypes and refresh variation events.
+<a href=#2207 id=2207 data-nosnippet>2207</a></span><span class="kw">pub fn </span>augment_assembly_with_read_events(
+<a href=#2208 id=2208 data-nosnippet>2208</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
+<a href=#2209 id=2209 data-nosnippet>2209</a>    reads: <span class="kw-2">&amp;</span>[SharedBamRecord],
+<a href=#2210 id=2210 data-nosnippet>2210</a>    active_start_1based: u64,
+<a href=#2211 id=2211 data-nosnippet>2211</a>    active_end_1based: u64,
+<a href=#2212 id=2212 data-nosnippet>2212</a>    sw: <span class="kw-2">&amp;</span>SwParameters,
+<a href=#2213 id=2213 data-nosnippet>2213</a>) -&gt; GatkResult&lt;()&gt; {
+<a href=#2214 id=2214 data-nosnippet>2214</a>    <span class="kw">if </span>assembly.is_variation_present() {
+<a href=#2215 id=2215 data-nosnippet>2215</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#2216 id=2216 data-nosnippet>2216</a>    }
+<a href=#2217 id=2217 data-nosnippet>2217</a>    <span class="kw">let </span>ref_bases = assembly.reference_bases_shared();
+<a href=#2218 id=2218 data-nosnippet>2218</a>    <span class="kw">if </span>ref_bases.is_empty() {
+<a href=#2219 id=2219 data-nosnippet>2219</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#2220 id=2220 data-nosnippet>2220</a>    }
+<a href=#2221 id=2221 data-nosnippet>2221</a>    <span class="kw">let </span>pad_start = assembly.padded_reference_start_1based();
+<a href=#2222 id=2222 data-nosnippet>2222</a>    <span class="kw">let </span>contig = assembly.contig.clone();
+<a href=#2223 id=2223 data-nosnippet>2223</a>    <span class="kw">let </span><span class="kw-2">mut </span>read_events = discover_variation_events_from_reads(
+<a href=#2224 id=2224 data-nosnippet>2224</a>        reads,
+<a href=#2225 id=2225 data-nosnippet>2225</a>        <span class="kw-2">&amp;</span>ref_bases,
+<a href=#2226 id=2226 data-nosnippet>2226</a>        pad_start,
+<a href=#2227 id=2227 data-nosnippet>2227</a>        active_start_1based,
+<a href=#2228 id=2228 data-nosnippet>2228</a>        active_end_1based,
+<a href=#2229 id=2229 data-nosnippet>2229</a>        <span class="kw-2">&amp;</span>contig,
+<a href=#2230 id=2230 data-nosnippet>2230</a>    );
+<a href=#2231 id=2231 data-nosnippet>2231</a>    <span class="kw">for </span>event <span class="kw">in </span>synthesize_cluster_motif_insertions(
+<a href=#2232 id=2232 data-nosnippet>2232</a>        <span class="kw-2">&amp;</span>read_events,
+<a href=#2233 id=2233 data-nosnippet>2233</a>        <span class="kw-2">&amp;</span>ref_bases,
+<a href=#2234 id=2234 data-nosnippet>2234</a>        pad_start,
+<a href=#2235 id=2235 data-nosnippet>2235</a>        active_start_1based,
+<a href=#2236 id=2236 data-nosnippet>2236</a>        active_end_1based,
+<a href=#2237 id=2237 data-nosnippet>2237</a>        <span class="kw-2">&amp;</span>contig,
+<a href=#2238 id=2238 data-nosnippet>2238</a>    ) {
+<a href=#2239 id=2239 data-nosnippet>2239</a>        <span class="kw">if </span>!read_events.iter().any(|e| events_match(e, <span class="kw-2">&amp;</span>event)) {
+<a href=#2240 id=2240 data-nosnippet>2240</a>            read_events.push(event);
+<a href=#2241 id=2241 data-nosnippet>2241</a>        }
+<a href=#2242 id=2242 data-nosnippet>2242</a>    }
+<a href=#2243 id=2243 data-nosnippet>2243</a>    <span class="kw">if </span>read_events.is_empty() {
+<a href=#2244 id=2244 data-nosnippet>2244</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#2245 id=2245 data-nosnippet>2245</a>    }
+<a href=#2246 id=2246 data-nosnippet>2246</a>    apply_read_events_to_assembly(assembly, <span class="kw-2">&amp;</span>ref_bases, pad_start, <span class="kw-2">&amp;</span>contig, <span class="kw-2">&amp;</span>read_events, sw)
+<a href=#2247 id=2247 data-nosnippet>2247</a>}
+<a href=#2248 id=2248 data-nosnippet>2248</a>
+<a href=#2249 id=2249 data-nosnippet>2249</a><span class="doccomment">/// Trimmed reference hap window for event application (ASM-8: match genotyping hap length).
+<a href=#2250 id=2250 data-nosnippet>2250</a>/// Returns shared [`Arc&lt;[u8]&gt;`] bases (refcount bump when identical to assembly reference).
+<a href=#2251 id=2251 data-nosnippet>2251</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>reference_hap_apply_window(
+<a href=#2252 id=2252 data-nosnippet>2252</a>    assembly: <span class="kw-2">&amp;</span>AssemblyResultSet,
+<a href=#2253 id=2253 data-nosnippet>2253</a>) -&gt; (Arc&lt;[u8]&gt;, u64, Haplotype) {
+<a href=#2254 id=2254 data-nosnippet>2254</a>    <span class="kw">let </span>full_ref = assembly.reference_bases_shared();
+<a href=#2255 id=2255 data-nosnippet>2255</a>    <span class="kw">let </span>pad_start = assembly.padded_reference_start_1based();
+<a href=#2256 id=2256 data-nosnippet>2256</a>    <span class="kw">let </span>ref_hap = assembly
+<a href=#2257 id=2257 data-nosnippet>2257</a>        .haplotypes
+<a href=#2258 id=2258 data-nosnippet>2258</a>        .iter()
+<a href=#2259 id=2259 data-nosnippet>2259</a>        .find(|h| h.is_reference)
+<a href=#2260 id=2260 data-nosnippet>2260</a>        .cloned()
+<a href=#2261 id=2261 data-nosnippet>2261</a>        .unwrap_or_else(|| Haplotype::new(full_ref.as_ref().to_vec(), <span class="bool-val">true</span>));
+<a href=#2262 id=2262 data-nosnippet>2262</a>    <span class="kw">let </span>apply_pad = ref_hap
+<a href=#2263 id=2263 data-nosnippet>2263</a>        .genome_loc
+<a href=#2264 id=2264 data-nosnippet>2264</a>        .map(|g| g.start_1based())
+<a href=#2265 id=2265 data-nosnippet>2265</a>        .unwrap_or(pad_start);
+<a href=#2266 id=2266 data-nosnippet>2266</a>    <span class="kw">let </span>apply_bases = <span class="kw">if </span>!ref_hap.bases.is_empty() &amp;&amp; ref_hap.bases.len() &lt;= full_ref.len() {
+<a href=#2267 id=2267 data-nosnippet>2267</a>        <span class="kw">if </span>ref_hap.bases.as_slice() == full_ref.as_ref() {
+<a href=#2268 id=2268 data-nosnippet>2268</a>            full_ref
+<a href=#2269 id=2269 data-nosnippet>2269</a>        } <span class="kw">else </span>{
+<a href=#2270 id=2270 data-nosnippet>2270</a>            Arc::&lt;[u8]&gt;::from(ref_hap.bases.as_slice())
+<a href=#2271 id=2271 data-nosnippet>2271</a>        }
+<a href=#2272 id=2272 data-nosnippet>2272</a>    } <span class="kw">else </span>{
+<a href=#2273 id=2273 data-nosnippet>2273</a>        full_ref
+<a href=#2274 id=2274 data-nosnippet>2274</a>    };
+<a href=#2275 id=2275 data-nosnippet>2275</a>    (apply_bases, apply_pad, ref_hap)
+<a href=#2276 id=2276 data-nosnippet>2276</a>}
+<a href=#2277 id=2277 data-nosnippet>2277</a>
+<a href=#2278 id=2278 data-nosnippet>2278</a><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>tag_alt_haplotype_from_reference(
+<a href=#2279 id=2279 data-nosnippet>2279</a>    alt: <span class="kw-2">&amp;mut </span>Haplotype,
+<a href=#2280 id=2280 data-nosnippet>2280</a>    ref_hap: <span class="kw-2">&amp;</span>Haplotype,
+<a href=#2281 id=2281 data-nosnippet>2281</a>    kmer_size: usize,
+<a href=#2282 id=2282 data-nosnippet>2282</a>) {
+<a href=#2283 id=2283 data-nosnippet>2283</a>    alt.kmer_size = kmer_size;
+<a href=#2284 id=2284 data-nosnippet>2284</a>    alt.genome_loc = ref_hap.genome_loc;
+<a href=#2285 id=2285 data-nosnippet>2285</a>    <span class="kw">if </span>alt.alignment_start_hap_wrt_ref == <span class="number">0
+<a href=#2286 id=2286 data-nosnippet>2286</a>        </span>&amp;&amp; !alt.is_reference
+<a href=#2287 id=2287 data-nosnippet>2287</a>        &amp;&amp; (alt.score - SUPPLEMENT_HAPLOTYPE_SCORE).abs() &gt; <span class="number">1e-6
+<a href=#2288 id=2288 data-nosnippet>2288</a>    </span>{
+<a href=#2289 id=2289 data-nosnippet>2289</a>        alt.alignment_start_hap_wrt_ref = ref_hap.alignment_start_hap_wrt_ref;
+<a href=#2290 id=2290 data-nosnippet>2290</a>    }
+<a href=#2291 id=2291 data-nosnippet>2291</a>}
+<a href=#2292 id=2292 data-nosnippet>2292</a>
+<a href=#2293 id=2293 data-nosnippet>2293</a><span class="comment">// Drop read-supplement alts that used the full padded ref instead of the trimmed hap span.
+<a href=#2294 id=2294 data-nosnippet>2294</a></span><span class="macro">include!</span>(<span class="string">"apply_read_events.rs"</span>);
+<a href=#2295 id=2295 data-nosnippet>2295</a>
+<a href=#2296 id=2296 data-nosnippet>2296</a><span class="attr">#[cfg(test)]
+<a href=#2297 id=2297 data-nosnippet>2297</a></span><span class="kw">mod </span>l9_dense_pileup_probe;
+<a href=#2298 id=2298 data-nosnippet>2298</a>
+<a href=#2299 id=2299 data-nosnippet>2299</a><span class="attr">#[cfg(test)]
+<a href=#2300 id=2300 data-nosnippet>2300</a>#[path = <span class="string">"../../tests/discovery/event_discovery_unit.rs"</span>]
+<a href=#2301 id=2301 data-nosnippet>2301</a></span><span class="kw">mod </span>tests;
 </code></pre></div></section></main></body></html>

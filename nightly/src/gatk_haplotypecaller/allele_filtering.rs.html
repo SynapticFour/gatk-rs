@@ -391,98 +391,117 @@
 <a href=#391 id=391 data-nosnippet>391</a>    </span><span class="kw">if </span>non_ref_kept &gt;= MAX_NON_REF_HAPLOTYPES_FOR_GENOTYPING {
 <a href=#392 id=392 data-nosnippet>392</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(keep);
 <a href=#393 id=393 data-nosnippet>393</a>    }
-<a href=#394 id=394 data-nosnippet>394</a>    <span class="kw">let </span>sums = haplotype_log10_sums_from_region_likelihoods(likelihoods, assembly.haplotypes.len());
-<a href=#395 id=395 data-nosnippet>395</a>    <span class="kw">let </span>hc_scores = haplotype_hc_inverse_pl_scores(assembly, likelihoods, options);
-<a href=#396 id=396 data-nosnippet>396</a>    <span class="kw">let </span><span class="kw-2">mut </span>scored: Vec&lt;(usize, f64)&gt; = assembly
-<a href=#397 id=397 data-nosnippet>397</a>        .haplotypes
-<a href=#398 id=398 data-nosnippet>398</a>        .iter()
-<a href=#399 id=399 data-nosnippet>399</a>        .enumerate()
-<a href=#400 id=400 data-nosnippet>400</a>        .filter(|(i, h)| <span class="kw-2">*</span>i != ref_idx &amp;&amp; !h.is_reference &amp;&amp; !keep[<span class="kw-2">*</span>i])
-<a href=#401 id=401 data-nosnippet>401</a>        .map(|(i, <span class="kw">_</span>)| {
-<a href=#402 id=402 data-nosnippet>402</a>            <span class="kw">let </span>ll_sum = sums.get(i).copied().unwrap_or(f64::NEG_INFINITY);
-<a href=#403 id=403 data-nosnippet>403</a>            <span class="kw">let </span>hc = hc_scores.get(i).copied().unwrap_or(f64::NEG_INFINITY);
-<a href=#404 id=404 data-nosnippet>404</a>            <span class="kw">let </span>score = <span class="kw">if </span>hc.is_finite() {
-<a href=#405 id=405 data-nosnippet>405</a>                hc + ll_sum * HAPLOTYPE_RANK_LL_SUM_TIEBREAK_SCALE
-<a href=#406 id=406 data-nosnippet>406</a>            } <span class="kw">else </span>{
-<a href=#407 id=407 data-nosnippet>407</a>                ll_sum
-<a href=#408 id=408 data-nosnippet>408</a>            };
-<a href=#409 id=409 data-nosnippet>409</a>            (i, score)
-<a href=#410 id=410 data-nosnippet>410</a>        })
-<a href=#411 id=411 data-nosnippet>411</a>        .collect();
-<a href=#412 id=412 data-nosnippet>412</a>    <span class="comment">// R4-2: score-based top-N fill outside contig 2 even under strict SNP-rank options.
-<a href=#413 id=413 data-nosnippet>413</a>    </span><span class="kw">let </span>allow_score_fill =
-<a href=#414 id=414 data-nosnippet>414</a>        !options.strict_java_snp_rank_only || (assembly.contig != <span class="string">"2" </span>&amp;&amp; assembly.contig != <span class="string">"chr2"</span>);
-<a href=#415 id=415 data-nosnippet>415</a>    <span class="kw">if </span>allow_score_fill {
-<a href=#416 id=416 data-nosnippet>416</a>        scored.sort_by(|a, b| b.<span class="number">1</span>.total_cmp(<span class="kw-2">&amp;</span>a.<span class="number">1</span>));
-<a href=#417 id=417 data-nosnippet>417</a>        <span class="kw">for </span>(i, <span class="kw">_</span>) <span class="kw">in </span>scored {
-<a href=#418 id=418 data-nosnippet>418</a>            <span class="kw">if </span>non_ref_kept &gt;= MAX_NON_REF_HAPLOTYPES_FOR_GENOTYPING {
-<a href=#419 id=419 data-nosnippet>419</a>                <span class="kw">break</span>;
-<a href=#420 id=420 data-nosnippet>420</a>            }
-<a href=#421 id=421 data-nosnippet>421</a>            keep[i] = <span class="bool-val">true</span>;
-<a href=#422 id=422 data-nosnippet>422</a>            non_ref_kept += <span class="number">1</span>;
-<a href=#423 id=423 data-nosnippet>423</a>        }
-<a href=#424 id=424 data-nosnippet>424</a>    }
-<a href=#425 id=425 data-nosnippet>425</a>    <span class="prelude-val">Ok</span>(keep)
-<a href=#426 id=426 data-nosnippet>426</a>}
-<a href=#427 id=427 data-nosnippet>427</a>
-<a href=#428 id=428 data-nosnippet>428</a><span class="doccomment">/// Keep reference + top-scoring non-ref haplotypes (Java filters noisy graph paths).
-<a href=#429 id=429 data-nosnippet>429</a></span><span class="kw">pub fn </span>filter_haplotypes_for_genotyping(assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet) -&gt; GatkResult&lt;()&gt; {
-<a href=#430 id=430 data-nosnippet>430</a>    ensure_reference_haplotype(<span class="kw-2">&amp;mut </span>assembly.haplotypes);
-<a href=#431 id=431 data-nosnippet>431</a>    <span class="kw">let </span>keep = select_haplotype_keep_mask(
-<a href=#432 id=432 data-nosnippet>432</a>        assembly,
-<a href=#433 id=433 data-nosnippet>433</a>        <span class="kw-2">&amp;</span>[],
-<a href=#434 id=434 data-nosnippet>434</a>        <span class="kw">crate</span>::allele_filter_options::AlleleFilterOptions::unrestricted(),
-<a href=#435 id=435 data-nosnippet>435</a>    )<span class="question-mark">?</span>;
-<a href=#436 id=436 data-nosnippet>436</a>    <span class="kw">let </span>old = std::mem::take(<span class="kw-2">&amp;mut </span>assembly.haplotypes);
-<a href=#437 id=437 data-nosnippet>437</a>    assembly.haplotypes = old
-<a href=#438 id=438 data-nosnippet>438</a>        .into_iter()
-<a href=#439 id=439 data-nosnippet>439</a>        .enumerate()
-<a href=#440 id=440 data-nosnippet>440</a>        .filter(|(i, <span class="kw">_</span>)| keep[<span class="kw-2">*</span>i])
-<a href=#441 id=441 data-nosnippet>441</a>        .map(|(<span class="kw">_</span>, h)| h)
-<a href=#442 id=442 data-nosnippet>442</a>        .collect();
-<a href=#443 id=443 data-nosnippet>443</a>    <span class="prelude-val">Ok</span>(())
-<a href=#444 id=444 data-nosnippet>444</a>}
-<a href=#445 id=445 data-nosnippet>445</a>
-<a href=#446 id=446 data-nosnippet>446</a><span class="doccomment">/// Remap read likelihood rows after haplotype indices were filtered.
-<a href=#447 id=447 data-nosnippet>447</a></span><span class="kw">pub fn </span>remap_read_likelihoods_after_hap_filter(
-<a href=#448 id=448 data-nosnippet>448</a>    likelihoods: Vec&lt;RegionReadLikelihood&gt;,
-<a href=#449 id=449 data-nosnippet>449</a>    old_to_new: <span class="kw-2">&amp;</span>[<span class="prelude-ty">Option</span>&lt;usize&gt;],
-<a href=#450 id=450 data-nosnippet>450</a>) -&gt; Vec&lt;RegionReadLikelihood&gt; {
-<a href=#451 id=451 data-nosnippet>451</a>    likelihoods
-<a href=#452 id=452 data-nosnippet>452</a>        .into_iter()
-<a href=#453 id=453 data-nosnippet>453</a>        .filter_map(|rl| {
-<a href=#454 id=454 data-nosnippet>454</a>            old_to_new.get(rl.haplotype_index.get()).and_then(|o| {
-<a href=#455 id=455 data-nosnippet>455</a>                o.map(|new_hi| RegionReadLikelihood {
-<a href=#456 id=456 data-nosnippet>456</a>                    haplotype_index: <span class="kw">crate</span>::bio_ids::HaplotypeIndex::new(new_hi),
-<a href=#457 id=457 data-nosnippet>457</a>                    ..rl
-<a href=#458 id=458 data-nosnippet>458</a>                })
-<a href=#459 id=459 data-nosnippet>459</a>            })
-<a href=#460 id=460 data-nosnippet>460</a>        })
-<a href=#461 id=461 data-nosnippet>461</a>        .collect()
-<a href=#462 id=462 data-nosnippet>462</a>}
-<a href=#463 id=463 data-nosnippet>463</a>
-<a href=#464 id=464 data-nosnippet>464</a><span class="doccomment">/// Filter assembly haplotypes and remap likelihood indices.
-<a href=#465 id=465 data-nosnippet>465</a></span><span class="kw">pub fn </span>filter_assembly_and_likelihoods(
-<a href=#466 id=466 data-nosnippet>466</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
-<a href=#467 id=467 data-nosnippet>467</a>    likelihoods: Vec&lt;RegionReadLikelihood&gt;,
-<a href=#468 id=468 data-nosnippet>468</a>    options: <span class="kw">crate</span>::allele_filter_options::AlleleFilterOptions,
-<a href=#469 id=469 data-nosnippet>469</a>) -&gt; GatkResult&lt;Vec&lt;RegionReadLikelihood&gt;&gt; {
-<a href=#470 id=470 data-nosnippet>470</a>    ensure_reference_haplotype(<span class="kw-2">&amp;mut </span>assembly.haplotypes);
-<a href=#471 id=471 data-nosnippet>471</a>    <span class="kw">let </span>old_len = assembly.haplotypes.len();
-<a href=#472 id=472 data-nosnippet>472</a>    <span class="kw">let </span>keep = select_haplotype_keep_mask(assembly, <span class="kw-2">&amp;</span>likelihoods, options)<span class="question-mark">?</span>;
-<a href=#473 id=473 data-nosnippet>473</a>    <span class="kw">let </span><span class="kw-2">mut </span>old_to_new = <span class="macro">vec!</span>[<span class="prelude-val">None</span>; old_len];
-<a href=#474 id=474 data-nosnippet>474</a>    <span class="kw">let </span><span class="kw-2">mut </span>haplotypes = Vec::new();
-<a href=#475 id=475 data-nosnippet>475</a>    <span class="kw">let </span>old = std::mem::take(<span class="kw-2">&amp;mut </span>assembly.haplotypes);
-<a href=#476 id=476 data-nosnippet>476</a>    <span class="kw">for </span>(i, h) <span class="kw">in </span>old.into_iter().enumerate() {
-<a href=#477 id=477 data-nosnippet>477</a>        <span class="kw">if </span>keep[i] {
-<a href=#478 id=478 data-nosnippet>478</a>            old_to_new[i] = <span class="prelude-val">Some</span>(haplotypes.len());
-<a href=#479 id=479 data-nosnippet>479</a>            haplotypes.push(h);
-<a href=#480 id=480 data-nosnippet>480</a>        }
-<a href=#481 id=481 data-nosnippet>481</a>    }
-<a href=#482 id=482 data-nosnippet>482</a>    assembly.haplotypes = haplotypes;
-<a href=#483 id=483 data-nosnippet>483</a>    <span class="prelude-val">Ok</span>(remap_read_likelihoods_after_hap_filter(
-<a href=#484 id=484 data-nosnippet>484</a>        likelihoods,
-<a href=#485 id=485 data-nosnippet>485</a>        <span class="kw-2">&amp;</span>old_to_new,
-<a href=#486 id=486 data-nosnippet>486</a>    ))
-<a href=#487 id=487 data-nosnippet>487</a>}
+<a href=#394 id=394 data-nosnippet>394</a>    <span class="comment">// All non-ref already retained (or none left to rank) — skip PL scoring.
+<a href=#395 id=395 data-nosnippet>395</a>    </span><span class="kw">let </span>n_non_ref = assembly.haplotypes.len().saturating_sub(<span class="number">1</span>);
+<a href=#396 id=396 data-nosnippet>396</a>    <span class="kw">if </span>non_ref_kept &gt;= n_non_ref {
+<a href=#397 id=397 data-nosnippet>397</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(keep);
+<a href=#398 id=398 data-nosnippet>398</a>    }
+<a href=#399 id=399 data-nosnippet>399</a>    <span class="comment">// R4-2: score-based top-N fill outside contig 2 even under strict SNP-rank options.
+<a href=#400 id=400 data-nosnippet>400</a>    </span><span class="kw">let </span>allow_score_fill =
+<a href=#401 id=401 data-nosnippet>401</a>        !options.strict_java_snp_rank_only || (assembly.contig != <span class="string">"2" </span>&amp;&amp; assembly.contig != <span class="string">"chr2"</span>);
+<a href=#402 id=402 data-nosnippet>402</a>    <span class="comment">// When every remaining non-ref fits under the GATK cap, ranking cannot change the keep
+<a href=#403 id=403 data-nosnippet>403</a>    // set — skip HC-inverse PL (dominant on dense EventMaps with few haplotypes).
+<a href=#404 id=404 data-nosnippet>404</a>    </span><span class="kw">if </span>allow_score_fill &amp;&amp; n_non_ref &lt;= MAX_NON_REF_HAPLOTYPES_FOR_GENOTYPING {
+<a href=#405 id=405 data-nosnippet>405</a>        <span class="kw">for </span>(i, h) <span class="kw">in </span>assembly.haplotypes.iter().enumerate() {
+<a href=#406 id=406 data-nosnippet>406</a>            <span class="kw">if </span>i != ref_idx &amp;&amp; !h.is_reference {
+<a href=#407 id=407 data-nosnippet>407</a>                keep[i] = <span class="bool-val">true</span>;
+<a href=#408 id=408 data-nosnippet>408</a>            }
+<a href=#409 id=409 data-nosnippet>409</a>        }
+<a href=#410 id=410 data-nosnippet>410</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(keep);
+<a href=#411 id=411 data-nosnippet>411</a>    }
+<a href=#412 id=412 data-nosnippet>412</a>    <span class="kw">let </span>sums = haplotype_log10_sums_from_region_likelihoods(likelihoods, assembly.haplotypes.len());
+<a href=#413 id=413 data-nosnippet>413</a>    <span class="kw">let </span>hc_scores = haplotype_hc_inverse_pl_scores(assembly, likelihoods, options);
+<a href=#414 id=414 data-nosnippet>414</a>    <span class="kw">let </span><span class="kw-2">mut </span>scored: Vec&lt;(usize, f64)&gt; = assembly
+<a href=#415 id=415 data-nosnippet>415</a>        .haplotypes
+<a href=#416 id=416 data-nosnippet>416</a>        .iter()
+<a href=#417 id=417 data-nosnippet>417</a>        .enumerate()
+<a href=#418 id=418 data-nosnippet>418</a>        .filter(|(i, h)| <span class="kw-2">*</span>i != ref_idx &amp;&amp; !h.is_reference &amp;&amp; !keep[<span class="kw-2">*</span>i])
+<a href=#419 id=419 data-nosnippet>419</a>        .map(|(i, <span class="kw">_</span>)| {
+<a href=#420 id=420 data-nosnippet>420</a>            <span class="kw">let </span>ll_sum = sums.get(i).copied().unwrap_or(f64::NEG_INFINITY);
+<a href=#421 id=421 data-nosnippet>421</a>            <span class="kw">let </span>hc = hc_scores.get(i).copied().unwrap_or(f64::NEG_INFINITY);
+<a href=#422 id=422 data-nosnippet>422</a>            <span class="kw">let </span>score = <span class="kw">if </span>hc.is_finite() {
+<a href=#423 id=423 data-nosnippet>423</a>                hc + ll_sum * HAPLOTYPE_RANK_LL_SUM_TIEBREAK_SCALE
+<a href=#424 id=424 data-nosnippet>424</a>            } <span class="kw">else </span>{
+<a href=#425 id=425 data-nosnippet>425</a>                ll_sum
+<a href=#426 id=426 data-nosnippet>426</a>            };
+<a href=#427 id=427 data-nosnippet>427</a>            (i, score)
+<a href=#428 id=428 data-nosnippet>428</a>        })
+<a href=#429 id=429 data-nosnippet>429</a>        .collect();
+<a href=#430 id=430 data-nosnippet>430</a>    <span class="kw">if </span>allow_score_fill {
+<a href=#431 id=431 data-nosnippet>431</a>        scored.sort_by(|a, b| b.<span class="number">1</span>.total_cmp(<span class="kw-2">&amp;</span>a.<span class="number">1</span>));
+<a href=#432 id=432 data-nosnippet>432</a>        <span class="kw">for </span>(i, <span class="kw">_</span>) <span class="kw">in </span>scored {
+<a href=#433 id=433 data-nosnippet>433</a>            <span class="kw">if </span>non_ref_kept &gt;= MAX_NON_REF_HAPLOTYPES_FOR_GENOTYPING {
+<a href=#434 id=434 data-nosnippet>434</a>                <span class="kw">break</span>;
+<a href=#435 id=435 data-nosnippet>435</a>            }
+<a href=#436 id=436 data-nosnippet>436</a>            keep[i] = <span class="bool-val">true</span>;
+<a href=#437 id=437 data-nosnippet>437</a>            non_ref_kept += <span class="number">1</span>;
+<a href=#438 id=438 data-nosnippet>438</a>        }
+<a href=#439 id=439 data-nosnippet>439</a>    }
+<a href=#440 id=440 data-nosnippet>440</a>    <span class="prelude-val">Ok</span>(keep)
+<a href=#441 id=441 data-nosnippet>441</a>}
+<a href=#442 id=442 data-nosnippet>442</a>
+<a href=#443 id=443 data-nosnippet>443</a><span class="doccomment">/// Keep reference + top-scoring non-ref haplotypes (Java filters noisy graph paths).
+<a href=#444 id=444 data-nosnippet>444</a></span><span class="kw">pub fn </span>filter_haplotypes_for_genotyping(assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet) -&gt; GatkResult&lt;()&gt; {
+<a href=#445 id=445 data-nosnippet>445</a>    ensure_reference_haplotype(<span class="kw-2">&amp;mut </span>assembly.haplotypes);
+<a href=#446 id=446 data-nosnippet>446</a>    <span class="kw">let </span>keep = select_haplotype_keep_mask(
+<a href=#447 id=447 data-nosnippet>447</a>        assembly,
+<a href=#448 id=448 data-nosnippet>448</a>        <span class="kw-2">&amp;</span>[],
+<a href=#449 id=449 data-nosnippet>449</a>        <span class="kw">crate</span>::allele_filter_options::AlleleFilterOptions::unrestricted(),
+<a href=#450 id=450 data-nosnippet>450</a>    )<span class="question-mark">?</span>;
+<a href=#451 id=451 data-nosnippet>451</a>    <span class="kw">let </span>old = std::mem::take(<span class="kw-2">&amp;mut </span>assembly.haplotypes);
+<a href=#452 id=452 data-nosnippet>452</a>    assembly.haplotypes = old
+<a href=#453 id=453 data-nosnippet>453</a>        .into_iter()
+<a href=#454 id=454 data-nosnippet>454</a>        .enumerate()
+<a href=#455 id=455 data-nosnippet>455</a>        .filter(|(i, <span class="kw">_</span>)| keep[<span class="kw-2">*</span>i])
+<a href=#456 id=456 data-nosnippet>456</a>        .map(|(<span class="kw">_</span>, h)| h)
+<a href=#457 id=457 data-nosnippet>457</a>        .collect();
+<a href=#458 id=458 data-nosnippet>458</a>    <span class="prelude-val">Ok</span>(())
+<a href=#459 id=459 data-nosnippet>459</a>}
+<a href=#460 id=460 data-nosnippet>460</a>
+<a href=#461 id=461 data-nosnippet>461</a><span class="doccomment">/// Remap read likelihood rows after haplotype indices were filtered.
+<a href=#462 id=462 data-nosnippet>462</a></span><span class="kw">pub fn </span>remap_read_likelihoods_after_hap_filter(
+<a href=#463 id=463 data-nosnippet>463</a>    likelihoods: Vec&lt;RegionReadLikelihood&gt;,
+<a href=#464 id=464 data-nosnippet>464</a>    old_to_new: <span class="kw-2">&amp;</span>[<span class="prelude-ty">Option</span>&lt;usize&gt;],
+<a href=#465 id=465 data-nosnippet>465</a>) -&gt; Vec&lt;RegionReadLikelihood&gt; {
+<a href=#466 id=466 data-nosnippet>466</a>    likelihoods
+<a href=#467 id=467 data-nosnippet>467</a>        .into_iter()
+<a href=#468 id=468 data-nosnippet>468</a>        .filter_map(|rl| {
+<a href=#469 id=469 data-nosnippet>469</a>            old_to_new.get(rl.haplotype_index.get()).and_then(|o| {
+<a href=#470 id=470 data-nosnippet>470</a>                o.map(|new_hi| RegionReadLikelihood {
+<a href=#471 id=471 data-nosnippet>471</a>                    haplotype_index: <span class="kw">crate</span>::bio_ids::HaplotypeIndex::new(new_hi),
+<a href=#472 id=472 data-nosnippet>472</a>                    ..rl
+<a href=#473 id=473 data-nosnippet>473</a>                })
+<a href=#474 id=474 data-nosnippet>474</a>            })
+<a href=#475 id=475 data-nosnippet>475</a>        })
+<a href=#476 id=476 data-nosnippet>476</a>        .collect()
+<a href=#477 id=477 data-nosnippet>477</a>}
+<a href=#478 id=478 data-nosnippet>478</a>
+<a href=#479 id=479 data-nosnippet>479</a><span class="doccomment">/// Filter assembly haplotypes and remap likelihood indices.
+<a href=#480 id=480 data-nosnippet>480</a></span><span class="kw">pub fn </span>filter_assembly_and_likelihoods(
+<a href=#481 id=481 data-nosnippet>481</a>    assembly: <span class="kw-2">&amp;mut </span>AssemblyResultSet,
+<a href=#482 id=482 data-nosnippet>482</a>    likelihoods: Vec&lt;RegionReadLikelihood&gt;,
+<a href=#483 id=483 data-nosnippet>483</a>    options: <span class="kw">crate</span>::allele_filter_options::AlleleFilterOptions,
+<a href=#484 id=484 data-nosnippet>484</a>) -&gt; GatkResult&lt;Vec&lt;RegionReadLikelihood&gt;&gt; {
+<a href=#485 id=485 data-nosnippet>485</a>    ensure_reference_haplotype(<span class="kw-2">&amp;mut </span>assembly.haplotypes);
+<a href=#486 id=486 data-nosnippet>486</a>    <span class="kw">let </span>old_len = assembly.haplotypes.len();
+<a href=#487 id=487 data-nosnippet>487</a>    <span class="kw">let </span>keep = select_haplotype_keep_mask(assembly, <span class="kw-2">&amp;</span>likelihoods, options)<span class="question-mark">?</span>;
+<a href=#488 id=488 data-nosnippet>488</a>    <span class="comment">// Dense NA12878: keep-mask is often all-true — skip hap rebuild + LL remap.
+<a href=#489 id=489 data-nosnippet>489</a>    </span><span class="kw">if </span>keep.iter().all(|<span class="kw-2">&amp;</span>k| k) {
+<a href=#490 id=490 data-nosnippet>490</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(likelihoods);
+<a href=#491 id=491 data-nosnippet>491</a>    }
+<a href=#492 id=492 data-nosnippet>492</a>    <span class="kw">let </span><span class="kw-2">mut </span>old_to_new = <span class="macro">vec!</span>[<span class="prelude-val">None</span>; old_len];
+<a href=#493 id=493 data-nosnippet>493</a>    <span class="kw">let </span><span class="kw-2">mut </span>haplotypes = Vec::new();
+<a href=#494 id=494 data-nosnippet>494</a>    <span class="kw">let </span>old = std::mem::take(<span class="kw-2">&amp;mut </span>assembly.haplotypes);
+<a href=#495 id=495 data-nosnippet>495</a>    <span class="kw">for </span>(i, h) <span class="kw">in </span>old.into_iter().enumerate() {
+<a href=#496 id=496 data-nosnippet>496</a>        <span class="kw">if </span>keep[i] {
+<a href=#497 id=497 data-nosnippet>497</a>            old_to_new[i] = <span class="prelude-val">Some</span>(haplotypes.len());
+<a href=#498 id=498 data-nosnippet>498</a>            haplotypes.push(h);
+<a href=#499 id=499 data-nosnippet>499</a>        }
+<a href=#500 id=500 data-nosnippet>500</a>    }
+<a href=#501 id=501 data-nosnippet>501</a>    assembly.haplotypes = haplotypes;
+<a href=#502 id=502 data-nosnippet>502</a>    <span class="prelude-val">Ok</span>(remap_read_likelihoods_after_hap_filter(
+<a href=#503 id=503 data-nosnippet>503</a>        likelihoods,
+<a href=#504 id=504 data-nosnippet>504</a>        <span class="kw-2">&amp;</span>old_to_new,
+<a href=#505 id=505 data-nosnippet>505</a>    ))
+<a href=#506 id=506 data-nosnippet>506</a>}
 </code></pre></div></section></main></body></html>

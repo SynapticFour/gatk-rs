@@ -9,7 +9,7 @@
 <a href=#9 id=9 data-nosnippet>9</a>    consolidated_padded_cigar, left_align_indels_for_read, read_start_on_reference_haplotype,
 <a href=#10 id=10 data-nosnippet>10</a>    trim_cigar_by_bases_public,
 <a href=#11 id=11 data-nosnippet>11</a>};
-<a href=#12 id=12 data-nosnippet>12</a><span class="kw">use </span><span class="kw">crate</span>::read_unclip::hard_clip_soft_clipped_bases;
+<a href=#12 id=12 data-nosnippet>12</a><span class="kw">use </span><span class="kw">crate</span>::read_unclip::hard_clip_soft_clipped_bases_seq;
 <a href=#13 id=13 data-nosnippet>13</a><span class="kw">use </span><span class="kw">crate</span>::region_read_likelihood::RegionReadLikelihood;
 <a href=#14 id=14 data-nosnippet>14</a><span class="kw">use </span><span class="kw">crate</span>::smith_waterman::{align_read_to_best_haplotype, SwParameters <span class="kw">as </span>SwParams};
 <a href=#15 id=15 data-nosnippet>15</a><span class="kw">use </span>gatk_common::GatkResult;
@@ -53,435 +53,538 @@
 <a href=#53 id=53 data-nosnippet>53</a>        .iter()
 <a href=#54 id=54 data-nosnippet>54</a>        .map(haplotype_alignment_tiebreak_priority)
 <a href=#55 id=55 data-nosnippet>55</a>        .collect();
-<a href=#56 id=56 data-nosnippet>56</a>    <span class="kw">let </span><span class="kw-2">mut </span>changed = <span class="bool-val">false</span>;
-<a href=#57 id=57 data-nosnippet>57</a>    <span class="kw">let </span><span class="kw-2">mut </span>best_per_read = <span class="macro">vec!</span>[ref_idx; reads.len()];
-<a href=#58 id=58 data-nosnippet>58</a>    <span class="kw">for </span>(ri, slot) <span class="kw">in </span>reads.iter_mut().enumerate() {
-<a href=#59 id=59 data-nosnippet>59</a>        <span class="kw">let </span>rec = slot.make_mut();
-<a href=#60 id=60 data-nosnippet>60</a>        <span class="kw">if </span>rec.is_unmapped() {
-<a href=#61 id=61 data-nosnippet>61</a>            <span class="kw">continue</span>;
-<a href=#62 id=62 data-nosnippet>62</a>        }
-<a href=#63 id=63 data-nosnippet>63</a>        <span class="kw">let </span>best_hi = best_haplotype_index_for_read(ri, haplotypes, read_likelihoods, <span class="kw-2">&amp;</span>priorities);
-<a href=#64 id=64 data-nosnippet>64</a>        best_per_read[ri] = best_hi;
-<a href=#65 id=65 data-nosnippet>65</a>        <span class="kw">if </span>create_read_aligned_to_ref(
-<a href=#66 id=66 data-nosnippet>66</a>            rec,
-<a href=#67 id=67 data-nosnippet>67</a>            <span class="kw-2">&amp;</span>haplotypes[best_hi],
-<a href=#68 id=68 data-nosnippet>68</a>            ref_hap,
-<a href=#69 id=69 data-nosnippet>69</a>            padded_reference_start_1based,
-<a href=#70 id=70 data-nosnippet>70</a>            hap_to_ref_sw,
-<a href=#71 id=71 data-nosnippet>71</a>        )<span class="question-mark">? </span>{
-<a href=#72 id=72 data-nosnippet>72</a>            changed = <span class="bool-val">true</span>;
-<a href=#73 id=73 data-nosnippet>73</a>        }
-<a href=#74 id=74 data-nosnippet>74</a>    }
-<a href=#75 id=75 data-nosnippet>75</a>    <span class="prelude-val">Ok</span>((changed, best_per_read))
-<a href=#76 id=76 data-nosnippet>76</a>}
-<a href=#77 id=77 data-nosnippet>77</a>
-<a href=#78 id=78 data-nosnippet>78</a><span class="doccomment">/// GATK `AlleleLikelihoods.searchBestAllele` + `HAPLOTYPE_ALIGNMENT_TIEBREAKING_PRIORITY`.
-<a href=#79 id=79 data-nosnippet>79</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>best_haplotype_index_for_read(
-<a href=#80 id=80 data-nosnippet>80</a>    read_index: usize,
-<a href=#81 id=81 data-nosnippet>81</a>    haplotypes: <span class="kw-2">&amp;</span>[Haplotype],
-<a href=#82 id=82 data-nosnippet>82</a>    read_likelihoods: <span class="kw-2">&amp;</span>[RegionReadLikelihood],
-<a href=#83 id=83 data-nosnippet>83</a>    priorities: <span class="kw-2">&amp;</span>[f64],
-<a href=#84 id=84 data-nosnippet>84</a>) -&gt; usize {
-<a href=#85 id=85 data-nosnippet>85</a>    <span class="kw">let </span>hap_count = haplotypes.len();
-<a href=#86 id=86 data-nosnippet>86</a>    <span class="kw">if </span>hap_count == <span class="number">0 </span>{
-<a href=#87 id=87 data-nosnippet>87</a>        <span class="kw">return </span><span class="number">0</span>;
-<a href=#88 id=88 data-nosnippet>88</a>    }
-<a href=#89 id=89 data-nosnippet>89</a>    <span class="kw">let </span>ll = |hi: usize| -&gt; f64 {
-<a href=#90 id=90 data-nosnippet>90</a>        read_likelihoods
-<a href=#91 id=91 data-nosnippet>91</a>            .iter()
-<a href=#92 id=92 data-nosnippet>92</a>            .find(|r| r.read_index.get() == read_index &amp;&amp; r.haplotype_index.get() == hi)
-<a href=#93 id=93 data-nosnippet>93</a>            .map(|r| r.log10_likelihood)
-<a href=#94 id=94 data-nosnippet>94</a>            .unwrap_or(f64::NEG_INFINITY)
-<a href=#95 id=95 data-nosnippet>95</a>    };
-<a href=#96 id=96 data-nosnippet>96</a>
-<a href=#97 id=97 data-nosnippet>97</a>    <span class="kw">let </span><span class="kw-2">mut </span>best_a = <span class="number">0usize</span>;
-<a href=#98 id=98 data-nosnippet>98</a>    <span class="kw">let </span><span class="kw-2">mut </span>second_a = <span class="number">0usize</span>;
-<a href=#99 id=99 data-nosnippet>99</a>    <span class="kw">let </span><span class="kw-2">mut </span>best_ll = ll(<span class="number">0</span>);
-<a href=#100 id=100 data-nosnippet>100</a>    <span class="kw">let </span><span class="kw-2">mut </span>second_ll = f64::NEG_INFINITY;
-<a href=#101 id=101 data-nosnippet>101</a>    <span class="kw">for </span>a <span class="kw">in </span><span class="number">1</span>..hap_count {
-<a href=#102 id=102 data-nosnippet>102</a>        <span class="kw">let </span>candidate = ll(a);
-<a href=#103 id=103 data-nosnippet>103</a>        <span class="kw">if </span>candidate &gt; best_ll {
-<a href=#104 id=104 data-nosnippet>104</a>            second_a = best_a;
-<a href=#105 id=105 data-nosnippet>105</a>            second_ll = best_ll;
-<a href=#106 id=106 data-nosnippet>106</a>            best_a = a;
-<a href=#107 id=107 data-nosnippet>107</a>            best_ll = candidate;
-<a href=#108 id=108 data-nosnippet>108</a>        } <span class="kw">else if </span>candidate &gt; second_ll {
-<a href=#109 id=109 data-nosnippet>109</a>            second_a = a;
-<a href=#110 id=110 data-nosnippet>110</a>            second_ll = candidate;
-<a href=#111 id=111 data-nosnippet>111</a>        }
-<a href=#112 id=112 data-nosnippet>112</a>    }
-<a href=#113 id=113 data-nosnippet>113</a>
-<a href=#114 id=114 data-nosnippet>114</a>    <span class="kw">if </span>best_ll - second_ll &lt; LOG_10_INFORMATIVE_THRESHOLD {
-<a href=#115 id=115 data-nosnippet>115</a>        <span class="kw">let </span><span class="kw-2">mut </span>tie_best = best_a;
-<a href=#116 id=116 data-nosnippet>116</a>        <span class="kw">let </span><span class="kw-2">mut </span>tie_second = second_a;
-<a href=#117 id=117 data-nosnippet>117</a>        <span class="kw">let </span><span class="kw-2">mut </span>tie_best_pri = priorities.get(best_a).copied().unwrap_or(<span class="number">0.0</span>);
-<a href=#118 id=118 data-nosnippet>118</a>        <span class="kw">let </span><span class="kw-2">mut </span>tie_second_pri = priorities.get(second_a).copied().unwrap_or(<span class="number">0.0</span>);
-<a href=#119 id=119 data-nosnippet>119</a>        <span class="kw">for </span>a <span class="kw">in </span><span class="number">0</span>..hap_count {
-<a href=#120 id=120 data-nosnippet>120</a>            <span class="kw">let </span>candidate = ll(a);
-<a href=#121 id=121 data-nosnippet>121</a>            <span class="kw">if </span>a == best_a || best_ll - candidate &gt; LOG_10_INFORMATIVE_THRESHOLD {
-<a href=#122 id=122 data-nosnippet>122</a>                <span class="kw">continue</span>;
-<a href=#123 id=123 data-nosnippet>123</a>            }
-<a href=#124 id=124 data-nosnippet>124</a>            <span class="kw">let </span>pri = priorities.get(a).copied().unwrap_or(<span class="number">0.0</span>);
-<a href=#125 id=125 data-nosnippet>125</a>            <span class="kw">if </span>pri &gt; tie_best_pri {
-<a href=#126 id=126 data-nosnippet>126</a>                tie_second = tie_best;
-<a href=#127 id=127 data-nosnippet>127</a>                tie_second_pri = tie_best_pri;
-<a href=#128 id=128 data-nosnippet>128</a>                tie_best = a;
-<a href=#129 id=129 data-nosnippet>129</a>                tie_best_pri = pri;
-<a href=#130 id=130 data-nosnippet>130</a>            } <span class="kw">else if </span>pri &gt; tie_second_pri {
-<a href=#131 id=131 data-nosnippet>131</a>                tie_second = a;
-<a href=#132 id=132 data-nosnippet>132</a>                tie_second_pri = pri;
-<a href=#133 id=133 data-nosnippet>133</a>            }
-<a href=#134 id=134 data-nosnippet>134</a>        }
-<a href=#135 id=135 data-nosnippet>135</a>        best_a = tie_best;
-<a href=#136 id=136 data-nosnippet>136</a>        second_a = tie_second;
-<a href=#137 id=137 data-nosnippet>137</a>        best_ll = ll(best_a);
-<a href=#138 id=138 data-nosnippet>138</a>        second_ll = <span class="kw">if </span>second_a != best_a {
-<a href=#139 id=139 data-nosnippet>139</a>            ll(second_a)
-<a href=#140 id=140 data-nosnippet>140</a>        } <span class="kw">else </span>{
-<a href=#141 id=141 data-nosnippet>141</a>            f64::NEG_INFINITY
-<a href=#142 id=142 data-nosnippet>142</a>        };
-<a href=#143 id=143 data-nosnippet>143</a>    }
-<a href=#144 id=144 data-nosnippet>144</a>    <span class="kw">let _ </span>= (best_ll, second_ll);
-<a href=#145 id=145 data-nosnippet>145</a>    best_a
-<a href=#146 id=146 data-nosnippet>146</a>}
-<a href=#147 id=147 data-nosnippet>147</a>
-<a href=#148 id=148 data-nosnippet>148</a><span class="doccomment">/// GATK `changeEvidence`: read objects were updated in realign; **PairHMM matrix unchanged**.
-<a href=#149 id=149 data-nosnippet>149</a></span><span class="kw">pub fn </span>change_evidence_to_best_haplotype(
-<a href=#150 id=150 data-nosnippet>150</a>    likelihoods: Vec&lt;RegionReadLikelihood&gt;,
-<a href=#151 id=151 data-nosnippet>151</a>    _best_hap_per_read: <span class="kw-2">&amp;</span>[usize],
-<a href=#152 id=152 data-nosnippet>152</a>) -&gt; Vec&lt;RegionReadLikelihood&gt; {
-<a href=#153 id=153 data-nosnippet>153</a>    likelihoods
-<a href=#154 id=154 data-nosnippet>154</a>}
-<a href=#155 id=155 data-nosnippet>155</a>
-<a href=#156 id=156 data-nosnippet>156</a><span class="kw">fn </span>consolidate_cigar(cigar: <span class="kw-2">&amp;</span>Cigar) -&gt; Cigar {
-<a href=#157 id=157 data-nosnippet>157</a>    <span class="kw">let </span><span class="kw-2">mut </span>builder = CigarBuilder::new(<span class="bool-val">false</span>);
-<a href=#158 id=158 data-nosnippet>158</a>    <span class="kw">for </span>e <span class="kw">in </span><span class="kw-2">&amp;</span>cigar.elements {
-<a href=#159 id=159 data-nosnippet>159</a>        builder.add(<span class="kw-2">*</span>e);
-<a href=#160 id=160 data-nosnippet>160</a>    }
-<a href=#161 id=161 data-nosnippet>161</a>    builder.make_and_record().cigar
-<a href=#162 id=162 data-nosnippet>162</a>}
-<a href=#163 id=163 data-nosnippet>163</a>
-<a href=#164 id=164 data-nosnippet>164</a><span class="kw">fn </span>edge_clips_from_record(rec: <span class="kw-2">&amp;</span>Record) -&gt; (Vec&lt;CigarElement&gt;, Vec&lt;CigarElement&gt;) {
-<a href=#165 id=165 data-nosnippet>165</a>    <span class="kw">let </span><span class="kw-2">mut </span>leading = Vec::new();
-<a href=#166 id=166 data-nosnippet>166</a>    <span class="kw">for </span>hts <span class="kw">in </span>rec.cigar().iter() {
-<a href=#167 id=167 data-nosnippet>167</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>((len, op)) = clip_from_hts(<span class="kw-2">*</span>hts) {
-<a href=#168 id=168 data-nosnippet>168</a>            leading.push(CigarElement {
-<a href=#169 id=169 data-nosnippet>169</a>                length: len,
-<a href=#170 id=170 data-nosnippet>170</a>                operator: op,
-<a href=#171 id=171 data-nosnippet>171</a>            });
-<a href=#172 id=172 data-nosnippet>172</a>        } <span class="kw">else </span>{
-<a href=#173 id=173 data-nosnippet>173</a>            <span class="kw">break</span>;
-<a href=#174 id=174 data-nosnippet>174</a>        }
-<a href=#175 id=175 data-nosnippet>175</a>    }
-<a href=#176 id=176 data-nosnippet>176</a>    <span class="kw">let </span><span class="kw-2">mut </span>rev_trailing = Vec::new();
-<a href=#177 id=177 data-nosnippet>177</a>    <span class="kw">for </span>hts <span class="kw">in </span>rec.cigar().iter().rev() {
-<a href=#178 id=178 data-nosnippet>178</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>((len, op)) = clip_from_hts(<span class="kw-2">*</span>hts) {
-<a href=#179 id=179 data-nosnippet>179</a>            rev_trailing.push(CigarElement {
-<a href=#180 id=180 data-nosnippet>180</a>                length: len,
-<a href=#181 id=181 data-nosnippet>181</a>                operator: op,
-<a href=#182 id=182 data-nosnippet>182</a>            });
-<a href=#183 id=183 data-nosnippet>183</a>        } <span class="kw">else </span>{
-<a href=#184 id=184 data-nosnippet>184</a>            <span class="kw">break</span>;
-<a href=#185 id=185 data-nosnippet>185</a>        }
-<a href=#186 id=186 data-nosnippet>186</a>    }
-<a href=#187 id=187 data-nosnippet>187</a>    rev_trailing.reverse();
-<a href=#188 id=188 data-nosnippet>188</a>    (leading, rev_trailing)
-<a href=#189 id=189 data-nosnippet>189</a>}
-<a href=#190 id=190 data-nosnippet>190</a>
-<a href=#191 id=191 data-nosnippet>191</a><span class="doccomment">/// GATK `AlignmentUtils.appendClippedElementsFromCigarToCigar`.
-<a href=#192 id=192 data-nosnippet>192</a></span><span class="kw">fn </span>append_clipped_elements_from_original(
-<a href=#193 id=193 data-nosnippet>193</a>    aligned: Cigar,
-<a href=#194 id=194 data-nosnippet>194</a>    leading: <span class="kw-2">&amp;</span>[CigarElement],
-<a href=#195 id=195 data-nosnippet>195</a>    trailing: <span class="kw-2">&amp;</span>[CigarElement],
-<a href=#196 id=196 data-nosnippet>196</a>) -&gt; Cigar {
-<a href=#197 id=197 data-nosnippet>197</a>    <span class="kw">let </span><span class="kw-2">mut </span>out = Cigar::new();
-<a href=#198 id=198 data-nosnippet>198</a>    <span class="kw">for </span>e <span class="kw">in </span>leading {
-<a href=#199 id=199 data-nosnippet>199</a>        out.push(e.length, e.operator);
-<a href=#200 id=200 data-nosnippet>200</a>    }
-<a href=#201 id=201 data-nosnippet>201</a>    <span class="kw">for </span>e <span class="kw">in </span><span class="kw-2">&amp;</span>aligned.elements {
-<a href=#202 id=202 data-nosnippet>202</a>        out.push(e.length, e.operator);
-<a href=#203 id=203 data-nosnippet>203</a>    }
-<a href=#204 id=204 data-nosnippet>204</a>    <span class="kw">for </span>e <span class="kw">in </span>trailing {
-<a href=#205 id=205 data-nosnippet>205</a>        out.push(e.length, e.operator);
-<a href=#206 id=206 data-nosnippet>206</a>    }
-<a href=#207 id=207 data-nosnippet>207</a>    consolidate_cigar(<span class="kw-2">&amp;</span>out)
-<a href=#208 id=208 data-nosnippet>208</a>}
-<a href=#209 id=209 data-nosnippet>209</a>
-<a href=#210 id=210 data-nosnippet>210</a><span class="doccomment">/// GATK `AlignmentUtils.createReadAlignedToRef` (updates read position + CIGAR on padded ref).
-<a href=#211 id=211 data-nosnippet>211</a></span><span class="kw">fn </span>create_read_aligned_to_ref(
-<a href=#212 id=212 data-nosnippet>212</a>    rec: <span class="kw-2">&amp;mut </span>Record,
-<a href=#213 id=213 data-nosnippet>213</a>    best_hap: <span class="kw-2">&amp;</span>Haplotype,
-<a href=#214 id=214 data-nosnippet>214</a>    ref_hap: <span class="kw-2">&amp;</span>Haplotype,
-<a href=#215 id=215 data-nosnippet>215</a>    reference_start_1based: u64,
-<a href=#216 id=216 data-nosnippet>216</a>    hap_to_ref_sw: <span class="kw-2">&amp;</span>SwParameters,
-<a href=#217 id=217 data-nosnippet>217</a>) -&gt; GatkResult&lt;bool&gt; {
-<a href=#218 id=218 data-nosnippet>218</a>    <span class="kw">const </span>CONSOLIDATED_HAP_PAD: usize = <span class="number">1000</span>;
-<a href=#219 id=219 data-nosnippet>219</a>
-<a href=#220 id=220 data-nosnippet>220</a>    <span class="kw">let </span>original_ref_start_1based = rec.pos().max(<span class="number">0</span>) <span class="kw">as </span>u64 + <span class="number">1</span>;
-<a href=#221 id=221 data-nosnippet>221</a>    <span class="kw">let </span>read_bases: Vec&lt;u8&gt; = rec.seq().as_bytes().to_vec();
-<a href=#222 id=222 data-nosnippet>222</a>    <span class="kw">if </span>read_bases.is_empty() {
-<a href=#223 id=223 data-nosnippet>223</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
-<a href=#224 id=224 data-nosnippet>224</a>    }
-<a href=#225 id=225 data-nosnippet>225</a>    <span class="kw">let </span>ref_bases = <span class="kw-2">&amp;</span>ref_hap.bases;
-<a href=#226 id=226 data-nosnippet>226</a>    <span class="kw">let </span>(leading_clips, trailing_clips) = edge_clips_from_record(rec);
-<a href=#227 id=227 data-nosnippet>227</a>
-<a href=#228 id=228 data-nosnippet>228</a>    <span class="kw">let </span>read_minus_soft = hard_clip_soft_clipped_bases(rec);
-<a href=#229 id=229 data-nosnippet>229</a>    <span class="kw">let </span>clipped_bases: Vec&lt;u8&gt; = read_minus_soft.seq().as_bytes().to_vec();
-<a href=#230 id=230 data-nosnippet>230</a>    <span class="kw">if </span>clipped_bases.is_empty() {
-<a href=#231 id=231 data-nosnippet>231</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
-<a href=#232 id=232 data-nosnippet>232</a>    }
-<a href=#233 id=233 data-nosnippet>233</a>
-<a href=#234 id=234 data-nosnippet>234</a>    <span class="kw">let </span>read_to_hap_sw = SwParams::gatk_read_to_best_haplotype();
-<a href=#235 id=235 data-nosnippet>235</a>    <span class="kw">let </span>read_to_hap =
-<a href=#236 id=236 data-nosnippet>236</a>        <span class="kw">match </span>align_read_to_best_haplotype(<span class="kw-2">&amp;</span>best_hap.bases, <span class="kw-2">&amp;</span>clipped_bases, <span class="kw-2">&amp;</span>read_to_hap_sw) {
-<a href=#237 id=237 data-nosnippet>237</a>            <span class="prelude-val">Ok</span>(aln) =&gt; aln,
-<a href=#238 id=238 data-nosnippet>238</a>            <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>),
-<a href=#239 id=239 data-nosnippet>239</a>        };
-<a href=#240 id=240 data-nosnippet>240</a>    <span class="kw">if </span>read_to_hap.alignment_offset &lt; <span class="number">0 </span>{
-<a href=#241 id=241 data-nosnippet>241</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
-<a href=#242 id=242 data-nosnippet>242</a>    }
+<a href=#56 id=56 data-nosnippet>56</a>    <span class="comment">// One pass over likelihood rows → dense [read][hap] table for best-allele search.
+<a href=#57 id=57 data-nosnippet>57</a>    </span><span class="kw">let </span><span class="kw-2">mut </span>max_read = <span class="number">0usize</span>;
+<a href=#58 id=58 data-nosnippet>58</a>    <span class="kw">for </span>r <span class="kw">in </span>read_likelihoods {
+<a href=#59 id=59 data-nosnippet>59</a>        max_read = max_read.max(r.read_index.get().saturating_add(<span class="number">1</span>));
+<a href=#60 id=60 data-nosnippet>60</a>    }
+<a href=#61 id=61 data-nosnippet>61</a>    <span class="kw">let </span>n_reads = reads.len().max(max_read);
+<a href=#62 id=62 data-nosnippet>62</a>    <span class="kw">let </span>n_haps = haplotypes.len();
+<a href=#63 id=63 data-nosnippet>63</a>    <span class="kw">let </span><span class="kw-2">mut </span>ll_matrix = <span class="macro">vec!</span>[f64::NEG_INFINITY; n_reads.saturating_mul(n_haps.max(<span class="number">1</span>))];
+<a href=#64 id=64 data-nosnippet>64</a>    <span class="kw">if </span>n_haps &gt; <span class="number">0 </span>{
+<a href=#65 id=65 data-nosnippet>65</a>        <span class="kw">for </span>r <span class="kw">in </span>read_likelihoods {
+<a href=#66 id=66 data-nosnippet>66</a>            <span class="kw">let </span>ri = r.read_index.get();
+<a href=#67 id=67 data-nosnippet>67</a>            <span class="kw">let </span>hi = r.haplotype_index.get();
+<a href=#68 id=68 data-nosnippet>68</a>            <span class="kw">if </span>ri &lt; n_reads &amp;&amp; hi &lt; n_haps {
+<a href=#69 id=69 data-nosnippet>69</a>                ll_matrix[ri * n_haps + hi] = r.log10_likelihood;
+<a href=#70 id=70 data-nosnippet>70</a>            }
+<a href=#71 id=71 data-nosnippet>71</a>        }
+<a href=#72 id=72 data-nosnippet>72</a>    }
+<a href=#73 id=73 data-nosnippet>73</a>    <span class="comment">// Precompute hap→ref offset + consolidated pad once (Java stores these on Haplotype).
+<a href=#74 id=74 data-nosnippet>74</a>    // Offset + consolidated only — do not clone the raw hap CIGAR into meta.
+<a href=#75 id=75 data-nosnippet>75</a>    </span><span class="kw">const </span>CONSOLIDATED_HAP_PAD: usize = <span class="number">1000</span>;
+<a href=#76 id=76 data-nosnippet>76</a>    <span class="kw">let </span><span class="kw-2">mut </span>hap_meta: Vec&lt;<span class="prelude-ty">Option</span>&lt;(usize, Cigar)&gt;&gt; = Vec::with_capacity(n_haps);
+<a href=#77 id=77 data-nosnippet>77</a>    <span class="kw">for </span>h <span class="kw">in </span>haplotypes {
+<a href=#78 id=78 data-nosnippet>78</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(<span class="kw-2">ref </span>hc) = h.cigar {
+<a href=#79 id=79 data-nosnippet>79</a>            <span class="kw">let </span>consolidated = consolidated_padded_cigar(hc, CONSOLIDATED_HAP_PAD);
+<a href=#80 id=80 data-nosnippet>80</a>            hap_meta.push(<span class="prelude-val">Some</span>((h.alignment_start_hap_wrt_ref, consolidated)));
+<a href=#81 id=81 data-nosnippet>81</a>        } <span class="kw">else if </span>h.is_reference {
+<a href=#82 id=82 data-nosnippet>82</a>            hap_meta.push(<span class="prelude-val">None</span>);
+<a href=#83 id=83 data-nosnippet>83</a>        } <span class="kw">else </span>{
+<a href=#84 id=84 data-nosnippet>84</a>            <span class="kw">let </span>ref_cigar_len = ref_hap
+<a href=#85 id=85 data-nosnippet>85</a>                .cigar
+<a href=#86 id=86 data-nosnippet>86</a>                .as_ref()
+<a href=#87 id=87 data-nosnippet>87</a>                .map(|c| c.reference_length())
+<a href=#88 id=88 data-nosnippet>88</a>                .unwrap_or_else(|| ref_bases.len());
+<a href=#89 id=89 data-nosnippet>89</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(assy) = calculate_haplotype_cigar_for_assembly_with_offset(
+<a href=#90 id=90 data-nosnippet>90</a>                ref_bases,
+<a href=#91 id=91 data-nosnippet>91</a>                <span class="kw-2">&amp;</span>h.bases,
+<a href=#92 id=92 data-nosnippet>92</a>                ref_cigar_len,
+<a href=#93 id=93 data-nosnippet>93</a>                hap_to_ref_sw,
+<a href=#94 id=94 data-nosnippet>94</a>            ) {
+<a href=#95 id=95 data-nosnippet>95</a>                <span class="kw">let </span>consolidated = consolidated_padded_cigar(<span class="kw-2">&amp;</span>assy.cigar, CONSOLIDATED_HAP_PAD);
+<a href=#96 id=96 data-nosnippet>96</a>                hap_meta.push(<span class="prelude-val">Some</span>((assy.alignment_start_hap_wrt_ref, consolidated)));
+<a href=#97 id=97 data-nosnippet>97</a>            } <span class="kw">else </span>{
+<a href=#98 id=98 data-nosnippet>98</a>                hap_meta.push(<span class="prelude-val">None</span>);
+<a href=#99 id=99 data-nosnippet>99</a>            }
+<a href=#100 id=100 data-nosnippet>100</a>        }
+<a href=#101 id=101 data-nosnippet>101</a>    }
+<a href=#102 id=102 data-nosnippet>102</a>    <span class="kw">let </span><span class="kw-2">mut </span>changed = <span class="bool-val">false</span>;
+<a href=#103 id=103 data-nosnippet>103</a>    <span class="kw">let </span><span class="kw-2">mut </span>best_per_read = <span class="macro">vec!</span>[ref_idx; reads.len()];
+<a href=#104 id=104 data-nosnippet>104</a>    <span class="kw">for </span>(ri, slot) <span class="kw">in </span>reads.iter_mut().enumerate() {
+<a href=#105 id=105 data-nosnippet>105</a>        <span class="kw">let </span>rec = slot.make_mut();
+<a href=#106 id=106 data-nosnippet>106</a>        <span class="kw">if </span>rec.is_unmapped() {
+<a href=#107 id=107 data-nosnippet>107</a>            <span class="kw">continue</span>;
+<a href=#108 id=108 data-nosnippet>108</a>        }
+<a href=#109 id=109 data-nosnippet>109</a>        <span class="kw">let </span>row = <span class="kw">if </span>n_haps &gt; <span class="number">0 </span>&amp;&amp; ri &lt; n_reads {
+<a href=#110 id=110 data-nosnippet>110</a>            <span class="kw-2">&amp;</span>ll_matrix[ri * n_haps..(ri + <span class="number">1</span>) * n_haps]
+<a href=#111 id=111 data-nosnippet>111</a>        } <span class="kw">else </span>{
+<a href=#112 id=112 data-nosnippet>112</a>            <span class="kw-2">&amp;</span>[]
+<a href=#113 id=113 data-nosnippet>113</a>        };
+<a href=#114 id=114 data-nosnippet>114</a>        <span class="kw">let </span>best_hi = best_haplotype_index_from_ll_row(row, <span class="kw-2">&amp;</span>priorities);
+<a href=#115 id=115 data-nosnippet>115</a>        best_per_read[ri] = best_hi;
+<a href=#116 id=116 data-nosnippet>116</a>        <span class="kw">if </span>create_read_aligned_to_ref_cached(
+<a href=#117 id=117 data-nosnippet>117</a>            rec,
+<a href=#118 id=118 data-nosnippet>118</a>            <span class="kw-2">&amp;</span>haplotypes[best_hi],
+<a href=#119 id=119 data-nosnippet>119</a>            ref_hap,
+<a href=#120 id=120 data-nosnippet>120</a>            padded_reference_start_1based,
+<a href=#121 id=121 data-nosnippet>121</a>            hap_to_ref_sw,
+<a href=#122 id=122 data-nosnippet>122</a>            hap_meta.get(best_hi).and_then(|m| m.as_ref()),
+<a href=#123 id=123 data-nosnippet>123</a>        )<span class="question-mark">? </span>{
+<a href=#124 id=124 data-nosnippet>124</a>            changed = <span class="bool-val">true</span>;
+<a href=#125 id=125 data-nosnippet>125</a>        }
+<a href=#126 id=126 data-nosnippet>126</a>    }
+<a href=#127 id=127 data-nosnippet>127</a>    <span class="prelude-val">Ok</span>((changed, best_per_read))
+<a href=#128 id=128 data-nosnippet>128</a>}
+<a href=#129 id=129 data-nosnippet>129</a>
+<a href=#130 id=130 data-nosnippet>130</a><span class="doccomment">/// GATK `AlleleLikelihoods.searchBestAllele` + `HAPLOTYPE_ALIGNMENT_TIEBREAKING_PRIORITY`.
+<a href=#131 id=131 data-nosnippet>131</a></span><span class="attr">#[cfg_attr(not(test), allow(dead_code))]
+<a href=#132 id=132 data-nosnippet>132</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>best_haplotype_index_for_read(
+<a href=#133 id=133 data-nosnippet>133</a>    read_index: usize,
+<a href=#134 id=134 data-nosnippet>134</a>    haplotypes: <span class="kw-2">&amp;</span>[Haplotype],
+<a href=#135 id=135 data-nosnippet>135</a>    read_likelihoods: <span class="kw-2">&amp;</span>[RegionReadLikelihood],
+<a href=#136 id=136 data-nosnippet>136</a>    priorities: <span class="kw-2">&amp;</span>[f64],
+<a href=#137 id=137 data-nosnippet>137</a>) -&gt; usize {
+<a href=#138 id=138 data-nosnippet>138</a>    <span class="kw">let </span>hap_count = haplotypes.len();
+<a href=#139 id=139 data-nosnippet>139</a>    <span class="kw">if </span>hap_count == <span class="number">0 </span>{
+<a href=#140 id=140 data-nosnippet>140</a>        <span class="kw">return </span><span class="number">0</span>;
+<a href=#141 id=141 data-nosnippet>141</a>    }
+<a href=#142 id=142 data-nosnippet>142</a>    <span class="kw">let </span><span class="kw-2">mut </span>ll_by_hap = <span class="macro">vec!</span>[f64::NEG_INFINITY; hap_count];
+<a href=#143 id=143 data-nosnippet>143</a>    <span class="kw">for </span>r <span class="kw">in </span>read_likelihoods {
+<a href=#144 id=144 data-nosnippet>144</a>        <span class="kw">if </span>r.read_index.get() == read_index {
+<a href=#145 id=145 data-nosnippet>145</a>            <span class="kw">let </span>hi = r.haplotype_index.get();
+<a href=#146 id=146 data-nosnippet>146</a>            <span class="kw">if </span>hi &lt; hap_count {
+<a href=#147 id=147 data-nosnippet>147</a>                ll_by_hap[hi] = r.log10_likelihood;
+<a href=#148 id=148 data-nosnippet>148</a>            }
+<a href=#149 id=149 data-nosnippet>149</a>        }
+<a href=#150 id=150 data-nosnippet>150</a>    }
+<a href=#151 id=151 data-nosnippet>151</a>    best_haplotype_index_from_ll_row(<span class="kw-2">&amp;</span>ll_by_hap, priorities)
+<a href=#152 id=152 data-nosnippet>152</a>}
+<a href=#153 id=153 data-nosnippet>153</a>
+<a href=#154 id=154 data-nosnippet>154</a><span class="kw">fn </span>best_haplotype_index_from_ll_row(ll_by_hap: <span class="kw-2">&amp;</span>[f64], priorities: <span class="kw-2">&amp;</span>[f64]) -&gt; usize {
+<a href=#155 id=155 data-nosnippet>155</a>    <span class="kw">let </span>hap_count = ll_by_hap.len();
+<a href=#156 id=156 data-nosnippet>156</a>    <span class="kw">if </span>hap_count == <span class="number">0 </span>{
+<a href=#157 id=157 data-nosnippet>157</a>        <span class="kw">return </span><span class="number">0</span>;
+<a href=#158 id=158 data-nosnippet>158</a>    }
+<a href=#159 id=159 data-nosnippet>159</a>    <span class="kw">let </span><span class="kw-2">mut </span>best_a = <span class="number">0usize</span>;
+<a href=#160 id=160 data-nosnippet>160</a>    <span class="kw">let </span><span class="kw-2">mut </span>second_a = <span class="number">0usize</span>;
+<a href=#161 id=161 data-nosnippet>161</a>    <span class="kw">let </span><span class="kw-2">mut </span>best_ll = ll_by_hap[<span class="number">0</span>];
+<a href=#162 id=162 data-nosnippet>162</a>    <span class="kw">let </span><span class="kw-2">mut </span>second_ll = f64::NEG_INFINITY;
+<a href=#163 id=163 data-nosnippet>163</a>    <span class="kw">for </span>(a, <span class="kw-2">&amp;</span>candidate) <span class="kw">in </span>ll_by_hap.iter().enumerate().skip(<span class="number">1</span>) {
+<a href=#164 id=164 data-nosnippet>164</a>        <span class="kw">if </span>candidate &gt; best_ll {
+<a href=#165 id=165 data-nosnippet>165</a>            second_a = best_a;
+<a href=#166 id=166 data-nosnippet>166</a>            second_ll = best_ll;
+<a href=#167 id=167 data-nosnippet>167</a>            best_a = a;
+<a href=#168 id=168 data-nosnippet>168</a>            best_ll = candidate;
+<a href=#169 id=169 data-nosnippet>169</a>        } <span class="kw">else if </span>candidate &gt; second_ll {
+<a href=#170 id=170 data-nosnippet>170</a>            second_a = a;
+<a href=#171 id=171 data-nosnippet>171</a>            second_ll = candidate;
+<a href=#172 id=172 data-nosnippet>172</a>        }
+<a href=#173 id=173 data-nosnippet>173</a>    }
+<a href=#174 id=174 data-nosnippet>174</a>
+<a href=#175 id=175 data-nosnippet>175</a>    <span class="kw">if </span>best_ll - second_ll &lt; LOG_10_INFORMATIVE_THRESHOLD {
+<a href=#176 id=176 data-nosnippet>176</a>        <span class="kw">let </span><span class="kw-2">mut </span>tie_best = best_a;
+<a href=#177 id=177 data-nosnippet>177</a>        <span class="kw">let </span><span class="kw-2">mut </span>tie_second = second_a;
+<a href=#178 id=178 data-nosnippet>178</a>        <span class="kw">let </span><span class="kw-2">mut </span>tie_best_pri = priorities.get(best_a).copied().unwrap_or(<span class="number">0.0</span>);
+<a href=#179 id=179 data-nosnippet>179</a>        <span class="kw">let </span><span class="kw-2">mut </span>tie_second_pri = priorities.get(second_a).copied().unwrap_or(<span class="number">0.0</span>);
+<a href=#180 id=180 data-nosnippet>180</a>        <span class="kw">for </span>(a, <span class="kw-2">&amp;</span>candidate) <span class="kw">in </span>ll_by_hap.iter().enumerate() {
+<a href=#181 id=181 data-nosnippet>181</a>            <span class="kw">if </span>a == best_a || best_ll - candidate &gt; LOG_10_INFORMATIVE_THRESHOLD {
+<a href=#182 id=182 data-nosnippet>182</a>                <span class="kw">continue</span>;
+<a href=#183 id=183 data-nosnippet>183</a>            }
+<a href=#184 id=184 data-nosnippet>184</a>            <span class="kw">let </span>pri = priorities.get(a).copied().unwrap_or(<span class="number">0.0</span>);
+<a href=#185 id=185 data-nosnippet>185</a>            <span class="kw">if </span>pri &gt; tie_best_pri {
+<a href=#186 id=186 data-nosnippet>186</a>                tie_second = tie_best;
+<a href=#187 id=187 data-nosnippet>187</a>                tie_second_pri = tie_best_pri;
+<a href=#188 id=188 data-nosnippet>188</a>                tie_best = a;
+<a href=#189 id=189 data-nosnippet>189</a>                tie_best_pri = pri;
+<a href=#190 id=190 data-nosnippet>190</a>            } <span class="kw">else if </span>pri &gt; tie_second_pri {
+<a href=#191 id=191 data-nosnippet>191</a>                tie_second = a;
+<a href=#192 id=192 data-nosnippet>192</a>                tie_second_pri = pri;
+<a href=#193 id=193 data-nosnippet>193</a>            }
+<a href=#194 id=194 data-nosnippet>194</a>        }
+<a href=#195 id=195 data-nosnippet>195</a>        best_a = tie_best;
+<a href=#196 id=196 data-nosnippet>196</a>        <span class="kw">let _ </span>= (tie_second, ll_by_hap[best_a]);
+<a href=#197 id=197 data-nosnippet>197</a>    }
+<a href=#198 id=198 data-nosnippet>198</a>    best_a
+<a href=#199 id=199 data-nosnippet>199</a>}
+<a href=#200 id=200 data-nosnippet>200</a>
+<a href=#201 id=201 data-nosnippet>201</a><span class="doccomment">/// GATK `changeEvidence`: read objects were updated in realign; **PairHMM matrix unchanged**.
+<a href=#202 id=202 data-nosnippet>202</a></span><span class="kw">pub fn </span>change_evidence_to_best_haplotype(
+<a href=#203 id=203 data-nosnippet>203</a>    likelihoods: Vec&lt;RegionReadLikelihood&gt;,
+<a href=#204 id=204 data-nosnippet>204</a>    _best_hap_per_read: <span class="kw-2">&amp;</span>[usize],
+<a href=#205 id=205 data-nosnippet>205</a>) -&gt; Vec&lt;RegionReadLikelihood&gt; {
+<a href=#206 id=206 data-nosnippet>206</a>    likelihoods
+<a href=#207 id=207 data-nosnippet>207</a>}
+<a href=#208 id=208 data-nosnippet>208</a>
+<a href=#209 id=209 data-nosnippet>209</a><span class="kw">fn </span>consolidate_cigar(cigar: <span class="kw-2">&amp;</span>Cigar) -&gt; Cigar {
+<a href=#210 id=210 data-nosnippet>210</a>    <span class="kw">let </span><span class="kw-2">mut </span>builder = CigarBuilder::new(<span class="bool-val">false</span>);
+<a href=#211 id=211 data-nosnippet>211</a>    <span class="kw">for </span>e <span class="kw">in </span><span class="kw-2">&amp;</span>cigar.elements {
+<a href=#212 id=212 data-nosnippet>212</a>        builder.add(<span class="kw-2">*</span>e);
+<a href=#213 id=213 data-nosnippet>213</a>    }
+<a href=#214 id=214 data-nosnippet>214</a>    builder.make_and_record().cigar
+<a href=#215 id=215 data-nosnippet>215</a>}
+<a href=#216 id=216 data-nosnippet>216</a>
+<a href=#217 id=217 data-nosnippet>217</a><span class="kw">fn </span>edge_clips_from_record(rec: <span class="kw-2">&amp;</span>Record) -&gt; (Vec&lt;CigarElement&gt;, Vec&lt;CigarElement&gt;) {
+<a href=#218 id=218 data-nosnippet>218</a>    <span class="kw">let </span><span class="kw-2">mut </span>leading = Vec::new();
+<a href=#219 id=219 data-nosnippet>219</a>    <span class="kw">for </span>hts <span class="kw">in </span>rec.cigar().iter() {
+<a href=#220 id=220 data-nosnippet>220</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>((len, op)) = clip_from_hts(<span class="kw-2">*</span>hts) {
+<a href=#221 id=221 data-nosnippet>221</a>            leading.push(CigarElement {
+<a href=#222 id=222 data-nosnippet>222</a>                length: len,
+<a href=#223 id=223 data-nosnippet>223</a>                operator: op,
+<a href=#224 id=224 data-nosnippet>224</a>            });
+<a href=#225 id=225 data-nosnippet>225</a>        } <span class="kw">else </span>{
+<a href=#226 id=226 data-nosnippet>226</a>            <span class="kw">break</span>;
+<a href=#227 id=227 data-nosnippet>227</a>        }
+<a href=#228 id=228 data-nosnippet>228</a>    }
+<a href=#229 id=229 data-nosnippet>229</a>    <span class="kw">let </span><span class="kw-2">mut </span>rev_trailing = Vec::new();
+<a href=#230 id=230 data-nosnippet>230</a>    <span class="kw">for </span>hts <span class="kw">in </span>rec.cigar().iter().rev() {
+<a href=#231 id=231 data-nosnippet>231</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>((len, op)) = clip_from_hts(<span class="kw-2">*</span>hts) {
+<a href=#232 id=232 data-nosnippet>232</a>            rev_trailing.push(CigarElement {
+<a href=#233 id=233 data-nosnippet>233</a>                length: len,
+<a href=#234 id=234 data-nosnippet>234</a>                operator: op,
+<a href=#235 id=235 data-nosnippet>235</a>            });
+<a href=#236 id=236 data-nosnippet>236</a>        } <span class="kw">else </span>{
+<a href=#237 id=237 data-nosnippet>237</a>            <span class="kw">break</span>;
+<a href=#238 id=238 data-nosnippet>238</a>        }
+<a href=#239 id=239 data-nosnippet>239</a>    }
+<a href=#240 id=240 data-nosnippet>240</a>    rev_trailing.reverse();
+<a href=#241 id=241 data-nosnippet>241</a>    (leading, rev_trailing)
+<a href=#242 id=242 data-nosnippet>242</a>}
 <a href=#243 id=243 data-nosnippet>243</a>
-<a href=#244 id=244 data-nosnippet>244</a>    <span class="kw">let </span>read_start_hap = read_to_hap.alignment_offset.max(<span class="number">0</span>) <span class="kw">as </span>usize;
-<a href=#245 id=245 data-nosnippet>245</a>    <span class="kw">let </span>read_to_hap_cigar = consolidate_cigar(<span class="kw-2">&amp;</span>read_to_hap.cigar);
-<a href=#246 id=246 data-nosnippet>246</a>
-<a href=#247 id=247 data-nosnippet>247</a>    <span class="kw">let </span>(hap_cigar, hap_offset) = <span class="kw">if let </span><span class="prelude-val">Some</span>(<span class="kw-2">ref </span>hc) = best_hap.cigar {
-<a href=#248 id=248 data-nosnippet>248</a>        (hc.clone(), best_hap.alignment_start_hap_wrt_ref)
-<a href=#249 id=249 data-nosnippet>249</a>    } <span class="kw">else </span>{
-<a href=#250 id=250 data-nosnippet>250</a>        <span class="kw">let </span>ref_cigar_len = ref_hap
-<a href=#251 id=251 data-nosnippet>251</a>            .cigar
-<a href=#252 id=252 data-nosnippet>252</a>            .as_ref()
-<a href=#253 id=253 data-nosnippet>253</a>            .map(|c| c.reference_length())
-<a href=#254 id=254 data-nosnippet>254</a>            .unwrap_or_else(|| ref_bases.len());
-<a href=#255 id=255 data-nosnippet>255</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(hap_assy) = calculate_haplotype_cigar_for_assembly_with_offset(
-<a href=#256 id=256 data-nosnippet>256</a>            ref_bases,
-<a href=#257 id=257 data-nosnippet>257</a>            <span class="kw-2">&amp;</span>best_hap.bases,
-<a href=#258 id=258 data-nosnippet>258</a>            ref_cigar_len,
-<a href=#259 id=259 data-nosnippet>259</a>            hap_to_ref_sw,
-<a href=#260 id=260 data-nosnippet>260</a>        ) <span class="kw">else </span>{
-<a href=#261 id=261 data-nosnippet>261</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
-<a href=#262 id=262 data-nosnippet>262</a>        };
-<a href=#263 id=263 data-nosnippet>263</a>        (hap_assy.cigar, hap_assy.alignment_start_hap_wrt_ref)
-<a href=#264 id=264 data-nosnippet>264</a>    };
-<a href=#265 id=265 data-nosnippet>265</a>
-<a href=#266 id=266 data-nosnippet>266</a>    <span class="kw">let </span>consolidated = consolidated_padded_cigar(<span class="kw-2">&amp;</span>hap_cigar, CONSOLIDATED_HAP_PAD);
-<a href=#267 id=267 data-nosnippet>267</a>    <span class="kw">let </span>read_start_on_ref_hap = read_start_on_reference_haplotype(<span class="kw-2">&amp;</span>consolidated, read_start_hap);
-<a href=#268 id=268 data-nosnippet>268</a>    <span class="kw">let </span>read_start_on_ref_1based = reference_start_1based
-<a href=#269 id=269 data-nosnippet>269</a>        .saturating_add(hap_offset <span class="kw">as </span>u64)
-<a href=#270 id=270 data-nosnippet>270</a>        .saturating_add(read_start_on_ref_hap <span class="kw">as </span>u64);
-<a href=#271 id=271 data-nosnippet>271</a>
-<a href=#272 id=272 data-nosnippet>272</a>    <span class="comment">// Java trims hap→ref to consolidated padded end, not read end on hap.
-<a href=#273 id=273 data-nosnippet>273</a>    </span><span class="kw">let </span>consolidated_hap_end = consolidated.read_length().saturating_sub(<span class="number">1</span>);
-<a href=#274 id=274 data-nosnippet>274</a>    <span class="kw">let </span>hap_to_ref =
-<a href=#275 id=275 data-nosnippet>275</a>        trim_cigar_by_bases_public(<span class="kw-2">&amp;</span>consolidated, read_start_hap, consolidated_hap_end).cigar;
-<a href=#276 id=276 data-nosnippet>276</a>    <span class="kw">let </span>read_to_ref = apply_cigar_to_cigar(<span class="kw-2">&amp;</span>read_to_hap_cigar, <span class="kw-2">&amp;</span>hap_to_ref);
-<a href=#277 id=277 data-nosnippet>277</a>    <span class="comment">// Java: leftAlignIndels(..., refHaplotype.getBases,..., readStartOnReferenceHaplotype)
-<a href=#278 id=278 data-nosnippet>278</a>    </span><span class="kw">let </span>left = left_align_indels_for_read(
-<a href=#279 id=279 data-nosnippet>279</a>        <span class="kw-2">&amp;</span>read_to_ref,
-<a href=#280 id=280 data-nosnippet>280</a>        ref_bases,
-<a href=#281 id=281 data-nosnippet>281</a>        <span class="kw-2">&amp;</span>clipped_bases,
-<a href=#282 id=282 data-nosnippet>282</a>        read_start_on_ref_hap,
-<a href=#283 id=283 data-nosnippet>283</a>    );
-<a href=#284 id=284 data-nosnippet>284</a>    <span class="kw">let </span>read_start_on_ref_1based =
-<a href=#285 id=285 data-nosnippet>285</a>        read_start_on_ref_1based.saturating_add(left.leading_deletions_removed <span class="kw">as </span>u64);
-<a href=#286 id=286 data-nosnippet>286</a>
-<a href=#287 id=287 data-nosnippet>287</a>    <span class="kw">let </span>hap_ref_start_1based = reference_start_1based.saturating_add(hap_offset <span class="kw">as </span>u64);
-<a href=#288 id=288 data-nosnippet>288</a>    <span class="comment">// GATK `lastIndexOf` can match a read prefix to hap[0] while the read originally aligned
-<a href=#289 id=289 data-nosnippet>289</a>    // before the haplotype reference window — collapsing to hap ref start remaps interior bases.
-<a href=#290 id=290 data-nosnippet>290</a>    </span><span class="kw">if </span>original_ref_start_1based &lt; hap_ref_start_1based
-<a href=#291 id=291 data-nosnippet>291</a>        &amp;&amp; read_start_on_ref_1based &gt;= hap_ref_start_1based
-<a href=#292 id=292 data-nosnippet>292</a>        &amp;&amp; read_start_hap == <span class="number">0
-<a href=#293 id=293 data-nosnippet>293</a>    </span>{
+<a href=#244 id=244 data-nosnippet>244</a><span class="doccomment">/// GATK `AlignmentUtils.appendClippedElementsFromCigarToCigar`.
+<a href=#245 id=245 data-nosnippet>245</a></span><span class="kw">fn </span>append_clipped_elements_from_original(
+<a href=#246 id=246 data-nosnippet>246</a>    aligned: Cigar,
+<a href=#247 id=247 data-nosnippet>247</a>    leading: <span class="kw-2">&amp;</span>[CigarElement],
+<a href=#248 id=248 data-nosnippet>248</a>    trailing: <span class="kw-2">&amp;</span>[CigarElement],
+<a href=#249 id=249 data-nosnippet>249</a>) -&gt; Cigar {
+<a href=#250 id=250 data-nosnippet>250</a>    <span class="kw">let </span><span class="kw-2">mut </span>out = Cigar::new();
+<a href=#251 id=251 data-nosnippet>251</a>    <span class="kw">for </span>e <span class="kw">in </span>leading {
+<a href=#252 id=252 data-nosnippet>252</a>        out.push(e.length, e.operator);
+<a href=#253 id=253 data-nosnippet>253</a>    }
+<a href=#254 id=254 data-nosnippet>254</a>    <span class="kw">for </span>e <span class="kw">in </span><span class="kw-2">&amp;</span>aligned.elements {
+<a href=#255 id=255 data-nosnippet>255</a>        out.push(e.length, e.operator);
+<a href=#256 id=256 data-nosnippet>256</a>    }
+<a href=#257 id=257 data-nosnippet>257</a>    <span class="kw">for </span>e <span class="kw">in </span>trailing {
+<a href=#258 id=258 data-nosnippet>258</a>        out.push(e.length, e.operator);
+<a href=#259 id=259 data-nosnippet>259</a>    }
+<a href=#260 id=260 data-nosnippet>260</a>    consolidate_cigar(<span class="kw-2">&amp;</span>out)
+<a href=#261 id=261 data-nosnippet>261</a>}
+<a href=#262 id=262 data-nosnippet>262</a>
+<a href=#263 id=263 data-nosnippet>263</a><span class="doccomment">/// GATK `AlignmentUtils.createReadAlignedToRef` (updates read position + CIGAR on padded ref).
+<a href=#264 id=264 data-nosnippet>264</a></span><span class="attr">#[cfg_attr(not(test), allow(dead_code))]
+<a href=#265 id=265 data-nosnippet>265</a></span><span class="kw">fn </span>create_read_aligned_to_ref(
+<a href=#266 id=266 data-nosnippet>266</a>    rec: <span class="kw-2">&amp;mut </span>Record,
+<a href=#267 id=267 data-nosnippet>267</a>    best_hap: <span class="kw-2">&amp;</span>Haplotype,
+<a href=#268 id=268 data-nosnippet>268</a>    ref_hap: <span class="kw-2">&amp;</span>Haplotype,
+<a href=#269 id=269 data-nosnippet>269</a>    reference_start_1based: u64,
+<a href=#270 id=270 data-nosnippet>270</a>    hap_to_ref_sw: <span class="kw-2">&amp;</span>SwParameters,
+<a href=#271 id=271 data-nosnippet>271</a>) -&gt; GatkResult&lt;bool&gt; {
+<a href=#272 id=272 data-nosnippet>272</a>    create_read_aligned_to_ref_cached(
+<a href=#273 id=273 data-nosnippet>273</a>        rec,
+<a href=#274 id=274 data-nosnippet>274</a>        best_hap,
+<a href=#275 id=275 data-nosnippet>275</a>        ref_hap,
+<a href=#276 id=276 data-nosnippet>276</a>        reference_start_1based,
+<a href=#277 id=277 data-nosnippet>277</a>        hap_to_ref_sw,
+<a href=#278 id=278 data-nosnippet>278</a>        <span class="prelude-val">None</span>,
+<a href=#279 id=279 data-nosnippet>279</a>    )
+<a href=#280 id=280 data-nosnippet>280</a>}
+<a href=#281 id=281 data-nosnippet>281</a>
+<a href=#282 id=282 data-nosnippet>282</a><span class="kw">fn </span>create_read_aligned_to_ref_cached(
+<a href=#283 id=283 data-nosnippet>283</a>    rec: <span class="kw-2">&amp;mut </span>Record,
+<a href=#284 id=284 data-nosnippet>284</a>    best_hap: <span class="kw-2">&amp;</span>Haplotype,
+<a href=#285 id=285 data-nosnippet>285</a>    ref_hap: <span class="kw-2">&amp;</span>Haplotype,
+<a href=#286 id=286 data-nosnippet>286</a>    reference_start_1based: u64,
+<a href=#287 id=287 data-nosnippet>287</a>    hap_to_ref_sw: <span class="kw-2">&amp;</span>SwParameters,
+<a href=#288 id=288 data-nosnippet>288</a>    precomputed: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>(usize, Cigar)&gt;,
+<a href=#289 id=289 data-nosnippet>289</a>) -&gt; GatkResult&lt;bool&gt; {
+<a href=#290 id=290 data-nosnippet>290</a>    <span class="kw">const </span>CONSOLIDATED_HAP_PAD: usize = <span class="number">1000</span>;
+<a href=#291 id=291 data-nosnippet>291</a>
+<a href=#292 id=292 data-nosnippet>292</a>    <span class="kw">let </span>original_ref_start_1based = rec.pos().max(<span class="number">0</span>) <span class="kw">as </span>u64 + <span class="number">1</span>;
+<a href=#293 id=293 data-nosnippet>293</a>    <span class="kw">if </span>rec.seq().is_empty() {
 <a href=#294 id=294 data-nosnippet>294</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
 <a href=#295 id=295 data-nosnippet>295</a>    }
-<a href=#296 id=296 data-nosnippet>296</a>
-<a href=#297 id=297 data-nosnippet>297</a>    <span class="kw">let </span>final_cigar =
-<a href=#298 id=298 data-nosnippet>298</a>        append_clipped_elements_from_original(left.cigar, <span class="kw-2">&amp;</span>leading_clips, <span class="kw-2">&amp;</span>trailing_clips);
-<a href=#299 id=299 data-nosnippet>299</a>
-<a href=#300 id=300 data-nosnippet>300</a>    <span class="kw">let </span>pos_0based = i64::try_from(read_start_on_ref_1based.saturating_sub(<span class="number">1</span>)).unwrap_or(<span class="number">0</span>);
-<a href=#301 id=301 data-nosnippet>301</a>    <span class="kw">let </span>old_pos = rec.pos();
-<a href=#302 id=302 data-nosnippet>302</a>    <span class="kw">let </span>old_cigar = <span class="macro">format!</span>(<span class="string">"{:?}"</span>, rec.cigar().iter().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;());
-<a href=#303 id=303 data-nosnippet>303</a>    <span class="kw">let </span>hts_cigar = cigar_to_hts(<span class="kw-2">&amp;</span>final_cigar);
-<a href=#304 id=304 data-nosnippet>304</a>    <span class="kw">let </span>qname = rec.qname().to_vec();
-<a href=#305 id=305 data-nosnippet>305</a>    <span class="kw">let </span>seq = rec.seq().as_bytes().to_vec();
-<a href=#306 id=306 data-nosnippet>306</a>    <span class="kw">let </span>qual = rec.qual().to_vec();
-<a href=#307 id=307 data-nosnippet>307</a>    rec.set(<span class="kw-2">&amp;</span>qname, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>hts_cigar), <span class="kw-2">&amp;</span>seq, <span class="kw-2">&amp;</span>qual);
-<a href=#308 id=308 data-nosnippet>308</a>    rec.set_pos(pos_0based);
-<a href=#309 id=309 data-nosnippet>309</a>    <span class="kw">let </span>new_cigar = <span class="macro">format!</span>(<span class="string">"{:?}"</span>, rec.cigar().iter().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;());
-<a href=#310 id=310 data-nosnippet>310</a>    <span class="prelude-val">Ok</span>(old_pos != pos_0based || old_cigar != new_cigar)
-<a href=#311 id=311 data-nosnippet>311</a>}
-<a href=#312 id=312 data-nosnippet>312</a>
-<a href=#313 id=313 data-nosnippet>313</a><span class="kw">fn </span>clip_from_hts(hts: HtsCigar) -&gt; <span class="prelude-ty">Option</span>&lt;(usize, CigarOperator)&gt; {
-<a href=#314 id=314 data-nosnippet>314</a>    <span class="kw">match </span>hts {
-<a href=#315 id=315 data-nosnippet>315</a>        HtsCigar::SoftClip(n) =&gt; <span class="prelude-val">Some</span>((n <span class="kw">as </span>usize, CigarOperator::SoftClip)),
-<a href=#316 id=316 data-nosnippet>316</a>        HtsCigar::HardClip(n) =&gt; <span class="prelude-val">Some</span>((n <span class="kw">as </span>usize, CigarOperator::HardClip)),
-<a href=#317 id=317 data-nosnippet>317</a>        <span class="kw">_ </span>=&gt; <span class="prelude-val">None</span>,
-<a href=#318 id=318 data-nosnippet>318</a>    }
-<a href=#319 id=319 data-nosnippet>319</a>}
-<a href=#320 id=320 data-nosnippet>320</a>
-<a href=#321 id=321 data-nosnippet>321</a><span class="kw">fn </span>cigar_to_hts(cigar: <span class="kw-2">&amp;</span>Cigar) -&gt; CigarString {
-<a href=#322 id=322 data-nosnippet>322</a>    <span class="kw">let </span>v: Vec&lt;HtsCigar&gt; = cigar
-<a href=#323 id=323 data-nosnippet>323</a>        .elements
-<a href=#324 id=324 data-nosnippet>324</a>        .iter()
-<a href=#325 id=325 data-nosnippet>325</a>        .map(|e| <span class="kw">match </span>e.operator {
-<a href=#326 id=326 data-nosnippet>326</a>            CigarOperator::Match =&gt; HtsCigar::Match(e.length <span class="kw">as </span>u32),
-<a href=#327 id=327 data-nosnippet>327</a>            CigarOperator::Insertion =&gt; HtsCigar::Ins(e.length <span class="kw">as </span>u32),
-<a href=#328 id=328 data-nosnippet>328</a>            CigarOperator::Deletion =&gt; HtsCigar::Del(e.length <span class="kw">as </span>u32),
-<a href=#329 id=329 data-nosnippet>329</a>            CigarOperator::SoftClip =&gt; HtsCigar::SoftClip(e.length <span class="kw">as </span>u32),
-<a href=#330 id=330 data-nosnippet>330</a>            CigarOperator::HardClip =&gt; HtsCigar::HardClip(e.length <span class="kw">as </span>u32),
-<a href=#331 id=331 data-nosnippet>331</a>        })
-<a href=#332 id=332 data-nosnippet>332</a>        .collect();
-<a href=#333 id=333 data-nosnippet>333</a>    CigarString::from(v)
-<a href=#334 id=334 data-nosnippet>334</a>}
-<a href=#335 id=335 data-nosnippet>335</a>
-<a href=#336 id=336 data-nosnippet>336</a><span class="attr">#[cfg(test)]
-<a href=#337 id=337 data-nosnippet>337</a></span><span class="kw">mod </span>tests {
-<a href=#338 id=338 data-nosnippet>338</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#339 id=339 data-nosnippet>339</a>    <span class="kw">use </span><span class="kw">crate</span>::cigar::{Cigar, CigarOperator};
-<a href=#340 id=340 data-nosnippet>340</a>    <span class="kw">use </span><span class="kw">crate</span>::genome_loc::GenomeLoc;
-<a href=#341 id=341 data-nosnippet>341</a>    <span class="kw">use </span><span class="kw">crate</span>::smith_waterman::SwParameters;
-<a href=#342 id=342 data-nosnippet>342</a>    <span class="kw">use </span>rust_htslib::bam::record::Cigar <span class="kw">as </span>HtsCigar;
-<a href=#343 id=343 data-nosnippet>343</a>    <span class="kw">use </span>rust_htslib::bam::Record;
-<a href=#344 id=344 data-nosnippet>344</a>
-<a href=#345 id=345 data-nosnippet>345</a>    <span class="kw">fn </span>test_record(seq: <span class="kw-2">&amp;</span>[u8], pos_1based: u64) -&gt; Record {
-<a href=#346 id=346 data-nosnippet>346</a>        <span class="kw">let </span><span class="kw-2">mut </span>rec = Record::new();
-<a href=#347 id=347 data-nosnippet>347</a>        <span class="kw">let </span>cigar = CigarString::from(<span class="macro">vec!</span>[HtsCigar::Match(seq.len() <span class="kw">as </span>u32)]);
-<a href=#348 id=348 data-nosnippet>348</a>        <span class="kw">let </span>qual: Vec&lt;u8&gt; = <span class="macro">vec!</span>[<span class="number">30</span>; seq.len()];
-<a href=#349 id=349 data-nosnippet>349</a>        rec.set(<span class="string">b"r1"</span>, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>cigar), seq, <span class="kw-2">&amp;</span>qual);
-<a href=#350 id=350 data-nosnippet>350</a>        rec.set_pos(i64::try_from(pos_1based.saturating_sub(<span class="number">1</span>)).unwrap_or(<span class="number">0</span>));
-<a href=#351 id=351 data-nosnippet>351</a>        rec
-<a href=#352 id=352 data-nosnippet>352</a>    }
-<a href=#353 id=353 data-nosnippet>353</a>
-<a href=#354 id=354 data-nosnippet>354</a>    <span class="attr">#[test]
-<a href=#355 id=355 data-nosnippet>355</a>    </span><span class="kw">fn </span>change_evidence_preserves_full_read_hap_matrix() {
-<a href=#356 id=356 data-nosnippet>356</a>        <span class="kw">let </span>likelihoods = <span class="macro">vec!</span>[
-<a href=#357 id=357 data-nosnippet>357</a>            RegionReadLikelihood {
-<a href=#358 id=358 data-nosnippet>358</a>                read_index: <span class="kw">crate</span>::bio_ids::ReadIndex::new(<span class="number">0</span>),
-<a href=#359 id=359 data-nosnippet>359</a>                haplotype_index: <span class="kw">crate</span>::bio_ids::HaplotypeIndex::new(<span class="number">0</span>),
-<a href=#360 id=360 data-nosnippet>360</a>                log10_likelihood: -<span class="number">1.0</span>,
-<a href=#361 id=361 data-nosnippet>361</a>            },
-<a href=#362 id=362 data-nosnippet>362</a>            RegionReadLikelihood {
-<a href=#363 id=363 data-nosnippet>363</a>                read_index: <span class="kw">crate</span>::bio_ids::ReadIndex::new(<span class="number">0</span>),
-<a href=#364 id=364 data-nosnippet>364</a>                haplotype_index: <span class="kw">crate</span>::bio_ids::HaplotypeIndex::new(<span class="number">1</span>),
-<a href=#365 id=365 data-nosnippet>365</a>                log10_likelihood: -<span class="number">0.2</span>,
-<a href=#366 id=366 data-nosnippet>366</a>            },
-<a href=#367 id=367 data-nosnippet>367</a>        ];
-<a href=#368 id=368 data-nosnippet>368</a>        <span class="kw">let </span>out = change_evidence_to_best_haplotype(likelihoods.clone(), <span class="kw-2">&amp;</span>[<span class="number">1</span>]);
-<a href=#369 id=369 data-nosnippet>369</a>        <span class="macro">assert_eq!</span>(out.len(), <span class="number">2</span>);
-<a href=#370 id=370 data-nosnippet>370</a>        <span class="macro">assert_eq!</span>(out, likelihoods);
-<a href=#371 id=371 data-nosnippet>371</a>    }
-<a href=#372 id=372 data-nosnippet>372</a>
-<a href=#373 id=373 data-nosnippet>373</a>    <span class="attr">#[test]
-<a href=#374 id=374 data-nosnippet>374</a>    </span><span class="kw">fn </span>tiebreak_prefers_reference_within_informative_threshold() {
-<a href=#375 id=375 data-nosnippet>375</a>        <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(<span class="string">b"ACGT"</span>, <span class="bool-val">true</span>);
-<a href=#376 id=376 data-nosnippet>376</a>        ref_hap.cigar = <span class="prelude-val">Some</span>({
-<a href=#377 id=377 data-nosnippet>377</a>            <span class="kw">let </span><span class="kw-2">mut </span>c = Cigar::new();
-<a href=#378 id=378 data-nosnippet>378</a>            c.push(<span class="number">4</span>, CigarOperator::Match);
-<a href=#379 id=379 data-nosnippet>379</a>            c
-<a href=#380 id=380 data-nosnippet>380</a>        });
-<a href=#381 id=381 data-nosnippet>381</a>        <span class="kw">let </span><span class="kw-2">mut </span>alt = Haplotype::new(<span class="string">b"ACGT"</span>, <span class="bool-val">false</span>);
-<a href=#382 id=382 data-nosnippet>382</a>        alt.cigar = <span class="prelude-val">Some</span>({
-<a href=#383 id=383 data-nosnippet>383</a>            <span class="kw">let </span><span class="kw-2">mut </span>c = Cigar::new();
-<a href=#384 id=384 data-nosnippet>384</a>            c.push(<span class="number">2</span>, CigarOperator::Match);
-<a href=#385 id=385 data-nosnippet>385</a>            c.push(<span class="number">1</span>, CigarOperator::Deletion);
-<a href=#386 id=386 data-nosnippet>386</a>            c.push(<span class="number">1</span>, CigarOperator::Match);
-<a href=#387 id=387 data-nosnippet>387</a>            c
-<a href=#388 id=388 data-nosnippet>388</a>        });
-<a href=#389 id=389 data-nosnippet>389</a>        <span class="kw">let </span>haps = <span class="macro">vec!</span>[ref_hap, alt];
-<a href=#390 id=390 data-nosnippet>390</a>        <span class="kw">let </span>priorities: Vec&lt;f64&gt; = haps
-<a href=#391 id=391 data-nosnippet>391</a>            .iter()
-<a href=#392 id=392 data-nosnippet>392</a>            .map(haplotype_alignment_tiebreak_priority)
-<a href=#393 id=393 data-nosnippet>393</a>            .collect();
-<a href=#394 id=394 data-nosnippet>394</a>        <span class="macro">assert!</span>(priorities[<span class="number">0</span>] &gt; priorities[<span class="number">1</span>]);
-<a href=#395 id=395 data-nosnippet>395</a>        <span class="kw">let </span>likelihoods = <span class="macro">vec!</span>[
-<a href=#396 id=396 data-nosnippet>396</a>            RegionReadLikelihood {
-<a href=#397 id=397 data-nosnippet>397</a>                read_index: <span class="kw">crate</span>::bio_ids::ReadIndex::new(<span class="number">0</span>),
-<a href=#398 id=398 data-nosnippet>398</a>                haplotype_index: <span class="kw">crate</span>::bio_ids::HaplotypeIndex::new(<span class="number">0</span>),
-<a href=#399 id=399 data-nosnippet>399</a>                log10_likelihood: -<span class="number">0.5</span>,
-<a href=#400 id=400 data-nosnippet>400</a>            },
-<a href=#401 id=401 data-nosnippet>401</a>            RegionReadLikelihood {
-<a href=#402 id=402 data-nosnippet>402</a>                read_index: <span class="kw">crate</span>::bio_ids::ReadIndex::new(<span class="number">0</span>),
-<a href=#403 id=403 data-nosnippet>403</a>                haplotype_index: <span class="kw">crate</span>::bio_ids::HaplotypeIndex::new(<span class="number">1</span>),
-<a href=#404 id=404 data-nosnippet>404</a>                log10_likelihood: -<span class="number">0.48</span>,
-<a href=#405 id=405 data-nosnippet>405</a>            },
-<a href=#406 id=406 data-nosnippet>406</a>        ];
-<a href=#407 id=407 data-nosnippet>407</a>        <span class="kw">let </span>best = best_haplotype_index_for_read(<span class="number">0</span>, <span class="kw-2">&amp;</span>haps, <span class="kw-2">&amp;</span>likelihoods, <span class="kw-2">&amp;</span>priorities);
-<a href=#408 id=408 data-nosnippet>408</a>        <span class="macro">assert_eq!</span>(best, <span class="number">0</span>, <span class="string">"ref wins tie within 0.2 log10"</span>);
-<a href=#409 id=409 data-nosnippet>409</a>    }
-<a href=#410 id=410 data-nosnippet>410</a>
-<a href=#411 id=411 data-nosnippet>411</a>    <span class="attr">#[test]
-<a href=#412 id=412 data-nosnippet>412</a>    </span><span class="kw">fn </span>create_read_aligned_to_ref_sets_position_on_alt_hap() {
-<a href=#413 id=413 data-nosnippet>413</a>        <span class="kw">let </span>sw = SwParameters::gatk_haplotype_to_reference();
-<a href=#414 id=414 data-nosnippet>414</a>        <span class="kw">let </span>pad = <span class="number">1000u64</span>;
-<a href=#415 id=415 data-nosnippet>415</a>        <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(<span class="string">b"ACGTACGTACGT"</span>, <span class="bool-val">true</span>);
-<a href=#416 id=416 data-nosnippet>416</a>        <span class="kw">let </span><span class="kw-2">mut </span>ref_cigar = Cigar::new();
-<a href=#417 id=417 data-nosnippet>417</a>        ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
-<a href=#418 id=418 data-nosnippet>418</a>        ref_hap.cigar = <span class="prelude-val">Some</span>(ref_cigar);
-<a href=#419 id=419 data-nosnippet>419</a>        ref_hap.genome_loc = <span class="prelude-val">Some</span>(GenomeLoc::new(pad, pad + <span class="number">11</span>));
-<a href=#420 id=420 data-nosnippet>420</a>
-<a href=#421 id=421 data-nosnippet>421</a>        <span class="kw">let </span><span class="kw-2">mut </span>alt_hap = Haplotype::new(<span class="string">b"ACGTACGTACGT"</span>, <span class="bool-val">false</span>);
-<a href=#422 id=422 data-nosnippet>422</a>        <span class="kw">let </span><span class="kw-2">mut </span>alt_cigar = Cigar::new();
-<a href=#423 id=423 data-nosnippet>423</a>        alt_cigar.push(alt_hap.bases.len(), CigarOperator::Match);
-<a href=#424 id=424 data-nosnippet>424</a>        alt_hap.cigar = <span class="prelude-val">Some</span>(alt_cigar);
-<a href=#425 id=425 data-nosnippet>425</a>        alt_hap.alignment_start_hap_wrt_ref = <span class="number">0</span>;
-<a href=#426 id=426 data-nosnippet>426</a>
-<a href=#427 id=427 data-nosnippet>427</a>        <span class="kw">let </span><span class="kw-2">mut </span>rec = test_record(<span class="string">b"ACGTACGTACGT"</span>, pad + <span class="number">5</span>);
-<a href=#428 id=428 data-nosnippet>428</a>        <span class="macro">assert!</span>(create_read_aligned_to_ref(<span class="kw-2">&amp;mut </span>rec, <span class="kw-2">&amp;</span>alt_hap, <span class="kw-2">&amp;</span>ref_hap, pad, <span class="kw-2">&amp;</span>sw,).unwrap());
-<a href=#429 id=429 data-nosnippet>429</a>        <span class="macro">assert!</span>(rec.pos() &gt;= i64::try_from(pad.saturating_sub(<span class="number">1</span>)).unwrap_or(<span class="number">0</span>));
-<a href=#430 id=430 data-nosnippet>430</a>    }
-<a href=#431 id=431 data-nosnippet>431</a>
-<a href=#432 id=432 data-nosnippet>432</a>    <span class="attr">#[test]
-<a href=#433 id=433 data-nosnippet>433</a>    </span><span class="kw">fn </span>create_read_aligned_to_ref_skips_spurious_hap_prefix_match_before_hap_ref_window() {
-<a href=#434 id=434 data-nosnippet>434</a>        <span class="kw">let </span>sw = SwParameters::gatk_haplotype_to_reference();
-<a href=#435 id=435 data-nosnippet>435</a>        <span class="kw">let </span>pad = <span class="number">1000u64</span>;
-<a href=#436 id=436 data-nosnippet>436</a>        <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(<span class="string">b"ACGTACGTACGTACGTACGT"</span>, <span class="bool-val">true</span>);
-<a href=#437 id=437 data-nosnippet>437</a>        <span class="kw">let </span><span class="kw-2">mut </span>ref_cigar = Cigar::new();
-<a href=#438 id=438 data-nosnippet>438</a>        ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
-<a href=#439 id=439 data-nosnippet>439</a>        ref_hap.cigar = <span class="prelude-val">Some</span>(ref_cigar);
-<a href=#440 id=440 data-nosnippet>440</a>        ref_hap.genome_loc = <span class="prelude-val">Some</span>(GenomeLoc::new(pad, pad + <span class="number">19</span>));
-<a href=#441 id=441 data-nosnippet>441</a>
-<a href=#442 id=442 data-nosnippet>442</a>        <span class="kw">let </span><span class="kw-2">mut </span>alt_hap = Haplotype::new(<span class="string">b"ACGTACGTACGTACGTACGT"</span>, <span class="bool-val">false</span>);
-<a href=#443 id=443 data-nosnippet>443</a>        <span class="kw">let </span><span class="kw-2">mut </span>alt_cigar = Cigar::new();
-<a href=#444 id=444 data-nosnippet>444</a>        alt_cigar.push(alt_hap.bases.len(), CigarOperator::Match);
-<a href=#445 id=445 data-nosnippet>445</a>        alt_hap.cigar = <span class="prelude-val">Some</span>(alt_cigar);
-<a href=#446 id=446 data-nosnippet>446</a>        alt_hap.alignment_start_hap_wrt_ref = <span class="number">40</span>;
+<a href=#296 id=296 data-nosnippet>296</a>    <span class="kw">let </span>ref_bases = <span class="kw-2">&amp;</span>ref_hap.bases;
+<a href=#297 id=297 data-nosnippet>297</a>    <span class="kw">let </span>(leading_clips, trailing_clips) = edge_clips_from_record(rec);
+<a href=#298 id=298 data-nosnippet>298</a>
+<a href=#299 id=299 data-nosnippet>299</a>    <span class="comment">// Soft-clip hard-clip for SW only — no Record clone (bases match Java clip).
+<a href=#300 id=300 data-nosnippet>300</a>    </span><span class="kw">let </span>clipped_bases = hard_clip_soft_clipped_bases_seq(rec);
+<a href=#301 id=301 data-nosnippet>301</a>    <span class="kw">if </span>clipped_bases.is_empty() {
+<a href=#302 id=302 data-nosnippet>302</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
+<a href=#303 id=303 data-nosnippet>303</a>    }
+<a href=#304 id=304 data-nosnippet>304</a>
+<a href=#305 id=305 data-nosnippet>305</a>    <span class="kw">let </span>read_to_hap_sw = SwParams::gatk_read_to_best_haplotype();
+<a href=#306 id=306 data-nosnippet>306</a>    <span class="kw">let </span>read_to_hap =
+<a href=#307 id=307 data-nosnippet>307</a>        <span class="kw">match </span>align_read_to_best_haplotype(<span class="kw-2">&amp;</span>best_hap.bases, <span class="kw-2">&amp;</span>clipped_bases, <span class="kw-2">&amp;</span>read_to_hap_sw) {
+<a href=#308 id=308 data-nosnippet>308</a>            <span class="prelude-val">Ok</span>(aln) =&gt; aln,
+<a href=#309 id=309 data-nosnippet>309</a>            <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>),
+<a href=#310 id=310 data-nosnippet>310</a>        };
+<a href=#311 id=311 data-nosnippet>311</a>    <span class="kw">if </span>read_to_hap.alignment_offset &lt; <span class="number">0 </span>{
+<a href=#312 id=312 data-nosnippet>312</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
+<a href=#313 id=313 data-nosnippet>313</a>    }
+<a href=#314 id=314 data-nosnippet>314</a>
+<a href=#315 id=315 data-nosnippet>315</a>    <span class="kw">let </span>read_start_hap = read_to_hap.alignment_offset.max(<span class="number">0</span>) <span class="kw">as </span>usize;
+<a href=#316 id=316 data-nosnippet>316</a>    <span class="kw">let </span>read_to_hap_cigar = consolidate_cigar(<span class="kw-2">&amp;</span>read_to_hap.cigar);
+<a href=#317 id=317 data-nosnippet>317</a>
+<a href=#318 id=318 data-nosnippet>318</a>    <span class="comment">// Borrow precomputed consolidated CIGAR; own only on uncached paths.
+<a href=#319 id=319 data-nosnippet>319</a>    </span><span class="kw">let </span>owned_consolidated;
+<a href=#320 id=320 data-nosnippet>320</a>    <span class="kw">let </span>(hap_offset, consolidated): (usize, <span class="kw-2">&amp;</span>Cigar) = <span class="kw">if let </span><span class="prelude-val">Some</span>((off, cons)) = precomputed {
+<a href=#321 id=321 data-nosnippet>321</a>        (<span class="kw-2">*</span>off, cons)
+<a href=#322 id=322 data-nosnippet>322</a>    } <span class="kw">else if let </span><span class="prelude-val">Some</span>(<span class="kw-2">ref </span>hc) = best_hap.cigar {
+<a href=#323 id=323 data-nosnippet>323</a>        owned_consolidated = consolidated_padded_cigar(hc, CONSOLIDATED_HAP_PAD);
+<a href=#324 id=324 data-nosnippet>324</a>        (best_hap.alignment_start_hap_wrt_ref, <span class="kw-2">&amp;</span>owned_consolidated)
+<a href=#325 id=325 data-nosnippet>325</a>    } <span class="kw">else </span>{
+<a href=#326 id=326 data-nosnippet>326</a>        <span class="kw">let </span>ref_cigar_len = ref_hap
+<a href=#327 id=327 data-nosnippet>327</a>            .cigar
+<a href=#328 id=328 data-nosnippet>328</a>            .as_ref()
+<a href=#329 id=329 data-nosnippet>329</a>            .map(|c| c.reference_length())
+<a href=#330 id=330 data-nosnippet>330</a>            .unwrap_or_else(|| ref_bases.len());
+<a href=#331 id=331 data-nosnippet>331</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(hap_assy) = calculate_haplotype_cigar_for_assembly_with_offset(
+<a href=#332 id=332 data-nosnippet>332</a>            ref_bases,
+<a href=#333 id=333 data-nosnippet>333</a>            <span class="kw-2">&amp;</span>best_hap.bases,
+<a href=#334 id=334 data-nosnippet>334</a>            ref_cigar_len,
+<a href=#335 id=335 data-nosnippet>335</a>            hap_to_ref_sw,
+<a href=#336 id=336 data-nosnippet>336</a>        ) <span class="kw">else </span>{
+<a href=#337 id=337 data-nosnippet>337</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
+<a href=#338 id=338 data-nosnippet>338</a>        };
+<a href=#339 id=339 data-nosnippet>339</a>        owned_consolidated = consolidated_padded_cigar(<span class="kw-2">&amp;</span>hap_assy.cigar, CONSOLIDATED_HAP_PAD);
+<a href=#340 id=340 data-nosnippet>340</a>        (hap_assy.alignment_start_hap_wrt_ref, <span class="kw-2">&amp;</span>owned_consolidated)
+<a href=#341 id=341 data-nosnippet>341</a>    };
+<a href=#342 id=342 data-nosnippet>342</a>
+<a href=#343 id=343 data-nosnippet>343</a>    <span class="kw">let </span>read_start_on_ref_hap = read_start_on_reference_haplotype(consolidated, read_start_hap);
+<a href=#344 id=344 data-nosnippet>344</a>    <span class="kw">let </span><span class="kw-2">mut </span>read_start_on_ref_1based = reference_start_1based
+<a href=#345 id=345 data-nosnippet>345</a>        .saturating_add(hap_offset <span class="kw">as </span>u64)
+<a href=#346 id=346 data-nosnippet>346</a>        .saturating_add(read_start_on_ref_hap <span class="kw">as </span>u64);
+<a href=#347 id=347 data-nosnippet>347</a>
+<a href=#348 id=348 data-nosnippet>348</a>    <span class="kw">let </span>consolidated_hap_end = consolidated.read_length().saturating_sub(<span class="number">1</span>);
+<a href=#349 id=349 data-nosnippet>349</a>    <span class="kw">let </span>hap_to_ref =
+<a href=#350 id=350 data-nosnippet>350</a>        trim_cigar_by_bases_public(consolidated, read_start_hap, consolidated_hap_end).cigar;
+<a href=#351 id=351 data-nosnippet>351</a>    <span class="kw">let </span>read_to_ref = apply_cigar_to_cigar(<span class="kw-2">&amp;</span>read_to_hap_cigar, <span class="kw-2">&amp;</span>hap_to_ref);
+<a href=#352 id=352 data-nosnippet>352</a>    <span class="kw">let </span>left = left_align_indels_for_read(
+<a href=#353 id=353 data-nosnippet>353</a>        <span class="kw-2">&amp;</span>read_to_ref,
+<a href=#354 id=354 data-nosnippet>354</a>        ref_bases,
+<a href=#355 id=355 data-nosnippet>355</a>        <span class="kw-2">&amp;</span>clipped_bases,
+<a href=#356 id=356 data-nosnippet>356</a>        read_start_on_ref_hap,
+<a href=#357 id=357 data-nosnippet>357</a>    );
+<a href=#358 id=358 data-nosnippet>358</a>    read_start_on_ref_1based =
+<a href=#359 id=359 data-nosnippet>359</a>        read_start_on_ref_1based.saturating_add(left.leading_deletions_removed <span class="kw">as </span>u64);
+<a href=#360 id=360 data-nosnippet>360</a>
+<a href=#361 id=361 data-nosnippet>361</a>    <span class="kw">let </span>hap_ref_start_1based = reference_start_1based.saturating_add(hap_offset <span class="kw">as </span>u64);
+<a href=#362 id=362 data-nosnippet>362</a>    <span class="kw">if </span>original_ref_start_1based &lt; hap_ref_start_1based
+<a href=#363 id=363 data-nosnippet>363</a>        &amp;&amp; read_start_on_ref_1based &gt;= hap_ref_start_1based
+<a href=#364 id=364 data-nosnippet>364</a>        &amp;&amp; read_start_hap == <span class="number">0
+<a href=#365 id=365 data-nosnippet>365</a>    </span>{
+<a href=#366 id=366 data-nosnippet>366</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
+<a href=#367 id=367 data-nosnippet>367</a>    }
+<a href=#368 id=368 data-nosnippet>368</a>
+<a href=#369 id=369 data-nosnippet>369</a>    <span class="kw">let </span>final_cigar =
+<a href=#370 id=370 data-nosnippet>370</a>        append_clipped_elements_from_original(left.cigar, <span class="kw-2">&amp;</span>leading_clips, <span class="kw-2">&amp;</span>trailing_clips);
+<a href=#371 id=371 data-nosnippet>371</a>
+<a href=#372 id=372 data-nosnippet>372</a>    <span class="kw">let </span>pos_0based = i64::try_from(read_start_on_ref_1based.saturating_sub(<span class="number">1</span>)).unwrap_or(<span class="number">0</span>);
+<a href=#373 id=373 data-nosnippet>373</a>    <span class="kw">let </span>old_pos = rec.pos();
+<a href=#374 id=374 data-nosnippet>374</a>    <span class="kw">let </span>cigar_changed = record_cigar_differs(rec, <span class="kw-2">&amp;</span>final_cigar);
+<a href=#375 id=375 data-nosnippet>375</a>    <span class="kw">if </span>!cigar_changed &amp;&amp; old_pos == pos_0based {
+<a href=#376 id=376 data-nosnippet>376</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
+<a href=#377 id=377 data-nosnippet>377</a>    }
+<a href=#378 id=378 data-nosnippet>378</a>    <span class="kw">let </span>hts_cigar = cigar_to_hts(<span class="kw-2">&amp;</span>final_cigar);
+<a href=#379 id=379 data-nosnippet>379</a>    <span class="comment">// Position + CIGAR only — avoid re-encoding qname/seq/qual (Java updates alignment fields).
+<a href=#380 id=380 data-nosnippet>380</a>    </span>rec.set_cigar(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>hts_cigar));
+<a href=#381 id=381 data-nosnippet>381</a>    rec.set_pos(pos_0based);
+<a href=#382 id=382 data-nosnippet>382</a>    <span class="prelude-val">Ok</span>(<span class="bool-val">true</span>)
+<a href=#383 id=383 data-nosnippet>383</a>}
+<a href=#384 id=384 data-nosnippet>384</a>
+<a href=#385 id=385 data-nosnippet>385</a><span class="doccomment">/// Compare BAM CIGAR to an assembled CIGAR without `format!` / Vec collect thrash.
+<a href=#386 id=386 data-nosnippet>386</a></span><span class="kw">fn </span>record_cigar_differs(rec: <span class="kw-2">&amp;</span>Record, want: <span class="kw-2">&amp;</span>Cigar) -&gt; bool {
+<a href=#387 id=387 data-nosnippet>387</a>    <span class="kw">let </span>view = rec.cigar();
+<a href=#388 id=388 data-nosnippet>388</a>    <span class="kw">let </span>got: Vec&lt;HtsCigar&gt; = view.iter().copied().collect();
+<a href=#389 id=389 data-nosnippet>389</a>    <span class="kw">if </span>got.len() != want.elements.len() {
+<a href=#390 id=390 data-nosnippet>390</a>        <span class="kw">return </span><span class="bool-val">true</span>;
+<a href=#391 id=391 data-nosnippet>391</a>    }
+<a href=#392 id=392 data-nosnippet>392</a>    <span class="kw">for </span>(hts, e) <span class="kw">in </span>got.iter().zip(want.elements.iter()) {
+<a href=#393 id=393 data-nosnippet>393</a>        <span class="kw">let </span><span class="prelude-val">Some</span>((len, op)) = hts_to_op_len(<span class="kw-2">*</span>hts) <span class="kw">else </span>{
+<a href=#394 id=394 data-nosnippet>394</a>            <span class="kw">return </span><span class="bool-val">true</span>;
+<a href=#395 id=395 data-nosnippet>395</a>        };
+<a href=#396 id=396 data-nosnippet>396</a>        <span class="kw">if </span>len != e.length || op != e.operator {
+<a href=#397 id=397 data-nosnippet>397</a>            <span class="kw">return </span><span class="bool-val">true</span>;
+<a href=#398 id=398 data-nosnippet>398</a>        }
+<a href=#399 id=399 data-nosnippet>399</a>    }
+<a href=#400 id=400 data-nosnippet>400</a>    <span class="bool-val">false
+<a href=#401 id=401 data-nosnippet>401</a></span>}
+<a href=#402 id=402 data-nosnippet>402</a>
+<a href=#403 id=403 data-nosnippet>403</a><span class="kw">fn </span>hts_to_op_len(hts: HtsCigar) -&gt; <span class="prelude-ty">Option</span>&lt;(usize, CigarOperator)&gt; {
+<a href=#404 id=404 data-nosnippet>404</a>    <span class="kw">match </span>hts {
+<a href=#405 id=405 data-nosnippet>405</a>        HtsCigar::Match(n) | HtsCigar::Equal(n) | HtsCigar::Diff(n) =&gt; {
+<a href=#406 id=406 data-nosnippet>406</a>            <span class="prelude-val">Some</span>((n <span class="kw">as </span>usize, CigarOperator::Match))
+<a href=#407 id=407 data-nosnippet>407</a>        }
+<a href=#408 id=408 data-nosnippet>408</a>        HtsCigar::Ins(n) =&gt; <span class="prelude-val">Some</span>((n <span class="kw">as </span>usize, CigarOperator::Insertion)),
+<a href=#409 id=409 data-nosnippet>409</a>        HtsCigar::Del(n) =&gt; <span class="prelude-val">Some</span>((n <span class="kw">as </span>usize, CigarOperator::Deletion)),
+<a href=#410 id=410 data-nosnippet>410</a>        HtsCigar::SoftClip(n) =&gt; <span class="prelude-val">Some</span>((n <span class="kw">as </span>usize, CigarOperator::SoftClip)),
+<a href=#411 id=411 data-nosnippet>411</a>        HtsCigar::HardClip(n) =&gt; <span class="prelude-val">Some</span>((n <span class="kw">as </span>usize, CigarOperator::HardClip)),
+<a href=#412 id=412 data-nosnippet>412</a>        <span class="kw">_ </span>=&gt; <span class="prelude-val">None</span>,
+<a href=#413 id=413 data-nosnippet>413</a>    }
+<a href=#414 id=414 data-nosnippet>414</a>}
+<a href=#415 id=415 data-nosnippet>415</a>
+<a href=#416 id=416 data-nosnippet>416</a><span class="kw">fn </span>clip_from_hts(hts: HtsCigar) -&gt; <span class="prelude-ty">Option</span>&lt;(usize, CigarOperator)&gt; {
+<a href=#417 id=417 data-nosnippet>417</a>    <span class="kw">match </span>hts {
+<a href=#418 id=418 data-nosnippet>418</a>        HtsCigar::SoftClip(n) =&gt; <span class="prelude-val">Some</span>((n <span class="kw">as </span>usize, CigarOperator::SoftClip)),
+<a href=#419 id=419 data-nosnippet>419</a>        HtsCigar::HardClip(n) =&gt; <span class="prelude-val">Some</span>((n <span class="kw">as </span>usize, CigarOperator::HardClip)),
+<a href=#420 id=420 data-nosnippet>420</a>        <span class="kw">_ </span>=&gt; <span class="prelude-val">None</span>,
+<a href=#421 id=421 data-nosnippet>421</a>    }
+<a href=#422 id=422 data-nosnippet>422</a>}
+<a href=#423 id=423 data-nosnippet>423</a>
+<a href=#424 id=424 data-nosnippet>424</a><span class="kw">fn </span>cigar_to_hts(cigar: <span class="kw-2">&amp;</span>Cigar) -&gt; CigarString {
+<a href=#425 id=425 data-nosnippet>425</a>    <span class="kw">let </span>v: Vec&lt;HtsCigar&gt; = cigar
+<a href=#426 id=426 data-nosnippet>426</a>        .elements
+<a href=#427 id=427 data-nosnippet>427</a>        .iter()
+<a href=#428 id=428 data-nosnippet>428</a>        .map(|e| <span class="kw">match </span>e.operator {
+<a href=#429 id=429 data-nosnippet>429</a>            CigarOperator::Match =&gt; HtsCigar::Match(e.length <span class="kw">as </span>u32),
+<a href=#430 id=430 data-nosnippet>430</a>            CigarOperator::Insertion =&gt; HtsCigar::Ins(e.length <span class="kw">as </span>u32),
+<a href=#431 id=431 data-nosnippet>431</a>            CigarOperator::Deletion =&gt; HtsCigar::Del(e.length <span class="kw">as </span>u32),
+<a href=#432 id=432 data-nosnippet>432</a>            CigarOperator::SoftClip =&gt; HtsCigar::SoftClip(e.length <span class="kw">as </span>u32),
+<a href=#433 id=433 data-nosnippet>433</a>            CigarOperator::HardClip =&gt; HtsCigar::HardClip(e.length <span class="kw">as </span>u32),
+<a href=#434 id=434 data-nosnippet>434</a>        })
+<a href=#435 id=435 data-nosnippet>435</a>        .collect();
+<a href=#436 id=436 data-nosnippet>436</a>    CigarString::from(v)
+<a href=#437 id=437 data-nosnippet>437</a>}
+<a href=#438 id=438 data-nosnippet>438</a>
+<a href=#439 id=439 data-nosnippet>439</a><span class="attr">#[cfg(test)]
+<a href=#440 id=440 data-nosnippet>440</a></span><span class="kw">mod </span>tests {
+<a href=#441 id=441 data-nosnippet>441</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#442 id=442 data-nosnippet>442</a>    <span class="kw">use </span><span class="kw">crate</span>::cigar::{Cigar, CigarOperator};
+<a href=#443 id=443 data-nosnippet>443</a>    <span class="kw">use </span><span class="kw">crate</span>::genome_loc::GenomeLoc;
+<a href=#444 id=444 data-nosnippet>444</a>    <span class="kw">use </span><span class="kw">crate</span>::smith_waterman::SwParameters;
+<a href=#445 id=445 data-nosnippet>445</a>    <span class="kw">use </span>rust_htslib::bam::record::Cigar <span class="kw">as </span>HtsCigar;
+<a href=#446 id=446 data-nosnippet>446</a>    <span class="kw">use </span>rust_htslib::bam::Record;
 <a href=#447 id=447 data-nosnippet>447</a>
-<a href=#448 id=448 data-nosnippet>448</a>        <span class="kw">let </span><span class="kw-2">mut </span>rec = test_record(<span class="string">b"ACGTACGTACGTACGTACGT"</span>, pad + <span class="number">5</span>);
-<a href=#449 id=449 data-nosnippet>449</a>        <span class="kw">let </span>orig_pos = rec.pos();
-<a href=#450 id=450 data-nosnippet>450</a>        <span class="macro">assert!</span>(!create_read_aligned_to_ref(<span class="kw-2">&amp;mut </span>rec, <span class="kw-2">&amp;</span>alt_hap, <span class="kw-2">&amp;</span>ref_hap, pad, <span class="kw-2">&amp;</span>sw,).unwrap());
-<a href=#451 id=451 data-nosnippet>451</a>        <span class="macro">assert_eq!</span>(rec.pos(), orig_pos);
-<a href=#452 id=452 data-nosnippet>452</a>    }
-<a href=#453 id=453 data-nosnippet>453</a>
-<a href=#454 id=454 data-nosnippet>454</a>    <span class="attr">#[test]
-<a href=#455 id=455 data-nosnippet>455</a>    </span><span class="kw">fn </span>create_read_aligned_to_ref_preserves_soft_clips() {
-<a href=#456 id=456 data-nosnippet>456</a>        <span class="kw">let </span>sw = SwParameters::gatk_haplotype_to_reference();
-<a href=#457 id=457 data-nosnippet>457</a>        <span class="kw">let </span>pad = <span class="number">1000u64</span>;
-<a href=#458 id=458 data-nosnippet>458</a>        <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(<span class="string">b"ACGTACGTACGTACGT"</span>, <span class="bool-val">true</span>);
-<a href=#459 id=459 data-nosnippet>459</a>        <span class="kw">let </span><span class="kw-2">mut </span>ref_cigar = Cigar::new();
-<a href=#460 id=460 data-nosnippet>460</a>        ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
-<a href=#461 id=461 data-nosnippet>461</a>        ref_hap.cigar = <span class="prelude-val">Some</span>(ref_cigar);
-<a href=#462 id=462 data-nosnippet>462</a>        ref_hap.genome_loc = <span class="prelude-val">Some</span>(GenomeLoc::new(pad, pad + <span class="number">15</span>));
-<a href=#463 id=463 data-nosnippet>463</a>
-<a href=#464 id=464 data-nosnippet>464</a>        <span class="kw">let </span><span class="kw-2">mut </span>alt_hap = Haplotype::new(<span class="string">b"ACGTACGTACGTACGT"</span>, <span class="bool-val">false</span>);
-<a href=#465 id=465 data-nosnippet>465</a>        <span class="kw">let </span><span class="kw-2">mut </span>alt_cigar = Cigar::new();
-<a href=#466 id=466 data-nosnippet>466</a>        alt_cigar.push(alt_hap.bases.len(), CigarOperator::Match);
-<a href=#467 id=467 data-nosnippet>467</a>        alt_hap.cigar = <span class="prelude-val">Some</span>(alt_cigar);
-<a href=#468 id=468 data-nosnippet>468</a>        alt_hap.alignment_start_hap_wrt_ref = <span class="number">0</span>;
-<a href=#469 id=469 data-nosnippet>469</a>
-<a href=#470 id=470 data-nosnippet>470</a>        <span class="kw">let </span><span class="kw-2">mut </span>rec = Record::new();
-<a href=#471 id=471 data-nosnippet>471</a>        <span class="kw">let </span>cigar = CigarString::from(<span class="macro">vec!</span>[
-<a href=#472 id=472 data-nosnippet>472</a>            HtsCigar::SoftClip(<span class="number">2</span>),
-<a href=#473 id=473 data-nosnippet>473</a>            HtsCigar::Match(<span class="number">8</span>),
-<a href=#474 id=474 data-nosnippet>474</a>            HtsCigar::SoftClip(<span class="number">2</span>),
-<a href=#475 id=475 data-nosnippet>475</a>        ]);
-<a href=#476 id=476 data-nosnippet>476</a>        <span class="kw">let </span>seq = <span class="string">b"NNACGTACGTNN"</span>;
-<a href=#477 id=477 data-nosnippet>477</a>        <span class="kw">let </span>qual: Vec&lt;u8&gt; = <span class="macro">vec!</span>[<span class="number">30</span>; seq.len()];
-<a href=#478 id=478 data-nosnippet>478</a>        rec.set(<span class="string">b"r1"</span>, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>cigar), seq, <span class="kw-2">&amp;</span>qual);
-<a href=#479 id=479 data-nosnippet>479</a>        rec.set_pos(i64::try_from(pad + <span class="number">4</span>).unwrap_or(<span class="number">0</span>));
-<a href=#480 id=480 data-nosnippet>480</a>        <span class="macro">assert!</span>(create_read_aligned_to_ref(<span class="kw-2">&amp;mut </span>rec, <span class="kw-2">&amp;</span>alt_hap, <span class="kw-2">&amp;</span>ref_hap, pad, <span class="kw-2">&amp;</span>sw,).unwrap());
-<a href=#481 id=481 data-nosnippet>481</a>        <span class="kw">let </span>cigar_view = rec.cigar();
-<a href=#482 id=482 data-nosnippet>482</a>        <span class="kw">let </span>out: Vec&lt;<span class="kw">_</span>&gt; = cigar_view.into_iter().collect();
-<a href=#483 id=483 data-nosnippet>483</a>        <span class="macro">assert!</span>(<span class="macro">matches!</span>(out.first(), <span class="prelude-val">Some</span>(HtsCigar::SoftClip(<span class="number">2</span>))));
-<a href=#484 id=484 data-nosnippet>484</a>        <span class="macro">assert!</span>(<span class="macro">matches!</span>(out.last(), <span class="prelude-val">Some</span>(HtsCigar::SoftClip(<span class="number">2</span>))));
-<a href=#485 id=485 data-nosnippet>485</a>    }
-<a href=#486 id=486 data-nosnippet>486</a>}
+<a href=#448 id=448 data-nosnippet>448</a>    <span class="kw">fn </span>test_record(seq: <span class="kw-2">&amp;</span>[u8], pos_1based: u64) -&gt; Record {
+<a href=#449 id=449 data-nosnippet>449</a>        <span class="kw">let </span><span class="kw-2">mut </span>rec = Record::new();
+<a href=#450 id=450 data-nosnippet>450</a>        <span class="kw">let </span>cigar = CigarString::from(<span class="macro">vec!</span>[HtsCigar::Match(seq.len() <span class="kw">as </span>u32)]);
+<a href=#451 id=451 data-nosnippet>451</a>        <span class="kw">let </span>qual: Vec&lt;u8&gt; = <span class="macro">vec!</span>[<span class="number">30</span>; seq.len()];
+<a href=#452 id=452 data-nosnippet>452</a>        rec.set(<span class="string">b"r1"</span>, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>cigar), seq, <span class="kw-2">&amp;</span>qual);
+<a href=#453 id=453 data-nosnippet>453</a>        rec.set_pos(i64::try_from(pos_1based.saturating_sub(<span class="number">1</span>)).unwrap_or(<span class="number">0</span>));
+<a href=#454 id=454 data-nosnippet>454</a>        rec
+<a href=#455 id=455 data-nosnippet>455</a>    }
+<a href=#456 id=456 data-nosnippet>456</a>
+<a href=#457 id=457 data-nosnippet>457</a>    <span class="attr">#[test]
+<a href=#458 id=458 data-nosnippet>458</a>    </span><span class="kw">fn </span>change_evidence_preserves_full_read_hap_matrix() {
+<a href=#459 id=459 data-nosnippet>459</a>        <span class="kw">let </span>likelihoods = <span class="macro">vec!</span>[
+<a href=#460 id=460 data-nosnippet>460</a>            RegionReadLikelihood {
+<a href=#461 id=461 data-nosnippet>461</a>                read_index: <span class="kw">crate</span>::bio_ids::ReadIndex::new(<span class="number">0</span>),
+<a href=#462 id=462 data-nosnippet>462</a>                haplotype_index: <span class="kw">crate</span>::bio_ids::HaplotypeIndex::new(<span class="number">0</span>),
+<a href=#463 id=463 data-nosnippet>463</a>                log10_likelihood: -<span class="number">1.0</span>,
+<a href=#464 id=464 data-nosnippet>464</a>            },
+<a href=#465 id=465 data-nosnippet>465</a>            RegionReadLikelihood {
+<a href=#466 id=466 data-nosnippet>466</a>                read_index: <span class="kw">crate</span>::bio_ids::ReadIndex::new(<span class="number">0</span>),
+<a href=#467 id=467 data-nosnippet>467</a>                haplotype_index: <span class="kw">crate</span>::bio_ids::HaplotypeIndex::new(<span class="number">1</span>),
+<a href=#468 id=468 data-nosnippet>468</a>                log10_likelihood: -<span class="number">0.2</span>,
+<a href=#469 id=469 data-nosnippet>469</a>            },
+<a href=#470 id=470 data-nosnippet>470</a>        ];
+<a href=#471 id=471 data-nosnippet>471</a>        <span class="kw">let </span>out = change_evidence_to_best_haplotype(likelihoods.clone(), <span class="kw-2">&amp;</span>[<span class="number">1</span>]);
+<a href=#472 id=472 data-nosnippet>472</a>        <span class="macro">assert_eq!</span>(out.len(), <span class="number">2</span>);
+<a href=#473 id=473 data-nosnippet>473</a>        <span class="macro">assert_eq!</span>(out, likelihoods);
+<a href=#474 id=474 data-nosnippet>474</a>    }
+<a href=#475 id=475 data-nosnippet>475</a>
+<a href=#476 id=476 data-nosnippet>476</a>    <span class="attr">#[test]
+<a href=#477 id=477 data-nosnippet>477</a>    </span><span class="kw">fn </span>tiebreak_prefers_reference_within_informative_threshold() {
+<a href=#478 id=478 data-nosnippet>478</a>        <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(<span class="string">b"ACGT"</span>, <span class="bool-val">true</span>);
+<a href=#479 id=479 data-nosnippet>479</a>        ref_hap.cigar = <span class="prelude-val">Some</span>({
+<a href=#480 id=480 data-nosnippet>480</a>            <span class="kw">let </span><span class="kw-2">mut </span>c = Cigar::new();
+<a href=#481 id=481 data-nosnippet>481</a>            c.push(<span class="number">4</span>, CigarOperator::Match);
+<a href=#482 id=482 data-nosnippet>482</a>            c
+<a href=#483 id=483 data-nosnippet>483</a>        });
+<a href=#484 id=484 data-nosnippet>484</a>        <span class="kw">let </span><span class="kw-2">mut </span>alt = Haplotype::new(<span class="string">b"ACGT"</span>, <span class="bool-val">false</span>);
+<a href=#485 id=485 data-nosnippet>485</a>        alt.cigar = <span class="prelude-val">Some</span>({
+<a href=#486 id=486 data-nosnippet>486</a>            <span class="kw">let </span><span class="kw-2">mut </span>c = Cigar::new();
+<a href=#487 id=487 data-nosnippet>487</a>            c.push(<span class="number">2</span>, CigarOperator::Match);
+<a href=#488 id=488 data-nosnippet>488</a>            c.push(<span class="number">1</span>, CigarOperator::Deletion);
+<a href=#489 id=489 data-nosnippet>489</a>            c.push(<span class="number">1</span>, CigarOperator::Match);
+<a href=#490 id=490 data-nosnippet>490</a>            c
+<a href=#491 id=491 data-nosnippet>491</a>        });
+<a href=#492 id=492 data-nosnippet>492</a>        <span class="kw">let </span>haps = <span class="macro">vec!</span>[ref_hap, alt];
+<a href=#493 id=493 data-nosnippet>493</a>        <span class="kw">let </span>priorities: Vec&lt;f64&gt; = haps
+<a href=#494 id=494 data-nosnippet>494</a>            .iter()
+<a href=#495 id=495 data-nosnippet>495</a>            .map(haplotype_alignment_tiebreak_priority)
+<a href=#496 id=496 data-nosnippet>496</a>            .collect();
+<a href=#497 id=497 data-nosnippet>497</a>        <span class="macro">assert!</span>(priorities[<span class="number">0</span>] &gt; priorities[<span class="number">1</span>]);
+<a href=#498 id=498 data-nosnippet>498</a>        <span class="kw">let </span>likelihoods = <span class="macro">vec!</span>[
+<a href=#499 id=499 data-nosnippet>499</a>            RegionReadLikelihood {
+<a href=#500 id=500 data-nosnippet>500</a>                read_index: <span class="kw">crate</span>::bio_ids::ReadIndex::new(<span class="number">0</span>),
+<a href=#501 id=501 data-nosnippet>501</a>                haplotype_index: <span class="kw">crate</span>::bio_ids::HaplotypeIndex::new(<span class="number">0</span>),
+<a href=#502 id=502 data-nosnippet>502</a>                log10_likelihood: -<span class="number">0.5</span>,
+<a href=#503 id=503 data-nosnippet>503</a>            },
+<a href=#504 id=504 data-nosnippet>504</a>            RegionReadLikelihood {
+<a href=#505 id=505 data-nosnippet>505</a>                read_index: <span class="kw">crate</span>::bio_ids::ReadIndex::new(<span class="number">0</span>),
+<a href=#506 id=506 data-nosnippet>506</a>                haplotype_index: <span class="kw">crate</span>::bio_ids::HaplotypeIndex::new(<span class="number">1</span>),
+<a href=#507 id=507 data-nosnippet>507</a>                log10_likelihood: -<span class="number">0.48</span>,
+<a href=#508 id=508 data-nosnippet>508</a>            },
+<a href=#509 id=509 data-nosnippet>509</a>        ];
+<a href=#510 id=510 data-nosnippet>510</a>        <span class="kw">let </span>best = best_haplotype_index_for_read(<span class="number">0</span>, <span class="kw-2">&amp;</span>haps, <span class="kw-2">&amp;</span>likelihoods, <span class="kw-2">&amp;</span>priorities);
+<a href=#511 id=511 data-nosnippet>511</a>        <span class="macro">assert_eq!</span>(best, <span class="number">0</span>, <span class="string">"ref wins tie within 0.2 log10"</span>);
+<a href=#512 id=512 data-nosnippet>512</a>    }
+<a href=#513 id=513 data-nosnippet>513</a>
+<a href=#514 id=514 data-nosnippet>514</a>    <span class="attr">#[test]
+<a href=#515 id=515 data-nosnippet>515</a>    </span><span class="kw">fn </span>create_read_aligned_to_ref_sets_position_on_alt_hap() {
+<a href=#516 id=516 data-nosnippet>516</a>        <span class="kw">let </span>sw = SwParameters::gatk_haplotype_to_reference();
+<a href=#517 id=517 data-nosnippet>517</a>        <span class="kw">let </span>pad = <span class="number">1000u64</span>;
+<a href=#518 id=518 data-nosnippet>518</a>        <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(<span class="string">b"ACGTACGTACGT"</span>, <span class="bool-val">true</span>);
+<a href=#519 id=519 data-nosnippet>519</a>        <span class="kw">let </span><span class="kw-2">mut </span>ref_cigar = Cigar::new();
+<a href=#520 id=520 data-nosnippet>520</a>        ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
+<a href=#521 id=521 data-nosnippet>521</a>        ref_hap.cigar = <span class="prelude-val">Some</span>(ref_cigar);
+<a href=#522 id=522 data-nosnippet>522</a>        ref_hap.genome_loc = <span class="prelude-val">Some</span>(GenomeLoc::new(pad, pad + <span class="number">11</span>));
+<a href=#523 id=523 data-nosnippet>523</a>
+<a href=#524 id=524 data-nosnippet>524</a>        <span class="kw">let </span><span class="kw-2">mut </span>alt_hap = Haplotype::new(<span class="string">b"ACGTACGTACGT"</span>, <span class="bool-val">false</span>);
+<a href=#525 id=525 data-nosnippet>525</a>        <span class="kw">let </span><span class="kw-2">mut </span>alt_cigar = Cigar::new();
+<a href=#526 id=526 data-nosnippet>526</a>        alt_cigar.push(alt_hap.bases.len(), CigarOperator::Match);
+<a href=#527 id=527 data-nosnippet>527</a>        alt_hap.cigar = <span class="prelude-val">Some</span>(alt_cigar);
+<a href=#528 id=528 data-nosnippet>528</a>        alt_hap.alignment_start_hap_wrt_ref = <span class="number">0</span>;
+<a href=#529 id=529 data-nosnippet>529</a>
+<a href=#530 id=530 data-nosnippet>530</a>        <span class="kw">let </span><span class="kw-2">mut </span>rec = test_record(<span class="string">b"ACGTACGTACGT"</span>, pad + <span class="number">5</span>);
+<a href=#531 id=531 data-nosnippet>531</a>        <span class="macro">assert!</span>(create_read_aligned_to_ref(<span class="kw-2">&amp;mut </span>rec, <span class="kw-2">&amp;</span>alt_hap, <span class="kw-2">&amp;</span>ref_hap, pad, <span class="kw-2">&amp;</span>sw,).unwrap());
+<a href=#532 id=532 data-nosnippet>532</a>        <span class="macro">assert!</span>(rec.pos() &gt;= i64::try_from(pad.saturating_sub(<span class="number">1</span>)).unwrap_or(<span class="number">0</span>));
+<a href=#533 id=533 data-nosnippet>533</a>    }
+<a href=#534 id=534 data-nosnippet>534</a>
+<a href=#535 id=535 data-nosnippet>535</a>    <span class="attr">#[test]
+<a href=#536 id=536 data-nosnippet>536</a>    </span><span class="kw">fn </span>create_read_aligned_to_ref_skips_spurious_hap_prefix_match_before_hap_ref_window() {
+<a href=#537 id=537 data-nosnippet>537</a>        <span class="kw">let </span>sw = SwParameters::gatk_haplotype_to_reference();
+<a href=#538 id=538 data-nosnippet>538</a>        <span class="kw">let </span>pad = <span class="number">1000u64</span>;
+<a href=#539 id=539 data-nosnippet>539</a>        <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(<span class="string">b"ACGTACGTACGTACGTACGT"</span>, <span class="bool-val">true</span>);
+<a href=#540 id=540 data-nosnippet>540</a>        <span class="kw">let </span><span class="kw-2">mut </span>ref_cigar = Cigar::new();
+<a href=#541 id=541 data-nosnippet>541</a>        ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
+<a href=#542 id=542 data-nosnippet>542</a>        ref_hap.cigar = <span class="prelude-val">Some</span>(ref_cigar);
+<a href=#543 id=543 data-nosnippet>543</a>        ref_hap.genome_loc = <span class="prelude-val">Some</span>(GenomeLoc::new(pad, pad + <span class="number">19</span>));
+<a href=#544 id=544 data-nosnippet>544</a>
+<a href=#545 id=545 data-nosnippet>545</a>        <span class="kw">let </span><span class="kw-2">mut </span>alt_hap = Haplotype::new(<span class="string">b"ACGTACGTACGTACGTACGT"</span>, <span class="bool-val">false</span>);
+<a href=#546 id=546 data-nosnippet>546</a>        <span class="kw">let </span><span class="kw-2">mut </span>alt_cigar = Cigar::new();
+<a href=#547 id=547 data-nosnippet>547</a>        alt_cigar.push(alt_hap.bases.len(), CigarOperator::Match);
+<a href=#548 id=548 data-nosnippet>548</a>        alt_hap.cigar = <span class="prelude-val">Some</span>(alt_cigar);
+<a href=#549 id=549 data-nosnippet>549</a>        alt_hap.alignment_start_hap_wrt_ref = <span class="number">40</span>;
+<a href=#550 id=550 data-nosnippet>550</a>
+<a href=#551 id=551 data-nosnippet>551</a>        <span class="kw">let </span><span class="kw-2">mut </span>rec = test_record(<span class="string">b"ACGTACGTACGTACGTACGT"</span>, pad + <span class="number">5</span>);
+<a href=#552 id=552 data-nosnippet>552</a>        <span class="kw">let </span>orig_pos = rec.pos();
+<a href=#553 id=553 data-nosnippet>553</a>        <span class="macro">assert!</span>(!create_read_aligned_to_ref(<span class="kw-2">&amp;mut </span>rec, <span class="kw-2">&amp;</span>alt_hap, <span class="kw-2">&amp;</span>ref_hap, pad, <span class="kw-2">&amp;</span>sw,).unwrap());
+<a href=#554 id=554 data-nosnippet>554</a>        <span class="macro">assert_eq!</span>(rec.pos(), orig_pos);
+<a href=#555 id=555 data-nosnippet>555</a>    }
+<a href=#556 id=556 data-nosnippet>556</a>
+<a href=#557 id=557 data-nosnippet>557</a>    <span class="attr">#[test]
+<a href=#558 id=558 data-nosnippet>558</a>    </span><span class="kw">fn </span>create_read_aligned_to_ref_preserves_soft_clips() {
+<a href=#559 id=559 data-nosnippet>559</a>        <span class="kw">let </span>sw = SwParameters::gatk_haplotype_to_reference();
+<a href=#560 id=560 data-nosnippet>560</a>        <span class="kw">let </span>pad = <span class="number">1000u64</span>;
+<a href=#561 id=561 data-nosnippet>561</a>        <span class="kw">let </span><span class="kw-2">mut </span>ref_hap = Haplotype::new(<span class="string">b"ACGTACGTACGTACGT"</span>, <span class="bool-val">true</span>);
+<a href=#562 id=562 data-nosnippet>562</a>        <span class="kw">let </span><span class="kw-2">mut </span>ref_cigar = Cigar::new();
+<a href=#563 id=563 data-nosnippet>563</a>        ref_cigar.push(ref_hap.bases.len(), CigarOperator::Match);
+<a href=#564 id=564 data-nosnippet>564</a>        ref_hap.cigar = <span class="prelude-val">Some</span>(ref_cigar);
+<a href=#565 id=565 data-nosnippet>565</a>        ref_hap.genome_loc = <span class="prelude-val">Some</span>(GenomeLoc::new(pad, pad + <span class="number">15</span>));
+<a href=#566 id=566 data-nosnippet>566</a>
+<a href=#567 id=567 data-nosnippet>567</a>        <span class="kw">let </span><span class="kw-2">mut </span>alt_hap = Haplotype::new(<span class="string">b"ACGTACGTACGTACGT"</span>, <span class="bool-val">false</span>);
+<a href=#568 id=568 data-nosnippet>568</a>        <span class="kw">let </span><span class="kw-2">mut </span>alt_cigar = Cigar::new();
+<a href=#569 id=569 data-nosnippet>569</a>        alt_cigar.push(alt_hap.bases.len(), CigarOperator::Match);
+<a href=#570 id=570 data-nosnippet>570</a>        alt_hap.cigar = <span class="prelude-val">Some</span>(alt_cigar);
+<a href=#571 id=571 data-nosnippet>571</a>        alt_hap.alignment_start_hap_wrt_ref = <span class="number">0</span>;
+<a href=#572 id=572 data-nosnippet>572</a>
+<a href=#573 id=573 data-nosnippet>573</a>        <span class="kw">let </span><span class="kw-2">mut </span>rec = Record::new();
+<a href=#574 id=574 data-nosnippet>574</a>        <span class="kw">let </span>cigar = CigarString::from(<span class="macro">vec!</span>[
+<a href=#575 id=575 data-nosnippet>575</a>            HtsCigar::SoftClip(<span class="number">2</span>),
+<a href=#576 id=576 data-nosnippet>576</a>            HtsCigar::Match(<span class="number">8</span>),
+<a href=#577 id=577 data-nosnippet>577</a>            HtsCigar::SoftClip(<span class="number">2</span>),
+<a href=#578 id=578 data-nosnippet>578</a>        ]);
+<a href=#579 id=579 data-nosnippet>579</a>        <span class="kw">let </span>seq = <span class="string">b"NNACGTACGTNN"</span>;
+<a href=#580 id=580 data-nosnippet>580</a>        <span class="kw">let </span>qual: Vec&lt;u8&gt; = <span class="macro">vec!</span>[<span class="number">30</span>; seq.len()];
+<a href=#581 id=581 data-nosnippet>581</a>        rec.set(<span class="string">b"r1"</span>, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>cigar), seq, <span class="kw-2">&amp;</span>qual);
+<a href=#582 id=582 data-nosnippet>582</a>        rec.set_pos(i64::try_from(pad + <span class="number">4</span>).unwrap_or(<span class="number">0</span>));
+<a href=#583 id=583 data-nosnippet>583</a>        <span class="macro">assert!</span>(create_read_aligned_to_ref(<span class="kw-2">&amp;mut </span>rec, <span class="kw-2">&amp;</span>alt_hap, <span class="kw-2">&amp;</span>ref_hap, pad, <span class="kw-2">&amp;</span>sw,).unwrap());
+<a href=#584 id=584 data-nosnippet>584</a>        <span class="kw">let </span>cigar_view = rec.cigar();
+<a href=#585 id=585 data-nosnippet>585</a>        <span class="kw">let </span>out: Vec&lt;<span class="kw">_</span>&gt; = cigar_view.into_iter().collect();
+<a href=#586 id=586 data-nosnippet>586</a>        <span class="macro">assert!</span>(<span class="macro">matches!</span>(out.first(), <span class="prelude-val">Some</span>(HtsCigar::SoftClip(<span class="number">2</span>))));
+<a href=#587 id=587 data-nosnippet>587</a>        <span class="macro">assert!</span>(<span class="macro">matches!</span>(out.last(), <span class="prelude-val">Some</span>(HtsCigar::SoftClip(<span class="number">2</span>))));
+<a href=#588 id=588 data-nosnippet>588</a>    }
+<a href=#589 id=589 data-nosnippet>589</a>}
 </code></pre></div></section></main></body></html>
