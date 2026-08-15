@@ -19,7 +19,7 @@ pub use pack::{score_haps_logless_packed_f32, score_haps_logless_packed_f64};
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub use avx2::release_pairhmm_avx2_tls_scratch;
 #[cfg(target_arch = "aarch64")]
-pub use neon::release_pairhmm_neon_tls_scratch;
+pub use neon::{release_pairhmm_neon_tls_scratch, take_neon_pack_stats};
 
 /// Release SIMD PairHMM TLS scratch when present.
 pub fn release_pairhmm_simd_tls_scratch() {

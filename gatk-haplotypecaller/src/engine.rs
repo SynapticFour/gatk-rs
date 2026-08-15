@@ -868,16 +868,24 @@ impl HaplotypeCallerEngine {
             let pairhmm_ms = pairhmm_t0.elapsed().as_millis();
             // Always under abort/TRACE diagnostics (not TRACE-only) so CI wall-time
             // attribution does not lose the PairHMM gap when only ABORT_MIB is set.
+            #[cfg(target_arch = "aarch64")]
+            let neon_pack = {
+                let (pack2, leftover) = crate::pairhmm_simd::take_neon_pack_stats();
+                format!(" neon_pack2={pack2} neon_leftover={leftover}")
+            };
+            #[cfg(not(target_arch = "aarch64"))]
+            let neon_pack = String::new();
             crate::runtime_config::rss_trace_checkpoint(
                 "after_pairhmm",
                 &format!(
-                    "haps={} geno_reads={} ll_rows={} pairhmm_ms={} impl={} backend={}",
+                    "haps={} geno_reads={} ll_rows={} pairhmm_ms={} impl={} backend={}{}",
                     assembly.haplotypes.len(),
                     region_for_genotyping.reads.len(),
                     read_likelihoods.len(),
                     pairhmm_ms,
                     pairhmm_impl.label(),
-                    pairhmm_backend
+                    pairhmm_backend,
+                    neon_pack
                 ),
             );
             let genotype_t0 = std::time::Instant::now();

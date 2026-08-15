@@ -9,7 +9,8 @@ use crate::pairhmm_logless::{
 };
 use gatk_common::GatkResult;
 use std::arch::aarch64::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 
 const MATCH_TO_MATCH: usize = 0;
 const INDEL_TO_MATCH: usize = 1;
@@ -56,6 +57,9 @@ impl NeonScratch {
 
 thread_local! {
     static NEON_SCRATCH: RefCell<NeonScratch> = RefCell::new(NeonScratch::new());
+    /// TRACE occupancy: NEON pack2 hits vs scalar leftovers (reset via [`take_neon_pack_stats`]).
+    static NEON_PACK2: Cell<u64> = const { Cell::new(0) };
+    static NEON_LEFTOVER: Cell<u64> = const { Cell::new(0) };
 }
 
 /// Drop NEON PairHMM TLS planes (Peak hygiene after a region).
@@ -69,6 +73,11 @@ pub fn release_pairhmm_neon_tls_scratch() {
     });
 }
 
+/// Take-and-reset NEON pack occupancy counters for this thread `(pack2, leftover_singles)`.
+pub fn take_neon_pack_stats() -> (u64, u64) {
+    (NEON_PACK2.replace(0), NEON_LEFTOVER.replace(0))
+}
+
 /// Score haplotypes with NEON when available; otherwise portable packed f64.
 pub fn score_haps_neon_f64(
     read_bases: &[u8],
@@ -78,8 +87,8 @@ pub fn score_haps_neon_f64(
     deletion_gop: &[u8],
     overall_gcp: &[u8],
 ) -> GatkResult<Vec<f64>> {
-    // Equal-length look-ahead packs (no full sort). Length-grouping sort was measured
-    // slower on dense NA12878 (sort/scatter tax > pack win under SEQUENTIAL=1); keep TLS ensure fix.
+    // Group equal lengths (AVX2-style `by_len`), not a full hap sort. Sort/scatter was
+    // slower under SEQUENTIAL=1; HashMap group + chunks keeps pack density without that tax.
     if std::arch::is_aarch64_feature_detected!("neon") {
         // SAFETY: NEON feature detected.
         unsafe {
@@ -122,28 +131,23 @@ unsafe fn score_haps_neon_f64_unchecked(
 
     let transitions = logless_build_transitions(rn, insertion_gop, deletion_gop, overall_gcp);
     let mut out = vec![0.0f64; haplotypes.len()];
-    let mut done = vec![false; haplotypes.len()];
+    let mut by_len: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (i, h) in haplotypes.iter().enumerate() {
+        by_len.entry(h.len()).or_default().push(i);
+    }
     let mut err: Option<gatk_common::GatkError> = None;
     NEON_SCRATCH.with(|cell| {
         let mut scratch = cell.borrow_mut();
-        let mut i = 0;
-        while i < haplotypes.len() {
-            if done[i] {
-                i += 1;
-                continue;
-            }
-            // Look ahead for any remaining equal-length partner (no full sort/scatter).
-            // Uneven lengths in one NEON pack corrupt lane DP — never pack mismatched lens.
-            let partner = ((i + 1)..haplotypes.len())
-                .find(|&j| !done[j] && haplotypes[j].len() == haplotypes[i].len());
-            if let Some(j) = partner {
-                let pack = [haplotypes[i], haplotypes[j]];
+        for idxs in by_len.values() {
+            let mut chunks = idxs.chunks_exact(LANES);
+            for pack_src in chunks.by_ref() {
+                let pack = [haplotypes[pack_src[0]], haplotypes[pack_src[1]]];
                 let scores = score_pack2(read_bases, read_quals, &pack, &transitions, &mut scratch);
-                out[i] = scores[0];
-                out[j] = scores[1];
-                done[i] = true;
-                done[j] = true;
-            } else {
+                out[pack_src[0]] = scores[0];
+                out[pack_src[1]] = scores[1];
+                NEON_PACK2.set(NEON_PACK2.get() + 1);
+            }
+            for &i in chunks.remainder() {
                 // Reuse transitions already built for this read — do not rebuild via packed_f64.
                 match score_haps_logless_packed_f64_with_transitions(
                     read_bases,
@@ -154,12 +158,11 @@ unsafe fn score_haps_neon_f64_unchecked(
                     Ok(rest) => out[i] = rest[0],
                     Err(e) => {
                         err = Some(e);
-                        break;
+                        return;
                     }
                 }
-                done[i] = true;
+                NEON_LEFTOVER.set(NEON_LEFTOVER.get() + 1);
             }
-            i += 1;
         }
     });
     if let Some(e) = err {

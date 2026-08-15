@@ -41,8 +41,19 @@ algorithm parity (no P12 band widening). Peak RSS already wins on probe.
 2. ~~Profile + PairHMM/EventMap + wall-losers lane~~ (landed #113).
 3. ~~wall-losers Finalize dig~~ — concat bug, not F1 ([`WALL_LOSERS_F1_DIG.md`](WALL_LOSERS_F1_DIG.md)).
 4. ~~SW / realign leaf~~ — [`PHASE8_SW_REALIGN.md`](PHASE8_SW_REALIGN.md).
-5. Dispatch `GIAB_MODE=ci-subset` on phase8 PR (Peak rematch).
-6. ~~ci-subset hang dig (w47 / chr21 w10)~~ — [`CI_SUBSET_HANG_W47_W10.md`](CI_SUBSET_HANG_W47_W10.md); omit shards to Finalize once.
-7. Re-run `wall-losers` after concat fix (product wall + honest F1 delta).
-8. L8 holdout F1 — [`L8_HOLDOUT_F1_TRACK.md`](L8_HOLDOUT_F1_TRACK.md).
-9. Next leaf: RT graph hash / deeper PairHMM after phase8 rematch; TRACE hang loci separately.
+5. ~~ci-subset hang dig (w47 / chr21 w10)~~ — hang memo #115.
+6. ~~Call-rate emit / L8 holdout~~ — pileup AD gate #116; ci-subset
+   `max_|ΔF1|=0.0099` PASS (workflow red only on gh-pages push).
+7. ~~wall-losers product baseline~~ — gate PASS `0.0013`; median product wall
+   **~1.79×** Java (thr=2, no sequential).
+8. **Phase9 PairHMM pack (in progress):** NEON `by_len` group (parity with AVX2)
+   + TRACE `neon_pack2` / `neon_leftover` on `after_pairhmm`. Next code bet after
+   occupancy: equal-length **read** packs / fewer cells (not f32; not EventMap).
+
+### Callrate-era TRACE leaf (w11 200 kb, product thr=2)
+
+| Phase | Σ δ | ~share |
+|-------|----:|-------:|
+| `after_pairhmm` | 527 s | ~42% |
+| `after_genotype` | 377 s | ~30% |
+| `prep_realign` | 188 s | ~15% |
