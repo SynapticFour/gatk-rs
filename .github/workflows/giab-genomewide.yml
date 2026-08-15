@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "GIAB_MODE (smoke|ci-subset|chr20-21|autosomes)"
+        description: "GIAB_MODE (smoke|ci-subset|wall-losers|chr20-21|autosomes)"
         required: true
         default: "ci-subset"
       samples:
@@ -264,8 +264,8 @@ jobs:
           GIAB_SKIP_EQUIV_ENGINE: "1"
           # Cap glibc arenas — reduces Linux RSS inflation under Rayon.
           MALLOC_ARENA_MAX: "2"
-          # One assembly region at a time on hosted runners (Peak-RSS; same evidence).
-          GATK_RS_HC_SEQUENTIAL: "1"
+          # Peak mode for full ci-subset; product wall for wall-losers (thr=2, Rayon on).
+          GATK_RS_HC_SEQUENTIAL: ${{ (github.event.inputs.mode == 'wall-losers') && '0' || '1' }}
           # Soft-land dense-shard Peak before hard OOM (~16 GiB runners).
           # 12288 was too close: w20 still climbed to ~15 GiB + swap thrash.
           GATK_RS_HC_RSS_ABORT_MIB: "8192"

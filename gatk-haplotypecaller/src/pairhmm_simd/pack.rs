@@ -111,7 +111,50 @@ pub fn score_haps_logless_packed_f64(
     Ok(out)
 }
 
-fn score_one_f64(
+/// Score haplotypes with already-built Logless transitions (avoids rebuild on NEON leftovers).
+pub(crate) fn score_haps_logless_packed_f64_with_transitions(
+    read_bases: &[u8],
+    read_quals: &[u8],
+    haplotypes: &[&[u8]],
+    transitions: &[[f64; 6]],
+) -> GatkResult<Vec<f64>> {
+    if haplotypes.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rn = read_bases.len();
+    if rn == 0 {
+        return Ok(vec![0.0; haplotypes.len()]);
+    }
+    let max_hn = haplotypes.iter().map(|h| h.len()).max().unwrap_or(0);
+    let max_cols = max_hn + 1;
+    let max_cells = (rn + 1).saturating_mul(max_cols);
+    const MAX_PAIRHMM_DIM: usize = 100_000;
+    const MAX_PAIRHMM_CELLS: usize = 8_000_000;
+    if rn > MAX_PAIRHMM_DIM || max_hn > MAX_PAIRHMM_DIM || max_cells > MAX_PAIRHMM_CELLS {
+        return Err(GatkError::algorithm(format!(
+            "PairHMM packed-f64 refused oversized DP (read_len={rn}, max_hap_len={max_hn}, cells={max_cells}); \
+             inputs must be assembly-region scale, not contig scale"
+        )));
+    }
+    let mut out = Vec::with_capacity(haplotypes.len());
+    PACK_F64_SCRATCH.with(|cell| {
+        let mut scratch = cell.borrow_mut();
+        scratch.ensure_cells(max_cells);
+        for &hap in haplotypes {
+            out.push(score_one_f64(
+                read_bases,
+                read_quals,
+                hap,
+                transitions,
+                &mut scratch,
+            ));
+        }
+    });
+    Ok(out)
+}
+
+/// Score one hap with prebuilt transition planes (shared across a read's hap pack).
+pub(crate) fn score_one_f64(
     read_bases: &[u8],
     read_quals: &[u8],
     hap: &[u8],

@@ -228,6 +228,17 @@ giab_build_intervals() {
         giab_ci_subset_probe "${chr}"
       done
       ;;
+    wall-losers)
+      # Product-wall matrix: campaign dense losers only (1 Mb CI windows). No Peak sequential.
+      echo "20:9000001-10000000"
+      echo "20:11000001-12000000"
+      echo "20:26000001-27000000"
+      echo "20:29000001-30000000"
+      echo "21:9000001-10000000"
+      echo "21:11000001-12000000"
+      echo "21:26000001-27000000"
+      echo "21:29000001-30000000"
+      ;;
     chr20-21)
       echo "20:1-63025520"
       echo "21:1-48129895"
@@ -253,6 +264,9 @@ giab_mode_description() {
       ;;
     ci-subset)
       echo "CI-SUBSET (default “genome-wide” in this repo): FULL chr20 + FULL chr21 + one 50kb probe on each other autosome. Not all bases of chr1–19/22."
+      ;;
+    wall-losers)
+      echo "WALL-LOSERS: eight 1 Mb dense campaign windows (chr20/21 w09/w11/w26/w29). Product wall (no GATK_RS_HC_SEQUENTIAL). Peak abort retained."
       ;;
     chr20-21)
       echo "CHR20-21: full chromosomes 20 and 21 only."
@@ -354,6 +368,17 @@ giab_write_hc_shards() {
             ;;
         esac
       done < "${intervals_file}"
+      ;;
+    wall-losers)
+      # Fixed campaign loser windows (names match ci-subset shard ids).
+      printf '20:9000001-10000000\n' > "${shard_dir}/00_chr20_w09.intervals"
+      printf '20:11000001-12000000\n' > "${shard_dir}/00_chr20_w11.intervals"
+      printf '20:26000001-27000000\n' > "${shard_dir}/00_chr20_w26.intervals"
+      printf '20:29000001-30000000\n' > "${shard_dir}/00_chr20_w29.intervals"
+      printf '21:9000001-10000000\n' > "${shard_dir}/01_chr21_w09.intervals"
+      printf '21:11000001-12000000\n' > "${shard_dir}/01_chr21_w11.intervals"
+      printf '21:26000001-27000000\n' > "${shard_dir}/01_chr21_w26.intervals"
+      printf '21:29000001-30000000\n' > "${shard_dir}/01_chr21_w29.intervals"
       ;;
     chr20-21)
       while IFS= read -r iv || [[ -n "${iv}" ]]; do

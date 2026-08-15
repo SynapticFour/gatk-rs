@@ -3,12 +3,15 @@
 //! inverse allele). Rust uses that score when PairHMM rows exist, else read-LL sum fallback.
 
 use crate::assembly_result_set::AssemblyResultSet;
-use crate::event_map::VariationEvent;
+use crate::event_map::{
+    build_per_haplotype_variation_events, PerHaplotypeVariationEvents, VariationEvent,
+};
 use crate::genome_loc::GenomePosition;
 use crate::genotyping::{emit_genotype_format_fields, ReadLikelihoodRow};
 use crate::haplotype::Haplotype;
 use crate::hc_allele_mapping::{
-    create_allele_mapper, hap_base_at_ref_locus, haplotype_supports_allele_at_with_ref,
+    create_allele_mapper_with_events, hap_base_at_ref_locus,
+    haplotype_supports_allele_at_with_events, haplotype_supports_allele_at_with_ref,
 };
 use crate::hc_genotyping_engine::{
     biallelic_genotype_log10_likelihoods_gatk, marginalize_rows_to_biallelic_alleles,
@@ -63,8 +66,9 @@ fn variation_event_hc_inverse_pl_from_rows(
     ref_bytes: &[u8],
     pad_start_1based: u64,
     max_mnp: usize,
+    hap_events: &PerHaplotypeVariationEvents,
 ) -> Option<i32> {
-    let mapping = create_allele_mapper(
+    let mapping = create_allele_mapper_with_events(
         event,
         event.start_1based.get(),
         haplotypes,
@@ -72,6 +76,7 @@ fn variation_event_hc_inverse_pl_from_rows(
         ref_bytes,
         max_mnp,
         true,
+        Some(hap_events),
     );
     if mapping.alt_haplotype_indices.is_empty() {
         return None;
@@ -128,6 +133,14 @@ fn haplotype_hc_inverse_pl_scores(
     if rows.is_empty() {
         return out;
     }
+    // Only when PL ranking runs: one EventMap walk per hap (not on the mark-only path).
+    let hap_events = build_per_haplotype_variation_events(
+        &assembly.haplotypes,
+        ref_bytes,
+        pad_start,
+        max_mnp,
+        &assembly.contig,
+    );
     // Per-event PL is independent of which haplotype we are ranking — compute once.
     let mut event_pl: Vec<Option<Option<i32>>> = vec![None; events.len()];
     for (hi, h) in assembly.haplotypes.iter().enumerate() {
@@ -135,8 +148,9 @@ fn haplotype_hc_inverse_pl_scores(
             continue;
         }
         let mut best = f64::NEG_INFINITY;
+        let pre = Some(hap_events.events_for(hi));
         for (ei, event) in events.iter().enumerate() {
-            if !haplotype_supports_allele_at_with_ref(
+            if !haplotype_supports_allele_at_with_events(
                 h,
                 ref_hap,
                 event.start_1based.get(),
@@ -146,6 +160,7 @@ fn haplotype_hc_inverse_pl_scores(
                 ref_bytes,
                 max_mnp,
                 &event.contig,
+                pre,
             ) {
                 continue;
             }
@@ -157,6 +172,7 @@ fn haplotype_hc_inverse_pl_scores(
                     ref_bytes,
                     pad_start,
                     max_mnp,
+                    &hap_events,
                 )
             });
             if let Some(pl) = *pl {
