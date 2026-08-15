@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["MetricValue"],"struct":["MetricsCollector","PerformanceAnalyzer","PerformanceStats","PerformanceTargetValidator","PerformanceTargets","PerformanceValidation","RegressionDetector","RegressionFlag","RegressionReport","StatisticSet","TargetResult"]};

@@ -189,7 +189,7 @@
 <a href=#189 id=189 data-nosnippet>189</a>        <span class="kw">let </span>header = <span class="string">"@RG\tID:rg1\tSM:s1\n@RG\tID:rg1\tSM:s2\n"</span>;
 <a href=#190 id=190 data-nosnippet>190</a>        <span class="kw">let </span>err = ReadHeaderSemantics::from_sam_header_text(header).unwrap_err();
 <a href=#191 id=191 data-nosnippet>191</a>        <span class="kw">match </span>err {
-<a href=#192 id=192 data-nosnippet>192</a>            GatkError::Validation { message, .. } =&gt; <span class="macro">assert!</span>(message.contains(<span class="string">"duplicate @RG ID"</span>)),
+<a href=#192 id=192 data-nosnippet>192</a>            GatkError::Config { message, .. } =&gt; <span class="macro">assert!</span>(message.contains(<span class="string">"duplicate @RG ID"</span>)),
 <a href=#193 id=193 data-nosnippet>193</a>            other =&gt; <span class="macro">panic!</span>(<span class="string">"expected Validation error, got {other:?}"</span>),
 <a href=#194 id=194 data-nosnippet>194</a>        }
 <a href=#195 id=195 data-nosnippet>195</a>    }
@@ -205,11 +205,11 @@
 <a href=#205 id=205 data-nosnippet>205</a>            .validate_record_links(<span class="prelude-val">Some</span>(<span class="string">"rg1"</span>), <span class="prelude-val">Some</span>(<span class="string">"missing-pg"</span>))
 <a href=#206 id=206 data-nosnippet>206</a>            .unwrap_err();
 <a href=#207 id=207 data-nosnippet>207</a>        <span class="kw">match </span>rg_err {
-<a href=#208 id=208 data-nosnippet>208</a>            GatkError::Validation { message, .. } =&gt; <span class="macro">assert!</span>(message.contains(<span class="string">"record RG"</span>)),
+<a href=#208 id=208 data-nosnippet>208</a>            GatkError::Config { message, .. } =&gt; <span class="macro">assert!</span>(message.contains(<span class="string">"record RG"</span>)),
 <a href=#209 id=209 data-nosnippet>209</a>            other =&gt; <span class="macro">panic!</span>(<span class="string">"expected Validation error, got {other:?}"</span>),
 <a href=#210 id=210 data-nosnippet>210</a>        }
 <a href=#211 id=211 data-nosnippet>211</a>        <span class="kw">match </span>pg_err {
-<a href=#212 id=212 data-nosnippet>212</a>            GatkError::Validation { message, .. } =&gt; <span class="macro">assert!</span>(message.contains(<span class="string">"record PG"</span>)),
+<a href=#212 id=212 data-nosnippet>212</a>            GatkError::Config { message, .. } =&gt; <span class="macro">assert!</span>(message.contains(<span class="string">"record PG"</span>)),
 <a href=#213 id=213 data-nosnippet>213</a>            other =&gt; <span class="macro">panic!</span>(<span class="string">"expected Validation error, got {other:?}"</span>),
 <a href=#214 id=214 data-nosnippet>214</a>        }
 <a href=#215 id=215 data-nosnippet>215</a>    }

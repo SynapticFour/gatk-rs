@@ -90,7 +90,7 @@
 <a href=#90 id=90 data-nosnippet>90</a>}
 <a href=#91 id=91 data-nosnippet>91</a>
 <a href=#92 id=92 data-nosnippet>92</a><span class="doccomment">/// `FragmentCollection.create` for sorted `GATKRead` lists.
-<a href=#93 id=93 data-nosnippet>93</a>/// Returns [`GatkError::Read`] if `reads` are not sorted by alignment start
+<a href=#93 id=93 data-nosnippet>93</a>/// Returns [`GatkError::read`] if `reads` are not sorted by alignment start
 <a href=#94 id=94 data-nosnippet>94</a>/// (unsorted BAM shards / bad caller input — must not panic).
 <a href=#95 id=95 data-nosnippet>95</a></span><span class="kw">pub fn </span>overlapping_pairs_indices(reads: <span class="kw-2">&amp;</span>[bam::Record]) -&gt; GatkResult&lt;Vec&lt;(usize, usize)&gt;&gt; {
 <a href=#96 id=96 data-nosnippet>96</a>    <span class="kw">let </span><span class="kw-2">mut </span>pairs = Vec::new();

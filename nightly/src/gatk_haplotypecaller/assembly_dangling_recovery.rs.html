@@ -1214,195 +1214,199 @@
 <a href=#1214 id=1214 data-nosnippet>1214</a>        </span>h.cigar = <span class="prelude-val">Some</span>(m.cigar.clone());
 <a href=#1215 id=1215 data-nosnippet>1215</a>        h.alignment_start_hap_wrt_ref = m.alignment_start_hap_wrt_ref;
 <a href=#1216 id=1216 data-nosnippet>1216</a>        h.score = <span class="number">25.0</span>;
-<a href=#1217 id=1217 data-nosnippet>1217</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(ref_cigar) = ref_hap.cigar.as_ref() {
-<a href=#1218 id=1218 data-nosnippet>1218</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(assy) = calculate_haplotype_cigar_for_assembly_with_offset(
-<a href=#1219 id=1219 data-nosnippet>1219</a>                ref_bytes,
-<a href=#1220 id=1220 data-nosnippet>1220</a>                <span class="kw-2">&amp;</span>h.bases,
-<a href=#1221 id=1221 data-nosnippet>1221</a>                ref_cigar.reference_length(),
-<a href=#1222 id=1222 data-nosnippet>1222</a>                sw,
-<a href=#1223 id=1223 data-nosnippet>1223</a>            ) {
-<a href=#1224 id=1224 data-nosnippet>1224</a>                <span class="kw">if </span>assy.cigar.elements.iter().any(|e| e.operator.is_indel()) {
-<a href=#1225 id=1225 data-nosnippet>1225</a>                    h.cigar = <span class="prelude-val">Some</span>(assy.cigar);
-<a href=#1226 id=1226 data-nosnippet>1226</a>                    h.alignment_start_hap_wrt_ref = assy.alignment_start_hap_wrt_ref;
-<a href=#1227 id=1227 data-nosnippet>1227</a>                }
-<a href=#1228 id=1228 data-nosnippet>1228</a>            }
-<a href=#1229 id=1229 data-nosnippet>1229</a>        }
-<a href=#1230 id=1230 data-nosnippet>1230</a>        haplotypes.push(h);
-<a href=#1231 id=1231 data-nosnippet>1231</a>    }
-<a href=#1232 id=1232 data-nosnippet>1232</a>}
-<a href=#1233 id=1233 data-nosnippet>1233</a>
-<a href=#1234 id=1234 data-nosnippet>1234</a><span class="attr">#[cfg(test)]
-<a href=#1235 id=1235 data-nosnippet>1235</a></span><span class="kw">mod </span>tests {
-<a href=#1236 id=1236 data-nosnippet>1236</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#1237 id=1237 data-nosnippet>1237</a>    <span class="kw">use </span><span class="kw">crate</span>::assembly::{AssemblyGraphParams, AssemblyGraphPruningParams, AssemblyRead};
-<a href=#1238 id=1238 data-nosnippet>1238</a>    <span class="kw">use </span><span class="kw">crate</span>::assembly_pruning::apply_gatk_pruning;
-<a href=#1239 id=1239 data-nosnippet>1239</a>    <span class="kw">use </span><span class="kw">crate</span>::read_threading_graph::assembly_graph_from_ref_and_reads_threading;
-<a href=#1240 id=1240 data-nosnippet>1240</a>
-<a href=#1241 id=1241 data-nosnippet>1241</a>    <span class="kw">fn </span>read(seq: <span class="kw-2">&amp;</span>str, q: u8) -&gt; AssemblyRead {
-<a href=#1242 id=1242 data-nosnippet>1242</a>        AssemblyRead {
-<a href=#1243 id=1243 data-nosnippet>1243</a>            bases: seq.as_bytes().to_vec(),
-<a href=#1244 id=1244 data-nosnippet>1244</a>            base_quals: <span class="macro">vec!</span>[q; seq.len()],
-<a href=#1245 id=1245 data-nosnippet>1245</a>        }
-<a href=#1246 id=1246 data-nosnippet>1246</a>    }
-<a href=#1247 id=1247 data-nosnippet>1247</a>
-<a href=#1248 id=1248 data-nosnippet>1248</a>    <span class="kw">fn </span>build_pruned_ref_graph_at_k(
-<a href=#1249 id=1249 data-nosnippet>1249</a>        reference: <span class="kw-2">&amp;</span>str,
-<a href=#1250 id=1250 data-nosnippet>1250</a>        alt_reads: <span class="kw-2">&amp;</span>[<span class="kw-2">&amp;</span>str],
-<a href=#1251 id=1251 data-nosnippet>1251</a>        kmer_size: usize,
-<a href=#1252 id=1252 data-nosnippet>1252</a>    ) -&gt; AssemblyGraph {
-<a href=#1253 id=1253 data-nosnippet>1253</a>        <span class="kw">let </span>params = AssemblyGraphParams {
-<a href=#1254 id=1254 data-nosnippet>1254</a>            kmer_size: <span class="kw">crate</span>::bio_ids::KmerSize::try_new(kmer_size <span class="kw">as </span>u16).expect(<span class="string">"test k≥2"</span>),
-<a href=#1255 id=1255 data-nosnippet>1255</a>            min_base_quality: <span class="number">10</span>,
-<a href=#1256 id=1256 data-nosnippet>1256</a>            ..Default::default()
-<a href=#1257 id=1257 data-nosnippet>1257</a>        };
-<a href=#1258 id=1258 data-nosnippet>1258</a>        <span class="kw">let </span><span class="kw-2">mut </span>reads: Vec&lt;AssemblyRead&gt; = alt_reads.iter().map(|s| read(s, <span class="number">30</span>)).collect();
-<a href=#1259 id=1259 data-nosnippet>1259</a>        reads.insert(<span class="number">0</span>, read(reference, <span class="number">30</span>));
-<a href=#1260 id=1260 data-nosnippet>1260</a>        reads.insert(<span class="number">0</span>, read(reference, <span class="number">30</span>));
-<a href=#1261 id=1261 data-nosnippet>1261</a>        reads.insert(<span class="number">0</span>, read(reference, <span class="number">30</span>));
-<a href=#1262 id=1262 data-nosnippet>1262</a>        <span class="kw">let </span>reference = read(reference, <span class="number">30</span>);
-<a href=#1263 id=1263 data-nosnippet>1263</a>        <span class="kw">let </span><span class="kw-2">mut </span>graph =
-<a href=#1264 id=1264 data-nosnippet>1264</a>            assembly_graph_from_ref_and_reads_threading(<span class="kw-2">&amp;</span>reference, <span class="kw-2">&amp;</span>reads, <span class="kw-2">&amp;</span>params).unwrap();
-<a href=#1265 id=1265 data-nosnippet>1265</a>        <span class="kw">let </span><span class="kw-2">mut </span>prune = AssemblyGraphPruningParams::gatk_haplotype_caller_defaults();
-<a href=#1266 id=1266 data-nosnippet>1266</a>        prune.min_prune_factor = <span class="number">2</span>;
-<a href=#1267 id=1267 data-nosnippet>1267</a>        apply_gatk_pruning(<span class="kw-2">&amp;mut </span>graph, <span class="kw-2">&amp;</span>prune);
-<a href=#1268 id=1268 data-nosnippet>1268</a>        graph
-<a href=#1269 id=1269 data-nosnippet>1269</a>    }
-<a href=#1270 id=1270 data-nosnippet>1270</a>
-<a href=#1271 id=1271 data-nosnippet>1271</a>    <span class="kw">fn </span>build_pruned_ref_graph(reference: <span class="kw-2">&amp;</span>str, alt_reads: <span class="kw-2">&amp;</span>[<span class="kw-2">&amp;</span>str]) -&gt; AssemblyGraph {
-<a href=#1272 id=1272 data-nosnippet>1272</a>        build_pruned_ref_graph_at_k(reference, alt_reads, <span class="number">3</span>)
+<a href=#1217 id=1217 data-nosnippet>1217</a>        <span class="comment">// Merge CIGAR already comes from dangling recovery SW — only re-SW when
+<a href=#1218 id=1218 data-nosnippet>1218</a>        // it lacks I/D (equal-length / Match-only) and we still need an indel cigar.
+<a href=#1219 id=1219 data-nosnippet>1219</a>        </span><span class="kw">if </span>!has_indel {
+<a href=#1220 id=1220 data-nosnippet>1220</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(ref_cigar) = ref_hap.cigar.as_ref() {
+<a href=#1221 id=1221 data-nosnippet>1221</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(assy) = calculate_haplotype_cigar_for_assembly_with_offset(
+<a href=#1222 id=1222 data-nosnippet>1222</a>                    ref_bytes,
+<a href=#1223 id=1223 data-nosnippet>1223</a>                    <span class="kw-2">&amp;</span>h.bases,
+<a href=#1224 id=1224 data-nosnippet>1224</a>                    ref_cigar.reference_length(),
+<a href=#1225 id=1225 data-nosnippet>1225</a>                    sw,
+<a href=#1226 id=1226 data-nosnippet>1226</a>                ) {
+<a href=#1227 id=1227 data-nosnippet>1227</a>                    <span class="kw">if </span>assy.cigar.elements.iter().any(|e| e.operator.is_indel()) {
+<a href=#1228 id=1228 data-nosnippet>1228</a>                        h.cigar = <span class="prelude-val">Some</span>(assy.cigar);
+<a href=#1229 id=1229 data-nosnippet>1229</a>                        h.alignment_start_hap_wrt_ref = assy.alignment_start_hap_wrt_ref;
+<a href=#1230 id=1230 data-nosnippet>1230</a>                    }
+<a href=#1231 id=1231 data-nosnippet>1231</a>                }
+<a href=#1232 id=1232 data-nosnippet>1232</a>            }
+<a href=#1233 id=1233 data-nosnippet>1233</a>        }
+<a href=#1234 id=1234 data-nosnippet>1234</a>        haplotypes.push(h);
+<a href=#1235 id=1235 data-nosnippet>1235</a>    }
+<a href=#1236 id=1236 data-nosnippet>1236</a>}
+<a href=#1237 id=1237 data-nosnippet>1237</a>
+<a href=#1238 id=1238 data-nosnippet>1238</a><span class="attr">#[cfg(test)]
+<a href=#1239 id=1239 data-nosnippet>1239</a></span><span class="kw">mod </span>tests {
+<a href=#1240 id=1240 data-nosnippet>1240</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#1241 id=1241 data-nosnippet>1241</a>    <span class="kw">use </span><span class="kw">crate</span>::assembly::{AssemblyGraphParams, AssemblyGraphPruningParams, AssemblyRead};
+<a href=#1242 id=1242 data-nosnippet>1242</a>    <span class="kw">use </span><span class="kw">crate</span>::assembly_pruning::apply_gatk_pruning;
+<a href=#1243 id=1243 data-nosnippet>1243</a>    <span class="kw">use </span><span class="kw">crate</span>::read_threading_graph::assembly_graph_from_ref_and_reads_threading;
+<a href=#1244 id=1244 data-nosnippet>1244</a>
+<a href=#1245 id=1245 data-nosnippet>1245</a>    <span class="kw">fn </span>read(seq: <span class="kw-2">&amp;</span>str, q: u8) -&gt; AssemblyRead {
+<a href=#1246 id=1246 data-nosnippet>1246</a>        AssemblyRead {
+<a href=#1247 id=1247 data-nosnippet>1247</a>            bases: seq.as_bytes().to_vec(),
+<a href=#1248 id=1248 data-nosnippet>1248</a>            base_quals: <span class="macro">vec!</span>[q; seq.len()],
+<a href=#1249 id=1249 data-nosnippet>1249</a>        }
+<a href=#1250 id=1250 data-nosnippet>1250</a>    }
+<a href=#1251 id=1251 data-nosnippet>1251</a>
+<a href=#1252 id=1252 data-nosnippet>1252</a>    <span class="kw">fn </span>build_pruned_ref_graph_at_k(
+<a href=#1253 id=1253 data-nosnippet>1253</a>        reference: <span class="kw-2">&amp;</span>str,
+<a href=#1254 id=1254 data-nosnippet>1254</a>        alt_reads: <span class="kw-2">&amp;</span>[<span class="kw-2">&amp;</span>str],
+<a href=#1255 id=1255 data-nosnippet>1255</a>        kmer_size: usize,
+<a href=#1256 id=1256 data-nosnippet>1256</a>    ) -&gt; AssemblyGraph {
+<a href=#1257 id=1257 data-nosnippet>1257</a>        <span class="kw">let </span>params = AssemblyGraphParams {
+<a href=#1258 id=1258 data-nosnippet>1258</a>            kmer_size: <span class="kw">crate</span>::bio_ids::KmerSize::try_new(kmer_size <span class="kw">as </span>u16).expect(<span class="string">"test k≥2"</span>),
+<a href=#1259 id=1259 data-nosnippet>1259</a>            min_base_quality: <span class="number">10</span>,
+<a href=#1260 id=1260 data-nosnippet>1260</a>            ..Default::default()
+<a href=#1261 id=1261 data-nosnippet>1261</a>        };
+<a href=#1262 id=1262 data-nosnippet>1262</a>        <span class="kw">let </span><span class="kw-2">mut </span>reads: Vec&lt;AssemblyRead&gt; = alt_reads.iter().map(|s| read(s, <span class="number">30</span>)).collect();
+<a href=#1263 id=1263 data-nosnippet>1263</a>        reads.insert(<span class="number">0</span>, read(reference, <span class="number">30</span>));
+<a href=#1264 id=1264 data-nosnippet>1264</a>        reads.insert(<span class="number">0</span>, read(reference, <span class="number">30</span>));
+<a href=#1265 id=1265 data-nosnippet>1265</a>        reads.insert(<span class="number">0</span>, read(reference, <span class="number">30</span>));
+<a href=#1266 id=1266 data-nosnippet>1266</a>        <span class="kw">let </span>reference = read(reference, <span class="number">30</span>);
+<a href=#1267 id=1267 data-nosnippet>1267</a>        <span class="kw">let </span><span class="kw-2">mut </span>graph =
+<a href=#1268 id=1268 data-nosnippet>1268</a>            assembly_graph_from_ref_and_reads_threading(<span class="kw-2">&amp;</span>reference, <span class="kw-2">&amp;</span>reads, <span class="kw-2">&amp;</span>params).unwrap();
+<a href=#1269 id=1269 data-nosnippet>1269</a>        <span class="kw">let </span><span class="kw-2">mut </span>prune = AssemblyGraphPruningParams::gatk_haplotype_caller_defaults();
+<a href=#1270 id=1270 data-nosnippet>1270</a>        prune.min_prune_factor = <span class="number">2</span>;
+<a href=#1271 id=1271 data-nosnippet>1271</a>        apply_gatk_pruning(<span class="kw-2">&amp;mut </span>graph, <span class="kw-2">&amp;</span>prune);
+<a href=#1272 id=1272 data-nosnippet>1272</a>        graph
 <a href=#1273 id=1273 data-nosnippet>1273</a>    }
 <a href=#1274 id=1274 data-nosnippet>1274</a>
-<a href=#1275 id=1275 data-nosnippet>1275</a>    <span class="attr">#[test]
-<a href=#1276 id=1276 data-nosnippet>1276</a>    </span><span class="kw">fn </span>find_path_upwards_is_lca_first() {
-<a href=#1277 id=1277 data-nosnippet>1277</a>        <span class="kw">let </span>graph = build_pruned_ref_graph(
-<a href=#1278 id=1278 data-nosnippet>1278</a>            <span class="string">"ACGTTGCATCG"</span>,
-<a href=#1279 id=1279 data-nosnippet>1279</a>            <span class="kw-2">&amp;</span>[<span class="string">"ACGTTGCATCG"</span>, <span class="string">"ACGTTGCATCG"</span>, <span class="string">"ACGTTGCATCA"</span>, <span class="string">"ACGTTGCATCA"</span>],
-<a href=#1280 id=1280 data-nosnippet>1280</a>        );
-<a href=#1281 id=1281 data-nosnippet>1281</a>        <span class="kw">let </span>alt_sink = graph
-<a href=#1282 id=1282 data-nosnippet>1282</a>            .nodes()
-<a href=#1283 id=1283 data-nosnippet>1283</a>            .iter()
-<a href=#1284 id=1284 data-nosnippet>1284</a>            .position(|n| n.kmer.as_ref() == <span class="string">b"TCA"</span>)
-<a href=#1285 id=1285 data-nosnippet>1285</a>            .expect(<span class="string">"TCA sink"</span>);
-<a href=#1286 id=1286 data-nosnippet>1286</a>        <span class="kw">let </span>path = graph
-<a href=#1287 id=1287 data-nosnippet>1287</a>            .find_path_upwards_to_lca(alt_sink, <span class="number">2</span>, <span class="bool-val">true</span>)
-<a href=#1288 id=1288 data-nosnippet>1288</a>            .expect(<span class="string">"alt path"</span>);
-<a href=#1289 id=1289 data-nosnippet>1289</a>        <span class="macro">assert_eq!</span>(graph.kmer_at(path[<span class="number">0</span>]), <span class="string">b"ATC"</span>);
-<a href=#1290 id=1290 data-nosnippet>1290</a>        <span class="macro">assert_eq!</span>(graph.kmer_at(<span class="kw-2">*</span>path.last().unwrap()), <span class="string">b"TCA"</span>);
-<a href=#1291 id=1291 data-nosnippet>1291</a>    }
-<a href=#1292 id=1292 data-nosnippet>1292</a>
-<a href=#1293 id=1293 data-nosnippet>1293</a>    <span class="attr">#[test]
-<a href=#1294 id=1294 data-nosnippet>1294</a>    </span><span class="kw">fn </span>best_prefix_match_requires_min_matching_bases() {
-<a href=#1295 id=1295 data-nosnippet>1295</a>        <span class="kw">let </span><span class="kw-2">mut </span>cigar = Cigar::new();
-<a href=#1296 id=1296 data-nosnippet>1296</a>        cigar.push(<span class="number">4</span>, CigarOperator::Match);
-<a href=#1297 id=1297 data-nosnippet>1297</a>        <span class="kw">let </span>ref_bases = <span class="string">b"ACGT"</span>;
-<a href=#1298 id=1298 data-nosnippet>1298</a>        <span class="kw">let </span>alt_bases = <span class="string">b"ACGT"</span>;
-<a href=#1299 id=1299 data-nosnippet>1299</a>        <span class="macro">assert!</span>(best_prefix_match(<span class="kw-2">&amp;</span>cigar, ref_bases, alt_bases, <span class="number">3</span>).is_some());
-<a href=#1300 id=1300 data-nosnippet>1300</a>        <span class="macro">assert!</span>(best_prefix_match(<span class="kw-2">&amp;</span>cigar, ref_bases, alt_bases, <span class="number">5</span>).is_none());
-<a href=#1301 id=1301 data-nosnippet>1301</a>    }
-<a href=#1302 id=1302 data-nosnippet>1302</a>
-<a href=#1303 id=1303 data-nosnippet>1303</a>    <span class="attr">#[test]
-<a href=#1304 id=1304 data-nosnippet>1304</a>    </span><span class="kw">fn </span>longest_suffix_match_matches_gatk_examples() {
-<a href=#1305 id=1305 data-nosnippet>1305</a>        <span class="macro">assert_eq!</span>(longest_suffix_match_java(<span class="string">b"ACGT"</span>, <span class="string">b"TGT"</span>, <span class="number">3</span>), <span class="number">2</span>);
-<a href=#1306 id=1306 data-nosnippet>1306</a>        <span class="macro">assert_eq!</span>(longest_suffix_match_java(<span class="string">b"ACGT"</span>, <span class="string">b"CGT"</span>, <span class="number">3</span>), <span class="number">3</span>);
-<a href=#1307 id=1307 data-nosnippet>1307</a>        <span class="macro">assert_eq!</span>(longest_suffix_match_java(<span class="string">b"CG"</span>, <span class="string">b"CA"</span>, <span class="number">1</span>), <span class="number">0</span>);
-<a href=#1308 id=1308 data-nosnippet>1308</a>    }
-<a href=#1309 id=1309 data-nosnippet>1309</a>
-<a href=#1310 id=1310 data-nosnippet>1310</a>    <span class="attr">#[test]
-<a href=#1311 id=1311 data-nosnippet>1311</a>    </span><span class="kw">fn </span>dangling_java_exact_single_pass_matches_gatk_edge_count() {
-<a href=#1312 id=1312 data-nosnippet>1312</a>        <span class="kw">let </span><span class="kw-2">mut </span>graph = build_pruned_ref_graph(
-<a href=#1313 id=1313 data-nosnippet>1313</a>            <span class="string">"ACGTTGCATCG"</span>,
-<a href=#1314 id=1314 data-nosnippet>1314</a>            <span class="kw-2">&amp;</span>[<span class="string">"ACGTTGCATCG"</span>, <span class="string">"ACGTTGCATCG"</span>, <span class="string">"ACGTTGCATCA"</span>, <span class="string">"ACGTTGCATCA"</span>],
-<a href=#1315 id=1315 data-nosnippet>1315</a>        );
-<a href=#1316 id=1316 data-nosnippet>1316</a>        <span class="kw">let </span><span class="kw-2">mut </span>params = DanglingRecoveryParams::gatk_haplotype_caller_defaults();
-<a href=#1317 id=1317 data-nosnippet>1317</a>        params.min_dangling_branch_length = <span class="number">1</span>;
-<a href=#1318 id=1318 data-nosnippet>1318</a>        params.dangling_java_exact = <span class="bool-val">true</span>;
-<a href=#1319 id=1319 data-nosnippet>1319</a>        <span class="kw">let </span>summary = graph.recover_dangling_branches(<span class="kw-2">&amp;</span>params).unwrap();
-<a href=#1320 id=1320 data-nosnippet>1320</a>        <span class="macro">assert!</span>(summary.tails_attempted &gt;= <span class="number">1</span>);
-<a href=#1321 id=1321 data-nosnippet>1321</a>        <span class="comment">// This fixture needs ASM-1 suffix rescue for a merge; GATK-exact mode correctly skips it.
-<a href=#1322 id=1322 data-nosnippet>1322</a>        </span><span class="macro">assert_eq!</span>(summary.tails_recovered, <span class="number">0</span>);
-<a href=#1323 id=1323 data-nosnippet>1323</a>        <span class="kw">let </span><span class="kw-2">mut </span>multi = params;
-<a href=#1324 id=1324 data-nosnippet>1324</a>        multi.dangling_java_exact = <span class="bool-val">false</span>;
-<a href=#1325 id=1325 data-nosnippet>1325</a>        <span class="kw">let </span>multi_summary = graph.recover_dangling_branches(<span class="kw-2">&amp;</span>multi).unwrap();
-<a href=#1326 id=1326 data-nosnippet>1326</a>        <span class="macro">assert_eq!</span>(multi_summary.tails_recovered, <span class="number">1</span>);
-<a href=#1327 id=1327 data-nosnippet>1327</a>    }
-<a href=#1328 id=1328 data-nosnippet>1328</a>
-<a href=#1329 id=1329 data-nosnippet>1329</a>    <span class="attr">#[test]
-<a href=#1330 id=1330 data-nosnippet>1330</a>    </span><span class="kw">fn </span>dangling_tail_recovery_attempts_alt_sink() {
-<a href=#1331 id=1331 data-nosnippet>1331</a>        <span class="kw">let </span><span class="kw-2">mut </span>graph = build_pruned_ref_graph(
-<a href=#1332 id=1332 data-nosnippet>1332</a>            <span class="string">"ACGTTGCATCG"</span>,
-<a href=#1333 id=1333 data-nosnippet>1333</a>            <span class="kw-2">&amp;</span>[<span class="string">"ACGTTGCATCG"</span>, <span class="string">"ACGTTGCATCG"</span>, <span class="string">"ACGTTGCATCA"</span>, <span class="string">"ACGTTGCATCA"</span>],
-<a href=#1334 id=1334 data-nosnippet>1334</a>        );
-<a href=#1335 id=1335 data-nosnippet>1335</a>        <span class="kw">let </span><span class="kw-2">mut </span>dangling = DanglingRecoveryParams::gatk_haplotype_caller_defaults();
-<a href=#1336 id=1336 data-nosnippet>1336</a>        dangling.min_dangling_branch_length = <span class="number">1</span>;
-<a href=#1337 id=1337 data-nosnippet>1337</a>        <span class="kw">let </span>summary = graph.recover_dangling_branches(<span class="kw-2">&amp;</span>dangling).unwrap();
-<a href=#1338 id=1338 data-nosnippet>1338</a>        <span class="macro">assert!</span>(summary.tails_attempted &gt;= <span class="number">1</span>);
-<a href=#1339 id=1339 data-nosnippet>1339</a>        <span class="comment">// Java idempotent `addEdge` → `edge_exists` counts as tail recovered (ASM-1).
-<a href=#1340 id=1340 data-nosnippet>1340</a>        </span><span class="macro">assert_eq!</span>(summary.tails_recovered, <span class="number">1</span>);
-<a href=#1341 id=1341 data-nosnippet>1341</a>    }
-<a href=#1342 id=1342 data-nosnippet>1342</a>
-<a href=#1343 id=1343 data-nosnippet>1343</a>    <span class="attr">#[test]
-<a href=#1344 id=1344 data-nosnippet>1344</a>    </span><span class="kw">fn </span>cigar_ok_to_merge_tail_requires_terminal_match_op() {
-<a href=#1345 id=1345 data-nosnippet>1345</a>        <span class="kw">let </span><span class="kw-2">mut </span>trailing_ins = Cigar::new();
-<a href=#1346 id=1346 data-nosnippet>1346</a>        trailing_ins.push(<span class="number">1</span>, CigarOperator::Match);
-<a href=#1347 id=1347 data-nosnippet>1347</a>        trailing_ins.push(<span class="number">1</span>, CigarOperator::Insertion);
-<a href=#1348 id=1348 data-nosnippet>1348</a>        <span class="macro">assert!</span>(!cigar_ok_to_merge_tail(<span class="kw-2">&amp;</span>trailing_ins));
-<a href=#1349 id=1349 data-nosnippet>1349</a>
-<a href=#1350 id=1350 data-nosnippet>1350</a>        <span class="kw">let </span><span class="kw-2">mut </span>ok = Cigar::new();
-<a href=#1351 id=1351 data-nosnippet>1351</a>        ok.push(<span class="number">2</span>, CigarOperator::Match);
-<a href=#1352 id=1352 data-nosnippet>1352</a>        <span class="macro">assert!</span>(cigar_ok_to_merge_tail(<span class="kw-2">&amp;</span>ok));
-<a href=#1353 id=1353 data-nosnippet>1353</a>    }
-<a href=#1354 id=1354 data-nosnippet>1354</a>
-<a href=#1355 id=1355 data-nosnippet>1355</a>    <span class="attr">#[test]
-<a href=#1356 id=1356 data-nosnippet>1356</a>    </span><span class="kw">fn </span>align_dangling_uses_leading_indel_strategy() {
-<a href=#1357 id=1357 data-nosnippet>1357</a>        <span class="kw">let </span>p = DanglingRecoverySwParams::gatk_defaults();
-<a href=#1358 id=1358 data-nosnippet>1358</a>        <span class="kw">let </span>cigar = align_dangling(<span class="string">b"ACGTACGTAC"</span>, <span class="string">b"ACGTXACGTAC"</span>, <span class="kw-2">&amp;</span>p);
-<a href=#1359 id=1359 data-nosnippet>1359</a>        <span class="macro">assert!</span>(cigar_ok_to_merge_tail(<span class="kw-2">&amp;</span>cigar));
-<a href=#1360 id=1360 data-nosnippet>1360</a>        <span class="macro">assert!</span>(cigar
-<a href=#1361 id=1361 data-nosnippet>1361</a>            .elements
-<a href=#1362 id=1362 data-nosnippet>1362</a>            .last()
-<a href=#1363 id=1363 data-nosnippet>1363</a>            .is_some_and(|e| e.operator == CigarOperator::Match));
-<a href=#1364 id=1364 data-nosnippet>1364</a>    }
-<a href=#1365 id=1365 data-nosnippet>1365</a>
-<a href=#1366 id=1366 data-nosnippet>1366</a>    <span class="doccomment">/// GATK `ReadThreadingGraphUnitTest.testForkedDanglingEnds`.
-<a href=#1367 id=1367 data-nosnippet>1367</a>    </span><span class="attr">#[test]
-<a href=#1368 id=1368 data-nosnippet>1368</a>    </span><span class="kw">fn </span>forked_dangling_ends_recovers_all_alt_sinks_with_recover_all() {
-<a href=#1369 id=1369 data-nosnippet>1369</a>        <span class="kw">let </span>common_prefix = <span class="string">"AAAAAAAAAACCCCCCCCCCGGGGGGGGGGTTTTTTTTTT"</span>;
-<a href=#1370 id=1370 data-nosnippet>1370</a>        <span class="kw">let </span>reference = <span class="macro">format!</span>(<span class="string">"{common_prefix}GCTAGCTAATCG"</span>);
-<a href=#1371 id=1371 data-nosnippet>1371</a>        <span class="kw">let </span>alt1 = <span class="macro">format!</span>(<span class="string">"{common_prefix}ACTAGCTAATCG"</span>);
-<a href=#1372 id=1372 data-nosnippet>1372</a>        <span class="kw">let </span>alt2 = <span class="macro">format!</span>(<span class="string">"{common_prefix}ACTAGATAATCG"</span>);
-<a href=#1373 id=1373 data-nosnippet>1373</a>        <span class="kw">let </span><span class="kw-2">mut </span>graph = build_pruned_ref_graph_at_k(<span class="kw-2">&amp;</span>reference, <span class="kw-2">&amp;</span>[<span class="kw-2">&amp;</span>alt1, <span class="kw-2">&amp;</span>alt2], <span class="number">15</span>);
-<a href=#1374 id=1374 data-nosnippet>1374</a>        <span class="kw">let </span><span class="kw-2">mut </span>dangling = DanglingRecoveryParams::gatk_haplotype_caller_defaults();
-<a href=#1375 id=1375 data-nosnippet>1375</a>        dangling.min_dangling_branch_length = <span class="number">4</span>;
-<a href=#1376 id=1376 data-nosnippet>1376</a>        dangling.recover_all_dangling_branches = <span class="bool-val">true</span>;
-<a href=#1377 id=1377 data-nosnippet>1377</a>        <span class="kw">let </span>summary = graph.recover_dangling_branches(<span class="kw-2">&amp;</span>dangling).unwrap();
-<a href=#1378 id=1378 data-nosnippet>1378</a>        <span class="macro">assert!</span>(
-<a href=#1379 id=1379 data-nosnippet>1379</a>            summary.tails_attempted &gt;= <span class="number">1</span>,
-<a href=#1380 id=1380 data-nosnippet>1380</a>            <span class="string">"GATK testForkedDanglingEnds expects non-ref sinks (Rust may collapse forks to fewer sinks)"
-<a href=#1381 id=1381 data-nosnippet>1381</a>        </span>);
-<a href=#1382 id=1382 data-nosnippet>1382</a>        <span class="macro">assert_eq!</span>(
-<a href=#1383 id=1383 data-nosnippet>1383</a>            summary.tails_recovered, summary.tails_attempted,
-<a href=#1384 id=1384 data-nosnippet>1384</a>            <span class="string">"recoverAll should merge every attempted alt tail"
+<a href=#1275 id=1275 data-nosnippet>1275</a>    <span class="kw">fn </span>build_pruned_ref_graph(reference: <span class="kw-2">&amp;</span>str, alt_reads: <span class="kw-2">&amp;</span>[<span class="kw-2">&amp;</span>str]) -&gt; AssemblyGraph {
+<a href=#1276 id=1276 data-nosnippet>1276</a>        build_pruned_ref_graph_at_k(reference, alt_reads, <span class="number">3</span>)
+<a href=#1277 id=1277 data-nosnippet>1277</a>    }
+<a href=#1278 id=1278 data-nosnippet>1278</a>
+<a href=#1279 id=1279 data-nosnippet>1279</a>    <span class="attr">#[test]
+<a href=#1280 id=1280 data-nosnippet>1280</a>    </span><span class="kw">fn </span>find_path_upwards_is_lca_first() {
+<a href=#1281 id=1281 data-nosnippet>1281</a>        <span class="kw">let </span>graph = build_pruned_ref_graph(
+<a href=#1282 id=1282 data-nosnippet>1282</a>            <span class="string">"ACGTTGCATCG"</span>,
+<a href=#1283 id=1283 data-nosnippet>1283</a>            <span class="kw-2">&amp;</span>[<span class="string">"ACGTTGCATCG"</span>, <span class="string">"ACGTTGCATCG"</span>, <span class="string">"ACGTTGCATCA"</span>, <span class="string">"ACGTTGCATCA"</span>],
+<a href=#1284 id=1284 data-nosnippet>1284</a>        );
+<a href=#1285 id=1285 data-nosnippet>1285</a>        <span class="kw">let </span>alt_sink = graph
+<a href=#1286 id=1286 data-nosnippet>1286</a>            .nodes()
+<a href=#1287 id=1287 data-nosnippet>1287</a>            .iter()
+<a href=#1288 id=1288 data-nosnippet>1288</a>            .position(|n| n.kmer.as_ref() == <span class="string">b"TCA"</span>)
+<a href=#1289 id=1289 data-nosnippet>1289</a>            .expect(<span class="string">"TCA sink"</span>);
+<a href=#1290 id=1290 data-nosnippet>1290</a>        <span class="kw">let </span>path = graph
+<a href=#1291 id=1291 data-nosnippet>1291</a>            .find_path_upwards_to_lca(alt_sink, <span class="number">2</span>, <span class="bool-val">true</span>)
+<a href=#1292 id=1292 data-nosnippet>1292</a>            .expect(<span class="string">"alt path"</span>);
+<a href=#1293 id=1293 data-nosnippet>1293</a>        <span class="macro">assert_eq!</span>(graph.kmer_at(path[<span class="number">0</span>]), <span class="string">b"ATC"</span>);
+<a href=#1294 id=1294 data-nosnippet>1294</a>        <span class="macro">assert_eq!</span>(graph.kmer_at(<span class="kw-2">*</span>path.last().unwrap()), <span class="string">b"TCA"</span>);
+<a href=#1295 id=1295 data-nosnippet>1295</a>    }
+<a href=#1296 id=1296 data-nosnippet>1296</a>
+<a href=#1297 id=1297 data-nosnippet>1297</a>    <span class="attr">#[test]
+<a href=#1298 id=1298 data-nosnippet>1298</a>    </span><span class="kw">fn </span>best_prefix_match_requires_min_matching_bases() {
+<a href=#1299 id=1299 data-nosnippet>1299</a>        <span class="kw">let </span><span class="kw-2">mut </span>cigar = Cigar::new();
+<a href=#1300 id=1300 data-nosnippet>1300</a>        cigar.push(<span class="number">4</span>, CigarOperator::Match);
+<a href=#1301 id=1301 data-nosnippet>1301</a>        <span class="kw">let </span>ref_bases = <span class="string">b"ACGT"</span>;
+<a href=#1302 id=1302 data-nosnippet>1302</a>        <span class="kw">let </span>alt_bases = <span class="string">b"ACGT"</span>;
+<a href=#1303 id=1303 data-nosnippet>1303</a>        <span class="macro">assert!</span>(best_prefix_match(<span class="kw-2">&amp;</span>cigar, ref_bases, alt_bases, <span class="number">3</span>).is_some());
+<a href=#1304 id=1304 data-nosnippet>1304</a>        <span class="macro">assert!</span>(best_prefix_match(<span class="kw-2">&amp;</span>cigar, ref_bases, alt_bases, <span class="number">5</span>).is_none());
+<a href=#1305 id=1305 data-nosnippet>1305</a>    }
+<a href=#1306 id=1306 data-nosnippet>1306</a>
+<a href=#1307 id=1307 data-nosnippet>1307</a>    <span class="attr">#[test]
+<a href=#1308 id=1308 data-nosnippet>1308</a>    </span><span class="kw">fn </span>longest_suffix_match_matches_gatk_examples() {
+<a href=#1309 id=1309 data-nosnippet>1309</a>        <span class="macro">assert_eq!</span>(longest_suffix_match_java(<span class="string">b"ACGT"</span>, <span class="string">b"TGT"</span>, <span class="number">3</span>), <span class="number">2</span>);
+<a href=#1310 id=1310 data-nosnippet>1310</a>        <span class="macro">assert_eq!</span>(longest_suffix_match_java(<span class="string">b"ACGT"</span>, <span class="string">b"CGT"</span>, <span class="number">3</span>), <span class="number">3</span>);
+<a href=#1311 id=1311 data-nosnippet>1311</a>        <span class="macro">assert_eq!</span>(longest_suffix_match_java(<span class="string">b"CG"</span>, <span class="string">b"CA"</span>, <span class="number">1</span>), <span class="number">0</span>);
+<a href=#1312 id=1312 data-nosnippet>1312</a>    }
+<a href=#1313 id=1313 data-nosnippet>1313</a>
+<a href=#1314 id=1314 data-nosnippet>1314</a>    <span class="attr">#[test]
+<a href=#1315 id=1315 data-nosnippet>1315</a>    </span><span class="kw">fn </span>dangling_java_exact_single_pass_matches_gatk_edge_count() {
+<a href=#1316 id=1316 data-nosnippet>1316</a>        <span class="kw">let </span><span class="kw-2">mut </span>graph = build_pruned_ref_graph(
+<a href=#1317 id=1317 data-nosnippet>1317</a>            <span class="string">"ACGTTGCATCG"</span>,
+<a href=#1318 id=1318 data-nosnippet>1318</a>            <span class="kw-2">&amp;</span>[<span class="string">"ACGTTGCATCG"</span>, <span class="string">"ACGTTGCATCG"</span>, <span class="string">"ACGTTGCATCA"</span>, <span class="string">"ACGTTGCATCA"</span>],
+<a href=#1319 id=1319 data-nosnippet>1319</a>        );
+<a href=#1320 id=1320 data-nosnippet>1320</a>        <span class="kw">let </span><span class="kw-2">mut </span>params = DanglingRecoveryParams::gatk_haplotype_caller_defaults();
+<a href=#1321 id=1321 data-nosnippet>1321</a>        params.min_dangling_branch_length = <span class="number">1</span>;
+<a href=#1322 id=1322 data-nosnippet>1322</a>        params.dangling_java_exact = <span class="bool-val">true</span>;
+<a href=#1323 id=1323 data-nosnippet>1323</a>        <span class="kw">let </span>summary = graph.recover_dangling_branches(<span class="kw-2">&amp;</span>params).unwrap();
+<a href=#1324 id=1324 data-nosnippet>1324</a>        <span class="macro">assert!</span>(summary.tails_attempted &gt;= <span class="number">1</span>);
+<a href=#1325 id=1325 data-nosnippet>1325</a>        <span class="comment">// This fixture needs ASM-1 suffix rescue for a merge; GATK-exact mode correctly skips it.
+<a href=#1326 id=1326 data-nosnippet>1326</a>        </span><span class="macro">assert_eq!</span>(summary.tails_recovered, <span class="number">0</span>);
+<a href=#1327 id=1327 data-nosnippet>1327</a>        <span class="kw">let </span><span class="kw-2">mut </span>multi = params;
+<a href=#1328 id=1328 data-nosnippet>1328</a>        multi.dangling_java_exact = <span class="bool-val">false</span>;
+<a href=#1329 id=1329 data-nosnippet>1329</a>        <span class="kw">let </span>multi_summary = graph.recover_dangling_branches(<span class="kw-2">&amp;</span>multi).unwrap();
+<a href=#1330 id=1330 data-nosnippet>1330</a>        <span class="macro">assert_eq!</span>(multi_summary.tails_recovered, <span class="number">1</span>);
+<a href=#1331 id=1331 data-nosnippet>1331</a>    }
+<a href=#1332 id=1332 data-nosnippet>1332</a>
+<a href=#1333 id=1333 data-nosnippet>1333</a>    <span class="attr">#[test]
+<a href=#1334 id=1334 data-nosnippet>1334</a>    </span><span class="kw">fn </span>dangling_tail_recovery_attempts_alt_sink() {
+<a href=#1335 id=1335 data-nosnippet>1335</a>        <span class="kw">let </span><span class="kw-2">mut </span>graph = build_pruned_ref_graph(
+<a href=#1336 id=1336 data-nosnippet>1336</a>            <span class="string">"ACGTTGCATCG"</span>,
+<a href=#1337 id=1337 data-nosnippet>1337</a>            <span class="kw-2">&amp;</span>[<span class="string">"ACGTTGCATCG"</span>, <span class="string">"ACGTTGCATCG"</span>, <span class="string">"ACGTTGCATCA"</span>, <span class="string">"ACGTTGCATCA"</span>],
+<a href=#1338 id=1338 data-nosnippet>1338</a>        );
+<a href=#1339 id=1339 data-nosnippet>1339</a>        <span class="kw">let </span><span class="kw-2">mut </span>dangling = DanglingRecoveryParams::gatk_haplotype_caller_defaults();
+<a href=#1340 id=1340 data-nosnippet>1340</a>        dangling.min_dangling_branch_length = <span class="number">1</span>;
+<a href=#1341 id=1341 data-nosnippet>1341</a>        <span class="kw">let </span>summary = graph.recover_dangling_branches(<span class="kw-2">&amp;</span>dangling).unwrap();
+<a href=#1342 id=1342 data-nosnippet>1342</a>        <span class="macro">assert!</span>(summary.tails_attempted &gt;= <span class="number">1</span>);
+<a href=#1343 id=1343 data-nosnippet>1343</a>        <span class="comment">// Java idempotent `addEdge` → `edge_exists` counts as tail recovered (ASM-1).
+<a href=#1344 id=1344 data-nosnippet>1344</a>        </span><span class="macro">assert_eq!</span>(summary.tails_recovered, <span class="number">1</span>);
+<a href=#1345 id=1345 data-nosnippet>1345</a>    }
+<a href=#1346 id=1346 data-nosnippet>1346</a>
+<a href=#1347 id=1347 data-nosnippet>1347</a>    <span class="attr">#[test]
+<a href=#1348 id=1348 data-nosnippet>1348</a>    </span><span class="kw">fn </span>cigar_ok_to_merge_tail_requires_terminal_match_op() {
+<a href=#1349 id=1349 data-nosnippet>1349</a>        <span class="kw">let </span><span class="kw-2">mut </span>trailing_ins = Cigar::new();
+<a href=#1350 id=1350 data-nosnippet>1350</a>        trailing_ins.push(<span class="number">1</span>, CigarOperator::Match);
+<a href=#1351 id=1351 data-nosnippet>1351</a>        trailing_ins.push(<span class="number">1</span>, CigarOperator::Insertion);
+<a href=#1352 id=1352 data-nosnippet>1352</a>        <span class="macro">assert!</span>(!cigar_ok_to_merge_tail(<span class="kw-2">&amp;</span>trailing_ins));
+<a href=#1353 id=1353 data-nosnippet>1353</a>
+<a href=#1354 id=1354 data-nosnippet>1354</a>        <span class="kw">let </span><span class="kw-2">mut </span>ok = Cigar::new();
+<a href=#1355 id=1355 data-nosnippet>1355</a>        ok.push(<span class="number">2</span>, CigarOperator::Match);
+<a href=#1356 id=1356 data-nosnippet>1356</a>        <span class="macro">assert!</span>(cigar_ok_to_merge_tail(<span class="kw-2">&amp;</span>ok));
+<a href=#1357 id=1357 data-nosnippet>1357</a>    }
+<a href=#1358 id=1358 data-nosnippet>1358</a>
+<a href=#1359 id=1359 data-nosnippet>1359</a>    <span class="attr">#[test]
+<a href=#1360 id=1360 data-nosnippet>1360</a>    </span><span class="kw">fn </span>align_dangling_uses_leading_indel_strategy() {
+<a href=#1361 id=1361 data-nosnippet>1361</a>        <span class="kw">let </span>p = DanglingRecoverySwParams::gatk_defaults();
+<a href=#1362 id=1362 data-nosnippet>1362</a>        <span class="kw">let </span>cigar = align_dangling(<span class="string">b"ACGTACGTAC"</span>, <span class="string">b"ACGTXACGTAC"</span>, <span class="kw-2">&amp;</span>p);
+<a href=#1363 id=1363 data-nosnippet>1363</a>        <span class="macro">assert!</span>(cigar_ok_to_merge_tail(<span class="kw-2">&amp;</span>cigar));
+<a href=#1364 id=1364 data-nosnippet>1364</a>        <span class="macro">assert!</span>(cigar
+<a href=#1365 id=1365 data-nosnippet>1365</a>            .elements
+<a href=#1366 id=1366 data-nosnippet>1366</a>            .last()
+<a href=#1367 id=1367 data-nosnippet>1367</a>            .is_some_and(|e| e.operator == CigarOperator::Match));
+<a href=#1368 id=1368 data-nosnippet>1368</a>    }
+<a href=#1369 id=1369 data-nosnippet>1369</a>
+<a href=#1370 id=1370 data-nosnippet>1370</a>    <span class="doccomment">/// GATK `ReadThreadingGraphUnitTest.testForkedDanglingEnds`.
+<a href=#1371 id=1371 data-nosnippet>1371</a>    </span><span class="attr">#[test]
+<a href=#1372 id=1372 data-nosnippet>1372</a>    </span><span class="kw">fn </span>forked_dangling_ends_recovers_all_alt_sinks_with_recover_all() {
+<a href=#1373 id=1373 data-nosnippet>1373</a>        <span class="kw">let </span>common_prefix = <span class="string">"AAAAAAAAAACCCCCCCCCCGGGGGGGGGGTTTTTTTTTT"</span>;
+<a href=#1374 id=1374 data-nosnippet>1374</a>        <span class="kw">let </span>reference = <span class="macro">format!</span>(<span class="string">"{common_prefix}GCTAGCTAATCG"</span>);
+<a href=#1375 id=1375 data-nosnippet>1375</a>        <span class="kw">let </span>alt1 = <span class="macro">format!</span>(<span class="string">"{common_prefix}ACTAGCTAATCG"</span>);
+<a href=#1376 id=1376 data-nosnippet>1376</a>        <span class="kw">let </span>alt2 = <span class="macro">format!</span>(<span class="string">"{common_prefix}ACTAGATAATCG"</span>);
+<a href=#1377 id=1377 data-nosnippet>1377</a>        <span class="kw">let </span><span class="kw-2">mut </span>graph = build_pruned_ref_graph_at_k(<span class="kw-2">&amp;</span>reference, <span class="kw-2">&amp;</span>[<span class="kw-2">&amp;</span>alt1, <span class="kw-2">&amp;</span>alt2], <span class="number">15</span>);
+<a href=#1378 id=1378 data-nosnippet>1378</a>        <span class="kw">let </span><span class="kw-2">mut </span>dangling = DanglingRecoveryParams::gatk_haplotype_caller_defaults();
+<a href=#1379 id=1379 data-nosnippet>1379</a>        dangling.min_dangling_branch_length = <span class="number">4</span>;
+<a href=#1380 id=1380 data-nosnippet>1380</a>        dangling.recover_all_dangling_branches = <span class="bool-val">true</span>;
+<a href=#1381 id=1381 data-nosnippet>1381</a>        <span class="kw">let </span>summary = graph.recover_dangling_branches(<span class="kw-2">&amp;</span>dangling).unwrap();
+<a href=#1382 id=1382 data-nosnippet>1382</a>        <span class="macro">assert!</span>(
+<a href=#1383 id=1383 data-nosnippet>1383</a>            summary.tails_attempted &gt;= <span class="number">1</span>,
+<a href=#1384 id=1384 data-nosnippet>1384</a>            <span class="string">"GATK testForkedDanglingEnds expects non-ref sinks (Rust may collapse forks to fewer sinks)"
 <a href=#1385 id=1385 data-nosnippet>1385</a>        </span>);
-<a href=#1386 id=1386 data-nosnippet>1386</a>    }
-<a href=#1387 id=1387 data-nosnippet>1387</a>
-<a href=#1388 id=1388 data-nosnippet>1388</a>    <span class="attr">#[test]
-<a href=#1389 id=1389 data-nosnippet>1389</a>    </span><span class="kw">fn </span>reference_path_from_breaks_on_cycle() {
-<a href=#1390 id=1390 data-nosnippet>1390</a>        <span class="comment">// Synthetic 2-node ref cycle: without the revisit guard this walk is unbounded.
-<a href=#1391 id=1391 data-nosnippet>1391</a>        </span><span class="kw">let </span><span class="kw-2">mut </span>g = AssemblyGraph::new(<span class="number">3</span>).expect(<span class="string">"k=3 graph"</span>);
-<a href=#1392 id=1392 data-nosnippet>1392</a>        <span class="kw">let </span>a = g.ensure_node(<span class="string">b"AAA"</span>);
-<a href=#1393 id=1393 data-nosnippet>1393</a>        <span class="kw">let </span>b = g.ensure_node(<span class="string">b"AAB"</span>);
-<a href=#1394 id=1394 data-nosnippet>1394</a>        g.add_edge_support(a, b, <span class="number">1</span>);
-<a href=#1395 id=1395 data-nosnippet>1395</a>        g.add_edge_support(b, a, <span class="number">1</span>);
-<a href=#1396 id=1396 data-nosnippet>1396</a>        g.ref_edges.insert((a, b));
-<a href=#1397 id=1397 data-nosnippet>1397</a>        g.ref_edges.insert((b, a));
-<a href=#1398 id=1398 data-nosnippet>1398</a>        g.ref_nodes.extend([a, b]);
-<a href=#1399 id=1399 data-nosnippet>1399</a>        <span class="kw">let </span>path = g.reference_path_from(a, TraversalDir::Down, <span class="prelude-val">None</span>);
-<a href=#1400 id=1400 data-nosnippet>1400</a>        <span class="macro">assert!</span>(
-<a href=#1401 id=1401 data-nosnippet>1401</a>            path.len() &lt;= <span class="number">3</span>,
-<a href=#1402 id=1402 data-nosnippet>1402</a>            <span class="string">"cycle must not grow ref path unboundedly: got {}"</span>,
-<a href=#1403 id=1403 data-nosnippet>1403</a>            path.len()
-<a href=#1404 id=1404 data-nosnippet>1404</a>        );
-<a href=#1405 id=1405 data-nosnippet>1405</a>        <span class="macro">assert_eq!</span>(path[<span class="number">0</span>], a);
-<a href=#1406 id=1406 data-nosnippet>1406</a>    }
-<a href=#1407 id=1407 data-nosnippet>1407</a>}
+<a href=#1386 id=1386 data-nosnippet>1386</a>        <span class="macro">assert_eq!</span>(
+<a href=#1387 id=1387 data-nosnippet>1387</a>            summary.tails_recovered, summary.tails_attempted,
+<a href=#1388 id=1388 data-nosnippet>1388</a>            <span class="string">"recoverAll should merge every attempted alt tail"
+<a href=#1389 id=1389 data-nosnippet>1389</a>        </span>);
+<a href=#1390 id=1390 data-nosnippet>1390</a>    }
+<a href=#1391 id=1391 data-nosnippet>1391</a>
+<a href=#1392 id=1392 data-nosnippet>1392</a>    <span class="attr">#[test]
+<a href=#1393 id=1393 data-nosnippet>1393</a>    </span><span class="kw">fn </span>reference_path_from_breaks_on_cycle() {
+<a href=#1394 id=1394 data-nosnippet>1394</a>        <span class="comment">// Synthetic 2-node ref cycle: without the revisit guard this walk is unbounded.
+<a href=#1395 id=1395 data-nosnippet>1395</a>        </span><span class="kw">let </span><span class="kw-2">mut </span>g = AssemblyGraph::new(<span class="number">3</span>).expect(<span class="string">"k=3 graph"</span>);
+<a href=#1396 id=1396 data-nosnippet>1396</a>        <span class="kw">let </span>a = g.ensure_node(<span class="string">b"AAA"</span>);
+<a href=#1397 id=1397 data-nosnippet>1397</a>        <span class="kw">let </span>b = g.ensure_node(<span class="string">b"AAB"</span>);
+<a href=#1398 id=1398 data-nosnippet>1398</a>        g.add_edge_support(a, b, <span class="number">1</span>);
+<a href=#1399 id=1399 data-nosnippet>1399</a>        g.add_edge_support(b, a, <span class="number">1</span>);
+<a href=#1400 id=1400 data-nosnippet>1400</a>        g.ref_edges.insert((a, b));
+<a href=#1401 id=1401 data-nosnippet>1401</a>        g.ref_edges.insert((b, a));
+<a href=#1402 id=1402 data-nosnippet>1402</a>        g.ref_nodes.extend([a, b]);
+<a href=#1403 id=1403 data-nosnippet>1403</a>        <span class="kw">let </span>path = g.reference_path_from(a, TraversalDir::Down, <span class="prelude-val">None</span>);
+<a href=#1404 id=1404 data-nosnippet>1404</a>        <span class="macro">assert!</span>(
+<a href=#1405 id=1405 data-nosnippet>1405</a>            path.len() &lt;= <span class="number">3</span>,
+<a href=#1406 id=1406 data-nosnippet>1406</a>            <span class="string">"cycle must not grow ref path unboundedly: got {}"</span>,
+<a href=#1407 id=1407 data-nosnippet>1407</a>            path.len()
+<a href=#1408 id=1408 data-nosnippet>1408</a>        );
+<a href=#1409 id=1409 data-nosnippet>1409</a>        <span class="macro">assert_eq!</span>(path[<span class="number">0</span>], a);
+<a href=#1410 id=1410 data-nosnippet>1410</a>    }
+<a href=#1411 id=1411 data-nosnippet>1411</a>}
 </code></pre></div></section></main></body></html>

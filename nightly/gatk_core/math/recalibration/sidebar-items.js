@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["empirical_quality_from_errors","recalibrate_base_quality"]};

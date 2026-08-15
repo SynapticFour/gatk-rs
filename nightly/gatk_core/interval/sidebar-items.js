@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["Strand"],"fn":["find_overlapping_intervals_parallel","merge_overlapping_intervals_parallel"],"struct":["GenomicInterval","IntervalQuery","IntervalQueryEngine","IntervalSet","IntervalStatistics","IntervalTree"]};

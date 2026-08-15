@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["JobInputData","JobPriority","JobType","TaskInputData","TaskType"],"struct":["ClusterStats","DistributedConfig","DistributedCoordinator","DistributedJob","JobHandle","Task"]};

@@ -397,18 +397,21 @@
 <a href=#397 id=397 data-nosnippet>397</a>    }
 <a href=#398 id=398 data-nosnippet>398</a>    <span class="kw">let </span><span class="kw-2">mut </span>info = std::mem::MaybeUninit::&lt;MachTaskBasicInfo&gt;::uninit();
 <a href=#399 id=399 data-nosnippet>399</a>    <span class="kw">let </span><span class="kw-2">mut </span>count = MACH_TASK_BASIC_INFO_COUNT;
-<a href=#400 id=400 data-nosnippet>400</a>    <span class="kw">let </span>kr = <span class="kw">unsafe </span>{
-<a href=#401 id=401 data-nosnippet>401</a>        task_info(
-<a href=#402 id=402 data-nosnippet>402</a>            mach_task_self(),
-<a href=#403 id=403 data-nosnippet>403</a>            MACH_TASK_BASIC_INFO,
-<a href=#404 id=404 data-nosnippet>404</a>            info.as_mut_ptr() <span class="kw">as </span><span class="kw-2">*mut </span>u32,
-<a href=#405 id=405 data-nosnippet>405</a>            <span class="kw-2">&amp;mut </span>count,
-<a href=#406 id=406 data-nosnippet>406</a>        )
-<a href=#407 id=407 data-nosnippet>407</a>    };
-<a href=#408 id=408 data-nosnippet>408</a>    <span class="kw">if </span>kr != <span class="number">0 </span>{
-<a href=#409 id=409 data-nosnippet>409</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
-<a href=#410 id=410 data-nosnippet>410</a>    }
-<a href=#411 id=411 data-nosnippet>411</a>    <span class="kw">let </span>info = <span class="kw">unsafe </span>{ info.assume_init() };
-<a href=#412 id=412 data-nosnippet>412</a>    <span class="prelude-val">Some</span>(info.resident_size <span class="kw">as </span>f64 / (<span class="number">1024.0 </span>* <span class="number">1024.0</span>))
-<a href=#413 id=413 data-nosnippet>413</a>}
+<a href=#400 id=400 data-nosnippet>400</a>    <span class="comment">// SAFETY: `task_info` writes `MachTaskBasicInfo` through `task_info_out` when
+<a href=#401 id=401 data-nosnippet>401</a>    // flavor is MACH_TASK_BASIC_INFO and `count` is the struct's u32-word size.
+<a href=#402 id=402 data-nosnippet>402</a>    </span><span class="kw">let </span>kr = <span class="kw">unsafe </span>{
+<a href=#403 id=403 data-nosnippet>403</a>        task_info(
+<a href=#404 id=404 data-nosnippet>404</a>            mach_task_self(),
+<a href=#405 id=405 data-nosnippet>405</a>            MACH_TASK_BASIC_INFO,
+<a href=#406 id=406 data-nosnippet>406</a>            info.as_mut_ptr() <span class="kw">as </span><span class="kw-2">*mut </span>u32,
+<a href=#407 id=407 data-nosnippet>407</a>            <span class="kw-2">&amp;mut </span>count,
+<a href=#408 id=408 data-nosnippet>408</a>        )
+<a href=#409 id=409 data-nosnippet>409</a>    };
+<a href=#410 id=410 data-nosnippet>410</a>    <span class="kw">if </span>kr != <span class="number">0 </span>{
+<a href=#411 id=411 data-nosnippet>411</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#412 id=412 data-nosnippet>412</a>    }
+<a href=#413 id=413 data-nosnippet>413</a>    <span class="comment">// SAFETY: `kr == 0` means `task_info` initialized `info` (and `count` words).
+<a href=#414 id=414 data-nosnippet>414</a>    </span><span class="kw">let </span>info = <span class="kw">unsafe </span>{ info.assume_init() };
+<a href=#415 id=415 data-nosnippet>415</a>    <span class="prelude-val">Some</span>(info.resident_size <span class="kw">as </span>f64 / (<span class="number">1024.0 </span>* <span class="number">1024.0</span>))
+<a href=#416 id=416 data-nosnippet>416</a>}
 </code></pre></div></section></main></body></html>
