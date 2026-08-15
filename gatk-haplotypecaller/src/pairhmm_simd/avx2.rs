@@ -2,7 +2,7 @@
 
 #![cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 
-use super::pack::score_haps_logless_packed_f64;
+use super::pack::{score_haps_logless_packed_f64, score_haps_logless_packed_f64_with_transitions};
 use crate::pairhmm_logless::{
     logless_build_transitions, logless_match_mismatch_prior, INITIAL_CONDITION,
     INITIAL_CONDITION_LOG10,
@@ -147,13 +147,11 @@ unsafe fn score_haps_avx2_f64_unchecked(
                 }
             }
             for &i in chunks.remainder() {
-                match score_haps_logless_packed_f64(
+                match score_haps_logless_packed_f64_with_transitions(
                     read_bases,
                     read_quals,
                     &haplotypes[i..=i],
-                    insertion_gop,
-                    deletion_gop,
-                    overall_gcp,
+                    &transitions,
                 ) {
                     Ok(rest) => out[i] = rest[0],
                     Err(e) => {

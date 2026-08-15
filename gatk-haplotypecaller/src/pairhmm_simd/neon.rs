@@ -2,7 +2,7 @@
 
 #![cfg(target_arch = "aarch64")]
 
-use super::pack::score_haps_logless_packed_f64;
+use super::pack::{score_haps_logless_packed_f64, score_haps_logless_packed_f64_with_transitions};
 use crate::pairhmm_logless::{
     logless_build_transitions, logless_match_mismatch_prior, INITIAL_CONDITION,
     INITIAL_CONDITION_LOG10,
@@ -144,13 +144,12 @@ unsafe fn score_haps_neon_f64_unchecked(
                 done[i] = true;
                 done[j] = true;
             } else {
-                match score_haps_logless_packed_f64(
+                // Reuse transitions already built for this read — do not rebuild via packed_f64.
+                match score_haps_logless_packed_f64_with_transitions(
                     read_bases,
                     read_quals,
                     &haplotypes[i..=i],
-                    insertion_gop,
-                    deletion_gop,
-                    overall_gcp,
+                    &transitions,
                 ) {
                     Ok(rest) => out[i] = rest[0],
                     Err(e) => {

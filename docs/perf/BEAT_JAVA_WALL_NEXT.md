@@ -37,9 +37,8 @@ algorithm parity (no P12 band widening). Peak RSS already wins on probe.
 
 ## Immediate next experiment
 
-1. Finish phase6 TRACE (w11/w26) → freeze shares in this doc if they match w09.
-2. Land probe fix + redispatch **ci-subset** on the PR branch; quote probe Peak only.
-3. Profile **one** loser region with `sample`/`Instruments` on `after_pairhmm` +
-   `kbest_begin` only — pick the single hottest leaf before more ownership PRs.
-4. Optional: draft a `GIAB_WALL_MODE=1` workflow input that clears sequential for a
-   small loser matrix (not full ci-subset).
+1. ~~Finish phase6 TRACE / probe fix / ci-subset~~ (landed #112).
+2. Profile one loser (`sample` / Instruments) — see [`PHASE7_WALL_PROFILE.md`](PHASE7_WALL_PROFILE.md).
+3. Dispatch `GIAB_MODE=wall-losers` for product-wall CI (no sequential).
+4. L8 holdout F1 — [`L8_HOLDOUT_F1_TRACK.md`](L8_HOLDOUT_F1_TRACK.md).
+5. Next leaf: SW realign / RT hash after phase7 rematch.
