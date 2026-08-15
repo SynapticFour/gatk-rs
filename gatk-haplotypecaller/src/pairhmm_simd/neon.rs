@@ -139,6 +139,32 @@ unsafe fn score_haps_neon_f64_unchecked(
     NEON_SCRATCH.with(|cell| {
         let mut scratch = cell.borrow_mut();
         for idxs in by_len.values() {
+            // Long same-length chains: Java hapStartIndex prefix reuse beats 2-wide packs
+            // when assembly haps share long prefixes (common on dense GIAB).
+            if idxs.len() >= 3 {
+                let mut subset = Vec::with_capacity(idxs.len());
+                for &i in idxs {
+                    subset.push(haplotypes[i]);
+                }
+                match score_haps_logless_packed_f64_with_transitions(
+                    read_bases,
+                    read_quals,
+                    &subset,
+                    &transitions,
+                ) {
+                    Ok(scores) => {
+                        for (k, &i) in idxs.iter().enumerate() {
+                            out[i] = scores[k];
+                        }
+                        NEON_LEFTOVER.set(NEON_LEFTOVER.get() + idxs.len() as u64);
+                    }
+                    Err(e) => {
+                        err = Some(e);
+                        return;
+                    }
+                }
+                continue;
+            }
             let mut chunks = idxs.chunks_exact(LANES);
             for pack_src in chunks.by_ref() {
                 let pack = [haplotypes[pack_src[0]], haplotypes[pack_src[1]]];
@@ -148,7 +174,6 @@ unsafe fn score_haps_neon_f64_unchecked(
                 NEON_PACK2.set(NEON_PACK2.get() + 1);
             }
             for &i in chunks.remainder() {
-                // Reuse transitions already built for this read — do not rebuild via packed_f64.
                 match score_haps_logless_packed_f64_with_transitions(
                     read_bases,
                     read_quals,
