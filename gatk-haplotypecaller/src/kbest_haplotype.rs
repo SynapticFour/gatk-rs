@@ -137,6 +137,11 @@ impl Eq for HeapItem {}
 ///
 /// Observable contract: same cycle-edge / non-reaching-vertex removal as GATK; Rust-native
 /// cuts avoid per-edge `Vec` allocs and fold isolated cleanup into one remapping pass.
+///
+/// # Complexity
+/// `find_cycle_guilty` must memoize per-vertex `reaches_sink`. Without memoization a bushy
+/// DAG (many diamond merges) is exponential in path count — NA12878 `20:47131737-47131971`
+/// hung for the full 6h CI job after `rt_graph_built` and before `kbest_begin`.
 pub fn graph_for_kbest(mut graph: AssemblyGraph) -> Result<AssemblyGraph, AssemblyGraph> {
     if !graph.has_cycle() {
         return Ok(graph);
@@ -155,6 +160,8 @@ pub fn graph_for_kbest(mut graph: AssemblyGraph) -> Result<AssemblyGraph, Assemb
     let mut edges_to_remove = HashSet::new();
     let mut vertices_to_remove = HashSet::new();
     let mut on_path = vec![false; n];
+    // Memo: None = unvisited as a finished subtree; Some(reaches_sink).
+    let mut reaches_sink_memo: Vec<Option<bool>> = vec![None; n];
     let found_path = find_cycle_guilty(
         &graph,
         source,
@@ -162,6 +169,7 @@ pub fn graph_for_kbest(mut graph: AssemblyGraph) -> Result<AssemblyGraph, Assemb
         &mut edges_to_remove,
         &mut vertices_to_remove,
         &mut on_path,
+        &mut reaches_sink_memo,
     );
     if !found_path || (edges_to_remove.is_empty() && vertices_to_remove.is_empty()) {
         return Err(graph);
@@ -181,9 +189,15 @@ fn find_cycle_guilty(
     edges_to_remove: &mut HashSet<(usize, usize)>,
     vertices_to_remove: &mut HashSet<usize>,
     on_path: &mut [bool],
+    reaches_sink_memo: &mut [Option<bool>],
 ) -> bool {
     if current < is_sink.len() && is_sink[current] {
         return true;
+    }
+    if current < reaches_sink_memo.len() {
+        if let Some(cached) = reaches_sink_memo[current] {
+            return cached;
+        }
     }
     if current < on_path.len() {
         on_path[current] = true;
@@ -199,6 +213,7 @@ fn find_cycle_guilty(
             edges_to_remove,
             vertices_to_remove,
             on_path,
+            reaches_sink_memo,
         ) {
             reaches_sink = true;
         }
@@ -208,6 +223,9 @@ fn find_cycle_guilty(
     }
     if current < on_path.len() {
         on_path[current] = false;
+    }
+    if current < reaches_sink_memo.len() {
+        reaches_sink_memo[current] = Some(reaches_sink);
     }
     reaches_sink
 }
@@ -242,7 +260,13 @@ pub fn find_best_haplotypes_for_assembly(
     // source→sink DAG, fall back to capped preserving search (pre-Peak behavior). Dropping
     // that fallback and running `find_best_haplotypes_inner` on the cyclic graph left L2
     // `g2-subset-live` at haplotype_count=1 (ref only).
-    let (paths, graph) = match graph_for_kbest(graph) {
+    crate::runtime_config::rss_trace_checkpoint(
+        "kbest_cycle_strip_begin",
+        &format!("nodes={}", graph.nodes().len()),
+    );
+    let stripped = graph_for_kbest(graph);
+    crate::runtime_config::rss_trace_checkpoint("kbest_cycle_strip_done", "");
+    let (paths, graph) = match stripped {
         Ok(acyclic) => {
             crate::runtime_config::rss_trace_checkpoint(
                 "kbest_begin",
@@ -452,5 +476,63 @@ mod tests {
             .saturating_mul(MAX_KBEST_PATH_EDGES)
             .saturating_mul(std::mem::size_of::<(usize, usize)>());
         assert!(worst_edge_bytes < 128 * 1024 * 1024);
+    }
+
+    /// Bushy diamond ladder + one back-edge: without per-vertex memoization,
+    /// `find_cycle_guilty` is exponential in diamond count (CI hang class).
+    #[test]
+    fn graph_for_kbest_memoizes_bushy_cyclic_dag() {
+        let mut g = AssemblyGraph::new(3).unwrap();
+        let kmer = |i: usize| -> [u8; 3] {
+            [
+                b'A' + ((i / 16) % 4) as u8,
+                b'A' + ((i / 4) % 4) as u8,
+                b'A' + (i % 4) as u8,
+            ]
+        };
+        // layers=14 → 2^14 path expansions without memo (~16k leaves of the recursion tree
+        // per diamond level compounds far beyond that).
+        let layers = 14usize;
+        let source = g.ensure_node(&kmer(0));
+        let mut prev = source;
+        let mut next_id = 1usize;
+        let mut ref_chain: Vec<(usize, usize)> = Vec::new();
+        for _ in 0..layers {
+            let left = g.ensure_node(&kmer(next_id));
+            next_id += 1;
+            let right = g.ensure_node(&kmer(next_id));
+            next_id += 1;
+            let merge = g.ensure_node(&kmer(next_id));
+            next_id += 1;
+            g.add_edge_support(prev, left, 1);
+            g.add_edge_support(prev, right, 1);
+            g.add_edge_support(left, merge, 1);
+            g.add_edge_support(right, merge, 1);
+            // Ref spine uses left branch.
+            ref_chain.push((prev, left));
+            ref_chain.push((left, merge));
+            prev = merge;
+        }
+        let sink = prev;
+        for &(a, b) in &ref_chain {
+            g.ref_edges.insert((a, b));
+            g.ref_nodes.insert(a);
+            g.ref_nodes.insert(b);
+        }
+        g.ref_source_kmer = Some(std::sync::Arc::from(kmer(0).as_slice()));
+        // Back-edge so has_cycle() is true and we enter find_cycle_guilty.
+        let mid = g.ensure_node(&kmer(next_id));
+        g.add_edge_support(sink, mid, 1);
+        g.add_edge_support(mid, source, 1);
+
+        assert!(g.has_cycle(), "test setup must enter cycle-strip path");
+        assert!(g.reference_source_vertex().is_some());
+        assert!(g.reference_sink_vertex().is_some());
+        let t0 = std::time::Instant::now();
+        let _ = graph_for_kbest(g);
+        assert!(
+            t0.elapsed().as_secs() < 2,
+            "cycle-strip on bushy diamond ladder must finish quickly (memoization)"
+        );
     }
 }

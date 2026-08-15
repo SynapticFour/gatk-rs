@@ -320,6 +320,9 @@ jobs:
 
   finalize:
     name: Finalize + score
+    # Score whatever HC shards finished — a single 6h cancel must not block the run
+    # (see docs/perf/CI_SUBSET_HANG_W47_W10.md).
+    if: ${{ always() && needs.prepare.result == 'success' }}
     needs: [prepare, hc-shard]
     runs-on: ubuntu-latest
     timeout-minutes: 180
