@@ -1,28 +1,84 @@
 {
-  "id": "nightly-2026-08-15T11:05:44Z",
-  "workflow": "nightly-equivalence",
-  "generated_utc": "2026-08-15T11:05:44Z",
-  "commit_sha": "45db5b7d78e77b9be229298b8d4041b28e28bd0a",
-  "workflow_run_url": "https://github.com/SynapticFour/gatk-rs/actions/runs/31866078550",
+  "id": "genomewide-d7f03ee46b3851a4430d02a194f70d03de13b1eb-ci-subset",
+  "workflow": "genomewide-validation",
+  "generated_utc": "2026-08-15T14:30:28Z",
+  "commit_sha": "d7f03ee46b3851a4430d02a194f70d03de13b1eb",
+  "workflow_run_url": "https://github.com/SynapticFour/gatk-rs/actions/runs/31884483008",
   "scope": {
-    "kind": "trio_joint_e2e",
-    "pipeline": "HaplotypeCaller (GVCF) \u2192 CombineGVCFs \u2192 GenotypeGVCFs \u2192 VariantFiltration",
+    "kind": "hc_genomewide",
+    "pipeline": "HaplotypeCaller (Java GATK 4.4 vs gatk-rs) \u2192 hap.py/RTG via gatk-rs-equiv",
     "samples": [
-      "HG002",
-      "HG003",
-      "HG004"
+      "HG001"
     ],
     "regions": [
-      "chr20",
-      "chr21"
+      "20:1-63025520",
+      "21:1-48129895",
+      "1:13000000-13049999",
+      "2:16000000-16049999",
+      "3:19000000-19049999",
+      "4:22000000-22049999",
+      "5:25000000-25049999",
+      "6:28000000-28049999",
+      "7:31000000-31049999",
+      "8:34000000-34049999",
+      "9:37000000-37049999",
+      "10:40000000-40049999",
+      "11:43000000-43049999",
+      "12:46000000-46049999",
+      "13:49000000-49049999",
+      "14:52000000-52049999",
+      "15:55000000-55049999",
+      "16:58000000-58049999",
+      "17:61000000-61049999",
+      "18:64000000-64049999",
+      "19:59078984-59128983",
+      "22:51254567-51304566"
     ],
+    "mode_description": "CI-SUBSET (default \u201cgenome-wide\u201d in this repo): FULL chr20 + FULL chr21 + one 50kb probe on each other autosome. Not all bases of chr1\u201319/22.",
     "assembly": "hs37d5 (GRCh37)",
-    "truth": "GIAB HG002 NISTv4.2.1 (joint callset scored on HG002)",
-    "eval_engine": "Illumina hap.py (Docker) vs HG002 truth",
+    "truth": "GIAB NISTv4.2.1 per sample (confident BED)",
+    "eval_engine": "gatk-rs-equiv (hap.py preferred, RTG fallback)",
     "java_gatk_version": "4.4.0.0",
     "java_gatk_sha": "2dbc025821bc5f686c423ff332a41e6cef892a77",
     "java_gatk_docker": "us.gcr.io/broad-gatk/gatk:4.4.0.0",
-    "honesty": "Nightly trio E2E covers only the listed chromosomes/hard slices (not full WGS). BAMs are region-sliced; metrics are hap.py vs HG002 truth after joint genotyping + SNP hard-filters."
+    "honesty": "GIAB_MODE=ci-subset. Metrics are per-sample truth F1 from hap.py/RTG. Full `autosomes` is WGS-scale and runs on the paid self-hosted runner; `ci-subset` / window modes are not whole-genome claims."
   },
-  "metrics": []
+  "metrics": [
+    {
+      "region": "ci-subset:HG001",
+      "sample": "HG001",
+      "engine": "rust",
+      "variant_type": "SNP",
+      "precision": 0.958063,
+      "recall": 0.031595,
+      "f1": 0.061172
+    },
+    {
+      "region": "ci-subset:HG001",
+      "sample": "HG001",
+      "engine": "rust",
+      "variant_type": "INDEL",
+      "precision": 0.890432,
+      "recall": 0.031097,
+      "f1": 0.060095
+    },
+    {
+      "region": "ci-subset:HG001",
+      "sample": "HG001",
+      "engine": "java",
+      "variant_type": "SNP",
+      "precision": 0.965161,
+      "recall": 0.03539,
+      "f1": 0.068276
+    },
+    {
+      "region": "ci-subset:HG001",
+      "sample": "HG001",
+      "engine": "java",
+      "variant_type": "INDEL",
+      "precision": 0.973582,
+      "recall": 0.036302,
+      "f1": 0.069993
+    }
+  ]
 }
