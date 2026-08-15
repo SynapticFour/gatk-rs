@@ -38,7 +38,10 @@ algorithm parity (no P12 band widening). Peak RSS already wins on probe.
 ## Immediate next experiment
 
 1. ~~Finish phase6 TRACE / probe fix / ci-subset~~ (landed #112).
-2. Profile one loser (`sample` / Instruments) — see [`PHASE7_WALL_PROFILE.md`](PHASE7_WALL_PROFILE.md).
-3. Dispatch `GIAB_MODE=wall-losers` for product-wall CI (no sequential).
-4. L8 holdout F1 — [`L8_HOLDOUT_F1_TRACK.md`](L8_HOLDOUT_F1_TRACK.md).
-5. Next leaf: SW realign / RT hash after phase7 rematch.
+2. ~~Profile + PairHMM/EventMap + wall-losers lane~~ (landed #113).
+3. ~~wall-losers Finalize dig~~ — concat bug, not F1 ([`WALL_LOSERS_F1_DIG.md`](WALL_LOSERS_F1_DIG.md)).
+4. ~~SW / realign leaf~~ — [`PHASE8_SW_REALIGN.md`](PHASE8_SW_REALIGN.md).
+5. Dispatch `GIAB_MODE=ci-subset` on phase8 PR (Peak rematch).
+6. Re-run `wall-losers` after concat fix (product wall + honest F1 delta).
+7. L8 holdout F1 — [`L8_HOLDOUT_F1_TRACK.md`](L8_HOLDOUT_F1_TRACK.md).
+8. Next leaf: RT graph hash / deeper PairHMM after phase8 rematch.

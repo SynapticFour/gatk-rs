@@ -423,12 +423,16 @@ pub fn hard_clip_soft_clipped_bases_seq(rec: &bam::Record) -> Vec<u8> {
         return seq;
     }
     // Same order as [`hard_clip_soft_clipped_bases`]: right clip then left.
-    let end = cut_right.unwrap_or(seq.len());
+    // Drain in place — avoid a second allocation of the clipped window.
+    let end = cut_right.unwrap_or(seq.len()).min(seq.len());
     let start = cut_left.map(|l| l.saturating_add(1)).unwrap_or(0);
     if start >= end || start >= seq.len() {
         return Vec::new();
     }
-    seq[start..end.min(seq.len())].to_vec()
+    let mut seq = seq;
+    seq.drain(end..);
+    seq.drain(..start);
+    seq
 }
 
 pub const ORIGINAL_SOFTCLIP_START_TAG: &[u8] = b"os";

@@ -22,7 +22,7 @@ Hottest frames (40s mid-run):
 
 ## Deferred (next Instruments leaf)
 
-- SW / realign (`align_uppercase_ready`) — stable ~12–15% TRACE share; needs COW/clip dig, not speculative skip
+- ~~SW / realign (`align_uppercase_ready`)~~ → [`PHASE8_SW_REALIGN.md`](PHASE8_SW_REALIGN.md)
 - RT graph hash cost — assemble pie; keep from regressing k-best win on w11
 
 ## Prove
