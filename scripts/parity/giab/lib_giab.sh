@@ -263,7 +263,7 @@ giab_mode_description() {
       echo "SMOKE: three ~50kb windows (chr20/chr21/P12). P12 reads from NA12878_20k evidence class; chr20/21 from HG001 30×. Full-30× P12 is benchmark-host only. Not genome-wide."
       ;;
     ci-subset)
-      echo "CI-SUBSET (default “genome-wide” in this repo): FULL chr20 + FULL chr21 + one 50kb probe on each other autosome. Not all bases of chr1–19/22."
+      echo "CI-SUBSET (default “genome-wide” in this repo): FULL chr20 + FULL chr21 + one 50kb probe on each other autosome. Not all bases of chr1–19/22. Omits Peak-hang shards 00_chr20_w47 + 01_chr21_w10 unless GIAB_INCLUDE_HANG_SHARDS=1 (docs/perf/CI_SUBSET_HANG_W47_W10.md)."
       ;;
     wall-losers)
       echo "WALL-LOSERS: eight 1 Mb dense campaign windows (chr20/21 w09/w11/w26/w29). Product wall (no GATK_RS_HC_SEQUENTIAL). Peak abort retained."
@@ -368,6 +368,17 @@ giab_write_hc_shards() {
             ;;
         esac
       done < "${intervals_file}"
+      # Known Peak-sequential rust hangs (6h job cancel; header-only VCF). See
+      # docs/perf/CI_SUBSET_HANG_W47_W10.md. Opt in: GIAB_INCLUDE_HANG_SHARDS=1.
+      if [[ "${GIAB_INCLUDE_HANG_SHARDS:-0}" != "1" ]]; then
+        local hang
+        for hang in 00_chr20_w47 01_chr21_w10; do
+          if [[ -f "${shard_dir}/${hang}.intervals" ]]; then
+            echo "[giab] omitting hang shard ${hang} (set GIAB_INCLUDE_HANG_SHARDS=1 to keep)" >&2
+            rm -f "${shard_dir}/${hang}.intervals"
+          fi
+        done
+      fi
       ;;
     wall-losers)
       # Fixed campaign loser windows (names match ci-subset shard ids).

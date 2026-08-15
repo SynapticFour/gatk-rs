@@ -42,6 +42,7 @@ algorithm parity (no P12 band widening). Peak RSS already wins on probe.
 3. ~~wall-losers Finalize dig~~ — concat bug, not F1 ([`WALL_LOSERS_F1_DIG.md`](WALL_LOSERS_F1_DIG.md)).
 4. ~~SW / realign leaf~~ — [`PHASE8_SW_REALIGN.md`](PHASE8_SW_REALIGN.md).
 5. Dispatch `GIAB_MODE=ci-subset` on phase8 PR (Peak rematch).
-6. Re-run `wall-losers` after concat fix (product wall + honest F1 delta).
-7. L8 holdout F1 — [`L8_HOLDOUT_F1_TRACK.md`](L8_HOLDOUT_F1_TRACK.md).
-8. Next leaf: RT graph hash / deeper PairHMM after phase8 rematch.
+6. ~~ci-subset hang dig (w47 / chr21 w10)~~ — [`CI_SUBSET_HANG_W47_W10.md`](CI_SUBSET_HANG_W47_W10.md); omit shards to Finalize once.
+7. Re-run `wall-losers` after concat fix (product wall + honest F1 delta).
+8. L8 holdout F1 — [`L8_HOLDOUT_F1_TRACK.md`](L8_HOLDOUT_F1_TRACK.md).
+9. Next leaf: RT graph hash / deeper PairHMM after phase8 rematch; TRACE hang loci separately.
