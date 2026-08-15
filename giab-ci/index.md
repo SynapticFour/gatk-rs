@@ -1,14 +1,14 @@
 # GIAB genome-wide equivalence dashboard
 
 - **Run dir:** `/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci`
-- **Generated (UTC):** 2026-08-10T04:31:36Z
-- **Scope:** SMOKE: three ~50kb windows (chr20/chr21/P12). P12 reads from NA12878_20k evidence class; chr20/21 from HG001 30×. Full-30× P12 is benchmark-host only. Not genome-wide.
+- **Generated (UTC):** 2026-08-15T10:12:00Z
+- **Scope:** CI-SUBSET (default “genome-wide” in this repo): FULL chr20 + FULL chr21 + one 50kb probe on each other autosome. Not all bases of chr1–19/22. Omits Peak-hang shards 00_chr20_w47 + 01_chr21_w10 unless GIAB_INCLUDE_HANG_SHARDS=1 (docs/perf/CI_SUBSET_HANG_W47_W10.md).
 
 ## Samples
 
 | Sample | Mode | Gate | Max\|ΔF1\| | Java wall | Java RSS | Rust wall | Rust RSS |
 |--------|------|:----:|----------:|----------:|---------:|----------:|---------:|
-| HG001 | smoke | PASS | 0.0000 | — | — | — | — |
+| HG001 | ci-subset | FAIL | 0.0246 | — | — | — | — |
 
 ## Notes
 
