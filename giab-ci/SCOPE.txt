@@ -1,1 +1,1 @@
-CI-SUBSET (default “genome-wide” in this repo): FULL chr20 + FULL chr21 + one 50kb probe on each other autosome. Not all bases of chr1–19/22.
+WALL-LOSERS: eight 1 Mb dense campaign windows (chr20/21 w09/w11/w26/w29). Product wall (no GATK_RS_HC_SEQUENTIAL). Peak abort retained.
