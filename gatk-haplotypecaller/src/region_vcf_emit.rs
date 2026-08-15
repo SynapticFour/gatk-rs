@@ -44,6 +44,8 @@ use gatk_core::io::vcf::{
 fn strict_java_non_p12_region_supports_emit(
     event: &VariationEvent,
     site_genotype: Option<&RegionGenotypeResult>,
+    read_ref_ad: i32,
+    read_alt_ad: i32,
 ) -> bool {
     if is_strict_java_p12_production_emit_scope(event) {
         return true;
@@ -51,14 +53,19 @@ fn strict_java_non_p12_region_supports_emit(
     let Some(g) = site_genotype else {
         return false;
     };
-    let ref_ad = g
+    let fmt_ref = g
         .format
         .ad
         .first()
         .copied()
         .map(|d| d.as_i32())
         .unwrap_or(0);
-    let alt_ad = g.format.ad.get(1).copied().map(|d| d.as_i32()).unwrap_or(0);
+    let fmt_alt = g.format.ad.get(1).copied().map(|d| d.as_i32()).unwrap_or(0);
+    // PairHMM "informative" FORMAT AD can undercount vs Java DepthPerAlleleBySample on
+    // dense hets (holdout `20:15009054` FORMAT 2/1 while pileup/Java ~12/16). Use the
+    // stronger of FORMAT vs region-read pileup for this emit-support gate only.
+    let ref_ad = fmt_ref.max(read_ref_ad.max(0));
+    let alt_ad = fmt_alt.max(read_alt_ad.max(0));
     let gt_idx = biallelic_genotype_index_from_pl(&g.format.pl);
     if event.is_indel() {
         return alt_ad >= 2;
@@ -67,7 +74,17 @@ fn strict_java_non_p12_region_supports_emit(
         // Historical p11 strong hom-alt path.
         2 => alt_ad >= 10,
         // Dense GIAB hets: require more support than the 3-alt/2-ref p5 micro case.
-        1 => alt_ad >= 4 && (ref_ad + alt_ad) >= 10 && g.format.gq.as_i32() >= 30,
+        // When pileup AD alone clears the depth bar, do not also demand GQ≥30 — HMM
+        // FORMAT AD undercount can leave weak GQ while region reads show a clear het
+        // (holdout `20:15038220` read_AD=16/4 GQ=3).
+        1 => {
+            let depth_ok = alt_ad >= 4 && (ref_ad + alt_ad) >= 10;
+            if !depth_ok {
+                return false;
+            }
+            g.format.gq.as_i32() >= 30
+                || (read_alt_ad >= 4 && (read_ref_ad.max(0) + read_alt_ad.max(0)) >= 10)
+        }
         _ => false,
     }
 }
@@ -430,9 +447,15 @@ pub fn try_emit_call_region_variants_with_config(
                         &outcome.assembly,
                     )
                 {
-                    continue;
-                }
-                if !strict_java_non_p12_region_supports_emit(&call.event, Some(&call.genotype)) {
+                    crate::runtime_config::rss_trace_checkpoint(
+                        "emit_skip_asm8",
+                        &format!(
+                            "pos={} {}:{}",
+                            call.event.start_1based.get(),
+                            call.event.ref_allele,
+                            call.event.alt_allele
+                        ),
+                    );
                     continue;
                 }
                 let pad = outcome
@@ -444,6 +467,45 @@ pub fn try_emit_call_region_variants_with_config(
                     .unwrap_or_else(|| outcome.assembly.padded_reference_start_1based());
                 let (read_ref_ad, read_alt_ad) =
                     read_allele_depths_at_locus(&region.reads, &call.event, pad);
+                if !strict_java_non_p12_region_supports_emit(
+                    &call.event,
+                    Some(&call.genotype),
+                    read_ref_ad,
+                    read_alt_ad,
+                ) {
+                    let ref_ad = call
+                        .genotype
+                        .format
+                        .ad
+                        .first()
+                        .copied()
+                        .map(|d| d.as_i32())
+                        .unwrap_or(0);
+                    let alt_ad = call
+                        .genotype
+                        .format
+                        .ad
+                        .get(1)
+                        .copied()
+                        .map(|d| d.as_i32())
+                        .unwrap_or(0);
+                    crate::runtime_config::rss_trace_checkpoint(
+                        "emit_skip_non_p12_support",
+                        &format!(
+                            "pos={} {}:{} AD={}/{} read_AD={}/{} GQ={} indel={}",
+                            call.event.start_1based.get(),
+                            call.event.ref_allele,
+                            call.event.alt_allele,
+                            ref_ad,
+                            alt_ad,
+                            read_ref_ad,
+                            read_alt_ad,
+                            call.genotype.format.gq.as_i32(),
+                            call.event.is_indel()
+                        ),
+                    );
+                    continue;
+                }
                 let mut emit_genotype = &call.genotype;
                 let mut standard_emit = passes_strict_java_emit_for_genotyped_call(
                     &call.event,
@@ -482,6 +544,16 @@ pub fn try_emit_call_region_variants_with_config(
                     }
                 }
                 if !standard_emit {
+                    crate::runtime_config::rss_trace_checkpoint(
+                        "emit_skip_standard",
+                        &format!(
+                            "pos={} read_AD={}/{} GQ={}",
+                            call.event.start_1based.get(),
+                            read_ref_ad,
+                            read_alt_ad,
+                            call.genotype.format.gq.as_i32()
+                        ),
+                    );
                     continue;
                 }
                 let best_idx = biallelic_genotype_index_from_pl(&emit_genotype.format.pl);
@@ -775,7 +847,20 @@ pub fn try_emit_call_region_variant_with_config(
         {
             return Ok(None);
         }
-        if !strict_java_non_p12_region_supports_emit(&event, Some(genotype)) {
+        let pad = outcome
+            .assembly
+            .haplotypes
+            .iter()
+            .find(|h| h.is_reference)
+            .and_then(|h| h.genome_loc.map(|g| g.start_1based()))
+            .unwrap_or_else(|| outcome.assembly.padded_reference_start_1based());
+        let (read_ref_ad, read_alt_ad) = read_allele_depths_at_locus(&region.reads, &event, pad);
+        if !strict_java_non_p12_region_supports_emit(
+            &event,
+            Some(genotype),
+            read_ref_ad,
+            read_alt_ad,
+        ) {
             return Ok(None);
         }
         if !java_emit_would_pass(
