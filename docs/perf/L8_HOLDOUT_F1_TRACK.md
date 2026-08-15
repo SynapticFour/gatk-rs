@@ -2,11 +2,13 @@
 
 **Do not conflate** with beat-Java wall. **Do not widen P12 bands.**
 
-## Status (phase6 / FastestAvailable default)
+## Status (phase6 / FastestAvailable default → emit AD fix)
 
 | Slice | Interval | Java sites | Rust sites | Rust F1 | Gate |
 |-------|----------|----------:|----------:|--------:|------|
-| Holdout | `20:15000000-15050000` | 55 | 41 | **~0.844** | fail |
+| Holdout | `20:15000000-15050000` | 55 | **51** | **~0.904** | **pass** (local) |
+
+Prior fail: rust sites 41 / F1≈0.844. Dig + fix: [`CALLRATE_EMIT_AD_DIG.md`](CALLRATE_EMIT_AD_DIG.md).
 
 Regen: `P12_SKIP_JAVA=1 ./scripts/parity/run_hc_full_parity_j6_dense_holdout.sh`  
 Eval: `scripts/parity/p13_truth_eval.py` + `thresholds_dense_holdout.json`
