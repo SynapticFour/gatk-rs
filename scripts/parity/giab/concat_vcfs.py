@@ -3,7 +3,8 @@
 
 Used by GIAB HC sharding so timed-out CI jobs can resume completed window shards
 without re-running Java/Rust HaplotypeCaller on finished intervals.
-Prefer `bcftools concat -a` when available; this is the portable fallback.
+Portable fallback when bcftools is missing or refuses plain `.vcf`
+(`concat -a` on bcftools ≥1.19 requires bgzip — see `giab_concat_vcfs`).
 """
 from __future__ import annotations
 

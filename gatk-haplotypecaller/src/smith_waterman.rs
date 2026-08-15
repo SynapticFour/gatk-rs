@@ -72,15 +72,20 @@ fn last_index_of(reference: &[u8], query: &[u8]) -> Option<usize> {
     let qlen = query.len();
     let first = query[0];
     let last = query[qlen - 1];
-    for r in (0..=reference.len() - qlen).rev() {
-        if reference[r] != first || reference[r + qlen - 1] != last {
-            continue;
+    // Walk candidate starts from the end. For qlen==1 the first==last check is enough.
+    let mut r = reference.len() - qlen;
+    loop {
+        if reference[r] == first && reference[r + qlen - 1] == last {
+            // Full slice eq only when bookends match (common SoftClip exact-hit path).
+            if qlen == 1 || reference[r + 1..r + qlen - 1] == query[1..qlen - 1] {
+                return Some(r);
+            }
         }
-        if reference[r..r + qlen] == *query {
-            return Some(r);
+        if r == 0 {
+            return None;
         }
+        r -= 1;
     }
-    None
 }
 
 /// Align `alternate` to `reference` (GATK argument order in `CigarUtils.calculateCigar` padded call).
@@ -192,8 +197,8 @@ fn align_uppercase_ready(
 
     SW_SCRATCH.with(|cell| {
         let mut scratch = cell.borrow_mut();
+        // Resize only inside ensure; zero once after take (avoids double-fill).
         scratch.ensure(cells, nrow, ncol);
-        // Take buffers out so we can mutably borrow planes without aliasing `scratch`.
         let mut sw = std::mem::take(&mut scratch.sw);
         let mut btrack = std::mem::take(&mut scratch.btrack);
         let mut best_gap_v = std::mem::take(&mut scratch.best_gap_v);
@@ -203,10 +208,9 @@ fn align_uppercase_ready(
         if sw.len() < cells {
             sw.resize(cells, 0);
             btrack.resize(cells, 0);
-        } else {
-            sw[..cells].fill(0);
-            btrack[..cells].fill(0);
         }
+        sw[..cells].fill(0);
+        btrack[..cells].fill(0);
         calculate_matrix(
             reference,
             alternate,
@@ -283,12 +287,10 @@ impl SwScratch {
                 self.clear();
             }
         }
+        // Length only — caller zeros the active window once before DP (avoid double-fill).
         if self.sw.len() < cells {
             self.sw.resize(cells, 0);
             self.btrack.resize(cells, 0);
-        } else {
-            self.sw[..cells].fill(0);
-            self.btrack[..cells].fill(0);
         }
         if self.best_gap_v.len() < ncol + 1 {
             self.best_gap_v.resize(ncol + 1, 0);

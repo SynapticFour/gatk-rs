@@ -382,14 +382,14 @@ fn create_read_aligned_to_ref_cached(
     Ok(true)
 }
 
-/// Compare BAM CIGAR to an assembled CIGAR without `format!` / Vec collect thrash.
+/// Compare BAM CIGAR to an assembled CIGAR without allocating a temporary Vec.
 fn record_cigar_differs(rec: &Record, want: &Cigar) -> bool {
     let view = rec.cigar();
-    let got: Vec<HtsCigar> = view.iter().copied().collect();
-    if got.len() != want.elements.len() {
-        return true;
-    }
-    for (hts, e) in got.iter().zip(want.elements.iter()) {
+    let mut got = view.iter();
+    for e in &want.elements {
+        let Some(hts) = got.next() else {
+            return true;
+        };
         let Some((len, op)) = hts_to_op_len(*hts) else {
             return true;
         };
@@ -397,7 +397,7 @@ fn record_cigar_differs(rec: &Record, want: &Cigar) -> bool {
             return true;
         }
     }
-    false
+    got.next().is_some()
 }
 
 fn hts_to_op_len(hts: HtsCigar) -> Option<(usize, CigarOperator)> {

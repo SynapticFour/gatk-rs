@@ -414,6 +414,10 @@ giab_write_hc_shards() {
 }
 
 # Concatenate VCF shards → $1. Prefers bcftools; falls back to concat_vcfs.py.
+#
+# bcftools ≥1.19: `concat -a` seeks via BGZF and fails on plain `.vcf` with
+# "not compressed with bgzip" (wall-losers Finalize 31857571738). Non-overlapping
+# interval shards use ordered concat without `-a`; keep `-a` for bgzip/BCF only.
 giab_concat_vcfs() {
   local out_vcf="$1"
   shift
@@ -427,8 +431,24 @@ giab_concat_vcfs() {
     return 0
   fi
   if command -v bcftools >/dev/null 2>&1; then
-    bcftools concat -a -O v -o "${out_vcf}" "${inputs[@]}"
-    return 0
+    local all_compressed=1
+    local f
+    for f in "${inputs[@]}"; do
+      case "${f}" in
+        *.vcf.gz|*.bcf|*.bcf.gz) ;;
+        *) all_compressed=0; break ;;
+      esac
+    done
+    if [[ "${all_compressed}" -eq 1 ]]; then
+      if bcftools concat -a -O v -o "${out_vcf}" "${inputs[@]}"; then
+        return 0
+      fi
+    else
+      if bcftools concat -O v -o "${out_vcf}" "${inputs[@]}"; then
+        return 0
+      fi
+    fi
+    echo "[giab] bcftools concat failed; falling back to concat_vcfs.py" >&2
   fi
   python3 "${_GIAB_LIB_DIR}/concat_vcfs.py" -o "${out_vcf}" "${inputs[@]}"
 }
