@@ -46,9 +46,9 @@ algorithm parity (no P12 band widening). Peak RSS already wins on probe.
    `max_|ΔF1|=0.0099` PASS (workflow red only on gh-pages push).
 7. ~~wall-losers product baseline~~ — gate PASS `0.0013`; median product wall
    **~1.79×** Java (thr=2, no sequential).
-8. **Phase9 PairHMM pack (in progress):** NEON `by_len` group (parity with AVX2)
-   + TRACE `neon_pack2` / `neon_leftover` on `after_pairhmm`. Next code bet after
-   occupancy: equal-length **read** packs / fewer cells (not f32; not EventMap).
+8. **Phase9 PairHMM:** `#118` by_len + TRACE occupancy; hap leftover ~6.7%. Follow-on:
+   Java `hapStartIndex` prefix reuse in packed Logless; NEON chains ≥3 use reuse,
+   pairs stay pack2. Next: prove TRACE Σδ drop, then read-axis packs if still &gt;1.0×.
 
 ### Callrate-era TRACE leaf (w11 200 kb, product thr=2)
 

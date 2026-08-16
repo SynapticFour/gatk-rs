@@ -5,7 +5,8 @@ reachable from **`main`**, do not assert it.
 
 **Pinned Java oracle:** GATK **4.4.0.0** — see [`GATK_PINNED.env`](GATK_PINNED.env) and root `GATK_PINNED_SHA`.
 
-**Last updated:** 2026-08-09 (PR #85 Peak-cut + call-rate restore: 500 kb Peak ~196 MiB exit 0; P12 L3/L4 66/66; holdout FORMAT/F1 PASS — `ci-subset` redispatch unblocked after merge)
+**Last updated:** 2026-08-15 (ci-subset HG001 ΔF1 gate signed on `main` via Finalize
+`gate_passed=true`; Peak RSS already wins; product wall still ~1.79× Java)
 
 ---
 
@@ -22,6 +23,7 @@ reachable from **`main`**, do not assert it.
 | Oracle TSV does not gate production emit | Emit admission / sparse rescue | `scripts/parity` oracle audits |
 | `parity_aligned` / legacy bridges off release surface | Needs `cfg(test)` or `--features parity_harness` | `gatk-haplotypecaller` Cargo features |
 | GIAB multi-sample equivalence **harness** (prepare → HC matrix → finalize + RTG/`gatk-rs-equiv`) | Infrastructure proven end-to-end on hosted CI; does **not** by itself assert genome-adjacent / autosome callset equivalence | [`scripts/parity/giab/`](../scripts/parity/giab/README.md), `.github/workflows/giab-genomewide.yml`; smoke green: [run 30703069224](https://github.com/SynapticFour/gatk-rs/actions/runs/30703069224) (`gate_passed=true`, `max_\|ΔF1\|=0` on three ~50 kb windows) |
+| GIAB **ci-subset** equivalence (HG001): \|Rust−Java\| F1 Δ ≤ 0.02 via `gatk-rs-equiv` | chr20/21 windowed ci-subset concat; **not** full autosomes / multi-sample | Finalize **PASS** `max_\|ΔF1\|=0.0099` on [31903578250](https://github.com/SynapticFour/gatk-rs/actions/runs/31903578250) (`main` post-#116) and [31884483008](https://github.com/SynapticFour/gatk-rs/actions/runs/31884483008); site rate ~0.875. Workflow may still red on **Publish/Deploy** gh-pages push only — cite Finalize gate, not the Actions conclusion bubble. |
 | CombineGVCFs mini REF/ALT/PL parity (incl. different ALT sets → diploid PL remap) | Synthetic 2-sample mini cohort; site `chr1:10` ALT `T,G,<NON_REF>` | `parity/reports/combine_gvcfs_20260724T072518Z.log` (`OK sites=5`); unit gates `ref_confidence_merger::pl_remap_tests` + `combine_gvcfs::tests::t04` |
 | GenotypeGVCFs mini alleles/GT/QUAL parity | Same mini cohort after CombineGVCFs; QUAL ±20.0 | `parity/reports/genotype_gvcfs_20260724T072526Z.log` (`OK sites=1`) |
 | CombineGVCFs → GenotypeGVCFs **cohort scale** (synthetic ladder) | Synthetic N∈{2,10,25,50,100} on chr1 10 kb / 400 SNPs; **recommended ≤ 100 samples** on this gate. Above 100 **untested / not claimed**. No GenomicsDBImport. | `parity/reports/joint_cohort_scale_20260724T184447Z/`; `scripts/parity/run_joint_cohort_scale.sh` |
@@ -47,7 +49,7 @@ evidence/scripts are restored here. Cite them as historical engineering notes on
 
 | Claim | Required evidence | Status |
 |-------|-------------------|--------|
-| GIAB **ci-subset** equivalence (HG001 at minimum): \|Rust−Java\| F1 Δ ≤ threshold via `gatk-rs-equiv` | Green `giab-genomewide.yml` with `GIAB_MODE=ci-subset`, artifact + dashboard row | **Not yet signed** — Peak gate cleared on Air M4 (`GATK_RS_HC_SEQUENTIAL=1`): 500 kb ~196 MiB exit 0 / 981; holdout FORMAT/F1 PASS; P12 L3/L4 66/66. Redispatch after #85 merge (prefer smoke hygiene first, then `ci-subset` HG001). See [`docs/perf/HC_MEMORY_PROFILE.md`](perf/HC_MEMORY_PROFILE.md) |
+| GIAB **ci-subset** equivalence (HG001 at minimum): \|Rust−Java\| F1 Δ ≤ threshold via `gatk-rs-equiv` | Green `giab-genomewide.yml` with `GIAB_MODE=ci-subset`, artifact + dashboard row | **Signed (HG001)** — see Asserted ([31903578250](https://github.com/SynapticFour/gatk-rs/actions/runs/31903578250)). Remaining: Pages publish hygiene. |
 | GIAB **ci-subset** on HG001+HG002+HG005 | Same, all three samples | **Not yet signed** |
 | GIAB **full autosomes** (chr1–22) equivalence | `GIAB_MODE=autosomes` green run | **Not yet signed** |
 | Nightly / GIAB Pages dashboard (`docs/EQUIVALENCE_DASHBOARD.md`, `docs/parity-site/data/history.json`) | Green `ci-subset`+ finalize → `publish-parity-site` job writing non-empty `history.json` `runs` (smoke never publishes) | **Not yet signed** — wire exists; waits on first successful non-smoke publish |
@@ -73,7 +75,7 @@ evidence/scripts are restored here. Cite them as historical engineering notes on
 | Claim | Reality |
 |-------|---------|
 | Genome-wide (full autosomes) GATK 4.4 HaplotypeCaller equivalence | **No** — signed evidence on `main` is P12 + L2 + synthetic joint/filter minis |
-| GIAB `ci-subset` / multi-sample truth equivalence as a product claim | **No (not signed yet)** |
+| GIAB `ci-subset` / multi-sample truth equivalence as a product claim | **Partial** — HG001 ci-subset ΔF1 **signed**; HG002+HG005 and autosomes **not** |
 | Multi-sample joint HC (Java merges `-I` reads) | **No** — each BAM traversed independently |
 | CombineGVCFs / GenotypeGVCFs for **large cohorts** (WGS × N≫100, GenomicsDB-class) | **No** — gatk-rs Combine loads full gVCFs in memory and has no GenomicsDBImport path. Signed synthetic scale gate: **recommended ≤ 100 samples** on 10 kb/400-SNP ladder |
 | Bitwise-identical QUAL/FORMAT genome-wide | **No** — L4 is P12 66-site lock |

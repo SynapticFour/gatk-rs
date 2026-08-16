@@ -98,20 +98,46 @@ pub fn score_haps_logless_packed_f64(
     PACK_F64_SCRATCH.with(|cell| {
         let mut scratch = cell.borrow_mut();
         scratch.ensure_cells(max_cells);
+        let mut prev: Option<&[u8]> = None;
         for &hap in haplotypes {
+            let (hap_start, reinit_del) = match prev {
+                Some(p) if p.len() == hap.len() => (first_hap_divergence(p, hap), false),
+                _ => (0, true),
+            };
             out.push(score_one_f64(
                 read_bases,
                 read_quals,
                 hap,
                 &transitions,
+                hap_start,
+                reinit_del,
                 &mut scratch,
             ));
+            prev = Some(hap);
         }
     });
     Ok(out)
 }
 
+/// First index where two haplotypes differ (GATK `PairHMM.findFirstPositionWhereHaplotypesDiffer`).
+/// If identical through `min(len)`, returns that min length.
+#[inline]
+pub(crate) fn first_hap_divergence(a: &[u8], b: &[u8]) -> usize {
+    let n = a.len().min(b.len());
+    let mut i = 0;
+    while i < n {
+        if a[i] != b[i] {
+            return i;
+        }
+        i += 1;
+    }
+    n
+}
+
 /// Score haplotypes with already-built Logless transitions (avoids rebuild on NEON leftovers).
+///
+/// Same-length consecutive haplotypes reuse DP columns before the first divergence
+/// (Java `LoglessPairHMM` `hapStartIndex` / `nextHapStartIndex` contract).
 pub(crate) fn score_haps_logless_packed_f64_with_transitions(
     read_bases: &[u8],
     read_quals: &[u8],
@@ -140,42 +166,61 @@ pub(crate) fn score_haps_logless_packed_f64_with_transitions(
     PACK_F64_SCRATCH.with(|cell| {
         let mut scratch = cell.borrow_mut();
         scratch.ensure_cells(max_cells);
+        let mut prev: Option<&[u8]> = None;
         for &hap in haplotypes {
+            let (hap_start, reinit_del) = match prev {
+                Some(p) if p.len() == hap.len() => (first_hap_divergence(p, hap), false),
+                _ => (0, true),
+            };
             out.push(score_one_f64(
                 read_bases,
                 read_quals,
                 hap,
                 transitions,
+                hap_start,
+                reinit_del,
                 &mut scratch,
             ));
+            prev = Some(hap);
         }
     });
     Ok(out)
 }
 
 /// Score one hap with prebuilt transition planes (shared across a read's hap pack).
+///
+/// `hap_start`: 0-based haplotype index to (re)compute from — columns before this are
+/// assumed valid from a prior same-length hap with an identical prefix (Java contract).
+/// `reinit_del`: when true, refresh free leading-deletion row (`INITIAL / hn`).
 pub(crate) fn score_one_f64(
     read_bases: &[u8],
     read_quals: &[u8],
     hap: &[u8],
     transitions: &[[f64; 6]],
+    hap_start: usize,
+    reinit_del: bool,
     scratch: &mut F64Scratch,
 ) -> f64 {
     let rn = read_bases.len();
     let hn = hap.len();
     let cols = hn + 1;
     let cells = (rn + 1) * cols;
-    scratch.clear_prefix(cells);
+    // Full wipe only on a fresh matrix (length change / first hap). Prefix reuse must
+    // keep columns `< hap_start` from the previous same-length haplotype.
+    if reinit_del {
+        scratch.clear_prefix(cells);
+    }
     let m = &mut scratch.m;
     let ins = &mut scratch.ins;
     let del = &mut scratch.del;
     let prior = &mut scratch.prior;
 
+    let start = hap_start.min(hn);
     for i in 0..rn {
         let x = read_bases[i];
         let (match_p, mismatch_p) = logless_match_mismatch_prior(read_quals[i]);
         let row = (i + 1) * cols;
-        for j in 0..hn {
+        for j in start..hn {
             let y = hap[j];
             prior[row + j + 1] = if x == y || x == b'N' || y == b'N' {
                 match_p
@@ -185,16 +230,19 @@ pub(crate) fn score_one_f64(
         }
     }
 
-    let init_del = INITIAL_CONDITION / hn as f64;
-    for j in 0..=hn {
-        del[j] = init_del;
+    if reinit_del {
+        let init_del = INITIAL_CONDITION / hn as f64;
+        for j in 0..=hn {
+            del[j] = init_del;
+        }
     }
 
+    let j0 = start + 1; // 1-based DP column; Java uses hapStartIndex+1
     for i in 1..=rn {
         let t = transitions[i];
         let row = i * cols;
         let prev = (i - 1) * cols;
-        for j in 1..=hn {
+        for j in j0..=hn {
             let p = prior[row + j];
             m[row + j] = p
                 * (m[prev + j - 1] * t[MATCH_TO_MATCH]
