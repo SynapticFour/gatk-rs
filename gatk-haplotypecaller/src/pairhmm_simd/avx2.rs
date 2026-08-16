@@ -2,7 +2,10 @@
 
 #![cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 
-use super::pack::{score_haps_logless_packed_f64, score_haps_logless_packed_f64_with_transitions};
+use super::pack::{
+    score_haps_logless_packed_f64, score_haps_logless_packed_f64_with_transitions,
+    score_one_hap_logless_f64_with_transitions,
+};
 use crate::pairhmm_logless::{
     logless_build_transitions, logless_match_mismatch_prior, INITIAL_CONDITION,
     INITIAL_CONDITION_LOG10,
@@ -61,6 +64,8 @@ impl Avx2Scratch {
 
 thread_local! {
     static AVX2_SCRATCH: RefCell<Avx2Scratch> = RefCell::new(Avx2Scratch::new());
+    static AVX2_BY_LEN: RefCell<HashMap<usize, Vec<usize>>> =
+        RefCell::new(HashMap::new());
 }
 
 /// Drop AVX2 PairHMM TLS planes (Peak hygiene after a region).
@@ -72,6 +77,7 @@ pub fn release_pairhmm_avx2_tls_scratch() {
         s.del = Vec::new();
         s.prior = Vec::new();
     });
+    AVX2_BY_LEN.with(|c| c.borrow_mut().clear());
 }
 
 /// Score haplotypes with AVX2 when available; otherwise portable packed f64.
@@ -125,42 +131,81 @@ unsafe fn score_haps_avx2_f64_unchecked(
 
     let transitions = logless_build_transitions(rn, insertion_gop, deletion_gop, overall_gcp);
     let mut out = vec![0.0f64; haplotypes.len()];
-    let mut by_len: HashMap<usize, Vec<usize>> = HashMap::new();
-    for (i, h) in haplotypes.iter().enumerate() {
-        by_len.entry(h.len()).or_default().push(i);
-    }
     let mut err = None;
-    AVX2_SCRATCH.with(|cell| {
-        let mut scratch = cell.borrow_mut();
-        for idxs in by_len.values() {
-            let mut chunks = idxs.chunks_exact(LANES);
-            for pack_src in chunks.by_ref() {
-                let pack = [
-                    haplotypes[pack_src[0]],
-                    haplotypes[pack_src[1]],
-                    haplotypes[pack_src[2]],
-                    haplotypes[pack_src[3]],
-                ];
-                let scores = score_pack4(read_bases, read_quals, &pack, &transitions, &mut scratch);
-                for (k, &idx) in pack_src.iter().enumerate() {
-                    out[idx] = scores[k];
+    AVX2_BY_LEN.with(|by_len_cell| {
+        let mut by_len = by_len_cell.borrow_mut();
+        for v in by_len.values_mut() {
+            v.clear();
+        }
+        for (i, h) in haplotypes.iter().enumerate() {
+            by_len.entry(h.len()).or_default().push(i);
+        }
+        let lengths: Vec<usize> = by_len
+            .iter()
+            .filter(|(_, idxs)| !idxs.is_empty())
+            .map(|(len, _)| *len)
+            .collect();
+        AVX2_SCRATCH.with(|cell| {
+            let mut scratch = cell.borrow_mut();
+            for len in lengths {
+                let Some(ordered) = by_len.get_mut(&len) else {
+                    continue;
+                };
+                ordered.sort_by(|&a, &b| haplotypes[a].cmp(haplotypes[b]));
+                // Long same-length chains: prefix reuse beats repeated pack4 when haps share prefixes.
+                if ordered.len() >= 5 {
+                    let mut subset = Vec::with_capacity(ordered.len());
+                    for &i in ordered.iter() {
+                        subset.push(haplotypes[i]);
+                    }
+                    match score_haps_logless_packed_f64_with_transitions(
+                        read_bases,
+                        read_quals,
+                        &subset,
+                        &transitions,
+                    ) {
+                        Ok(scores) => {
+                            for (k, &i) in ordered.iter().enumerate() {
+                                out[i] = scores[k];
+                            }
+                        }
+                        Err(e) => {
+                            err = Some(e);
+                            return;
+                        }
+                    }
+                    continue;
                 }
-            }
-            for &i in chunks.remainder() {
-                match score_haps_logless_packed_f64_with_transitions(
-                    read_bases,
-                    read_quals,
-                    &haplotypes[i..=i],
-                    &transitions,
-                ) {
-                    Ok(rest) => out[i] = rest[0],
-                    Err(e) => {
-                        err = Some(e);
-                        return;
+                let mut chunks = ordered.chunks_exact(LANES);
+                for pack_src in chunks.by_ref() {
+                    let pack = [
+                        haplotypes[pack_src[0]],
+                        haplotypes[pack_src[1]],
+                        haplotypes[pack_src[2]],
+                        haplotypes[pack_src[3]],
+                    ];
+                    let scores =
+                        score_pack4(read_bases, read_quals, &pack, &transitions, &mut scratch);
+                    for (k, &idx) in pack_src.iter().enumerate() {
+                        out[idx] = scores[k];
+                    }
+                }
+                for &i in chunks.remainder() {
+                    match score_one_hap_logless_f64_with_transitions(
+                        read_bases,
+                        read_quals,
+                        haplotypes[i],
+                        &transitions,
+                    ) {
+                        Ok(score) => out[i] = score,
+                        Err(e) => {
+                            err = Some(e);
+                            return;
+                        }
                     }
                 }
             }
-        }
+        });
     });
     if let Some(e) = err {
         return Err(e);

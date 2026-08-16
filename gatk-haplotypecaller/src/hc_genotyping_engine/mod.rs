@@ -660,7 +660,7 @@ fn java_read_overlaps_for_genotyping_filter(
 
 /// Alignment overlap for genotyping requires a mapped query base at the variant (92318325).
 pub fn java_alignment_read_covers_variant_base(
-    rec: &Record,
+    rec: &SharedBamRecord,
     start_1based: u64,
     end_1based: u64,
     margin: i32,
@@ -668,14 +668,16 @@ pub fn java_alignment_read_covers_variant_base(
     if !java_alignment_read_overlaps_interval(rec, start_1based, end_1based, margin) {
         return false;
     }
-    let cigar = rust_htslib::bam::record::CigarString(rec.cigar().iter().copied().collect());
-    for pos in start_1based..=end_1based {
-        let ref_pos0 = pos as i64 - 1;
-        if query_index_at_reference_position(rec.pos(), &cigar, ref_pos0).is_some() {
-            return true;
+    crate::read_event_discovery::ad_decode_cache::with_ad_decode_cache(|cache| {
+        let (cigar, _) = cache.cigar_and_seq(rec);
+        for pos in start_1based..=end_1based {
+            let ref_pos0 = pos as i64 - 1;
+            if query_index_at_reference_position(rec.pos(), cigar, ref_pos0).is_some() {
+                return true;
+            }
         }
-    }
-    false
+        false
+    })
 }
 
 /// P12 sparse BAM: soft-unclipped overlap rescue when no alignment-overlap reads exist (92318227).
@@ -1590,7 +1592,7 @@ pub(crate) fn sparse_softclip_alt_qnames_at_locus(
     event: &VariationEvent,
     margin: i32,
 ) -> BTreeSet<Vec<u8>> {
-    use crate::fragment_overlap::read_base_at_ref_coord_1based;
+    use crate::read_event_discovery::ad_decode_cache::with_ad_decode_cache;
     let mut out = BTreeSet::new();
     if event.ref_allele.len() != 1 || event.alt_allele.len() != 1 {
         return out;
@@ -1602,16 +1604,24 @@ pub(crate) fn sparse_softclip_alt_qnames_at_locus(
             .saturating_add(event.ref_allele.len().saturating_sub(1) as u64),
     );
     let alt_b = event.alt_allele.as_bytes()[0].to_ascii_uppercase();
-    for rec in reads {
-        if !soft_unclipped_read_overlaps_interval(rec, event.start_1based.get(), var_end, margin) {
-            continue;
-        }
-        if let Some(qb) = read_base_at_ref_coord_1based(rec, event.start_1based.get() as i32) {
-            if qb.to_ascii_uppercase() == alt_b {
-                out.insert(rec.qname().to_owned());
+    let locus = event.start_1based.get() as i32;
+    with_ad_decode_cache(|cache| {
+        for rec in reads {
+            if !soft_unclipped_read_overlaps_interval(
+                rec,
+                event.start_1based.get(),
+                var_end,
+                margin,
+            ) {
+                continue;
+            }
+            if let Some(qb) = cache.softclip_base_at_ref_1based(rec, locus) {
+                if qb.to_ascii_uppercase() == alt_b {
+                    out.insert(rec.qname().to_owned());
+                }
             }
         }
-    }
+    });
     out
 }
 
@@ -1621,7 +1631,7 @@ fn sparse_alignment_alt_qnames_at_locus(
     event: &VariationEvent,
     margin: i32,
 ) -> BTreeSet<Vec<u8>> {
-    use crate::fragment_overlap::read_base_at_ref_coord_1based;
+    use crate::read_event_discovery::ad_decode_cache::with_ad_decode_cache;
     let mut out = BTreeSet::new();
     if event.ref_allele.len() != 1 || event.alt_allele.len() != 1 {
         return out;
@@ -1633,17 +1643,24 @@ fn sparse_alignment_alt_qnames_at_locus(
             .saturating_add(event.ref_allele.len().saturating_sub(1) as u64),
     );
     let alt_b = event.alt_allele.as_bytes()[0].to_ascii_uppercase();
-    for rec in reads {
-        if !java_alignment_read_covers_variant_base(rec, event.start_1based.get(), var_end, margin)
-        {
-            continue;
-        }
-        if let Some(qb) = read_base_at_ref_coord_1based(rec, event.start_1based.get() as i32) {
-            if qb.to_ascii_uppercase() == alt_b {
-                out.insert(rec.qname().to_owned());
+    let locus = event.start_1based.get() as i32;
+    with_ad_decode_cache(|cache| {
+        for rec in reads {
+            if !java_alignment_read_covers_variant_base(
+                rec,
+                event.start_1based.get(),
+                var_end,
+                margin,
+            ) {
+                continue;
+            }
+            if let Some(qb) = cache.softclip_base_at_ref_1based(rec, locus) {
+                if qb.to_ascii_uppercase() == alt_b {
+                    out.insert(rec.qname().to_owned());
+                }
             }
         }
-    }
+    });
     out
 }
 

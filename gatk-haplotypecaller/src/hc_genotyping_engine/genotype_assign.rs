@@ -46,6 +46,8 @@ pub fn assign_genotype_likelihoods_for_region(
             "assignGenotypeLikelihoods: haplotype list is empty",
         ));
     }
+    // Multi-pass pileup AD in try_genotype reuses CIGAR/seq decode across events.
+    crate::read_event_discovery::clear_ad_decode_cache();
     let rows = region_likelihoods_to_rows(likelihoods, haplotypes.len());
     let region_summary = if rows.is_empty() {
         sparse_snp_genotype_from_read_depths(0, 0, config)?

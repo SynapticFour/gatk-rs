@@ -154,10 +154,8 @@ impl SiteEarlyTemplate {
             .filter(|s| !s.is_empty())
             .unwrap_or(pileup_reads);
         let margin = config.informative_read_overlap_margin;
-        let softclip_deduped_alt_pre =
-            sparse_softclip_pileup_alt_at_locus(pileup_src_pre, &event, margin);
-        let softclip_pileup_fragments_pre =
-            sparse_softclip_pileup_alt_fragments_at_locus(pileup_src_pre, &event, margin);
+        let (softclip_deduped_alt_pre, softclip_pileup_fragments_pre) =
+            sparse_softclip_pileup_alt_counts(pileup_src_pre, &event, margin);
         let softclip_pileup_two_read_pre = sparse_java_softclip_pairhmm_band(&event)
             && sparse_java_softclip_overlap_rescue_eligible(&event)
             && softclip_deduped_alt_pre >= 2
@@ -209,14 +207,23 @@ impl SiteEarlyTemplate {
                     && pre_gap_ra_authority >= 2));
         if gap_sparse_read_genotype {
             let pileup_src = pileup_src_pre;
-            let (_, full_pad_alt) = read_allele_depths_at_locus(
-                pileup_src,
-                &event,
+            let same_pileup_src = std::ptr::eq(pileup_src.as_ptr(), pileup_reads.as_ptr())
+                && pileup_src.len() == pileup_reads.len();
+            let pads_equiv = crate::read_event_discovery::snp_allele_depth_pads_equivalent(
+                event.start_1based.get(),
+                pad_start_1based,
                 full_reference_pad_1based,
-            );
-            let pileup_alt = java_gap_sparse_pileup_alt(pre_gap_ra_authority, full_pad_alt);
+            ) || event.is_indel();
             let (trim_pr, trim_pa) =
                 read_allele_depths_at_locus(pileup_reads, &event, pad_start_1based);
+            let (_, full_pad_alt) = if pads_equiv && same_pileup_src {
+                (trim_pr, trim_pa)
+            } else if pads_equiv {
+                read_allele_depths_at_locus(pileup_src, &event, pad_start_1based)
+            } else {
+                read_allele_depths_at_locus(pileup_src, &event, full_reference_pad_1based)
+            };
+            let pileup_alt = java_gap_sparse_pileup_alt(pre_gap_ra_authority, full_pad_alt);
             let tier_ra = pre_gap_ra_authority.max(trim_pa);
             let softclip_deduped_alt = softclip_deduped_alt_pre;
             let _softclip_pileup_fragments = softclip_pileup_fragments_pre;
@@ -425,8 +432,19 @@ impl SiteEarlyTemplate {
                 }
             }
         }
-        let (_trim_pileup_ref, trim_pileup_alt) =
-            read_allele_depths_at_locus_for_genotyping(pileup_reads, &event, pad_start_1based, config);
+        let (_trim_pileup_ref, trim_pileup_alt) = if supplemental_pileup_reads
+            .filter(|s| !s.is_empty())
+            .is_none()
+        {
+            (read_ref_ad, read_alt_ad)
+        } else {
+            read_allele_depths_at_locus_for_genotyping(
+                pileup_reads,
+                &event,
+                pad_start_1based,
+                config,
+            )
+        };
         if is_p12_phase_e_gap_het_event(&event) {
             let (gls, rr, ra) = java_gap_tail_het_shaped_genotype();
             let gt = genotype_from_java_shaped_gls(gls, rr, ra, config)?;

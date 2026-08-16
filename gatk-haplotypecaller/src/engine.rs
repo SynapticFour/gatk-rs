@@ -870,8 +870,8 @@ impl HaplotypeCallerEngine {
             // attribution does not lose the PairHMM gap when only ABORT_MIB is set.
             #[cfg(target_arch = "aarch64")]
             let neon_pack = {
-                let (pack2, leftover) = crate::pairhmm_simd::take_neon_pack_stats();
-                format!(" neon_pack2={pack2} neon_leftover={leftover}")
+                let (pack2, prefix, leftover) = crate::pairhmm_simd::take_neon_pack_stats();
+                format!(" neon_pack2={pack2} neon_prefix_reuse={prefix} neon_leftover={leftover}")
             };
             #[cfg(not(target_arch = "aarch64"))]
             let neon_pack = String::new();

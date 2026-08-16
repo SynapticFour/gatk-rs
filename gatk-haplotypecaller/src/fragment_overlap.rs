@@ -9,7 +9,7 @@ use crate::read_unclip::{
 };
 use gatk_common::{GatkError, GatkResult};
 use rust_htslib::bam;
-use rust_htslib::bam::record::Cigar;
+use rust_htslib::bam::record::{Cigar, CigarString};
 
 /// `FragmentUtils.HALF_OF_DEFAULT_PCR_SNV_ERROR_QUAL` (phred(1e-4)/2 = 20).
 pub const HALF_OF_DEFAULT_PCR_SNV_ERROR_QUAL: u8 = 20;
@@ -30,15 +30,34 @@ fn soft_start_1based(rec: &bam::Record) -> i32 {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RefCoordIndex {
+pub(crate) enum RefCoordIndex {
     NotFound,
     Clipping,
     Index(usize),
 }
 
-/// `ReadUtils.getReadIndexForReferenceCoordinate` (1-based ref coordinate).
-fn read_index_for_ref_coord_1based(rec: &bam::Record, ref_coord_1based: i32) -> RefCoordIndex {
-    let alignment_start = soft_start_1based(rec);
+/// Soft-start from alignment pos0 + leading SoftClip (GATK `getSoftStart`).
+fn soft_start_1based_from_cigar(alignment_pos0: i64, cigar: &CigarString) -> i32 {
+    let mut soft_start = alignment_pos0 + 1;
+    for c in cigar.iter() {
+        if let Cigar::SoftClip(sc_len) = c {
+            soft_start -= i64::from(*sc_len);
+        } else if !matches!(c, Cigar::HardClip(_)) {
+            break;
+        }
+    }
+    soft_start as i32
+}
+
+/// `ReadUtils.getReadIndexForReferenceCoordinate` on cached CIGAR (SoftClip consumes ref).
+///
+/// Distinct from AD `query_index_at_reference_position` (BAM-aligned SoftClip = query only).
+pub(crate) fn softclip_read_index_for_ref_1based(
+    alignment_pos0: i64,
+    cigar: &CigarString,
+    ref_coord_1based: i32,
+) -> RefCoordIndex {
+    let alignment_start = soft_start_1based_from_cigar(alignment_pos0, cigar);
     if ref_coord_1based < alignment_start {
         return RefCoordIndex::NotFound;
     }
@@ -46,7 +65,7 @@ fn read_index_for_ref_coord_1based(rec: &bam::Record, ref_coord_1based: i32) -> 
     let mut last_ref = alignment_start;
     let mut first_read;
     let mut first_ref;
-    for c in rec.cigar().iter() {
+    for c in cigar.iter() {
         let op_len = cigar_len(c) as i32;
         let op_consumes_read = consumes_read_bases(c);
         let op_consumes_ref = consumes_ref_bases(c) || matches!(c, Cigar::SoftClip(_));
@@ -73,10 +92,29 @@ fn read_index_for_ref_coord_1based(rec: &bam::Record, ref_coord_1based: i32) -> 
     RefCoordIndex::NotFound
 }
 
+/// `ReadUtils.getReadIndexForReferenceCoordinate` (1-based ref coordinate).
+fn read_index_for_ref_coord_1based(rec: &bam::Record, ref_coord_1based: i32) -> RefCoordIndex {
+    softclip_read_index_for_ref_1based(rec.pos(), &rec.cigar(), ref_coord_1based)
+}
+
 /// Base at a 1-based reference coordinate, if aligned and not clipped.
 pub fn read_base_at_ref_coord_1based(rec: &bam::Record, ref_coord_1based: i32) -> Option<u8> {
     match read_index_for_ref_coord_1based(rec, ref_coord_1based) {
         RefCoordIndex::Index(i) => rec.seq().as_bytes().get(i).copied(),
+        _ => None,
+    }
+}
+
+/// Softclip-aware base lookup on cached CIGAR/seq (same contract as
+/// [`read_base_at_ref_coord_1based`]).
+pub(crate) fn softclip_base_at_ref_1based_cached(
+    alignment_pos0: i64,
+    cigar: &CigarString,
+    seq: &[u8],
+    ref_coord_1based: i32,
+) -> Option<u8> {
+    match softclip_read_index_for_ref_1based(alignment_pos0, cigar, ref_coord_1based) {
+        RefCoordIndex::Index(i) => seq.get(i).copied(),
         _ => None,
     }
 }

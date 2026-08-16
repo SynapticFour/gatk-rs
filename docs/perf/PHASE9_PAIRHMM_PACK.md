@@ -12,10 +12,16 @@ median on `wall-losers` (baseline ~1.79×).
 | Occupancy dig: w11 50 kb leftover **~6.7%** | Hap packing already dense |
 | Java **`hapStartIndex` prefix reuse** in packed Logless | Same scores as full recompute; fewer DP cells on shared assembly prefixes |
 | NEON: same-length groups of **≥3** use prefix-reuse chain; pairs stay pack2 | SIMD kept where packs are short |
+| TRACE `neon_prefix_reuse=` separate from `neon_leftover=` | Observe-only (prefix ≠ scalar leftover) |
+| Order same-length haps by sequence before reuse/pack | Longer shared prefixes; score-invariant |
+| AVX2: same-length groups of **≥5** use prefix-reuse (pack4 for shorter) | Dense GIAB shared prefixes |
+| NEON: TLS `by_len` + in-place sort (no idxs clone); leftover via `score_one_hap` | Same scores; less alloc churn |
+| AVX2: TLS `by_len` + leftover via `score_one_hap` (mirror NEON) | Same scores; less alloc churn |
 
 ## Deferred
 
-- Equal-length **read** packs (transpose SIMD axis).
+- Equal-length **read** packs (transpose SIMD axis) — only after product TRACE shows
+  hap-axis still leaves wall-losers median &gt;1.0×.
 - GKL flank windows — only if ≡ scalar Logless under SIMD unit test.
 - `f32` SIMD promotion (Criterion slower than f64).
 
@@ -25,3 +31,9 @@ median on `wall-losers` (baseline ~1.79×).
 cargo test -p gatk-haplotypecaller --test pairhmm_simd_vs_scalar_test --locked
 # Product TRACE rematch vs callrate-era / phase9 pack baseline
 ```
+
+## TRACE note (phase10 tip, local product thr=2)
+
+On w11 densest-ish 50 kb, `after_pairhmm` Σ ≈ 31–36 s vs assign ≈ 28–32 s —
+hap-axis still large but not sole leaf. Prefer wall-losers CI for signed ratios
+before investing in read-axis packs.

@@ -134,6 +134,42 @@ pub(crate) fn first_hap_divergence(a: &[u8], b: &[u8]) -> usize {
     n
 }
 
+/// Score one haplotype with prebuilt transitions (NEON leftover singles; avoids Vec alloc).
+pub(crate) fn score_one_hap_logless_f64_with_transitions(
+    read_bases: &[u8],
+    read_quals: &[u8],
+    hap: &[u8],
+    transitions: &[[f64; 6]],
+) -> GatkResult<f64> {
+    let rn = read_bases.len();
+    if rn == 0 {
+        return Ok(0.0);
+    }
+    let hn = hap.len();
+    let max_cells = (rn + 1).saturating_mul(hn + 1);
+    const MAX_PAIRHMM_DIM: usize = 100_000;
+    const MAX_PAIRHMM_CELLS: usize = 8_000_000;
+    if rn > MAX_PAIRHMM_DIM || hn > MAX_PAIRHMM_DIM || max_cells > MAX_PAIRHMM_CELLS {
+        return Err(GatkError::algorithm(format!(
+            "PairHMM packed-f64 refused oversized DP (read_len={rn}, max_hap_len={hn}, cells={max_cells}); \
+             inputs must be assembly-region scale, not contig scale"
+        )));
+    }
+    Ok(PACK_F64_SCRATCH.with(|cell| {
+        let mut scratch = cell.borrow_mut();
+        scratch.ensure_cells(max_cells);
+        score_one_f64(
+            read_bases,
+            read_quals,
+            hap,
+            transitions,
+            0,
+            true,
+            &mut scratch,
+        )
+    }))
+}
+
 /// Score haplotypes with already-built Logless transitions (avoids rebuild on NEON leftovers).
 ///
 /// Same-length consecutive haplotypes reuse DP columns before the first divergence

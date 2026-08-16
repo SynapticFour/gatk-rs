@@ -4,7 +4,7 @@
 
 use crate::event_map::VariationEvent;
 use crate::shared_bam::SharedBamRecord;
-use rust_htslib::bam::{self, record::Cigar, record::CigarString};
+use rust_htslib::bam::record::Cigar;
 
 fn query_subseq(seq: &[u8], start: usize, len: usize) -> Option<&[u8]> {
     seq.get(start..start.saturating_add(len))
@@ -58,79 +58,80 @@ pub(crate) fn read_indel_allele_depths_from_cigars(
     let indel_ref_pos0 = event.start_1based.get() as i64 - 1 + shared_for_pos as i64;
     let mut ref_count = 0i32;
     let mut alt_count = 0i32;
-    for rec in reads {
-        if rec.is_unmapped() || rec.tid() < 0 {
-            continue;
-        }
-        let cigar = CigarString(rec.cigar().iter().copied().collect());
-        let seq = rec.seq().as_bytes();
-        let mut ref_pos0 = rec.pos();
-        let mut query_pos: usize = 0;
-        let mut saw_alt = false;
-        let mut spans_anchor = false;
-        for op in cigar.iter() {
-            match op {
-                Cigar::Ins(n) => {
-                    let len = *n as usize;
-                    if is_ins && ref_pos0 == indel_ref_pos0 && len == ins_seq.len() {
-                        if let Some(ins) = query_subseq(&seq, query_pos, len) {
+    crate::read_event_discovery::ad_decode_cache::with_ad_decode_cache(|cache| {
+        for rec in reads {
+            if rec.is_unmapped() || rec.tid() < 0 {
+                continue;
+            }
+            let (cigar, seq) = cache.cigar_and_seq(rec);
+            let mut ref_pos0 = rec.pos();
+            let mut query_pos: usize = 0;
+            let mut saw_alt = false;
+            let mut spans_anchor = false;
+            for op in cigar.iter() {
+                match op {
+                    Cigar::Ins(n) => {
+                        let len = *n as usize;
+                        if is_ins && ref_pos0 == indel_ref_pos0 && len == ins_seq.len() {
+                            if let Some(ins) = query_subseq(seq, query_pos, len) {
+                                if ins.eq_ignore_ascii_case(ins_seq) {
+                                    saw_alt = true;
+                                }
+                            }
+                        }
+                        query_pos += len;
+                    }
+                    Cigar::Del(n) => {
+                        let len = *n as usize;
+                        if is_del && ref_pos0 == indel_ref_pos0 && len == del_len {
+                            saw_alt = true;
+                        }
+                        ref_pos0 += len as i64;
+                    }
+                    Cigar::Match(n) | Cigar::Equal(n) | Cigar::Diff(n) => {
+                        let len = *n as i64;
+                        let start = ref_pos0;
+                        let end = ref_pos0 + len;
+                        let anchor0 = event.start_1based.get() as i64 - 1;
+                        if start <= anchor0 && anchor0 < end {
+                            spans_anchor = true;
+                        }
+                        ref_pos0 = end;
+                        query_pos += *n as usize;
+                    }
+                    Cigar::SoftClip(n) => {
+                        query_pos += *n as usize;
+                    }
+                    Cigar::HardClip(_) | Cigar::RefSkip(_) | Cigar::Pad(_) => {}
+                }
+            }
+            // L11: long insertions may be encoded as M-span sequence (not CIGAR I) — plug match.
+            if !saw_alt && is_ins && ins_seq.len() >= 10 {
+                let anchor0 = event.start_1based.get() as i64 - 1;
+                if let Some(qi) = crate::read_projection::query_index_at_reference_position(
+                    rec.pos(),
+                    &cigar,
+                    anchor0,
+                ) {
+                    if seq
+                        .get(qi)
+                        .is_some_and(|b| b.eq_ignore_ascii_case(&ref_bytes[0]))
+                    {
+                        if let Some(ins) = query_subseq(seq, qi + 1, ins_seq.len()) {
                             if ins.eq_ignore_ascii_case(ins_seq) {
                                 saw_alt = true;
                             }
                         }
                     }
-                    query_pos += len;
-                }
-                Cigar::Del(n) => {
-                    let len = *n as usize;
-                    if is_del && ref_pos0 == indel_ref_pos0 && len == del_len {
-                        saw_alt = true;
-                    }
-                    ref_pos0 += len as i64;
-                }
-                Cigar::Match(n) | Cigar::Equal(n) | Cigar::Diff(n) => {
-                    let len = *n as i64;
-                    let start = ref_pos0;
-                    let end = ref_pos0 + len;
-                    let anchor0 = event.start_1based.get() as i64 - 1;
-                    if start <= anchor0 && anchor0 < end {
-                        spans_anchor = true;
-                    }
-                    ref_pos0 = end;
-                    query_pos += *n as usize;
-                }
-                Cigar::SoftClip(n) => {
-                    query_pos += *n as usize;
-                }
-                Cigar::HardClip(_) | Cigar::RefSkip(_) | Cigar::Pad(_) => {}
-            }
-        }
-        // L11: long insertions may be encoded as M-span sequence (not CIGAR I) — plug match.
-        if !saw_alt && is_ins && ins_seq.len() >= 10 {
-            let anchor0 = event.start_1based.get() as i64 - 1;
-            if let Some(qi) = crate::read_projection::query_index_at_reference_position(
-                rec.pos(),
-                &cigar,
-                anchor0,
-            ) {
-                if seq
-                    .get(qi)
-                    .is_some_and(|b| b.eq_ignore_ascii_case(&ref_bytes[0]))
-                {
-                    if let Some(ins) = query_subseq(&seq, qi + 1, ins_seq.len()) {
-                        if ins.eq_ignore_ascii_case(ins_seq) {
-                            saw_alt = true;
-                        }
-                    }
                 }
             }
+            if saw_alt {
+                alt_count += 1;
+            } else if spans_anchor {
+                ref_count += 1;
+            }
         }
-        if saw_alt {
-            alt_count += 1;
-        } else if spans_anchor {
-            ref_count += 1;
-        }
-    }
+    });
     (ref_count, alt_count)
 }
 
