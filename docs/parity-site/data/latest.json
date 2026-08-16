@@ -1,9 +1,9 @@
 {
-  "id": "genomewide-252b3fbc363f185f1e7cca03f402dd250d6081be-ci-subset",
+  "id": "genomewide-7991f2817e78f6a2a3bdce3ff5064b4a390ec023-wall-losers",
   "workflow": "genomewide-validation",
-  "generated_utc": "2026-08-15T23:07:13Z",
-  "commit_sha": "252b3fbc363f185f1e7cca03f402dd250d6081be",
-  "workflow_run_url": "https://github.com/SynapticFour/gatk-rs/actions/runs/31909843532",
+  "generated_utc": "2026-08-16T10:52:19Z",
+  "commit_sha": "7991f2817e78f6a2a3bdce3ff5064b4a390ec023",
+  "workflow_run_url": "https://github.com/SynapticFour/gatk-rs/actions/runs/31940745824",
   "scope": {
     "kind": "hc_genomewide",
     "pipeline": "HaplotypeCaller (Java GATK 4.4 vs gatk-rs) \u2192 hap.py/RTG via gatk-rs-equiv",
@@ -11,74 +11,60 @@
       "HG001"
     ],
     "regions": [
-      "20:1-63025520",
-      "21:1-48129895",
-      "1:13000000-13049999",
-      "2:16000000-16049999",
-      "3:19000000-19049999",
-      "4:22000000-22049999",
-      "5:25000000-25049999",
-      "6:28000000-28049999",
-      "7:31000000-31049999",
-      "8:34000000-34049999",
-      "9:37000000-37049999",
-      "10:40000000-40049999",
-      "11:43000000-43049999",
-      "12:46000000-46049999",
-      "13:49000000-49049999",
-      "14:52000000-52049999",
-      "15:55000000-55049999",
-      "16:58000000-58049999",
-      "17:61000000-61049999",
-      "18:64000000-64049999",
-      "19:59078984-59128983",
-      "22:51254567-51304566"
+      "20:9000001-10000000",
+      "20:11000001-12000000",
+      "20:26000001-27000000",
+      "20:29000001-30000000",
+      "21:9000001-10000000",
+      "21:11000001-12000000",
+      "21:26000001-27000000",
+      "21:29000001-30000000"
     ],
-    "mode_description": "CI-SUBSET (default \u201cgenome-wide\u201d in this repo): FULL chr20 + FULL chr21 + one 50kb probe on each other autosome. Not all bases of chr1\u201319/22.",
+    "mode_description": "WALL-LOSERS: eight 1 Mb dense campaign windows (chr20/21 w09/w11/w26/w29). Product wall (no GATK_RS_HC_SEQUENTIAL). Peak abort retained.",
     "assembly": "hs37d5 (GRCh37)",
     "truth": "GIAB NISTv4.2.1 per sample (confident BED)",
     "eval_engine": "gatk-rs-equiv (hap.py preferred, RTG fallback)",
     "java_gatk_version": "4.4.0.0",
     "java_gatk_sha": "2dbc025821bc5f686c423ff332a41e6cef892a77",
     "java_gatk_docker": "us.gcr.io/broad-gatk/gatk:4.4.0.0",
-    "honesty": "GIAB_MODE=ci-subset. Metrics are per-sample truth F1 from hap.py/RTG. Full `autosomes` is WGS-scale and runs on the paid self-hosted runner; `ci-subset` / window modes are not whole-genome claims."
+    "honesty": "GIAB_MODE=wall-losers. Metrics are per-sample truth F1 from hap.py/RTG. Full `autosomes` is WGS-scale and runs on the paid self-hosted runner; `ci-subset` / window modes are not whole-genome claims."
   },
   "metrics": [
     {
-      "region": "ci-subset:HG001",
+      "region": "wall-losers:HG001",
       "sample": "HG001",
       "engine": "rust",
       "variant_type": "SNP",
-      "precision": 0.958063,
-      "recall": 0.031595,
-      "f1": 0.061172
+      "precision": 0.691106,
+      "recall": 0.001688,
+      "f1": 0.003367
     },
     {
-      "region": "ci-subset:HG001",
+      "region": "wall-losers:HG001",
       "sample": "HG001",
       "engine": "rust",
       "variant_type": "INDEL",
-      "precision": 0.890432,
-      "recall": 0.031097,
-      "f1": 0.060095
+      "precision": 0.754163,
+      "recall": 0.001613,
+      "f1": 0.003219
     },
     {
-      "region": "ci-subset:HG001",
+      "region": "wall-losers:HG001",
       "sample": "HG001",
       "engine": "java",
       "variant_type": "SNP",
-      "precision": 0.965161,
-      "recall": 0.03539,
-      "f1": 0.068276
+      "precision": 0.686848,
+      "recall": 0.001864,
+      "f1": 0.003718
     },
     {
-      "region": "ci-subset:HG001",
+      "region": "wall-losers:HG001",
       "sample": "HG001",
       "engine": "java",
       "variant_type": "INDEL",
-      "precision": 0.973582,
-      "recall": 0.036302,
-      "f1": 0.069993
+      "precision": 0.761246,
+      "recall": 0.001825,
+      "f1": 0.003641
     }
   ]
 }
