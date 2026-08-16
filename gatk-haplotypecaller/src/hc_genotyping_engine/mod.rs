@@ -660,7 +660,7 @@ fn java_read_overlaps_for_genotyping_filter(
 
 /// Alignment overlap for genotyping requires a mapped query base at the variant (92318325).
 pub fn java_alignment_read_covers_variant_base(
-    rec: &Record,
+    rec: &SharedBamRecord,
     start_1based: u64,
     end_1based: u64,
     margin: i32,
@@ -668,14 +668,16 @@ pub fn java_alignment_read_covers_variant_base(
     if !java_alignment_read_overlaps_interval(rec, start_1based, end_1based, margin) {
         return false;
     }
-    let cigar = rust_htslib::bam::record::CigarString(rec.cigar().iter().copied().collect());
-    for pos in start_1based..=end_1based {
-        let ref_pos0 = pos as i64 - 1;
-        if query_index_at_reference_position(rec.pos(), &cigar, ref_pos0).is_some() {
-            return true;
+    crate::read_event_discovery::ad_decode_cache::with_ad_decode_cache(|cache| {
+        let (cigar, _) = cache.cigar_and_seq(rec);
+        for pos in start_1based..=end_1based {
+            let ref_pos0 = pos as i64 - 1;
+            if query_index_at_reference_position(rec.pos(), cigar, ref_pos0).is_some() {
+                return true;
+            }
         }
-    }
-    false
+        false
+    })
 }
 
 /// P12 sparse BAM: soft-unclipped overlap rescue when no alignment-overlap reads exist (92318227).

@@ -15,6 +15,7 @@ median on `wall-losers` (baseline ~1.79×).
 | TRACE `neon_prefix_reuse=` separate from `neon_leftover=` | Observe-only (prefix ≠ scalar leftover) |
 | Order same-length haps by sequence before reuse/pack | Longer shared prefixes; score-invariant |
 | AVX2: same-length groups of **≥5** use prefix-reuse (pack4 for shorter) | Dense GIAB shared prefixes |
+| NEON: TLS `by_len` + in-place sort (no idxs clone); leftover via `score_one_hap` | Same scores; less alloc churn |
 
 ## Deferred
 

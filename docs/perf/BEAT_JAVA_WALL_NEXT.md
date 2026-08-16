@@ -21,8 +21,8 @@ algorithm parity (no P12 band widening). Peak RSS already wins on probe.
 
 | Priority | Bet | Status |
 |----------|-----|--------|
-| 1 | **Collapse multi-pass AD + CIGAR/seq cache** | Landed: TLS `AdDecodeCache`, reuse equal pad/slice AD, drop duplicate softclip scan |
-| 2 | **PairHMM leaf / packs** | Landed: `neon_prefix_reuse` TRACE; hap order for longer prefixes; AVX2 ≥5 → prefix reuse |
+| 1 | **Collapse multi-pass AD + CIGAR/seq cache** | Landed: TLS `AdDecodeCache`, reuse equal pad/slice AD, single-pass softclip counts, skip equivalent-pad rescans |
+| 2 | **PairHMM leaf / packs** | Landed: `neon_prefix_reuse` TRACE; hap order; AVX2 ≥5 → prefix reuse; NEON TLS `by_len` + leftover `score_one_hap` |
 | 3 | **Gate parity_spine when redundant** | Indel CIGAR-complete skip kept; SNP skip only when no alt haps (bijection skip reverted — FN) |
 | 4 | **Realign SW continued** | Landed: `last_index_of` first-byte reject before bookend/interior |
 

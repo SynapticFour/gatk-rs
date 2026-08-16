@@ -2,14 +2,16 @@
 /// Behavior-neutral extract from `genotype_finalize.rs` for N-3.
 /// Included into the genotyping engine module (same scope as finalize).
 
-fn sparse_softclip_pileup_alt_at_locus(
+/// Soft-clip pileup alt in one pass: `(QNAME-deduped, fragment)` counts.
+/// Same selection rules as the former separate dedupe + fragment scans.
+fn sparse_softclip_pileup_alt_counts(
     reads: &[SharedBamRecord],
     event: &VariationEvent,
     margin: i32,
-) -> i32 {
+) -> (i32, i32) {
     use crate::fragment_overlap::read_base_at_ref_coord_1based;
     if event.ref_allele.len() != 1 || event.alt_allele.len() != 1 {
-        return 0;
+        return (0, 0);
     }
     let var_end = event.end_1based.get().max(
         event
@@ -19,49 +21,22 @@ fn sparse_softclip_pileup_alt_at_locus(
     );
     let alt_b = event.alt_allele.as_bytes()[0].to_ascii_uppercase();
     let mut seen = std::collections::BTreeSet::new();
-    let mut n = 0i32;
-    for rec in reads {
-        if !soft_unclipped_read_overlaps_interval(rec, event.start_1based.get(), var_end, margin) {
-            continue;
-        }
-        if let Some(qb) = read_base_at_ref_coord_1based(rec, event.start_1based.get() as i32) {
-            if qb.to_ascii_uppercase() == alt_b && seen.insert(rec.qname().to_owned()) {
-                n += 1;
-            }
-        }
-    }
-    n
-}
-
-/// Fragment-level soft-clip pileup alt (no QNAME dedupe; Java `92318325` AD=3).
-fn sparse_softclip_pileup_alt_fragments_at_locus(
-    reads: &[SharedBamRecord],
-    event: &VariationEvent,
-    margin: i32,
-) -> i32 {
-    use crate::fragment_overlap::read_base_at_ref_coord_1based;
-    if event.ref_allele.len() != 1 || event.alt_allele.len() != 1 {
-        return 0;
-    }
-    let var_end = event.end_1based.get().max(
-        event
-            .start_1based
-            .get()
-            .saturating_add(event.ref_allele.len().saturating_sub(1) as u64),
-    );
-    let alt_b = event.alt_allele.as_bytes()[0].to_ascii_uppercase();
-    let mut n = 0i32;
+    let mut deduped = 0i32;
+    let mut fragments = 0i32;
     for rec in reads {
         if !soft_unclipped_read_overlaps_interval(rec, event.start_1based.get(), var_end, margin) {
             continue;
         }
         if let Some(qb) = read_base_at_ref_coord_1based(rec, event.start_1based.get() as i32) {
             if qb.to_ascii_uppercase() == alt_b {
-                n += 1;
+                fragments += 1;
+                if seen.insert(rec.qname().to_owned()) {
+                    deduped += 1;
+                }
             }
         }
     }
-    n
+    (deduped, fragments)
 }
 
 /// Fragment-level pileup AD for strict Java SNPs (dedupe QNAME); per-read for anchors/indels.
@@ -105,7 +80,16 @@ pub fn read_allele_depths_for_strict_emit(
     };
     if config.enable_java_strict() && is_cluster_anchor_snp(event) {
         let mut best = (trim_ref, trim_alt);
-        for pad in [pad_start_1based, full_reference_pad_1based] {
+        let pads: &[u64] = if crate::read_event_discovery::snp_allele_depth_pads_equivalent(
+            event.start_1based.get(),
+            pad_start_1based,
+            full_reference_pad_1based,
+        ) {
+            &[pad_start_1based]
+        } else {
+            &[pad_start_1based, full_reference_pad_1based]
+        };
+        for &pad in pads {
             let (r, a) = read_allele_depths_at_locus(sup, event, pad);
             if a > best.1 || (a == best.1 && r + a > best.0 + best.1) {
                 best = (r, a);
@@ -132,12 +116,13 @@ pub fn read_allele_depths_for_strict_emit(
         if !sup.iter().any(|r| {
             java_alignment_read_covers_variant_base(r, event.start_1based.get(), var_end, margin)
         }) {
-            ra = ra.max(sparse_softclip_pileup_alt_at_locus(sup, event, margin));
+            let (soft_dedupe, soft_frag) =
+                sparse_softclip_pileup_alt_counts(sup, event, margin);
+            ra = ra.max(soft_dedupe);
             if sparse_java_softclip_pairhmm_band(event) {
-                let frag = sparse_softclip_pileup_alt_fragments_at_locus(sup, event, margin);
-                if frag >= 3 {
-                    ra = ra.max(frag);
-                } else if frag == 2 {
+                if soft_frag >= 3 {
+                    ra = ra.max(soft_frag);
+                } else if soft_frag == 2 {
                     ra = ra.max(2);
                 }
             }
@@ -428,8 +413,20 @@ fn try_genotype_variation_event(
         }
         // Locals formerly computed inside the early-template block (still needed below).
         // Collapse multi-pass pileup AD: same read slice + equivalent pad → reuse counts.
-        let (trim_pileup_ref, trim_pileup_alt) =
-            read_allele_depths_at_locus_for_genotyping(pileup_reads, &event, pad_start_1based, config);
+        // No supplemental → strict_emit already returned for_genotyping(pileup_reads, pad).
+        let (trim_pileup_ref, trim_pileup_alt) = if supplemental_pileup_reads
+            .filter(|s| !s.is_empty())
+            .is_none()
+        {
+            (read_ref_ad, read_alt_ad)
+        } else {
+            read_allele_depths_at_locus_for_genotyping(
+                pileup_reads,
+                &event,
+                pad_start_1based,
+                config,
+            )
+        };
         let gap_het_pileup = is_p12_phase_e_gap_het_event(&event);
         if mapping.alt_haplotype_indices.is_empty()
             && !is_p12_phase_e_two_read_hom_alt_site(&event)
@@ -528,11 +525,8 @@ fn try_genotype_variation_event(
             (read_ref_ad, read_alt_ad)
         };
         let tier_read_alt_ad = read_alt_ad.max(trim_pileup_alt).max(sparse_emit_ra);
-        let softclip_pileup_alt =
-            sparse_softclip_pileup_alt_at_locus(pileup_src, &event, margin);
-        let softclip_pileup_fragments =
-            sparse_softclip_pileup_alt_fragments_at_locus(pileup_src, &event, margin);
-        // Reuse softclip_pileup_alt — formerly a duplicate sparse_softclip scan.
+        let (softclip_pileup_alt, softclip_pileup_fragments) =
+            sparse_softclip_pileup_alt_counts(pileup_src, &event, margin);
         let softclip_deduped_alt = softclip_pileup_alt;
         let (_, sup_pileup_alt) = if same_pileup_src {
             let genotyping_used_dedupe = config.enable_java_strict()
