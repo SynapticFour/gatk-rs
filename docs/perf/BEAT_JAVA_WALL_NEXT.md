@@ -27,7 +27,7 @@ Peak-mode ci-subset dense median (~1.57×) is **not** the product-wall claim —
 | 1 | **Collapse multi-pass AD + CIGAR/seq cache** | Landed (#120): TLS `AdDecodeCache`, pad/slice reuse, single-pass softclip counts |
 | 2 | **Softclip-aware TLS base lookup** | Landed: `AdDecodeCache::softclip_base_at_ref_1based` (SoftClip-as-ref ≠ AD `query_index`) |
 | 3 | **PairHMM leaf / packs** | Landed: NEON + AVX2 TLS `by_len` / leftover `score_one_hap`; **read-axis packs deferred** until TRACE proves hap-axis still leaves &gt;1.0× |
-| 4 | **Gate parity_spine when redundant** | Indel CIGAR-complete skip kept; SNP skip only when no alt haps |
+| 4 | **Gate parity_spine when redundant** | Indel CIGAR-complete skip kept; SNP no-alt skip **reverted** (blocked materialize / p5 j2 fixture) |
 | 5 | **Realign SW** | Landed: `last_index_of` first-byte reject (phase8) — no further cheap reject |
 
 Prove: `pairhmm_simd_vs_scalar_test`, softclip engine tests, mega TRACE + wall-losers rematch; no P12 band widening.

@@ -342,14 +342,6 @@ pub fn parity_spine_read_proven_snps(
     let (apply_bases, apply_pad, _) = reference_hap_apply_window(assembly);
     let (scan_bases, scan_pad) = assembly.event_map_reference();
     let contig = assembly.contig.clone();
-    // No alt haplotypes → read-proven SNP materialize cannot attach; skip discover scan.
-    if !assembly.haplotypes.iter().any(|h| !h.is_reference) {
-        crate::runtime_config::rss_trace_checkpoint(
-            "parity_spine_snp_skip_no_alt",
-            &format!("events={}", assembly.variation_events.len()),
-        );
-        return Ok(());
-    }
     let existing: std::collections::BTreeSet<(u64, String, String)> = assembly
         .variation_events
         .iter()
