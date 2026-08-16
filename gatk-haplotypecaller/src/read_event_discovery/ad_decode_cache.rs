@@ -29,6 +29,25 @@ impl AdDecodeCache {
         });
         (&entry.0, entry.1.as_slice())
     }
+
+    /// Softclip-aware base at 1-based ref (GATK SoftClip-as-ref), reusing cached CIGAR/seq.
+    ///
+    /// Not interchangeable with AD `query_index_at_reference_position` (aligned SoftClip).
+    #[inline]
+    pub fn softclip_base_at_ref_1based(
+        &mut self,
+        rec: &SharedBamRecord,
+        ref_coord_1based: i32,
+    ) -> Option<u8> {
+        let pos0 = rec.pos();
+        let (cigar, seq) = self.cigar_and_seq(rec);
+        crate::fragment_overlap::softclip_base_at_ref_1based_cached(
+            pos0,
+            cigar,
+            seq,
+            ref_coord_1based,
+        )
+    }
 }
 
 thread_local! {

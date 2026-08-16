@@ -9,7 +9,7 @@ fn sparse_softclip_pileup_alt_counts(
     event: &VariationEvent,
     margin: i32,
 ) -> (i32, i32) {
-    use crate::fragment_overlap::read_base_at_ref_coord_1based;
+    use crate::read_event_discovery::ad_decode_cache::with_ad_decode_cache;
     if event.ref_allele.len() != 1 || event.alt_allele.len() != 1 {
         return (0, 0);
     }
@@ -20,23 +20,27 @@ fn sparse_softclip_pileup_alt_counts(
             .saturating_add(event.ref_allele.len().saturating_sub(1) as u64),
     );
     let alt_b = event.alt_allele.as_bytes()[0].to_ascii_uppercase();
-    let mut seen = std::collections::BTreeSet::new();
-    let mut deduped = 0i32;
-    let mut fragments = 0i32;
-    for rec in reads {
-        if !soft_unclipped_read_overlaps_interval(rec, event.start_1based.get(), var_end, margin) {
-            continue;
-        }
-        if let Some(qb) = read_base_at_ref_coord_1based(rec, event.start_1based.get() as i32) {
-            if qb.to_ascii_uppercase() == alt_b {
-                fragments += 1;
-                if seen.insert(rec.qname().to_owned()) {
-                    deduped += 1;
+    let locus = event.start_1based.get() as i32;
+    with_ad_decode_cache(|cache| {
+        let mut seen = std::collections::BTreeSet::new();
+        let mut deduped = 0i32;
+        let mut fragments = 0i32;
+        for rec in reads {
+            if !soft_unclipped_read_overlaps_interval(rec, event.start_1based.get(), var_end, margin)
+            {
+                continue;
+            }
+            if let Some(qb) = cache.softclip_base_at_ref_1based(rec, locus) {
+                if qb.to_ascii_uppercase() == alt_b {
+                    fragments += 1;
+                    if seen.insert(rec.qname().to_owned()) {
+                        deduped += 1;
+                    }
                 }
             }
         }
-    }
-    (deduped, fragments)
+        (deduped, fragments)
+    })
 }
 
 /// Fragment-level pileup AD for strict Java SNPs (dedupe QNAME); per-read for anchors/indels.

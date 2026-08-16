@@ -54,6 +54,40 @@ L8 threshold.
 
 ## Next
 
-1. Land emit-gate fix; re-dispatch **ci-subset** (expect |ΔF1| closer to 0.02).
-2. **wall-losers** rematch already dispatched: [31884065981](https://github.com/SynapticFour/gatk-rs/actions/runs/31884065981).
-3. Wall leaf (PairHMM/EventMap) from TRACE after product-wall numbers land.
+1. ~~Land emit-gate fix; re-dispatch **ci-subset**~~ — #116 on main; ci-subset
+   `max_|ΔF1|=0.0099` PASS; wall-losers `max_|ΔF1|=0.0004` PASS
+   ([31940745824](https://github.com/SynapticFour/gatk-rs/actions/runs/31940745824)).
+2. **Stage-classify remaining wall-losers Java-only** (post-#116): of ~9.6k
+   Java-only sites, **~6.9k** are strong SNP hets (`alt≥4`, `dp≥10`) with **no Rust
+   site at the same POS** — not emit-depth failures. Highest leverage is
+   discovery / EventMap / genotyping-empty (`supplement_assembly_events_from_reads`,
+   EventMap retain), not lowering emit thresholds.
+3. Holdout residual 6 (sparse pileup / indel / anomalous GQ) remain follow-ups;
+   do not widen P12 bands or blindly loosen `alt_ad≥4` / GQ gates (Rust-only already
+   ~5k on wall-losers).
+
+### Wall-losers stage hypothesis (31940745824)
+
+| Class | Approx | Implication |
+|-------|-------:|-------------|
+| Strong SNP het, no Rust POS | ~6917 | Discovery/EventMap undercall |
+| Other Java-only | ~2726 | Mixed indel / weak / allele-diff |
+| Rust-only | ~5165 | Overcall / allele reshape — watch when raising recall |
+
+Artifacts: `parity/giab/runs/assemble-wall-campaign/wall-losers-31940745824/`,
+local TRACE dig under `callrate-stage-dig/` when BAMs available.
+
+### Local stage TRACE (`21:9411500-9414600`, product thr=2)
+
+12 strong Java-only SNP hets from wall-losers (Java AD clear hets):
+
+| Bucket | n | Example |
+|--------|--:|---------|
+| `emit_skip_non_p12_support` | 2 | `9411732` AD=11/3 (Java 31,13); `9412808` read_AD=14/3 GQ=3 (Java 41,12) |
+| Absent from TRACE at POS | 10 | Never discovered/genotyped in this window |
+| Emitted | 0 | — |
+
+So the bulk miss class is **discovery/EventMap empty**, with a smaller residual
+**pileup/FORMAT AD undercount** that fails `alt_ad≥4` even when Java DepthPerAllele
+is strong. Next code bet: evidence-class EventMap/SNP retain in
+`supplement_assembly.rs` — not lowering emit thresholds.
