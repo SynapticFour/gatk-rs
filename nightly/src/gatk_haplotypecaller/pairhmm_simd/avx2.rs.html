@@ -2,7 +2,7 @@
 <a href=#2 id=2 data-nosnippet>2</a>
 <a href=#3 id=3 data-nosnippet>3</a></span><span class="attr">#![cfg(any(target_arch = <span class="string">"x86"</span>, target_arch = <span class="string">"x86_64"</span>))]
 <a href=#4 id=4 data-nosnippet>4</a>
-<a href=#5 id=5 data-nosnippet>5</a></span><span class="kw">use </span><span class="kw">super</span>::pack::score_haps_logless_packed_f64;
+<a href=#5 id=5 data-nosnippet>5</a></span><span class="kw">use </span><span class="kw">super</span>::pack::{score_haps_logless_packed_f64, score_haps_logless_packed_f64_with_transitions};
 <a href=#6 id=6 data-nosnippet>6</a><span class="kw">use </span><span class="kw">crate</span>::pairhmm_logless::{
 <a href=#7 id=7 data-nosnippet>7</a>    logless_build_transitions, logless_match_mismatch_prior, INITIAL_CONDITION,
 <a href=#8 id=8 data-nosnippet>8</a>    INITIAL_CONDITION_LOG10,
@@ -147,157 +147,155 @@
 <a href=#147 id=147 data-nosnippet>147</a>                }
 <a href=#148 id=148 data-nosnippet>148</a>            }
 <a href=#149 id=149 data-nosnippet>149</a>            <span class="kw">for </span><span class="kw-2">&amp;</span>i <span class="kw">in </span>chunks.remainder() {
-<a href=#150 id=150 data-nosnippet>150</a>                <span class="kw">match </span>score_haps_logless_packed_f64(
+<a href=#150 id=150 data-nosnippet>150</a>                <span class="kw">match </span>score_haps_logless_packed_f64_with_transitions(
 <a href=#151 id=151 data-nosnippet>151</a>                    read_bases,
 <a href=#152 id=152 data-nosnippet>152</a>                    read_quals,
 <a href=#153 id=153 data-nosnippet>153</a>                    <span class="kw-2">&amp;</span>haplotypes[i..=i],
-<a href=#154 id=154 data-nosnippet>154</a>                    insertion_gop,
-<a href=#155 id=155 data-nosnippet>155</a>                    deletion_gop,
-<a href=#156 id=156 data-nosnippet>156</a>                    overall_gcp,
-<a href=#157 id=157 data-nosnippet>157</a>                ) {
-<a href=#158 id=158 data-nosnippet>158</a>                    <span class="prelude-val">Ok</span>(rest) =&gt; out[i] = rest[<span class="number">0</span>],
-<a href=#159 id=159 data-nosnippet>159</a>                    <span class="prelude-val">Err</span>(e) =&gt; {
-<a href=#160 id=160 data-nosnippet>160</a>                        err = <span class="prelude-val">Some</span>(e);
-<a href=#161 id=161 data-nosnippet>161</a>                        <span class="kw">return</span>;
-<a href=#162 id=162 data-nosnippet>162</a>                    }
-<a href=#163 id=163 data-nosnippet>163</a>                }
-<a href=#164 id=164 data-nosnippet>164</a>            }
-<a href=#165 id=165 data-nosnippet>165</a>        }
-<a href=#166 id=166 data-nosnippet>166</a>    });
-<a href=#167 id=167 data-nosnippet>167</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(e) = err {
-<a href=#168 id=168 data-nosnippet>168</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(e);
-<a href=#169 id=169 data-nosnippet>169</a>    }
-<a href=#170 id=170 data-nosnippet>170</a>    <span class="prelude-val">Ok</span>(out)
-<a href=#171 id=171 data-nosnippet>171</a>}
-<a href=#172 id=172 data-nosnippet>172</a>
-<a href=#173 id=173 data-nosnippet>173</a><span class="doccomment">/// SAFETY: caller must ensure AVX2 is available (`#[target_feature(enable = "avx2")]`).
-<a href=#174 id=174 data-nosnippet>174</a></span><span class="attr">#[target_feature(enable = <span class="string">"avx2"</span>)]
-<a href=#175 id=175 data-nosnippet>175</a></span><span class="kw">unsafe fn </span>score_pack4(
-<a href=#176 id=176 data-nosnippet>176</a>    read_bases: <span class="kw-2">&amp;</span>[u8],
-<a href=#177 id=177 data-nosnippet>177</a>    read_quals: <span class="kw-2">&amp;</span>[u8],
-<a href=#178 id=178 data-nosnippet>178</a>    haps: <span class="kw-2">&amp;</span>[<span class="kw-2">&amp;</span>[u8]; <span class="number">4</span>],
-<a href=#179 id=179 data-nosnippet>179</a>    transitions: <span class="kw-2">&amp;</span>[[f64; <span class="number">6</span>]],
-<a href=#180 id=180 data-nosnippet>180</a>    scratch: <span class="kw-2">&amp;mut </span>Avx2Scratch,
-<a href=#181 id=181 data-nosnippet>181</a>) -&gt; [f64; <span class="number">4</span>] {
-<a href=#182 id=182 data-nosnippet>182</a>    <span class="kw">let </span>rn = read_bases.len();
-<a href=#183 id=183 data-nosnippet>183</a>    <span class="kw">let </span>hn = [haps[<span class="number">0</span>].len(), haps[<span class="number">1</span>].len(), haps[<span class="number">2</span>].len(), haps[<span class="number">3</span>].len()];
-<a href=#184 id=184 data-nosnippet>184</a>    <span class="kw">let </span>hn_max = hn.iter().copied().max().unwrap_or(<span class="number">1</span>);
-<a href=#185 id=185 data-nosnippet>185</a>    <span class="kw">let </span>cols = hn_max + <span class="number">1</span>;
-<a href=#186 id=186 data-nosnippet>186</a>    <span class="kw">let </span>cells = (rn + <span class="number">1</span>) * cols;
-<a href=#187 id=187 data-nosnippet>187</a>    scratch.ensure(cells);
-<a href=#188 id=188 data-nosnippet>188</a>    <span class="kw">let </span>m = <span class="kw-2">&amp;mut </span>scratch.m;
-<a href=#189 id=189 data-nosnippet>189</a>    <span class="kw">let </span>ins = <span class="kw-2">&amp;mut </span>scratch.ins;
-<a href=#190 id=190 data-nosnippet>190</a>    <span class="kw">let </span>del = <span class="kw-2">&amp;mut </span>scratch.del;
-<a href=#191 id=191 data-nosnippet>191</a>    <span class="kw">let </span>prior = <span class="kw-2">&amp;mut </span>scratch.prior;
-<a href=#192 id=192 data-nosnippet>192</a>
-<a href=#193 id=193 data-nosnippet>193</a>    <span class="kw">for </span>lane <span class="kw">in </span><span class="number">0</span>..LANES {
-<a href=#194 id=194 data-nosnippet>194</a>        <span class="kw">let </span>init = INITIAL_CONDITION / hn[lane] <span class="kw">as </span>f64;
-<a href=#195 id=195 data-nosnippet>195</a>        <span class="kw">for </span>j <span class="kw">in </span><span class="number">0</span>..=hn[lane] {
-<a href=#196 id=196 data-nosnippet>196</a>            del[j * LANES + lane] = init;
-<a href=#197 id=197 data-nosnippet>197</a>        }
-<a href=#198 id=198 data-nosnippet>198</a>    }
-<a href=#199 id=199 data-nosnippet>199</a>
-<a href=#200 id=200 data-nosnippet>200</a>    <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..rn {
-<a href=#201 id=201 data-nosnippet>201</a>        <span class="kw">let </span>x = read_bases[i];
-<a href=#202 id=202 data-nosnippet>202</a>        <span class="kw">let </span>(match_p, mismatch_p) = logless_match_mismatch_prior(read_quals[i]);
-<a href=#203 id=203 data-nosnippet>203</a>        <span class="kw">let </span>row = (i + <span class="number">1</span>) * cols;
-<a href=#204 id=204 data-nosnippet>204</a>        <span class="kw">for </span>lane <span class="kw">in </span><span class="number">0</span>..LANES {
-<a href=#205 id=205 data-nosnippet>205</a>            <span class="kw">for </span>j <span class="kw">in </span><span class="number">0</span>..hn[lane] {
-<a href=#206 id=206 data-nosnippet>206</a>                <span class="kw">let </span>y = haps[lane][j];
-<a href=#207 id=207 data-nosnippet>207</a>                <span class="kw">let </span>p = <span class="kw">if </span>x == y || x == <span class="string">b'N' </span>|| y == <span class="string">b'N' </span>{
-<a href=#208 id=208 data-nosnippet>208</a>                    match_p
-<a href=#209 id=209 data-nosnippet>209</a>                } <span class="kw">else </span>{
-<a href=#210 id=210 data-nosnippet>210</a>                    mismatch_p
-<a href=#211 id=211 data-nosnippet>211</a>                };
-<a href=#212 id=212 data-nosnippet>212</a>                prior[(row + j + <span class="number">1</span>) * LANES + lane] = p;
-<a href=#213 id=213 data-nosnippet>213</a>            }
-<a href=#214 id=214 data-nosnippet>214</a>        }
-<a href=#215 id=215 data-nosnippet>215</a>    }
-<a href=#216 id=216 data-nosnippet>216</a>
-<a href=#217 id=217 data-nosnippet>217</a>    <span class="kw">for </span>i <span class="kw">in </span><span class="number">1</span>..=rn {
-<a href=#218 id=218 data-nosnippet>218</a>        <span class="kw">let </span>t = transitions[i];
-<a href=#219 id=219 data-nosnippet>219</a>        <span class="kw">let </span>tm2m = _mm256_set1_pd(t[MATCH_TO_MATCH]);
-<a href=#220 id=220 data-nosnippet>220</a>        <span class="kw">let </span>ti2m = _mm256_set1_pd(t[INDEL_TO_MATCH]);
-<a href=#221 id=221 data-nosnippet>221</a>        <span class="kw">let </span>tm2i = _mm256_set1_pd(t[MATCH_TO_INSERTION]);
-<a href=#222 id=222 data-nosnippet>222</a>        <span class="kw">let </span>ti2i = _mm256_set1_pd(t[INSERTION_TO_INSERTION]);
-<a href=#223 id=223 data-nosnippet>223</a>        <span class="kw">let </span>tm2d = _mm256_set1_pd(t[MATCH_TO_DELETION]);
-<a href=#224 id=224 data-nosnippet>224</a>        <span class="kw">let </span>td2d = _mm256_set1_pd(t[DELETION_TO_DELETION]);
-<a href=#225 id=225 data-nosnippet>225</a>        <span class="kw">let </span>row = i * cols;
-<a href=#226 id=226 data-nosnippet>226</a>        <span class="kw">let </span>prev = (i - <span class="number">1</span>) * cols;
-<a href=#227 id=227 data-nosnippet>227</a>        <span class="kw">for </span>j <span class="kw">in </span><span class="number">1</span>..=hn_max {
-<a href=#228 id=228 data-nosnippet>228</a>            <span class="comment">// Active mask: lane participates if j &lt;= hn[lane]
-<a href=#229 id=229 data-nosnippet>229</a>            </span><span class="kw">let </span>active = [
-<a href=#230 id=230 data-nosnippet>230</a>                <span class="kw">if </span>j &lt;= hn[<span class="number">0</span>] { <span class="number">1.0 </span>} <span class="kw">else </span>{ <span class="number">0.0 </span>},
-<a href=#231 id=231 data-nosnippet>231</a>                <span class="kw">if </span>j &lt;= hn[<span class="number">1</span>] { <span class="number">1.0 </span>} <span class="kw">else </span>{ <span class="number">0.0 </span>},
-<a href=#232 id=232 data-nosnippet>232</a>                <span class="kw">if </span>j &lt;= hn[<span class="number">2</span>] { <span class="number">1.0 </span>} <span class="kw">else </span>{ <span class="number">0.0 </span>},
-<a href=#233 id=233 data-nosnippet>233</a>                <span class="kw">if </span>j &lt;= hn[<span class="number">3</span>] { <span class="number">1.0 </span>} <span class="kw">else </span>{ <span class="number">0.0 </span>},
-<a href=#234 id=234 data-nosnippet>234</a>            ];
-<a href=#235 id=235 data-nosnippet>235</a>            <span class="kw">let </span>mask = _mm256_set_pd(active[<span class="number">3</span>], active[<span class="number">2</span>], active[<span class="number">1</span>], active[<span class="number">0</span>]);
-<a href=#236 id=236 data-nosnippet>236</a>
-<a href=#237 id=237 data-nosnippet>237</a>            <span class="kw">let </span>idx = (row + j) * LANES;
-<a href=#238 id=238 data-nosnippet>238</a>            <span class="kw">let </span>diag = ((prev + j - <span class="number">1</span>) * LANES) <span class="kw">as </span>isize;
-<a href=#239 id=239 data-nosnippet>239</a>            <span class="kw">let </span>up = ((prev + j) * LANES) <span class="kw">as </span>isize;
-<a href=#240 id=240 data-nosnippet>240</a>            <span class="kw">let </span>left = ((row + j - <span class="number">1</span>) * LANES) <span class="kw">as </span>isize;
-<a href=#241 id=241 data-nosnippet>241</a>
-<a href=#242 id=242 data-nosnippet>242</a>            <span class="comment">// SAFETY: indices are within allocated SoA buffers; AVX2 enabled by target_feature.
-<a href=#243 id=243 data-nosnippet>243</a>            </span><span class="kw">let </span>m_diag = _mm256_loadu_pd(m.as_ptr().offset(diag));
-<a href=#244 id=244 data-nosnippet>244</a>            <span class="kw">let </span>i_diag = _mm256_loadu_pd(ins.as_ptr().offset(diag));
-<a href=#245 id=245 data-nosnippet>245</a>            <span class="kw">let </span>d_diag = _mm256_loadu_pd(del.as_ptr().offset(diag));
-<a href=#246 id=246 data-nosnippet>246</a>            <span class="kw">let </span>m_up = _mm256_loadu_pd(m.as_ptr().offset(up));
-<a href=#247 id=247 data-nosnippet>247</a>            <span class="kw">let </span>i_up = _mm256_loadu_pd(ins.as_ptr().offset(up));
-<a href=#248 id=248 data-nosnippet>248</a>            <span class="kw">let </span>m_left = _mm256_loadu_pd(m.as_ptr().offset(left));
-<a href=#249 id=249 data-nosnippet>249</a>            <span class="kw">let </span>d_left = _mm256_loadu_pd(del.as_ptr().offset(left));
-<a href=#250 id=250 data-nosnippet>250</a>            <span class="kw">let </span>p = _mm256_loadu_pd(prior.as_ptr().add(idx));
-<a href=#251 id=251 data-nosnippet>251</a>
-<a href=#252 id=252 data-nosnippet>252</a>            <span class="kw">let </span>from_m = _mm256_mul_pd(m_diag, tm2m);
-<a href=#253 id=253 data-nosnippet>253</a>            <span class="kw">let </span>from_i = _mm256_mul_pd(i_diag, ti2m);
-<a href=#254 id=254 data-nosnippet>254</a>            <span class="kw">let </span>from_d = _mm256_mul_pd(d_diag, ti2m);
-<a href=#255 id=255 data-nosnippet>255</a>            <span class="kw">let </span>sum = _mm256_add_pd(_mm256_add_pd(from_m, from_i), from_d);
-<a href=#256 id=256 data-nosnippet>256</a>            <span class="kw">let </span><span class="kw-2">mut </span>m_new = _mm256_mul_pd(p, sum);
-<a href=#257 id=257 data-nosnippet>257</a>            m_new = _mm256_mul_pd(m_new, mask);
-<a href=#258 id=258 data-nosnippet>258</a>
-<a href=#259 id=259 data-nosnippet>259</a>            <span class="kw">let </span><span class="kw-2">mut </span>i_new = _mm256_add_pd(_mm256_mul_pd(m_up, tm2i), _mm256_mul_pd(i_up, ti2i));
-<a href=#260 id=260 data-nosnippet>260</a>            i_new = _mm256_mul_pd(i_new, mask);
-<a href=#261 id=261 data-nosnippet>261</a>
-<a href=#262 id=262 data-nosnippet>262</a>            <span class="comment">// Deletion depends on newly written M at (i,j-1) — already in m_left for active left.
-<a href=#263 id=263 data-nosnippet>263</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>d_new = _mm256_add_pd(_mm256_mul_pd(m_left, tm2d), _mm256_mul_pd(d_left, td2d));
-<a href=#264 id=264 data-nosnippet>264</a>            <span class="comment">// For j==1, m_left is row+0 which is 0 — correct.
-<a href=#265 id=265 data-nosnippet>265</a>            // After writing m_new we need d to use m_new for next j; store m first.
-<a href=#266 id=266 data-nosnippet>266</a>            </span>_mm256_storeu_pd(m.as_mut_ptr().add(idx), m_new);
-<a href=#267 id=267 data-nosnippet>267</a>            <span class="comment">// Reload m_left equivalent: for this cell's del we needed m[row+j-1], already loaded.
-<a href=#268 id=268 data-nosnippet>268</a>            // But wait — standard DP: del[i][j] uses match[i][j-1] which for same row was just
-<a href=#269 id=269 data-nosnippet>269</a>            // computed at previous j. m_left was loaded before we stored m_new at current j,
-<a href=#270 id=270 data-nosnippet>270</a>            // and points to j-1 — correct.
-<a href=#271 id=271 data-nosnippet>271</a>            </span>d_new = _mm256_mul_pd(d_new, mask);
-<a href=#272 id=272 data-nosnippet>272</a>            _mm256_storeu_pd(ins.as_mut_ptr().add(idx), i_new);
-<a href=#273 id=273 data-nosnippet>273</a>            _mm256_storeu_pd(del.as_mut_ptr().add(idx), d_new);
-<a href=#274 id=274 data-nosnippet>274</a>        }
-<a href=#275 id=275 data-nosnippet>275</a>    }
-<a href=#276 id=276 data-nosnippet>276</a>
-<a href=#277 id=277 data-nosnippet>277</a>    <span class="kw">let </span>end_row = rn * cols;
-<a href=#278 id=278 data-nosnippet>278</a>    <span class="kw">let </span><span class="kw-2">mut </span>sums = [<span class="number">0.0f64</span>; <span class="number">4</span>];
-<a href=#279 id=279 data-nosnippet>279</a>    <span class="kw">for </span>j <span class="kw">in </span><span class="number">1</span>..=hn_max {
-<a href=#280 id=280 data-nosnippet>280</a>        <span class="kw">let </span>idx = (end_row + j) * LANES;
-<a href=#281 id=281 data-nosnippet>281</a>        <span class="kw">let </span>mv = _mm256_loadu_pd(m.as_ptr().add(idx));
-<a href=#282 id=282 data-nosnippet>282</a>        <span class="kw">let </span>iv = _mm256_loadu_pd(ins.as_ptr().add(idx));
-<a href=#283 id=283 data-nosnippet>283</a>        <span class="kw">let </span>s = _mm256_add_pd(mv, iv);
-<a href=#284 id=284 data-nosnippet>284</a>        <span class="kw">let </span><span class="kw-2">mut </span>tmp = [<span class="number">0.0f64</span>; <span class="number">4</span>];
-<a href=#285 id=285 data-nosnippet>285</a>        _mm256_storeu_pd(tmp.as_mut_ptr(), s);
-<a href=#286 id=286 data-nosnippet>286</a>        <span class="kw">for </span>lane <span class="kw">in </span><span class="number">0</span>..LANES {
-<a href=#287 id=287 data-nosnippet>287</a>            <span class="kw">if </span>j &lt;= hn[lane] {
-<a href=#288 id=288 data-nosnippet>288</a>                sums[lane] += tmp[lane];
-<a href=#289 id=289 data-nosnippet>289</a>            }
-<a href=#290 id=290 data-nosnippet>290</a>        }
-<a href=#291 id=291 data-nosnippet>291</a>    }
-<a href=#292 id=292 data-nosnippet>292</a>
-<a href=#293 id=293 data-nosnippet>293</a>    <span class="kw">let </span><span class="kw-2">mut </span>out = [<span class="number">0.0f64</span>; <span class="number">4</span>];
-<a href=#294 id=294 data-nosnippet>294</a>    <span class="kw">for </span>lane <span class="kw">in </span><span class="number">0</span>..LANES {
-<a href=#295 id=295 data-nosnippet>295</a>        <span class="kw">if </span>sums[lane] &lt;= <span class="number">0.0 </span>|| !sums[lane].is_finite() {
-<a href=#296 id=296 data-nosnippet>296</a>            out[lane] = f64::NEG_INFINITY;
-<a href=#297 id=297 data-nosnippet>297</a>        } <span class="kw">else </span>{
-<a href=#298 id=298 data-nosnippet>298</a>            out[lane] = sums[lane].log10() - INITIAL_CONDITION_LOG10;
-<a href=#299 id=299 data-nosnippet>299</a>        }
-<a href=#300 id=300 data-nosnippet>300</a>    }
-<a href=#301 id=301 data-nosnippet>301</a>    out
-<a href=#302 id=302 data-nosnippet>302</a>}
+<a href=#154 id=154 data-nosnippet>154</a>                    <span class="kw-2">&amp;</span>transitions,
+<a href=#155 id=155 data-nosnippet>155</a>                ) {
+<a href=#156 id=156 data-nosnippet>156</a>                    <span class="prelude-val">Ok</span>(rest) =&gt; out[i] = rest[<span class="number">0</span>],
+<a href=#157 id=157 data-nosnippet>157</a>                    <span class="prelude-val">Err</span>(e) =&gt; {
+<a href=#158 id=158 data-nosnippet>158</a>                        err = <span class="prelude-val">Some</span>(e);
+<a href=#159 id=159 data-nosnippet>159</a>                        <span class="kw">return</span>;
+<a href=#160 id=160 data-nosnippet>160</a>                    }
+<a href=#161 id=161 data-nosnippet>161</a>                }
+<a href=#162 id=162 data-nosnippet>162</a>            }
+<a href=#163 id=163 data-nosnippet>163</a>        }
+<a href=#164 id=164 data-nosnippet>164</a>    });
+<a href=#165 id=165 data-nosnippet>165</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(e) = err {
+<a href=#166 id=166 data-nosnippet>166</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(e);
+<a href=#167 id=167 data-nosnippet>167</a>    }
+<a href=#168 id=168 data-nosnippet>168</a>    <span class="prelude-val">Ok</span>(out)
+<a href=#169 id=169 data-nosnippet>169</a>}
+<a href=#170 id=170 data-nosnippet>170</a>
+<a href=#171 id=171 data-nosnippet>171</a><span class="doccomment">/// SAFETY: caller must ensure AVX2 is available (`#[target_feature(enable = "avx2")]`).
+<a href=#172 id=172 data-nosnippet>172</a></span><span class="attr">#[target_feature(enable = <span class="string">"avx2"</span>)]
+<a href=#173 id=173 data-nosnippet>173</a></span><span class="kw">unsafe fn </span>score_pack4(
+<a href=#174 id=174 data-nosnippet>174</a>    read_bases: <span class="kw-2">&amp;</span>[u8],
+<a href=#175 id=175 data-nosnippet>175</a>    read_quals: <span class="kw-2">&amp;</span>[u8],
+<a href=#176 id=176 data-nosnippet>176</a>    haps: <span class="kw-2">&amp;</span>[<span class="kw-2">&amp;</span>[u8]; <span class="number">4</span>],
+<a href=#177 id=177 data-nosnippet>177</a>    transitions: <span class="kw-2">&amp;</span>[[f64; <span class="number">6</span>]],
+<a href=#178 id=178 data-nosnippet>178</a>    scratch: <span class="kw-2">&amp;mut </span>Avx2Scratch,
+<a href=#179 id=179 data-nosnippet>179</a>) -&gt; [f64; <span class="number">4</span>] {
+<a href=#180 id=180 data-nosnippet>180</a>    <span class="kw">let </span>rn = read_bases.len();
+<a href=#181 id=181 data-nosnippet>181</a>    <span class="kw">let </span>hn = [haps[<span class="number">0</span>].len(), haps[<span class="number">1</span>].len(), haps[<span class="number">2</span>].len(), haps[<span class="number">3</span>].len()];
+<a href=#182 id=182 data-nosnippet>182</a>    <span class="kw">let </span>hn_max = hn.iter().copied().max().unwrap_or(<span class="number">1</span>);
+<a href=#183 id=183 data-nosnippet>183</a>    <span class="kw">let </span>cols = hn_max + <span class="number">1</span>;
+<a href=#184 id=184 data-nosnippet>184</a>    <span class="kw">let </span>cells = (rn + <span class="number">1</span>) * cols;
+<a href=#185 id=185 data-nosnippet>185</a>    scratch.ensure(cells);
+<a href=#186 id=186 data-nosnippet>186</a>    <span class="kw">let </span>m = <span class="kw-2">&amp;mut </span>scratch.m;
+<a href=#187 id=187 data-nosnippet>187</a>    <span class="kw">let </span>ins = <span class="kw-2">&amp;mut </span>scratch.ins;
+<a href=#188 id=188 data-nosnippet>188</a>    <span class="kw">let </span>del = <span class="kw-2">&amp;mut </span>scratch.del;
+<a href=#189 id=189 data-nosnippet>189</a>    <span class="kw">let </span>prior = <span class="kw-2">&amp;mut </span>scratch.prior;
+<a href=#190 id=190 data-nosnippet>190</a>
+<a href=#191 id=191 data-nosnippet>191</a>    <span class="kw">for </span>lane <span class="kw">in </span><span class="number">0</span>..LANES {
+<a href=#192 id=192 data-nosnippet>192</a>        <span class="kw">let </span>init = INITIAL_CONDITION / hn[lane] <span class="kw">as </span>f64;
+<a href=#193 id=193 data-nosnippet>193</a>        <span class="kw">for </span>j <span class="kw">in </span><span class="number">0</span>..=hn[lane] {
+<a href=#194 id=194 data-nosnippet>194</a>            del[j * LANES + lane] = init;
+<a href=#195 id=195 data-nosnippet>195</a>        }
+<a href=#196 id=196 data-nosnippet>196</a>    }
+<a href=#197 id=197 data-nosnippet>197</a>
+<a href=#198 id=198 data-nosnippet>198</a>    <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..rn {
+<a href=#199 id=199 data-nosnippet>199</a>        <span class="kw">let </span>x = read_bases[i];
+<a href=#200 id=200 data-nosnippet>200</a>        <span class="kw">let </span>(match_p, mismatch_p) = logless_match_mismatch_prior(read_quals[i]);
+<a href=#201 id=201 data-nosnippet>201</a>        <span class="kw">let </span>row = (i + <span class="number">1</span>) * cols;
+<a href=#202 id=202 data-nosnippet>202</a>        <span class="kw">for </span>lane <span class="kw">in </span><span class="number">0</span>..LANES {
+<a href=#203 id=203 data-nosnippet>203</a>            <span class="kw">for </span>j <span class="kw">in </span><span class="number">0</span>..hn[lane] {
+<a href=#204 id=204 data-nosnippet>204</a>                <span class="kw">let </span>y = haps[lane][j];
+<a href=#205 id=205 data-nosnippet>205</a>                <span class="kw">let </span>p = <span class="kw">if </span>x == y || x == <span class="string">b'N' </span>|| y == <span class="string">b'N' </span>{
+<a href=#206 id=206 data-nosnippet>206</a>                    match_p
+<a href=#207 id=207 data-nosnippet>207</a>                } <span class="kw">else </span>{
+<a href=#208 id=208 data-nosnippet>208</a>                    mismatch_p
+<a href=#209 id=209 data-nosnippet>209</a>                };
+<a href=#210 id=210 data-nosnippet>210</a>                prior[(row + j + <span class="number">1</span>) * LANES + lane] = p;
+<a href=#211 id=211 data-nosnippet>211</a>            }
+<a href=#212 id=212 data-nosnippet>212</a>        }
+<a href=#213 id=213 data-nosnippet>213</a>    }
+<a href=#214 id=214 data-nosnippet>214</a>
+<a href=#215 id=215 data-nosnippet>215</a>    <span class="kw">for </span>i <span class="kw">in </span><span class="number">1</span>..=rn {
+<a href=#216 id=216 data-nosnippet>216</a>        <span class="kw">let </span>t = transitions[i];
+<a href=#217 id=217 data-nosnippet>217</a>        <span class="kw">let </span>tm2m = _mm256_set1_pd(t[MATCH_TO_MATCH]);
+<a href=#218 id=218 data-nosnippet>218</a>        <span class="kw">let </span>ti2m = _mm256_set1_pd(t[INDEL_TO_MATCH]);
+<a href=#219 id=219 data-nosnippet>219</a>        <span class="kw">let </span>tm2i = _mm256_set1_pd(t[MATCH_TO_INSERTION]);
+<a href=#220 id=220 data-nosnippet>220</a>        <span class="kw">let </span>ti2i = _mm256_set1_pd(t[INSERTION_TO_INSERTION]);
+<a href=#221 id=221 data-nosnippet>221</a>        <span class="kw">let </span>tm2d = _mm256_set1_pd(t[MATCH_TO_DELETION]);
+<a href=#222 id=222 data-nosnippet>222</a>        <span class="kw">let </span>td2d = _mm256_set1_pd(t[DELETION_TO_DELETION]);
+<a href=#223 id=223 data-nosnippet>223</a>        <span class="kw">let </span>row = i * cols;
+<a href=#224 id=224 data-nosnippet>224</a>        <span class="kw">let </span>prev = (i - <span class="number">1</span>) * cols;
+<a href=#225 id=225 data-nosnippet>225</a>        <span class="kw">for </span>j <span class="kw">in </span><span class="number">1</span>..=hn_max {
+<a href=#226 id=226 data-nosnippet>226</a>            <span class="comment">// Active mask: lane participates if j &lt;= hn[lane]
+<a href=#227 id=227 data-nosnippet>227</a>            </span><span class="kw">let </span>active = [
+<a href=#228 id=228 data-nosnippet>228</a>                <span class="kw">if </span>j &lt;= hn[<span class="number">0</span>] { <span class="number">1.0 </span>} <span class="kw">else </span>{ <span class="number">0.0 </span>},
+<a href=#229 id=229 data-nosnippet>229</a>                <span class="kw">if </span>j &lt;= hn[<span class="number">1</span>] { <span class="number">1.0 </span>} <span class="kw">else </span>{ <span class="number">0.0 </span>},
+<a href=#230 id=230 data-nosnippet>230</a>                <span class="kw">if </span>j &lt;= hn[<span class="number">2</span>] { <span class="number">1.0 </span>} <span class="kw">else </span>{ <span class="number">0.0 </span>},
+<a href=#231 id=231 data-nosnippet>231</a>                <span class="kw">if </span>j &lt;= hn[<span class="number">3</span>] { <span class="number">1.0 </span>} <span class="kw">else </span>{ <span class="number">0.0 </span>},
+<a href=#232 id=232 data-nosnippet>232</a>            ];
+<a href=#233 id=233 data-nosnippet>233</a>            <span class="kw">let </span>mask = _mm256_set_pd(active[<span class="number">3</span>], active[<span class="number">2</span>], active[<span class="number">1</span>], active[<span class="number">0</span>]);
+<a href=#234 id=234 data-nosnippet>234</a>
+<a href=#235 id=235 data-nosnippet>235</a>            <span class="kw">let </span>idx = (row + j) * LANES;
+<a href=#236 id=236 data-nosnippet>236</a>            <span class="kw">let </span>diag = ((prev + j - <span class="number">1</span>) * LANES) <span class="kw">as </span>isize;
+<a href=#237 id=237 data-nosnippet>237</a>            <span class="kw">let </span>up = ((prev + j) * LANES) <span class="kw">as </span>isize;
+<a href=#238 id=238 data-nosnippet>238</a>            <span class="kw">let </span>left = ((row + j - <span class="number">1</span>) * LANES) <span class="kw">as </span>isize;
+<a href=#239 id=239 data-nosnippet>239</a>
+<a href=#240 id=240 data-nosnippet>240</a>            <span class="comment">// SAFETY: indices are within allocated SoA buffers; AVX2 enabled by target_feature.
+<a href=#241 id=241 data-nosnippet>241</a>            </span><span class="kw">let </span>m_diag = _mm256_loadu_pd(m.as_ptr().offset(diag));
+<a href=#242 id=242 data-nosnippet>242</a>            <span class="kw">let </span>i_diag = _mm256_loadu_pd(ins.as_ptr().offset(diag));
+<a href=#243 id=243 data-nosnippet>243</a>            <span class="kw">let </span>d_diag = _mm256_loadu_pd(del.as_ptr().offset(diag));
+<a href=#244 id=244 data-nosnippet>244</a>            <span class="kw">let </span>m_up = _mm256_loadu_pd(m.as_ptr().offset(up));
+<a href=#245 id=245 data-nosnippet>245</a>            <span class="kw">let </span>i_up = _mm256_loadu_pd(ins.as_ptr().offset(up));
+<a href=#246 id=246 data-nosnippet>246</a>            <span class="kw">let </span>m_left = _mm256_loadu_pd(m.as_ptr().offset(left));
+<a href=#247 id=247 data-nosnippet>247</a>            <span class="kw">let </span>d_left = _mm256_loadu_pd(del.as_ptr().offset(left));
+<a href=#248 id=248 data-nosnippet>248</a>            <span class="kw">let </span>p = _mm256_loadu_pd(prior.as_ptr().add(idx));
+<a href=#249 id=249 data-nosnippet>249</a>
+<a href=#250 id=250 data-nosnippet>250</a>            <span class="kw">let </span>from_m = _mm256_mul_pd(m_diag, tm2m);
+<a href=#251 id=251 data-nosnippet>251</a>            <span class="kw">let </span>from_i = _mm256_mul_pd(i_diag, ti2m);
+<a href=#252 id=252 data-nosnippet>252</a>            <span class="kw">let </span>from_d = _mm256_mul_pd(d_diag, ti2m);
+<a href=#253 id=253 data-nosnippet>253</a>            <span class="kw">let </span>sum = _mm256_add_pd(_mm256_add_pd(from_m, from_i), from_d);
+<a href=#254 id=254 data-nosnippet>254</a>            <span class="kw">let </span><span class="kw-2">mut </span>m_new = _mm256_mul_pd(p, sum);
+<a href=#255 id=255 data-nosnippet>255</a>            m_new = _mm256_mul_pd(m_new, mask);
+<a href=#256 id=256 data-nosnippet>256</a>
+<a href=#257 id=257 data-nosnippet>257</a>            <span class="kw">let </span><span class="kw-2">mut </span>i_new = _mm256_add_pd(_mm256_mul_pd(m_up, tm2i), _mm256_mul_pd(i_up, ti2i));
+<a href=#258 id=258 data-nosnippet>258</a>            i_new = _mm256_mul_pd(i_new, mask);
+<a href=#259 id=259 data-nosnippet>259</a>
+<a href=#260 id=260 data-nosnippet>260</a>            <span class="comment">// Deletion depends on newly written M at (i,j-1) — already in m_left for active left.
+<a href=#261 id=261 data-nosnippet>261</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>d_new = _mm256_add_pd(_mm256_mul_pd(m_left, tm2d), _mm256_mul_pd(d_left, td2d));
+<a href=#262 id=262 data-nosnippet>262</a>            <span class="comment">// For j==1, m_left is row+0 which is 0 — correct.
+<a href=#263 id=263 data-nosnippet>263</a>            // After writing m_new we need d to use m_new for next j; store m first.
+<a href=#264 id=264 data-nosnippet>264</a>            </span>_mm256_storeu_pd(m.as_mut_ptr().add(idx), m_new);
+<a href=#265 id=265 data-nosnippet>265</a>            <span class="comment">// Reload m_left equivalent: for this cell's del we needed m[row+j-1], already loaded.
+<a href=#266 id=266 data-nosnippet>266</a>            // But wait — standard DP: del[i][j] uses match[i][j-1] which for same row was just
+<a href=#267 id=267 data-nosnippet>267</a>            // computed at previous j. m_left was loaded before we stored m_new at current j,
+<a href=#268 id=268 data-nosnippet>268</a>            // and points to j-1 — correct.
+<a href=#269 id=269 data-nosnippet>269</a>            </span>d_new = _mm256_mul_pd(d_new, mask);
+<a href=#270 id=270 data-nosnippet>270</a>            _mm256_storeu_pd(ins.as_mut_ptr().add(idx), i_new);
+<a href=#271 id=271 data-nosnippet>271</a>            _mm256_storeu_pd(del.as_mut_ptr().add(idx), d_new);
+<a href=#272 id=272 data-nosnippet>272</a>        }
+<a href=#273 id=273 data-nosnippet>273</a>    }
+<a href=#274 id=274 data-nosnippet>274</a>
+<a href=#275 id=275 data-nosnippet>275</a>    <span class="kw">let </span>end_row = rn * cols;
+<a href=#276 id=276 data-nosnippet>276</a>    <span class="kw">let </span><span class="kw-2">mut </span>sums = [<span class="number">0.0f64</span>; <span class="number">4</span>];
+<a href=#277 id=277 data-nosnippet>277</a>    <span class="kw">for </span>j <span class="kw">in </span><span class="number">1</span>..=hn_max {
+<a href=#278 id=278 data-nosnippet>278</a>        <span class="kw">let </span>idx = (end_row + j) * LANES;
+<a href=#279 id=279 data-nosnippet>279</a>        <span class="kw">let </span>mv = _mm256_loadu_pd(m.as_ptr().add(idx));
+<a href=#280 id=280 data-nosnippet>280</a>        <span class="kw">let </span>iv = _mm256_loadu_pd(ins.as_ptr().add(idx));
+<a href=#281 id=281 data-nosnippet>281</a>        <span class="kw">let </span>s = _mm256_add_pd(mv, iv);
+<a href=#282 id=282 data-nosnippet>282</a>        <span class="kw">let </span><span class="kw-2">mut </span>tmp = [<span class="number">0.0f64</span>; <span class="number">4</span>];
+<a href=#283 id=283 data-nosnippet>283</a>        _mm256_storeu_pd(tmp.as_mut_ptr(), s);
+<a href=#284 id=284 data-nosnippet>284</a>        <span class="kw">for </span>lane <span class="kw">in </span><span class="number">0</span>..LANES {
+<a href=#285 id=285 data-nosnippet>285</a>            <span class="kw">if </span>j &lt;= hn[lane] {
+<a href=#286 id=286 data-nosnippet>286</a>                sums[lane] += tmp[lane];
+<a href=#287 id=287 data-nosnippet>287</a>            }
+<a href=#288 id=288 data-nosnippet>288</a>        }
+<a href=#289 id=289 data-nosnippet>289</a>    }
+<a href=#290 id=290 data-nosnippet>290</a>
+<a href=#291 id=291 data-nosnippet>291</a>    <span class="kw">let </span><span class="kw-2">mut </span>out = [<span class="number">0.0f64</span>; <span class="number">4</span>];
+<a href=#292 id=292 data-nosnippet>292</a>    <span class="kw">for </span>lane <span class="kw">in </span><span class="number">0</span>..LANES {
+<a href=#293 id=293 data-nosnippet>293</a>        <span class="kw">if </span>sums[lane] &lt;= <span class="number">0.0 </span>|| !sums[lane].is_finite() {
+<a href=#294 id=294 data-nosnippet>294</a>            out[lane] = f64::NEG_INFINITY;
+<a href=#295 id=295 data-nosnippet>295</a>        } <span class="kw">else </span>{
+<a href=#296 id=296 data-nosnippet>296</a>            out[lane] = sums[lane].log10() - INITIAL_CONDITION_LOG10;
+<a href=#297 id=297 data-nosnippet>297</a>        }
+<a href=#298 id=298 data-nosnippet>298</a>    }
+<a href=#299 id=299 data-nosnippet>299</a>    out
+<a href=#300 id=300 data-nosnippet>300</a>}
 </code></pre></div></section></main></body></html>

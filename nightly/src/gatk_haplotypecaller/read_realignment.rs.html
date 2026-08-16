@@ -382,14 +382,14 @@
 <a href=#382 id=382 data-nosnippet>382</a>    <span class="prelude-val">Ok</span>(<span class="bool-val">true</span>)
 <a href=#383 id=383 data-nosnippet>383</a>}
 <a href=#384 id=384 data-nosnippet>384</a>
-<a href=#385 id=385 data-nosnippet>385</a><span class="doccomment">/// Compare BAM CIGAR to an assembled CIGAR without `format!` / Vec collect thrash.
+<a href=#385 id=385 data-nosnippet>385</a><span class="doccomment">/// Compare BAM CIGAR to an assembled CIGAR without allocating a temporary Vec.
 <a href=#386 id=386 data-nosnippet>386</a></span><span class="kw">fn </span>record_cigar_differs(rec: <span class="kw-2">&amp;</span>Record, want: <span class="kw-2">&amp;</span>Cigar) -&gt; bool {
 <a href=#387 id=387 data-nosnippet>387</a>    <span class="kw">let </span>view = rec.cigar();
-<a href=#388 id=388 data-nosnippet>388</a>    <span class="kw">let </span>got: Vec&lt;HtsCigar&gt; = view.iter().copied().collect();
-<a href=#389 id=389 data-nosnippet>389</a>    <span class="kw">if </span>got.len() != want.elements.len() {
-<a href=#390 id=390 data-nosnippet>390</a>        <span class="kw">return </span><span class="bool-val">true</span>;
-<a href=#391 id=391 data-nosnippet>391</a>    }
-<a href=#392 id=392 data-nosnippet>392</a>    <span class="kw">for </span>(hts, e) <span class="kw">in </span>got.iter().zip(want.elements.iter()) {
+<a href=#388 id=388 data-nosnippet>388</a>    <span class="kw">let </span><span class="kw-2">mut </span>got = view.iter();
+<a href=#389 id=389 data-nosnippet>389</a>    <span class="kw">for </span>e <span class="kw">in </span><span class="kw-2">&amp;</span>want.elements {
+<a href=#390 id=390 data-nosnippet>390</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(hts) = got.next() <span class="kw">else </span>{
+<a href=#391 id=391 data-nosnippet>391</a>            <span class="kw">return </span><span class="bool-val">true</span>;
+<a href=#392 id=392 data-nosnippet>392</a>        };
 <a href=#393 id=393 data-nosnippet>393</a>        <span class="kw">let </span><span class="prelude-val">Some</span>((len, op)) = hts_to_op_len(<span class="kw-2">*</span>hts) <span class="kw">else </span>{
 <a href=#394 id=394 data-nosnippet>394</a>            <span class="kw">return </span><span class="bool-val">true</span>;
 <a href=#395 id=395 data-nosnippet>395</a>        };
@@ -397,8 +397,8 @@
 <a href=#397 id=397 data-nosnippet>397</a>            <span class="kw">return </span><span class="bool-val">true</span>;
 <a href=#398 id=398 data-nosnippet>398</a>        }
 <a href=#399 id=399 data-nosnippet>399</a>    }
-<a href=#400 id=400 data-nosnippet>400</a>    <span class="bool-val">false
-<a href=#401 id=401 data-nosnippet>401</a></span>}
+<a href=#400 id=400 data-nosnippet>400</a>    got.next().is_some()
+<a href=#401 id=401 data-nosnippet>401</a>}
 <a href=#402 id=402 data-nosnippet>402</a>
 <a href=#403 id=403 data-nosnippet>403</a><span class="kw">fn </span>hts_to_op_len(hts: HtsCigar) -&gt; <span class="prelude-ty">Option</span>&lt;(usize, CigarOperator)&gt; {
 <a href=#404 id=404 data-nosnippet>404</a>    <span class="kw">match </span>hts {
