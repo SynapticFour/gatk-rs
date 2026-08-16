@@ -57,8 +57,9 @@ impl NeonScratch {
 
 thread_local! {
     static NEON_SCRATCH: RefCell<NeonScratch> = RefCell::new(NeonScratch::new());
-    /// TRACE occupancy: NEON pack2 hits vs scalar leftovers (reset via [`take_neon_pack_stats`]).
+    /// TRACE occupancy: pack2 SIMD hits, hapStartIndex prefix-reuse haps, scalar singles.
     static NEON_PACK2: Cell<u64> = const { Cell::new(0) };
+    static NEON_PREFIX_REUSE: Cell<u64> = const { Cell::new(0) };
     static NEON_LEFTOVER: Cell<u64> = const { Cell::new(0) };
 }
 
@@ -73,9 +74,13 @@ pub fn release_pairhmm_neon_tls_scratch() {
     });
 }
 
-/// Take-and-reset NEON pack occupancy counters for this thread `(pack2, leftover_singles)`.
-pub fn take_neon_pack_stats() -> (u64, u64) {
-    (NEON_PACK2.replace(0), NEON_LEFTOVER.replace(0))
+/// Take-and-reset NEON pack occupancy: `(pack2, prefix_reuse_haps, leftover_singles)`.
+pub fn take_neon_pack_stats() -> (u64, u64, u64) {
+    (
+        NEON_PACK2.replace(0),
+        NEON_PREFIX_REUSE.replace(0),
+        NEON_LEFTOVER.replace(0),
+    )
 }
 
 /// Score haplotypes with NEON when available; otherwise portable packed f64.
@@ -139,11 +144,14 @@ unsafe fn score_haps_neon_f64_unchecked(
     NEON_SCRATCH.with(|cell| {
         let mut scratch = cell.borrow_mut();
         for idxs in by_len.values() {
+            // Order by sequence so consecutive haps share longer prefixes (score-invariant).
+            let mut ordered: Vec<usize> = idxs.iter().copied().collect();
+            ordered.sort_by(|&a, &b| haplotypes[a].cmp(haplotypes[b]));
             // Long same-length chains: Java hapStartIndex prefix reuse beats 2-wide packs
             // when assembly haps share long prefixes (common on dense GIAB).
-            if idxs.len() >= 3 {
-                let mut subset = Vec::with_capacity(idxs.len());
-                for &i in idxs {
+            if ordered.len() >= 3 {
+                let mut subset = Vec::with_capacity(ordered.len());
+                for &i in &ordered {
                     subset.push(haplotypes[i]);
                 }
                 match score_haps_logless_packed_f64_with_transitions(
@@ -153,10 +161,10 @@ unsafe fn score_haps_neon_f64_unchecked(
                     &transitions,
                 ) {
                     Ok(scores) => {
-                        for (k, &i) in idxs.iter().enumerate() {
+                        for (k, &i) in ordered.iter().enumerate() {
                             out[i] = scores[k];
                         }
-                        NEON_LEFTOVER.set(NEON_LEFTOVER.get() + idxs.len() as u64);
+                        NEON_PREFIX_REUSE.set(NEON_PREFIX_REUSE.get() + ordered.len() as u64);
                     }
                     Err(e) => {
                         err = Some(e);
@@ -165,7 +173,7 @@ unsafe fn score_haps_neon_f64_unchecked(
                 }
                 continue;
             }
-            let mut chunks = idxs.chunks_exact(LANES);
+            let mut chunks = ordered.chunks_exact(LANES);
             for pack_src in chunks.by_ref() {
                 let pack = [haplotypes[pack_src[0]], haplotypes[pack_src[1]]];
                 let scores = score_pack2(read_bases, read_quals, &pack, &transitions, &mut scratch);

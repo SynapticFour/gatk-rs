@@ -9,7 +9,9 @@ use crate::java_hc_site_semantics::{
 
 include!("sync_events.rs");
 
+pub mod ad_decode_cache;
 pub mod indel_evidence;
+pub use ad_decode_cache::clear_ad_decode_cache;
 pub(crate) use indel_evidence::{
     cigar_for_single_indel_event, read_indel_allele_depths_from_cigars,
 };
@@ -604,6 +606,18 @@ pub fn p12_cluster_indel_read_support(
     false
 }
 
+/// True when two pads yield the same genomic SNP query coordinate.
+///
+/// For `event.start >= pad`, `ref_pos0 = start - 1` independent of pad. Genotyping
+/// events lie inside the padded span, so trim vs full-pad BAM AD scans are identical.
+#[inline]
+pub fn snp_allele_depth_pads_equivalent(event_start_1based: u64, pad_a: u64, pad_b: u64) -> bool {
+    if pad_a == pad_b {
+        return true;
+    }
+    event_start_1based >= pad_a && event_start_1based >= pad_b
+}
+
 /// Read pileup AD at a biallelic SNP or simple indel locus (ref index 0, alt index 1).
 pub fn read_allele_depths_at_locus(
     reads: &[SharedBamRecord],
@@ -624,25 +638,25 @@ pub fn read_allele_depths_at_locus(
     let ref_pos0 = pad_start_1based.saturating_sub(1) as i64 + off as i64;
     let mut ref_count = 0i32;
     let mut alt_count = 0i32;
-    for rec in reads {
-        if rec.is_unmapped() {
-            continue;
+    ad_decode_cache::with_ad_decode_cache(|cache| {
+        for rec in reads {
+            if rec.is_unmapped() {
+                continue;
+            }
+            let (cigar, seq_bytes) = cache.cigar_and_seq(rec);
+            let Some(qi) = query_index_at_reference_position(rec.pos(), cigar, ref_pos0) else {
+                continue;
+            };
+            let Some(qb) = seq_bytes.get(qi) else {
+                continue;
+            };
+            match qb.to_ascii_uppercase() {
+                b if b == alt_b => alt_count += 1,
+                b if b == ref_b => ref_count += 1,
+                _ => {}
+            }
         }
-        let cigar = CigarString(rec.cigar().iter().copied().collect());
-        let Some(qi) = query_index_at_reference_position(rec.pos(), &cigar, ref_pos0) else {
-            continue;
-        };
-        let seq = rec.seq();
-        let seq_bytes = seq.as_bytes();
-        let Some(qb) = seq_bytes.get(qi) else {
-            continue;
-        };
-        match qb.to_ascii_uppercase() {
-            b if b == alt_b => alt_count += 1,
-            b if b == ref_b => ref_count += 1,
-            _ => {}
-        }
-    }
+    });
     (ref_count, alt_count)
 }
 
@@ -662,28 +676,29 @@ pub fn read_allele_depths_at_locus_dedupe_qname(
     let ref_pos0 = pad_start_1based.saturating_sub(1) as i64 + off as i64;
     let mut ref_count = 0i32;
     let mut alt_count = 0i32;
-    for rec in reads {
-        if rec.is_unmapped() {
-            continue;
+    ad_decode_cache::with_ad_decode_cache(|cache| {
+        for rec in reads {
+            if rec.is_unmapped() {
+                continue;
+            }
+            let qname = rec.qname().to_owned();
+            if !seen.insert(qname) {
+                continue;
+            }
+            let (cigar, seq_bytes) = cache.cigar_and_seq(rec);
+            let Some(qi) = query_index_at_reference_position(rec.pos(), cigar, ref_pos0) else {
+                continue;
+            };
+            let Some(qb) = seq_bytes.get(qi) else {
+                continue;
+            };
+            match qb.to_ascii_uppercase() {
+                b if b == alt_b => alt_count += 1,
+                b if b == ref_b => ref_count += 1,
+                _ => {}
+            }
         }
-        let qname = rec.qname().to_owned();
-        if !seen.insert(qname) {
-            continue;
-        }
-        let cigar = CigarString(rec.cigar().iter().copied().collect());
-        let Some(qi) = query_index_at_reference_position(rec.pos(), &cigar, ref_pos0) else {
-            continue;
-        };
-        let seq_bytes = rec.seq().as_bytes();
-        let Some(qb) = seq_bytes.get(qi) else {
-            continue;
-        };
-        match qb.to_ascii_uppercase() {
-            b if b == alt_b => alt_count += 1,
-            b if b == ref_b => ref_count += 1,
-            _ => {}
-        }
-    }
+    });
     (ref_count, alt_count)
 }
 

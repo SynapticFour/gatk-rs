@@ -19,6 +19,17 @@ algorithm parity (no P12 band widening). Peak RSS already wins on probe.
 
 ## Highest-leverage wall bets (evidence-class, not locus pins)
 
+| Priority | Bet | Status |
+|----------|-----|--------|
+| 1 | **Collapse multi-pass AD + CIGAR/seq cache** | Landed: TLS `AdDecodeCache`, reuse equal pad/slice AD, drop duplicate softclip scan |
+| 2 | **PairHMM leaf / packs** | Landed: `neon_prefix_reuse` TRACE; hap order for longer prefixes; AVX2 ≥5 → prefix reuse |
+| 3 | **Gate parity_spine when redundant** | Indel CIGAR-complete skip kept; SNP skip only when no alt haps (bijection skip reverted — FN) |
+| 4 | **Realign SW continued** | Landed: `last_index_of` first-byte reject before bookend/interior |
+
+Prove: `pairhmm_simd_vs_scalar_test`, lib `smith_waterman`, mega TRACE assign drop without call-set loss.
+
+### Prior table (historical)
+
 | Priority | Bet | Why | Gate |
 |----------|-----|-----|------|
 | 1 | **PairHMM region wall** | Still #1 share on all losers; NEON_F64 already on path | TRACE rematch; SIMD unit; F1 holdout |

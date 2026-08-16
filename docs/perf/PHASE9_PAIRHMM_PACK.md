@@ -12,6 +12,9 @@ median on `wall-losers` (baseline ~1.79×).
 | Occupancy dig: w11 50 kb leftover **~6.7%** | Hap packing already dense |
 | Java **`hapStartIndex` prefix reuse** in packed Logless | Same scores as full recompute; fewer DP cells on shared assembly prefixes |
 | NEON: same-length groups of **≥3** use prefix-reuse chain; pairs stay pack2 | SIMD kept where packs are short |
+| TRACE `neon_prefix_reuse=` separate from `neon_leftover=` | Observe-only (prefix ≠ scalar leftover) |
+| Order same-length haps by sequence before reuse/pack | Longer shared prefixes; score-invariant |
+| AVX2: same-length groups of **≥5** use prefix-reuse (pack4 for shorter) | Dense GIAB shared prefixes |
 
 ## Deferred
 

@@ -39,7 +39,8 @@ def main() -> int:
             + counts.get("merge_rt_skip_empty_configured", 0),
             bd=counts.get("rt_build_skip_dangling_bushy", 0),
             gb=counts.get("rt_graph_build_begin", 0),
-            sis=counts.get("parity_spine_indel_skip_cigar_complete", 0),
+            sis=counts.get("parity_spine_indel_skip_cigar_complete", 0)
+            + counts.get("parity_spine_snp_skip_no_alt", 0),
         )
     )
     top = sorted(phase_ms.items(), key=lambda x: -x[1])[:20]

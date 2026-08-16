@@ -133,7 +133,33 @@ unsafe fn score_haps_avx2_f64_unchecked(
     AVX2_SCRATCH.with(|cell| {
         let mut scratch = cell.borrow_mut();
         for idxs in by_len.values() {
-            let mut chunks = idxs.chunks_exact(LANES);
+            let mut ordered: Vec<usize> = idxs.iter().copied().collect();
+            ordered.sort_by(|&a, &b| haplotypes[a].cmp(haplotypes[b]));
+            // Long same-length chains: prefix reuse beats repeated pack4 when haps share prefixes.
+            if ordered.len() >= 5 {
+                let mut subset = Vec::with_capacity(ordered.len());
+                for &i in &ordered {
+                    subset.push(haplotypes[i]);
+                }
+                match score_haps_logless_packed_f64_with_transitions(
+                    read_bases,
+                    read_quals,
+                    &subset,
+                    &transitions,
+                ) {
+                    Ok(scores) => {
+                        for (k, &i) in ordered.iter().enumerate() {
+                            out[i] = scores[k];
+                        }
+                    }
+                    Err(e) => {
+                        err = Some(e);
+                        return;
+                    }
+                }
+                continue;
+            }
+            let mut chunks = ordered.chunks_exact(LANES);
             for pack_src in chunks.by_ref() {
                 let pack = [
                     haplotypes[pack_src[0]],

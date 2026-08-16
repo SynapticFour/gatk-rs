@@ -427,6 +427,7 @@ fn try_genotype_variation_event(
             return Ok(Some(call));
         }
         // Locals formerly computed inside the early-template block (still needed below).
+        // Collapse multi-pass pileup AD: same read slice + equivalent pad → reuse counts.
         let (trim_pileup_ref, trim_pileup_alt) =
             read_allele_depths_at_locus_for_genotyping(pileup_reads, &event, pad_start_1based, config);
         let gap_het_pileup = is_p12_phase_e_gap_het_event(&event);
@@ -479,26 +480,50 @@ fn try_genotype_variation_event(
         let pileup_src = supplemental_pileup_reads
             .filter(|s| !s.is_empty())
             .unwrap_or(pileup_reads);
-        let (_, align_pileup_alt) =
-            read_allele_depths_at_locus_for_genotyping(pileup_src, &event, pad_start_1based, config);
+        let same_pileup_src = std::ptr::eq(pileup_src.as_ptr(), pileup_reads.as_ptr())
+            && pileup_src.len() == pileup_reads.len();
+        let (_, align_pileup_alt) = if same_pileup_src {
+            (trim_pileup_ref, trim_pileup_alt)
+        } else {
+            read_allele_depths_at_locus_for_genotyping(pileup_src, &event, pad_start_1based, config)
+        };
         let has_alignment_evidence_at_locus = |r: &SharedBamRecord| {
             java_alignment_read_covers_variant_base(r, event.start_1based.get(), var_end, margin)
         };
         let softclip_only_pool = !likelihood_reads.iter().any(has_alignment_evidence_at_locus)
             && !pileup_src.iter().any(has_alignment_evidence_at_locus);
-        let (_, geno_align_alt) =
-            read_allele_depths_at_locus_for_genotyping(likelihood_reads, &event, pad_start_1based, config);
-        let (_, sparse_emit_ra) = if is_sparse_snp_gl_rescue_eligible(&event) {
-            read_allele_depths_for_strict_emit(
+        let same_ll_as_pileup = std::ptr::eq(likelihood_reads.as_ptr(), pileup_reads.as_ptr())
+            && likelihood_reads.len() == pileup_reads.len();
+        let same_ll_as_src = std::ptr::eq(likelihood_reads.as_ptr(), pileup_src.as_ptr())
+            && likelihood_reads.len() == pileup_src.len();
+        let (_, geno_align_alt) = if same_ll_as_pileup {
+            (trim_pileup_ref, trim_pileup_alt)
+        } else if same_ll_as_src {
+            (0, align_pileup_alt)
+        } else {
+            read_allele_depths_at_locus_for_genotyping(
                 likelihood_reads,
-                supplemental_pileup_reads,
                 &event,
                 pad_start_1based,
                 config,
-                ref_bytes,
-                full_reference_bases,
-                full_reference_pad_1based,
             )
+        };
+        let (_, sparse_emit_ra) = if is_sparse_snp_gl_rescue_eligible(&event) {
+            // Likelihood-pool emit AD: only re-scan when the likelihood slice differs.
+            if same_ll_as_pileup {
+                (read_ref_ad, read_alt_ad)
+            } else {
+                read_allele_depths_for_strict_emit(
+                    likelihood_reads,
+                    supplemental_pileup_reads,
+                    &event,
+                    pad_start_1based,
+                    config,
+                    ref_bytes,
+                    full_reference_bases,
+                    full_reference_pad_1based,
+                )
+            }
         } else {
             (read_ref_ad, read_alt_ad)
         };
@@ -507,23 +532,52 @@ fn try_genotype_variation_event(
             sparse_softclip_pileup_alt_at_locus(pileup_src, &event, margin);
         let softclip_pileup_fragments =
             sparse_softclip_pileup_alt_fragments_at_locus(pileup_src, &event, margin);
-        let (_, sup_pileup_alt) = if is_sparse_snp_gl_rescue_eligible(&event) {
+        // Reuse softclip_pileup_alt — formerly a duplicate sparse_softclip scan.
+        let softclip_deduped_alt = softclip_pileup_alt;
+        let (_, sup_pileup_alt) = if same_pileup_src {
+            let genotyping_used_dedupe = config.enable_java_strict()
+                && event.ref_allele.len() == 1
+                && event.alt_allele.len() == 1
+                && !is_cluster_anchor_snp(&event);
+            let want_dedupe = is_sparse_snp_gl_rescue_eligible(&event) || genotyping_used_dedupe;
+            // Sparse authority wants dedupe; non-sparse authority wants raw per-read AD.
+            if is_sparse_snp_gl_rescue_eligible(&event) {
+                if genotyping_used_dedupe {
+                    (trim_pileup_ref, trim_pileup_alt)
+                } else {
+                    read_allele_depths_at_locus_dedupe_qname(
+                        pileup_src,
+                        &event,
+                        pad_start_1based,
+                    )
+                }
+            } else if want_dedupe {
+                // trim was dedupe; non-sparse pileup_alt_authority uses per-read counts.
+                read_allele_depths_at_locus(pileup_src, &event, pad_start_1based)
+            } else {
+                (trim_pileup_ref, trim_pileup_alt)
+            }
+        } else if is_sparse_snp_gl_rescue_eligible(&event) {
             read_allele_depths_at_locus_dedupe_qname(pileup_src, &event, pad_start_1based)
         } else {
             read_allele_depths_at_locus(pileup_src, &event, pad_start_1based)
         };
-        let (_, full_pad_alt) = if is_sparse_snp_gl_rescue_eligible(&event) {
+        // SNP/indel BAM AD is pad-independent when the event lies inside both pads.
+        let (_, full_pad_alt) = if crate::read_event_discovery::snp_allele_depth_pads_equivalent(
+            event.start_1based.get(),
+            pad_start_1based,
+            full_reference_pad_1based,
+        ) || event.is_indel()
+        {
+            (0, sup_pileup_alt)
+        } else if is_sparse_snp_gl_rescue_eligible(&event) {
             read_allele_depths_at_locus_dedupe_qname(
                 pileup_src,
                 &event,
                 full_reference_pad_1based,
             )
         } else {
-            read_allele_depths_at_locus(
-                pileup_src,
-                &event,
-                full_reference_pad_1based,
-            )
+            read_allele_depths_at_locus(pileup_src, &event, full_reference_pad_1based)
         };
         let pileup_alt_authority = read_alt_ad
             .max(sup_pileup_alt)
@@ -538,8 +592,6 @@ fn try_genotype_variation_event(
                 0
             });
         let align_cap = geno_align_alt.max(align_pileup_alt);
-        let softclip_deduped_alt =
-            sparse_softclip_pileup_alt_at_locus(pileup_src, &event, margin);
         // Mid-B band: untrimmed pileup soft-clip fragment count drives FORMAT (92318227=2, 92318325/315=3).
         let softclip_three_fragment_format = sparse_java_softclip_pairhmm_band(&event)
             && sparse_java_softclip_overlap_rescue_eligible(&event)

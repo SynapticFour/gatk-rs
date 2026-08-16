@@ -72,12 +72,16 @@ fn last_index_of(reference: &[u8], query: &[u8]) -> Option<usize> {
     let qlen = query.len();
     let first = query[0];
     let last = query[qlen - 1];
-    // Walk candidate starts from the end. For qlen==1 the first==last check is enough.
+    // Walk candidate starts from the end. Skip starts whose first byte cannot match
+    // without a full slice compare (Java String.lastIndexOf contract).
     let mut r = reference.len() - qlen;
     loop {
-        if reference[r] == first && reference[r + qlen - 1] == last {
-            // Full slice eq only when bookends match (common SoftClip exact-hit path).
-            if qlen == 1 || reference[r + 1..r + qlen - 1] == query[1..qlen - 1] {
+        // Fast reject on first byte before touching the last-byte / interior checks.
+        if reference[r] == first {
+            if qlen == 1
+                || (reference[r + qlen - 1] == last
+                    && (qlen == 2 || reference[r + 1..r + qlen - 1] == query[1..qlen - 1]))
+            {
                 return Some(r);
             }
         }

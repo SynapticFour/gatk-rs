@@ -1,0 +1,46 @@
+//! Region-scoped CIGAR/seq decode cache for multi-pass pileup AD.
+//!
+//! Observable contract unchanged: same AD counts. Avoids repeated `rec.cigar()` /
+//! `rec.seq().as_bytes()` allocations when `try_genotype` rescans the same reads.
+
+use crate::shared_bam::SharedBamRecord;
+use rust_htslib::bam::record::CigarString;
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+#[derive(Default)]
+pub struct AdDecodeCache {
+    /// Keyed by `Arc::as_ptr` of the BAM record.
+    entries: HashMap<usize, (CigarString, Vec<u8>)>,
+}
+
+impl AdDecodeCache {
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+
+    #[inline]
+    pub fn cigar_and_seq<'a>(&'a mut self, rec: &SharedBamRecord) -> (&'a CigarString, &'a [u8]) {
+        let key = std::sync::Arc::as_ptr(rec) as usize;
+        let entry = self.entries.entry(key).or_insert_with(|| {
+            let cigar = CigarString(rec.cigar().iter().copied().collect());
+            let seq = rec.seq().as_bytes();
+            (cigar, seq)
+        });
+        (&entry.0, entry.1.as_slice())
+    }
+}
+
+thread_local! {
+    static AD_DECODE_CACHE: RefCell<AdDecodeCache> = RefCell::new(AdDecodeCache::default());
+}
+
+/// Clear the TLS AD decode cache (call once per genotyping region).
+pub fn clear_ad_decode_cache() {
+    AD_DECODE_CACHE.with(|c| c.borrow_mut().clear());
+}
+
+/// Borrow TLS cache for a pileup scan.
+pub(crate) fn with_ad_decode_cache<R>(f: impl FnOnce(&mut AdDecodeCache) -> R) -> R {
+    AD_DECODE_CACHE.with(|c| f(&mut c.borrow_mut()))
+}
