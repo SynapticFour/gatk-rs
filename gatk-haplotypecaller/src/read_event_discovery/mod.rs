@@ -249,6 +249,21 @@ impl ReadEventDiscoveryOptions {
             include_motif_insertions: false,
         }
     }
+
+    /// Parity-spine SNPs on dense GIAB: admit strong hets that [`strict`](Self::strict)'s
+    /// high-depth 0.55 gate rejects (~30% alt at DP≥5). Aligns with the wall-losers
+    /// strong-het class (`alt≥4`, frac≳0.20) without loosening VCF emit thresholds.
+    pub fn parity_spine_snps() -> Self {
+        Self {
+            min_snp_depth: 4,
+            min_snp_alt_reads: 4,
+            min_snp_alt_fraction: 0.20,
+            high_depth_threshold: 10,
+            high_depth_min_alt_fraction: 0.20,
+            max_events_per_region: 64,
+            include_motif_insertions: false,
+        }
+    }
 }
 
 /// Score for read-supplement alt haps (below legacy `assembly_backed` emit hack threshold).

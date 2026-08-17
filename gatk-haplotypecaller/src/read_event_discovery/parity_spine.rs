@@ -340,30 +340,31 @@ pub fn parity_spine_read_proven_snps(
     // throughput bounded (128 made dense HC ~6× slower without clearing remaining FNs).
     const MAX_SPINE_SNPS: usize = 64;
     let (apply_bases, apply_pad, _) = reference_hap_apply_window(assembly);
-    let (scan_bases, scan_pad) = assembly.event_map_reference();
+    // Scan on full padded ref — same as indel spine. `event_map_reference()` can be a
+    // trim/EventMap slice that excludes active-span SNPs (e.g. 21:9411785 inside
+    // 9411693-9411822 but outside the assembled-variation window).
+    let scan_bases = assembly.reference_bases();
+    let scan_pad = assembly.padded_reference_start_1based();
     let contig = assembly.contig.clone();
     let existing: std::collections::BTreeSet<(u64, String, String)> = assembly
         .variation_events
         .iter()
         .map(|e| (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone()))
         .collect();
-    let snps = discover_snp_events_from_reads(
+    // Do not use `strict()`: its high-depth 0.55 alt-fraction gate rejects classic
+    // ~30% hets (e.g. 21:9411785 Java AD 38,16) that assembly EventMap also missed.
+    let snps = discover_parity_spine_snp_events(
         reads,
         scan_bases,
         scan_pad,
         active_start_1based,
         active_end_1based,
         &contig,
-        false,
-        ReadEventDiscoveryOptions::strict(),
     );
     let mut candidates: Vec<VariationEvent> = Vec::new();
-    for (_, e) in snps {
+    for e in snps {
         if candidates.len() >= MAX_SPINE_SNPS {
             break;
-        }
-        if e.ref_allele.len() != 1 || e.alt_allele.len() != 1 {
-            continue;
         }
         if e.start_1based >= GenomePosition::new_1based(P12_CLUSTER_CORE_START) && e.start_1based <= GenomePosition::new_1based(P12_CLUSTER_CORE_END) {
             continue;
@@ -399,6 +400,40 @@ pub fn parity_spine_read_proven_snps(
         sort_dedup_variation_events(assembly);
     }
     Ok(())
+}
+
+/// Strong read-proven SNPs for AssemblyRegion trim expansion (pre-trim).
+///
+/// Observable contract: when assembly EventMap only covers a subset of the active span,
+/// trim would otherwise shrink past remaining read-proven hets (e.g. 21:9411785 beside
+/// 9411732). Returning these sites as trim anchors keeps the genotyping window wide enough.
+pub fn discover_parity_spine_snp_events(
+    reads: &[SharedBamRecord],
+    ref_bases: &[u8],
+    pad_start_1based: u64,
+    active_start_1based: u64,
+    active_end_1based: u64,
+    contig: &str,
+) -> Vec<VariationEvent> {
+    discover_snp_events_from_reads(
+        reads,
+        ref_bases,
+        pad_start_1based,
+        active_start_1based,
+        active_end_1based,
+        contig,
+        false,
+        ReadEventDiscoveryOptions::parity_spine_snps(),
+    )
+    .into_iter()
+    .filter_map(|(_, e)| {
+        if e.ref_allele.len() == 1 && e.alt_allele.len() == 1 {
+            Some(e)
+        } else {
+            None
+        }
+    })
+    .collect()
 }
 
 /// Back-compat alias.

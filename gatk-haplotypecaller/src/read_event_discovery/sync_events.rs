@@ -90,6 +90,8 @@ pub fn sync_assembly_events_from_haplotype_cigars_with_harvest(
     );
     // R4-2: outside contig 2, keep prior read-proven indels across CIGAR regen (assembly often
     // fails to encode genome-wide indels on alt haplotypes; list + pileup AD carry them).
+    // Same retain for biallelic SNPs: trim-window materialize + spillover prune can leave
+    // strong hets list-only (call-rate dig 21:9411785), and CIGAR-only regen would drop them.
     let genome_wide_contig = contig != "2" && contig != "chr2";
     let merge_preserved = |events: &mut Vec<VariationEvent>, source: &[VariationEvent]| {
         for e in source {
@@ -100,7 +102,10 @@ pub fn sync_assembly_events_from_haplotype_cigars_with_harvest(
                 || (strict_java_asm8_only_enabled() && is_p12_phase_e_gap_event(e))
                 || (!strict_java_asm8_only_enabled()
                     && (is_p12_phase_e_gap_event(e) || is_java_diff_oracle_allele(e)))
-                || (genome_wide_contig && e.is_indel());
+                || (genome_wide_contig && e.is_indel())
+                || (genome_wide_contig
+                    && e.ref_allele.len() == 1
+                    && e.alt_allele.len() == 1);
             if keep && !events.iter().any(|x| events_match(x, e)) {
                 // CLONE: needed because owned element into collection.
                 events.push(e.clone());

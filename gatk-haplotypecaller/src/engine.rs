@@ -558,6 +558,36 @@ impl HaplotypeCallerEngine {
             })
             .collect();
         given_alleles_to_trim_variants(&args.given_alleles, &region.contig, &mut trim_variants);
+        // Expand trim anchors with strong read-proven SNPs in the active span so
+        // AssemblyRegion trim does not shrink past hets assembly EventMap missed
+        // (call-rate dig: 21:9411785 beside 9411732).
+        if args.is_strict_java()
+            && region.contig != "2"
+            && region.contig != "chr2"
+            && !args.enable_read_event_supplement
+        {
+            for e in crate::read_event_discovery::discover_parity_spine_snp_events(
+                &region.reads,
+                untrimmed.reference_bases(),
+                untrimmed.padded_reference_start_1based(),
+                region.start.get(),
+                region.end.get(),
+                &region.contig,
+            ) {
+                if trim_variants
+                    .iter()
+                    .any(|t| t.start == e.start_1based.get() && !t.is_indel)
+                {
+                    continue;
+                }
+                trim_variants.push(TrimVariant {
+                    contig: e.contig.clone(),
+                    start: e.start_1based.get(),
+                    end: e.end_1based.get(),
+                    is_indel: false,
+                });
+            }
+        }
         let trimmer = AssemblyRegionTrimmer::new(args.trimmer.clone(), dictionary, &region.contig);
         for h in &mut untrimmed.haplotypes {
             if h.cigar.is_none() && !h.bases.is_empty() {
@@ -1054,8 +1084,9 @@ impl HaplotypeCallerEngine {
         // R4-2 / L8: production StrictJava outside contig 2 — append read-proven
         // indels/SNPs. Must SW-materialize alt haps: the later strict EventMap sync
         // rebuilds from haplotype CIGARs and drops list-only events (p5 sparse SNP
-        // otherwise returns Ok(None) before genotyping). Dense EventMaps already at
-        // ≥64 events skip rediscovery (~0.5 s/region on the chr20 pin).
+        // otherwise returns Ok(None) before genotyping). Dense EventMaps (≥64 events)
+        // skip *indel* rediscovery (~0.5 s/region); SNP spine still runs — saturation is
+        // exactly when assembly EventMaps miss strong hets (call-rate dig 21:9.41Mb).
         // Use untrimmed `region.reads`: post-PairHMM realign strips BAM I/D from genotyping reads.
         if args.is_strict_java()
             && region.contig != "2"
@@ -1064,8 +1095,6 @@ impl HaplotypeCallerEngine {
         {
             const SPINE_EVENT_SATURATION: usize = 64;
             let t0 = std::time::Instant::now();
-            // Re-check saturation after indels: indel spine can fill the EventMap so SNP
-            // rediscovery is wasted (second full read scan + SW materialize).
             if assembly.variation_events.len() < SPINE_EVENT_SATURATION {
                 crate::read_event_discovery::parity_spine_read_proven_indels(
                     &mut assembly,
@@ -1076,16 +1105,14 @@ impl HaplotypeCallerEngine {
                     true,
                 )?;
             }
-            if assembly.variation_events.len() < SPINE_EVENT_SATURATION {
-                crate::read_event_discovery::parity_spine_read_proven_snps(
-                    &mut assembly,
-                    &region.reads,
-                    region.start.get(),
-                    region.end.get(),
-                    sw,
-                    true,
-                )?;
-            }
+            crate::read_event_discovery::parity_spine_read_proven_snps(
+                &mut assembly,
+                &region.reads,
+                region.start.get(),
+                region.end.get(),
+                sw,
+                true,
+            )?;
             crate::runtime_config::rss_trace_checkpoint(
                 "prep_parity_spine",
                 &format!(

@@ -339,3 +339,141 @@ fn dense_giab_insertion_ad_and_discover() {
     let (rr, ra) = read_allele_depths_at_locus(&reads, &event, pad);
     assert!(ra >= 2, "alt AD expected >=2, got ref={} alt={}", rr, ra);
 }
+
+/// Dense-GIAB hets (~30% alt at DP≥5) must pass spine SNP gates but fail `strict()`.
+#[test]
+fn parity_spine_snp_opts_admit_classic_het_rejected_by_strict() {
+    use rust_htslib::bam::record::CigarString;
+    let pad = 100u64;
+    let snp_pos = 110u64;
+    let mut ref_bases = vec![b'N'; 40];
+    let off = (snp_pos - pad) as usize;
+    ref_bases[off] = b'G';
+
+    let mut reads = Vec::new();
+    // DP=20, alt=6 → frac=0.30 (Java-like strong het).
+    for i in 0..14u32 {
+        let mut rec = bam::Record::new();
+        let cigar = CigarString(vec![Cigar::Match(1)]);
+        rec.set(format!("r{i}").as_bytes(), Some(&cigar), b"G", b"?");
+        rec.set_flags(0);
+        rec.set_tid(0);
+        rec.set_pos((snp_pos - 1) as i64);
+        reads.push(crate::shared_bam::share_record(rec));
+    }
+    for i in 0..6u32 {
+        let mut rec = bam::Record::new();
+        let cigar = CigarString(vec![Cigar::Match(1)]);
+        rec.set(format!("a{i}").as_bytes(), Some(&cigar), b"T", b"?");
+        rec.set_flags(0);
+        rec.set_tid(0);
+        rec.set_pos((snp_pos - 1) as i64);
+        reads.push(crate::shared_bam::share_record(rec));
+    }
+
+    let is_gt = |events: &[(u32, VariationEvent)]| {
+        events.iter().any(|(_, e)| {
+            e.start_1based == GenomePosition::new_1based(snp_pos)
+                && e.ref_allele == "G"
+                && e.alt_allele == "T"
+        })
+    };
+
+    let strict = discover_snp_events_from_reads(
+        &reads,
+        &ref_bases,
+        pad,
+        snp_pos,
+        snp_pos,
+        "21",
+        false,
+        ReadEventDiscoveryOptions::strict(),
+    );
+    assert!(
+        !is_gt(&strict),
+        "strict() must reject ~30% het at DP=20; got {:?}",
+        strict
+    );
+
+    let spine = discover_snp_events_from_reads(
+        &reads,
+        &ref_bases,
+        pad,
+        snp_pos,
+        snp_pos,
+        "21",
+        false,
+        ReadEventDiscoveryOptions::parity_spine_snps(),
+    );
+    assert!(
+        is_gt(&spine),
+        "parity_spine_snps() must admit ~30% het; got {:?}",
+        spine
+    );
+}
+
+/// Local BAM probe: 21:9411785 must be discoverable with spine gates on the dig window.
+#[test]
+fn dig_window_9411785_discoverable_with_spine_gates() {
+    use rust_htslib::bam::{self, Read};
+    let bam_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../parity/realworld/na12878_ci_loser_windows/01_chr21_w09.bam"
+    );
+    let fa_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../parity/realworld/assets/hs37d5.simple.fa"
+    );
+    if !std::path::Path::new(bam_path).is_file() || !std::path::Path::new(fa_path).is_file() {
+        return;
+    }
+    let active_start = 9411693u64;
+    let active_end = 9411822u64;
+    let pad = active_start.saturating_sub(100);
+    let pad_end = active_end.saturating_add(100);
+    let mut fa = rust_htslib::faidx::Reader::from_path(fa_path).expect("fa");
+    let seq = fa
+        .fetch_seq("21", (pad - 1) as usize, pad_end as usize)
+        .expect("seq");
+    // faidx fetch_seq end is inclusive 0-based; convert to owned uppercase bytes.
+    let ref_bases: Vec<u8> = seq.iter().map(|b| b.to_ascii_uppercase()).collect();
+    let mut reader = bam::Reader::from_path(bam_path).expect("bam");
+    let mut reads = Vec::new();
+    for r in reader.records() {
+        let r = r.expect("rec");
+        if r.is_unmapped() || r.mapq() < 20 {
+            continue;
+        }
+        let start = (r.pos() + 1) as u64;
+        let end = start.saturating_add(200);
+        if start > active_end || end < active_start {
+            continue;
+        }
+        reads.push(crate::shared_bam::share_record(r));
+        if reads.len() > 400 {
+            break;
+        }
+    }
+    assert!(!reads.is_empty());
+    let snps = discover_snp_events_from_reads(
+        &reads,
+        &ref_bases,
+        pad,
+        active_start,
+        active_end,
+        "21",
+        false,
+        ReadEventDiscoveryOptions::parity_spine_snps(),
+    );
+    assert!(
+        snps.iter().any(|(_, e)| {
+            e.start_1based == GenomePosition::new_1based(9411785)
+                && e.ref_allele == "G"
+                && e.alt_allele == "T"
+        }),
+        "expected G>T at 9411785; found {:?}",
+        snps.iter()
+            .map(|(_, e)| format!("{}:{}>{}", e.start_1based.get(), e.ref_allele, e.alt_allele))
+            .collect::<Vec<_>>()
+    );
+}
