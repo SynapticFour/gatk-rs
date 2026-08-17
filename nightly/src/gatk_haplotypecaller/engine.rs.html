@@ -870,8 +870,8 @@
 <a href=#870 id=870 data-nosnippet>870</a>            // attribution does not lose the PairHMM gap when only ABORT_MIB is set.
 <a href=#871 id=871 data-nosnippet>871</a>            </span><span class="attr">#[cfg(target_arch = <span class="string">"aarch64"</span>)]
 <a href=#872 id=872 data-nosnippet>872</a>            </span><span class="kw">let </span>neon_pack = {
-<a href=#873 id=873 data-nosnippet>873</a>                <span class="kw">let </span>(pack2, leftover) = <span class="kw">crate</span>::pairhmm_simd::take_neon_pack_stats();
-<a href=#874 id=874 data-nosnippet>874</a>                <span class="macro">format!</span>(<span class="string">" neon_pack2={pack2} neon_leftover={leftover}"</span>)
+<a href=#873 id=873 data-nosnippet>873</a>                <span class="kw">let </span>(pack2, prefix, leftover) = <span class="kw">crate</span>::pairhmm_simd::take_neon_pack_stats();
+<a href=#874 id=874 data-nosnippet>874</a>                <span class="macro">format!</span>(<span class="string">" neon_pack2={pack2} neon_prefix_reuse={prefix} neon_leftover={leftover}"</span>)
 <a href=#875 id=875 data-nosnippet>875</a>            };
 <a href=#876 id=876 data-nosnippet>876</a>            <span class="attr">#[cfg(not(target_arch = <span class="string">"aarch64"</span>))]
 <a href=#877 id=877 data-nosnippet>877</a>            </span><span class="kw">let </span>neon_pack = String::new();
