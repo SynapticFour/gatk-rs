@@ -361,12 +361,28 @@ pub fn apply_cigar_to_cigar(first_to_second: &Cigar, second_to_third: &Cigar) ->
     let mut i23 = 0usize;
     let mut elt12 = 0usize;
     let mut elt23 = 0usize;
+    let mut run_op: Option<CigarOperator> = None;
+    let mut run_len = 0usize;
+    let flush = |out: &mut Cigar, run_op: &mut Option<CigarOperator>, run_len: &mut usize| {
+        if let Some(op) = run_op.take() {
+            if *run_len > 0 {
+                out.push(*run_len, op);
+            }
+            *run_len = 0;
+        }
+    };
     while i12 < n12 && i23 < n23 {
         let e12 = &first_to_second.elements[i12];
         let e23 = &second_to_third.elements[i23];
         let transform = cigar_pair_transform(e12.operator, e23.operator);
         if let Some(op13) = transform.op13 {
-            out.push(1, op13);
+            if run_op == Some(op13) {
+                run_len += 1;
+            } else {
+                flush(&mut out, &mut run_op, &mut run_len);
+                run_op = Some(op13);
+                run_len = 1;
+            }
         }
         elt12 += transform.advance12;
         elt23 += transform.advance23;
@@ -379,6 +395,7 @@ pub fn apply_cigar_to_cigar(first_to_second: &Cigar, second_to_third: &Cigar) ->
             elt23 = 0;
         }
     }
+    flush(&mut out, &mut run_op, &mut run_len);
     out
 }
 

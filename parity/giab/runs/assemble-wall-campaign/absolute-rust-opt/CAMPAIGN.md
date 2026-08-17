@@ -116,3 +116,16 @@ Helpers: `stage_audit.py`, `mark_file_audited.py`.
 | Mega after follow-on | **sites=62** exact vs baseline |
 | w09 full shard | exit 0; sites=5207; TRACE pairhmm **37.9s** ≫ assign **5.4s**; wall ~197s; Peak ~472 MiB |
 
+### Cut 5 — post-PairHMM prep membership ✅
+
+Replace O(n²) `candidates.iter().any(events_match)` / merge scans with
+`HashSet` keys; `mem::take` prior events (no clone); indel discovery uses
+`AdDecodeCache`; `apply_cigar_to_cigar` run-length emit.
+
+| Metric (mega thr=2) | Value |
+|---------------------|------:|
+| sites | **62** exact vs baseline-mega |
+| post_pairhmm_prep Σ | **3.17 s** (`prep_realign` 2.94 · `prep_parity_spine` **0.13**) |
+| pairhmm Σ | ~6.1 s |
+| genotype Σ | ~3.7 s |
+

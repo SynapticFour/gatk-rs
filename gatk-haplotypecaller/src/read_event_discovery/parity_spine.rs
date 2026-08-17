@@ -116,13 +116,15 @@ pub fn parity_spine_read_proven_indels(
         );
         return Ok(());
     }
-    let existing: std::collections::BTreeSet<(u64, String, String)> = assembly
+    let existing: std::collections::HashSet<(u64, String, String)> = assembly
         .variation_events
         .iter()
         .chain(graph.iter())
         .map(|e| (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone()))
         .collect();
     let mut candidates: Vec<(u32, VariationEvent)> = Vec::new();
+    let mut candidate_keys: std::collections::HashSet<(u64, String, String)> =
+        std::collections::HashSet::new();
     for (support, e) in discover_ttct_deletions_from_reads(
         reads,
         scan_bases,
@@ -133,7 +135,7 @@ pub fn parity_spine_read_proven_indels(
     ) {
         // CLONE: needed because owned composite key for dedup/lookup.
         let key = (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone());
-        if !existing.contains(&key) && !candidates.iter().any(|(_, c)| events_match(c, &e)) {
+        if !existing.contains(&key) && candidate_keys.insert(key) {
             candidates.push((support.max(MIN_GENERIC_INDEL_READS), e));
         }
     }
@@ -147,7 +149,7 @@ pub fn parity_spine_read_proven_indels(
     );
     // L10: admit support==1 indels that properly extend a same-start indel with
     // support≥2 (nested STR / longest-allele; holdout 20:15031984 18D beside 8D).
-    let strong_starts: BTreeSet<u64> = read_indels
+    let strong_starts: std::collections::HashSet<u64> = read_indels
         .iter()
         .filter(|(s, e)| *s >= MIN_GENERIC_INDEL_READS && e.is_indel())
         .map(|(_, e)| e.start_1based.get())
@@ -165,7 +167,7 @@ pub fn parity_spine_read_proven_indels(
         }
         // CLONE: needed because owned composite key for dedup/lookup.
         let key = (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone());
-        if !existing.contains(&key) && !candidates.iter().any(|(_, c)| events_match(c, &e)) {
+        if !existing.contains(&key) && candidate_keys.insert(key) {
             candidates.push((support.max(1), e));
         }
     }
@@ -191,7 +193,7 @@ pub fn parity_spine_read_proven_indels(
         if e.is_indel() {
             // CLONE: needed because owned composite key for dedup/lookup.
             let key = (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone());
-            if !existing.contains(&key) && !candidates.iter().any(|(_, c)| events_match(c, &e)) {
+            if !existing.contains(&key) && candidate_keys.insert(key) {
                 candidates.push((MIN_GENERIC_INDEL_READS, e));
             }
         }
@@ -210,13 +212,15 @@ pub fn parity_spine_read_proven_indels(
         if graph.iter().any(|g| events_match(g, e)) {
             continue;
         }
-        if candidates.iter().any(|(_, c)| events_match(c, e)) {
+        let key = (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone());
+        if candidate_keys.contains(&key) {
             continue;
         }
         let (rr, ra) = read_allele_depths_at_locus(reads, e, apply_pad);
         let (rr2, ra2) = read_allele_depths_at_locus(reads, e, scan_pad);
         let (rref, ralt) = if ra2 >= ra { (rr2, ra2) } else { (rr, ra) };
         if genome_wide_genotype_read_support(e, rref, ralt) {
+            candidate_keys.insert(key);
             // CLONE: needed — candidate list owns VariationEvent for later materialization.
             candidates.push((ralt.max(0) as u32, e.clone()));
         }
@@ -237,7 +241,7 @@ pub fn parity_spine_read_proven_indels(
         long_ins_pos.push((e.start_1based.get(), span));
         // CLONE: needed because owned composite key for dedup/lookup.
         let key = (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone());
-        if !existing.contains(&key) && !candidates.iter().any(|(_, c)| events_match(c, &e)) {
+        if !existing.contains(&key) && candidate_keys.insert(key) {
             candidates.push((support, e));
         }
     }
@@ -346,7 +350,7 @@ pub fn parity_spine_read_proven_snps(
     let scan_bases = assembly.reference_bases();
     let scan_pad = assembly.padded_reference_start_1based();
     let contig = assembly.contig.clone();
-    let existing: std::collections::BTreeSet<(u64, String, String)> = assembly
+    let existing: std::collections::HashSet<(u64, String, String)> = assembly
         .variation_events
         .iter()
         .map(|e| (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone()))
@@ -362,6 +366,8 @@ pub fn parity_spine_read_proven_snps(
         &contig,
     );
     let mut candidates: Vec<VariationEvent> = Vec::new();
+    let mut candidate_keys: std::collections::HashSet<(u64, String, String)> =
+        std::collections::HashSet::new();
     for e in snps {
         if candidates.len() >= MAX_SPINE_SNPS {
             break;
@@ -373,7 +379,7 @@ pub fn parity_spine_read_proven_snps(
         // require the exact REF/ALT already present (wrong colocated alleles blocked FN SNPs).
         // CLONE: needed because owned composite key for dedup/lookup.
         let key = (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone());
-        if existing.contains(&key) || candidates.iter().any(|c| events_match(c, &e)) {
+        if existing.contains(&key) || !candidate_keys.insert(key) {
             continue;
         }
         candidates.push(e);

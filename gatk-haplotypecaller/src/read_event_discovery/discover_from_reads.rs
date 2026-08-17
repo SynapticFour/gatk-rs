@@ -249,17 +249,18 @@ fn discover_indel_events_from_reads(
     active_end_1based: u64,
     contig: &str,
 ) -> Vec<(u32, VariationEvent)> {
+    use crate::read_event_discovery::ad_decode_cache::with_ad_decode_cache;
     let pad_start0 = pad_start_1based.saturating_sub(1) as i64;
     let mut support: std::collections::HashMap<(u64, String, String), u32> =
         std::collections::HashMap::new();
 
+    with_ad_decode_cache(|cache| {
     for rec in reads {
         if rec.is_unmapped() || rec.tid() < 0 {
             continue;
         }
-        let cigar = CigarString(rec.cigar().iter().copied().collect());
+        let (cigar, seq) = cache.cigar_and_seq(rec);
         let start0 = rec.pos();
-        let seq = rec.seq().as_bytes();
         let mut ref_pos0 = start0;
         let mut query_pos: usize = 0;
 
@@ -303,7 +304,7 @@ fn discover_indel_events_from_reads(
                     {
                         let anchor = ref_bases[ref_index];
                         if is_regular_base(anchor) {
-                            let Some(inserted) = query_subseq(&seq, query_pos, len) else {
+                            let Some(inserted) = query_subseq(seq, query_pos, len) else {
                                 query_pos += len;
                                 continue;
                             };
@@ -335,6 +336,7 @@ fn discover_indel_events_from_reads(
             }
         }
     }
+    });
 
     let mut scored = Vec::new();
     for ((pos, ref_allele, alt_allele), count) in support {
