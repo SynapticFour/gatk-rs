@@ -22,7 +22,9 @@ fn sparse_softclip_pileup_alt_counts(
     let alt_b = event.alt_allele.as_bytes()[0].to_ascii_uppercase();
     let locus = event.start_1based.get() as i32;
     with_ad_decode_cache(|cache| {
-        let mut seen = std::collections::BTreeSet::new();
+        // Count-only QNAME dedupe — HashSet matches BTreeSet cardinality.
+        let mut seen: std::collections::HashSet<Vec<u8>> =
+            std::collections::HashSet::with_capacity(reads.len().min(512));
         let mut deduped = 0i32;
         let mut fragments = 0i32;
         for rec in reads {
@@ -33,7 +35,9 @@ fn sparse_softclip_pileup_alt_counts(
             if let Some(qb) = cache.softclip_base_at_ref_1based(rec, locus) {
                 if qb.to_ascii_uppercase() == alt_b {
                     fragments += 1;
-                    if seen.insert(rec.qname().to_owned()) {
+                    let qn = rec.qname();
+                    if !seen.contains(qn) {
+                        seen.insert(qn.to_owned());
                         deduped += 1;
                     }
                 }
@@ -265,10 +269,11 @@ fn narrow_strict_java_sparse_hom_alt_subset(
         return subset;
     }
     ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
-    let keep_qnames: BTreeSet<Vec<u8>> = ranked
-        .iter()
+    // Membership-only — HashSet matches BTreeSet cardinality/content.
+    let keep_qnames: std::collections::HashSet<Vec<u8>> = ranked
+        .into_iter()
         .take(keep_reads)
-        .map(|(q, _)| q.clone())
+        .map(|(q, _)| q)
         .collect();
     let narrowed: Vec<RegionReadLikelihood> = subset
         .iter()
@@ -302,7 +307,8 @@ fn narrow_strict_java_cluster_upstream_hom_alt_subset(
     // Lifetime: `mapping` outlives marginalization; pass alt indices by borrow.
     let rows = region_likelihoods_to_rows(&subset, haplotypes.len());
     let marg = marginalize_rows_to_biallelic_alleles(&rows, &ref_pool, &mapping.alt_haplotype_indices);
-    let keep_qnames: BTreeSet<Vec<u8>> = marg
+    // Membership-only — HashSet matches BTreeSet cardinality/content.
+    let keep_qnames: std::collections::HashSet<Vec<u8>> = marg
         .iter()
         .filter_map(|row| {
             let lr = row.haplotype_log10_likelihoods[0];
@@ -947,7 +953,8 @@ fn try_genotype_variation_event(
                     2 => 2.min(ranked.len()).max(1),
                     _ => 1.min(ranked.len()),
                 };
-                let keep_qnames: BTreeSet<Vec<u8>> = ranked
+                // Membership-only — HashSet matches BTreeSet cardinality/content.
+                let keep_qnames: std::collections::HashSet<Vec<u8>> = ranked
                     .iter()
                     .take(keep_n)
                     .filter_map(|(i, _)| marg.get(*i))

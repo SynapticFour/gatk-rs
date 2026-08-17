@@ -84,7 +84,7 @@ use gatk_common::GatkResult;
 use rust_htslib::bam::Record;
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::BTreeSet;
+use std::collections::HashSet;
 
 /// Why a variation event did not become a [`GenotypedSiteCall`] (P12 trace / A2).
 /// # Invariants
@@ -415,8 +415,8 @@ pub fn strict_java_pairhmm_normalize_hap_indices(
     contig: &str,
     config: &HcGenotypingConfig,
 ) -> Vec<usize> {
-    use std::collections::BTreeSet;
-    let mut out = BTreeSet::new();
+    // Order unused — consumer builds a bool mask; HashSet matches BTreeSet membership.
+    let mut out = HashSet::new();
     if let Some(ref_idx) = haplotypes.iter().position(|h| h.is_reference) {
         out.insert(ref_idx);
     }
@@ -951,38 +951,54 @@ fn dedupe_likelihood_subset_by_qname(
     subset: Vec<RegionReadLikelihood>,
     reads: &[SharedBamRecord],
 ) -> Vec<RegionReadLikelihood> {
-    let mut qname_to_reads: std::collections::BTreeMap<Vec<u8>, Vec<usize>> =
-        std::collections::BTreeMap::new();
-    for rl in &subset {
-        let Some(rec) = reads.get(rl.read_index.get()) else {
-            continue;
-        };
-        qname_to_reads
-            .entry(rec.qname().to_owned())
-            .or_default()
-            .push(rl.read_index.get());
-    }
-    if !qname_to_reads.values().any(|indices| indices.len() > 1) {
+    if subset.len() <= 1 {
         return subset;
     }
-    let max_ll_for_read = |read_idx: usize| {
-        subset
-            .iter()
-            .filter(|e| e.read_index.get() == read_idx)
-            .map(|e| e.log10_likelihood)
-            .fold(f64::NEG_INFINITY, f64::max)
-    };
-    let keep: std::collections::BTreeSet<usize> = qname_to_reads
-        .values()
-        .filter_map(|indices| {
-            indices.iter().copied().max_by(|&a, &b| {
-                max_ll_for_read(a)
-                    .partial_cmp(&max_ll_for_read(b))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then(a.cmp(&b))
+    // One pass: max log10 LL per read_index (avoids O(|subset|²) rescans).
+    let mut max_ll: std::collections::HashMap<usize, f64> =
+        std::collections::HashMap::with_capacity(subset.len());
+    for e in &subset {
+        let idx = e.read_index.get();
+        let ll = e.log10_likelihood;
+        max_ll
+            .entry(idx)
+            .and_modify(|m| {
+                if ll > *m {
+                    *m = ll;
+                }
             })
-        })
-        .collect();
+            .or_insert(ll);
+    }
+    // Best read_index per QNAME: higher LL, then lower index (same as prior max_by).
+    let mut best_for_qname: std::collections::HashMap<Vec<u8>, usize> =
+        std::collections::HashMap::with_capacity(subset.len());
+    let mut any_multi = false;
+    for rl in &subset {
+        let idx = rl.read_index.get();
+        let Some(rec) = reads.get(idx) else {
+            continue;
+        };
+        let qn = rec.qname();
+        let ll = max_ll.get(&idx).copied().unwrap_or(f64::NEG_INFINITY);
+        if let Some(&cur) = best_for_qname.get(qn) {
+            if cur == idx {
+                continue;
+            }
+            any_multi = true;
+            let cur_ll = max_ll.get(&cur).copied().unwrap_or(f64::NEG_INFINITY);
+            if ll > cur_ll || (ll == cur_ll && idx < cur) {
+                if let Some(slot) = best_for_qname.get_mut(qn) {
+                    *slot = idx;
+                }
+            }
+        } else {
+            best_for_qname.insert(qn.to_owned(), idx);
+        }
+    }
+    if !any_multi {
+        return subset;
+    }
+    let keep: std::collections::HashSet<usize> = best_for_qname.into_values().collect();
     subset
         .into_iter()
         .filter(|rl| keep.contains(&rl.read_index.get()))
@@ -1591,9 +1607,9 @@ pub(crate) fn sparse_softclip_alt_qnames_at_locus(
     reads: &[SharedBamRecord],
     event: &VariationEvent,
     margin: i32,
-) -> BTreeSet<Vec<u8>> {
+) -> HashSet<Vec<u8>> {
     use crate::read_event_discovery::ad_decode_cache::with_ad_decode_cache;
-    let mut out = BTreeSet::new();
+    let mut out = HashSet::new();
     if event.ref_allele.len() != 1 || event.alt_allele.len() != 1 {
         return out;
     }
@@ -1630,9 +1646,9 @@ fn sparse_alignment_alt_qnames_at_locus(
     reads: &[SharedBamRecord],
     event: &VariationEvent,
     margin: i32,
-) -> BTreeSet<Vec<u8>> {
+) -> HashSet<Vec<u8>> {
     use crate::read_event_discovery::ad_decode_cache::with_ad_decode_cache;
-    let mut out = BTreeSet::new();
+    let mut out = HashSet::new();
     if event.ref_allele.len() != 1 || event.alt_allele.len() != 1 {
         return out;
     }
@@ -1702,7 +1718,7 @@ fn augment_sparse_softclip_subset_from_pileup_qnames(
     if target_qnames.is_empty() {
         return subset;
     }
-    let mut keep: BTreeSet<usize> = subset.iter().map(|rl| rl.read_index.get()).collect();
+    let mut keep: HashSet<usize> = subset.iter().map(|rl| rl.read_index.get()).collect();
     for rl in likelihoods {
         if likelihood_reads
             .get(rl.read_index.get())
@@ -1735,7 +1751,7 @@ fn augment_sparse_alignment_subset_from_pileup_qnames(
     if target_qnames.is_empty() {
         return subset;
     }
-    let mut keep: BTreeSet<usize> = subset.iter().map(|rl| rl.read_index.get()).collect();
+    let mut keep: HashSet<usize> = subset.iter().map(|rl| rl.read_index.get()).collect();
     for rl in likelihoods {
         if likelihood_reads
             .get(rl.read_index.get())
@@ -1769,16 +1785,18 @@ fn augment_sparse_softclip_likelihood_subset(
             .get()
             .saturating_add(event.ref_allele.len().saturating_sub(1) as u64),
     );
+    // O(n) QNAME cover check — same predicate as nested any/any.
+    let subset_qnames: HashSet<&[u8]> = subset
+        .iter()
+        .filter_map(|rl| reads.get(rl.read_index.get()).map(|r| r.qname()))
+        .collect();
     if reads.iter().any(|r| {
-        subset.iter().any(|rl| {
-            reads
-                .get(rl.read_index.get())
-                .is_some_and(|lr| lr.qname() == r.qname())
-        }) && java_alignment_read_covers_variant_base(r, event.start_1based.get(), var_end, margin)
+        subset_qnames.contains(r.qname())
+            && java_alignment_read_covers_variant_base(r, event.start_1based.get(), var_end, margin)
     }) {
         return subset;
     }
-    let mut keep: BTreeSet<usize> = subset.iter().map(|rl| rl.read_index.get()).collect();
+    let mut keep: HashSet<usize> = subset.iter().map(|rl| rl.read_index.get()).collect();
     for rl in likelihoods {
         if reads.get(rl.read_index.get()).is_some_and(|r| {
             soft_unclipped_read_overlaps_interval(r, event.start_1based.get(), var_end, margin)

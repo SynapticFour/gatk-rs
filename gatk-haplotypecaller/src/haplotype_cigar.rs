@@ -3,8 +3,14 @@
 use crate::cigar::{length_on_read, length_on_reference, Cigar, CigarElement, CigarOperator};
 use crate::cigar_builder::CigarBuilder;
 use crate::smith_waterman::{align, SmithWatermanAlignment, SwOverhangStrategy, SwParameters};
+use std::cell::RefCell;
 
 pub const SW_PAD: &[u8] = b"NNNNNNNNNN";
+
+thread_local! {
+    static HAP_SW_PAD_SCRATCH: RefCell<(Vec<u8>, Vec<u8>)> =
+        RefCell::new((Vec::new(), Vec::new()));
+}
 
 /// Optional haplotype CIGAR after Smith–Waterman alignment to reference.
 /// # Invariants
@@ -177,23 +183,28 @@ fn calculate_haplotype_cigar_sw(
             alignment_start_hap_wrt_ref: 0,
         });
     }
-    let mut padded_ref = Vec::with_capacity(SW_PAD.len() + ref_seq.len() + SW_PAD.len());
-    padded_ref.extend_from_slice(SW_PAD);
-    padded_ref.extend_from_slice(ref_seq);
-    padded_ref.extend_from_slice(SW_PAD);
-    let mut padded_alt = Vec::with_capacity(SW_PAD.len() + alt_seq.len() + SW_PAD.len());
-    padded_alt.extend_from_slice(SW_PAD);
-    padded_alt.extend_from_slice(alt_seq);
-    padded_alt.extend_from_slice(SW_PAD);
-
-    let Ok(alignment) = align(&padded_ref, &padded_alt, parameters, strategy) else {
+    let alignment = HAP_SW_PAD_SCRATCH.with(|cell| {
+        let (padded_ref, padded_alt) = &mut *cell.borrow_mut();
+        padded_ref.clear();
+        padded_ref.reserve(SW_PAD.len() + ref_seq.len() + SW_PAD.len());
+        padded_ref.extend_from_slice(SW_PAD);
+        padded_ref.extend_from_slice(ref_seq);
+        padded_ref.extend_from_slice(SW_PAD);
+        padded_alt.clear();
+        padded_alt.reserve(SW_PAD.len() + alt_seq.len() + SW_PAD.len());
+        padded_alt.extend_from_slice(SW_PAD);
+        padded_alt.extend_from_slice(alt_seq);
+        padded_alt.extend_from_slice(SW_PAD);
+        align(padded_ref, padded_alt, parameters, strategy)
+    });
+    let Ok(alignment) = alignment else {
         return None;
     };
     if is_sw_failure(&alignment) {
         return None;
     }
     let base_start = SW_PAD.len();
-    let base_end = padded_alt.len() - SW_PAD.len() - 1;
+    let base_end = SW_PAD.len() + alt_seq.len() - 1;
     let trimmed = trim_cigar_by_bases(&alignment.cigar, base_start, base_end);
     let mut non_standard = trimmed.cigar;
     let trimmed_leading = trimmed.leading_deletions_removed;

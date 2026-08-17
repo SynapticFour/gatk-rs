@@ -105,21 +105,26 @@ pub fn hap_base_at_ref_locus(
             let len = el.length;
             match el.operator {
                 CigarOperator::Match => {
-                    for _ in 0..len {
-                        if ref_pos == target {
-                            return hap.bases.get(hap_idx).copied();
-                        }
-                        ref_pos += 1;
-                        hap_idx += 1;
+                    if target < ref_pos {
+                        return None;
                     }
+                    if target >= ref_pos + len {
+                        ref_pos += len;
+                        hap_idx += len;
+                        continue;
+                    }
+                    let delta = target - ref_pos;
+                    return hap.bases.get(hap_idx + delta).copied();
                 }
                 CigarOperator::Deletion => {
-                    for _ in 0..len {
-                        if ref_pos == target {
-                            return None;
-                        }
-                        ref_pos += 1;
+                    if target < ref_pos {
+                        return None;
                     }
+                    if target >= ref_pos + len {
+                        ref_pos += len;
+                        continue;
+                    }
+                    return None;
                 }
                 CigarOperator::Insertion | CigarOperator::SoftClip => {
                     hap_idx += len;

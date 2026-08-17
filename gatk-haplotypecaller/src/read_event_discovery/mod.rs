@@ -684,7 +684,9 @@ pub fn read_allele_depths_at_locus_dedupe_qname(
     if event.ref_allele.len() != 1 || event.alt_allele.len() != 1 {
         return read_allele_depths_at_locus(reads, event, pad_start_1based);
     }
-    let mut seen = std::collections::BTreeSet::new();
+    // HashSet: order-independent QNAME dedupe (count-only; same AD as BTreeSet).
+    let mut seen: std::collections::HashSet<Vec<u8>> =
+        std::collections::HashSet::with_capacity(reads.len().min(512));
     let off = event.start_1based.get().saturating_sub(pad_start_1based) as usize;
     let ref_b = event.ref_allele.as_bytes()[0].to_ascii_uppercase();
     let alt_b = event.alt_allele.as_bytes()[0].to_ascii_uppercase();
@@ -696,10 +698,11 @@ pub fn read_allele_depths_at_locus_dedupe_qname(
             if rec.is_unmapped() {
                 continue;
             }
-            let qname = rec.qname().to_owned();
-            if !seen.insert(qname) {
+            let qname = rec.qname();
+            if seen.contains(qname) {
                 continue;
             }
+            seen.insert(qname.to_owned());
             let (cigar, seq_bytes) = cache.cigar_and_seq(rec);
             let Some(qi) = query_index_at_reference_position(rec.pos(), cigar, ref_pos0) else {
                 continue;
