@@ -253,8 +253,9 @@ jobs:
             echo "No dashboard/baseline/parity-site changes to commit"
             exit 0
           fi
-          git commit -m "docs: update equivalence dashboard + parity-site (${GITHUB_SHA::12})"
-          git push
+          git commit -m "docs: update equivalence dashboard + parity-site (${GITHUB_SHA::12})" || true
+          # Protected main rejects GITHUB_TOKEN push (GH006); Pages deploy uses workspace files.
+          echo "[parity-site] dashboard/history updated for Pages deploy (no push to main)"
 
       # Customer-facing site at Pages root (Chart.js dashboard).
       - name: Deploy public parity-site to GitHub Pages (root)
