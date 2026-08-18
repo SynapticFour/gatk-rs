@@ -336,6 +336,7 @@ pub fn parity_spine_read_proven_snps(
     active_end_1based: u64,
     sw: &SwParameters,
     materialize_alt_haps: bool,
+    precomputed_snps: Option<&[VariationEvent]>,
 ) -> GatkResult<()> {
     if reads.is_empty() || ref_bases_empty(assembly) {
         return Ok(());
@@ -347,8 +348,6 @@ pub fn parity_spine_read_proven_snps(
     // Scan on full padded ref — same as indel spine. `event_map_reference()` can be a
     // trim/EventMap slice that excludes active-span SNPs (e.g. 21:9411785 inside
     // 9411693-9411822 but outside the assembled-variation window).
-    let scan_bases = assembly.reference_bases();
-    let scan_pad = assembly.padded_reference_start_1based();
     let contig = assembly.contig.clone();
     let existing: std::collections::HashSet<(u64, String, String)> = assembly
         .variation_events
@@ -357,14 +356,23 @@ pub fn parity_spine_read_proven_snps(
         .collect();
     // Do not use `strict()`: its high-depth 0.55 alt-fraction gate rejects classic
     // ~30% hets (e.g. 21:9411785 Java AD 38,16) that assembly EventMap also missed.
-    let snps = discover_parity_spine_snp_events(
-        reads,
-        scan_bases,
-        scan_pad,
-        active_start_1based,
-        active_end_1based,
-        &contig,
-    );
+    // Pre-trim trim-anchor scan is the same pileup (untrimmed reads + full pad).
+    let owned_snps;
+    let snps: &[VariationEvent] = if let Some(pre) = precomputed_snps {
+        pre
+    } else {
+        let scan_bases = assembly.reference_bases();
+        let scan_pad = assembly.padded_reference_start_1based();
+        owned_snps = discover_parity_spine_snp_events(
+            reads,
+            scan_bases,
+            scan_pad,
+            active_start_1based,
+            active_end_1based,
+            &contig,
+        );
+        owned_snps.as_slice()
+    };
     let mut candidates: Vec<VariationEvent> = Vec::new();
     let mut candidate_keys: std::collections::HashSet<(u64, String, String)> =
         std::collections::HashSet::new();
@@ -382,7 +390,7 @@ pub fn parity_spine_read_proven_snps(
         if existing.contains(&key) || !candidate_keys.insert(key) {
             continue;
         }
-        candidates.push(e);
+        candidates.push(e.clone());
     }
     if candidates.is_empty() {
         return Ok(());

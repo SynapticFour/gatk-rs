@@ -11,10 +11,13 @@ use crate::haplotype_cigar::{
 };
 use crate::read_unclip::hard_clip_soft_clipped_bases_seq;
 use crate::region_read_likelihood::RegionReadLikelihood;
-use crate::smith_waterman::{align_read_to_best_haplotype, SwParameters as SwParams};
+use crate::smith_waterman::{
+    align_read_to_best_haplotype, SmithWatermanAlignment, SwParameters as SwParams,
+};
 use gatk_common::GatkResult;
 use rust_htslib::bam::record::{Cigar as HtsCigar, CigarString};
 use rust_htslib::bam::Record;
+use std::collections::HashMap;
 
 /// GATK `AlleleLikelihoods.LOG_10_INFORMATIVE_THRESHOLD`.
 pub const LOG_10_INFORMATIVE_THRESHOLD: f64 = 0.2;
@@ -101,6 +104,9 @@ pub fn realign_reads_to_best_haplotype<S: crate::shared_bam::BamRecordSlot>(
     }
     let mut changed = false;
     let mut best_per_read = vec![ref_idx; reads.len()];
+    // Duplicate / identical-seq reads vs the same best hap share one SW result
+    // (Java still aligns each read; scores are identical for equal sequences).
+    let mut sw_cache: HashMap<(usize, Vec<u8>), SmithWatermanAlignment> = HashMap::new();
     for (ri, slot) in reads.iter_mut().enumerate() {
         let rec = slot.make_mut();
         if rec.is_unmapped() {
@@ -120,6 +126,8 @@ pub fn realign_reads_to_best_haplotype<S: crate::shared_bam::BamRecordSlot>(
             padded_reference_start_1based,
             hap_to_ref_sw,
             hap_meta.get(best_hi).and_then(|m| m.as_ref()),
+            best_hi,
+            &mut sw_cache,
         )? {
             changed = true;
         }
@@ -276,6 +284,8 @@ fn create_read_aligned_to_ref(
         reference_start_1based,
         hap_to_ref_sw,
         None,
+        0,
+        &mut HashMap::new(),
     )
 }
 
@@ -286,6 +296,8 @@ fn create_read_aligned_to_ref_cached(
     reference_start_1based: u64,
     hap_to_ref_sw: &SwParameters,
     precomputed: Option<&(usize, Cigar)>,
+    best_hi: usize,
+    sw_cache: &mut HashMap<(usize, Vec<u8>), SmithWatermanAlignment>,
 ) -> GatkResult<bool> {
     const CONSOLIDATED_HAP_PAD: usize = 1000;
 
@@ -303,11 +315,18 @@ fn create_read_aligned_to_ref_cached(
     }
 
     let read_to_hap_sw = SwParams::gatk_read_to_best_haplotype();
-    let read_to_hap =
+    let cache_key = (best_hi, clipped_bases.clone());
+    let read_to_hap = if let Some(aln) = sw_cache.get(&cache_key) {
+        aln.clone()
+    } else {
         match align_read_to_best_haplotype(&best_hap.bases, &clipped_bases, &read_to_hap_sw) {
-            Ok(aln) => aln,
+            Ok(aln) => {
+                sw_cache.insert(cache_key, aln.clone());
+                aln
+            }
             Err(_) => return Ok(false),
-        };
+        }
+    };
     if read_to_hap.alignment_offset < 0 {
         return Ok(false);
     }

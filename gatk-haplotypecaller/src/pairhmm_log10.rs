@@ -194,9 +194,9 @@ impl PairHmmScratch {
         }
     }
 
-    /// Drop all TLS capacity so Peak-RSS can fall after a deep region.
+    /// Keep allocation high-water — next `ensure` reuses capacity (no munmap).
     fn clear(&mut self) {
-        *self = Self::new();
+        let _ = self;
     }
 }
 
@@ -204,8 +204,7 @@ thread_local! {
     static PAIRHMM_SCRATCH: RefCell<PairHmmScratch> = RefCell::new(PairHmmScratch::new());
 }
 
-/// Release PairHMM Log10 TLS scratch (full drop — soft keep caused multi-hundred-MiB sticky RSS).
-/// Call after finishing an assembly region, or between SW-heavy and PairHMM-heavy phases.
+/// Keep Log10 PairHMM TLS high-water (see `run::release_region_tls_scratch`).
 pub fn release_pairhmm_tls_scratch() {
     PAIRHMM_SCRATCH.with(|cell| {
         cell.borrow_mut().clear();

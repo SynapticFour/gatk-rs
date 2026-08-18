@@ -3,8 +3,8 @@
 #![cfg(target_arch = "aarch64")]
 
 use super::pack::{
-    score_haps_logless_packed_f64, score_haps_logless_packed_f64_with_transitions,
-    score_one_hap_logless_f64_with_transitions,
+    mean_consecutive_prefix_frac, score_haps_logless_packed_f64,
+    score_haps_logless_packed_f64_with_transitions, score_one_hap_logless_f64_with_transitions,
 };
 use crate::pairhmm_logless::{
     logless_build_transitions, logless_match_mismatch_prior, INITIAL_CONDITION,
@@ -62,17 +62,8 @@ thread_local! {
     static NEON_LEFTOVER: Cell<u64> = const { Cell::new(0) };
 }
 
-/// Drop NEON PairHMM TLS planes (Peak hygiene after a region).
-pub fn release_pairhmm_neon_tls_scratch() {
-    NEON_SCRATCH.with(|c| {
-        let mut s = c.borrow_mut();
-        s.m = Vec::new();
-        s.ins = Vec::new();
-        s.del = Vec::new();
-        s.prior = Vec::new();
-    });
-    NEON_BY_LEN.with(|c| c.borrow_mut().clear());
-}
+/// Keep NEON PairHMM TLS high-water (see `run::release_region_tls_scratch`).
+pub fn release_pairhmm_neon_tls_scratch() {}
 
 /// Take-and-reset NEON pack occupancy: `(pack2, prefix_reuse_haps, leftover_singles)`.
 pub fn take_neon_pack_stats() -> (u64, u64, u64) {
@@ -159,13 +150,16 @@ unsafe fn score_haps_neon_f64_unchecked(
                 };
                 // Sort in place — no idxs.clone(); score-invariant hap order for prefix reuse.
                 ordered.sort_by(|&a, &b| haplotypes[a].cmp(haplotypes[b]));
-                // Long same-length chains: Java hapStartIndex prefix reuse beats 2-wide packs
-                // when assembly haps share long prefixes (common on dense GIAB).
-                if ordered.len() >= 3 {
-                    let mut subset = Vec::with_capacity(ordered.len());
-                    for &i in ordered.iter() {
-                        subset.push(haplotypes[i]);
-                    }
+                let mut subset = Vec::with_capacity(ordered.len());
+                for &i in ordered.iter() {
+                    subset.push(haplotypes[i]);
+                }
+                // Java Logless hapStartIndex vs GKL SIMD lanes: prefix reuse wins when
+                // sorted same-length haps share long prefixes; otherwise pack2.
+                let use_prefix = ordered.len() >= 3
+                    && mean_consecutive_prefix_frac(&subset)
+                        >= super::pack::PREFIX_REUSE_OVER_SIMD_FRAC;
+                if use_prefix {
                     match score_haps_logless_packed_f64_with_transitions(
                         read_bases,
                         read_quals,

@@ -213,8 +213,12 @@ fn align_uppercase_ready(
             sw.resize(cells, 0);
             btrack.resize(cells, 0);
         }
-        sw[..cells].fill(0);
-        btrack[..cells].fill(0);
+        // Interior cells are overwritten by DP. Only row-0 / col-0 must be 0 so the
+        // SoftClip first-cell diag/up/left terms are not stale from a larger prior call.
+        sw[..ncol].fill(0);
+        for i in 1..nrow {
+            sw[i * ncol] = 0;
+        }
         calculate_matrix(
             reference,
             alternate,
@@ -307,7 +311,8 @@ impl SwScratch {
     }
 
     fn clear(&mut self) {
-        *self = Self::new();
+        // Keep allocation high-water — next `ensure` reuses capacity (no munmap).
+        let _ = self;
     }
 }
 
@@ -315,7 +320,7 @@ thread_local! {
     static SW_SCRATCH: RefCell<SwScratch> = RefCell::new(SwScratch::new());
 }
 
-/// Drop Smith-Waterman TLS arenas (full drop).
+/// Keep SW TLS high-water (see `run::release_region_tls_scratch`).
 pub fn release_sw_tls_scratch() {
     SW_SCRATCH.with(|cell| {
         cell.borrow_mut().clear();

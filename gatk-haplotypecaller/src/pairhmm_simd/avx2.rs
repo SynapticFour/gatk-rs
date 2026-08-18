@@ -3,8 +3,8 @@
 #![cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 
 use super::pack::{
-    score_haps_logless_packed_f64, score_haps_logless_packed_f64_with_transitions,
-    score_one_hap_logless_f64_with_transitions,
+    mean_consecutive_prefix_frac, score_haps_logless_packed_f64,
+    score_haps_logless_packed_f64_with_transitions, score_one_hap_logless_f64_with_transitions,
 };
 use crate::pairhmm_logless::{
     logless_build_transitions, logless_match_mismatch_prior, INITIAL_CONDITION,
@@ -62,17 +62,8 @@ thread_local! {
         RefCell::new(HashMap::new());
 }
 
-/// Drop AVX2 PairHMM TLS planes (Peak hygiene after a region).
-pub fn release_pairhmm_avx2_tls_scratch() {
-    AVX2_SCRATCH.with(|c| {
-        let mut s = c.borrow_mut();
-        s.m = Vec::new();
-        s.ins = Vec::new();
-        s.del = Vec::new();
-        s.prior = Vec::new();
-    });
-    AVX2_BY_LEN.with(|c| c.borrow_mut().clear());
-}
+/// Keep AVX2 PairHMM TLS high-water (see `run::release_region_tls_scratch`).
+pub fn release_pairhmm_avx2_tls_scratch() {}
 
 /// Score haplotypes with AVX2 when available; otherwise portable packed f64.
 pub fn score_haps_avx2_f64(
@@ -146,12 +137,14 @@ unsafe fn score_haps_avx2_f64_unchecked(
                     continue;
                 };
                 ordered.sort_by(|&a, &b| haplotypes[a].cmp(haplotypes[b]));
-                // Long same-length chains: prefix reuse beats repeated pack4 when haps share prefixes.
-                if ordered.len() >= 5 {
-                    let mut subset = Vec::with_capacity(ordered.len());
-                    for &i in ordered.iter() {
-                        subset.push(haplotypes[i]);
-                    }
+                let mut subset = Vec::with_capacity(ordered.len());
+                for &i in ordered.iter() {
+                    subset.push(haplotypes[i]);
+                }
+                let use_prefix = ordered.len() >= 5
+                    && mean_consecutive_prefix_frac(&subset)
+                        >= super::pack::PREFIX_REUSE_OVER_SIMD_FRAC;
+                if use_prefix {
                     match score_haps_logless_packed_f64_with_transitions(
                         read_bases,
                         read_quals,
