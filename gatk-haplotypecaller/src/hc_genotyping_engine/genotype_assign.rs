@@ -416,7 +416,8 @@ fn merge_stored_variation_events_at_position(
     loc_1based: u64,
     include_spanning: bool,
 ) {
-    let mut seen: BTreeSet<(u64, String, String)> = from_haps
+    // Membership-only dedupe — HashSet matches BTreeSet cardinality/content.
+    let mut seen: std::collections::HashSet<(u64, String, String)> = from_haps
         .iter()
         .map(|e| (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone()))
         .collect();

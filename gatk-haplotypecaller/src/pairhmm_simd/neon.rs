@@ -49,12 +49,6 @@ impl NeonScratch {
             self.del.resize(need, 0.0);
             self.prior.resize(need, 0.0);
         }
-        // Always clear the active prefix. On grow, `resize` only zeroes the new
-        // tail — leaving stale row-0 M/I from a prior smaller pack, which corrupts DP.
-        self.m[..need].fill(0.0);
-        self.ins[..need].fill(0.0);
-        self.del[..need].fill(0.0);
-        self.prior[..need].fill(0.0);
     }
 }
 
@@ -232,8 +226,8 @@ unsafe fn score_pack2(
     transitions: &[[f64; 6]],
     scratch: &mut NeonScratch,
 ) -> [f64; 2] {
-    // Equal-length packs only (caller gates). TLS scratch must clear on grow
-    // (`NeonScratch::ensure`) — stale row-0 M/I was the equal-length ≠ scalar bug.
+    // Equal-length packs only (caller gates). Skip full SoA memset: overwrite interiors,
+    // seed row-0 free dels, zero col-0 each read row (stale row-0 M/I corrupts DP).
     let rn = read_bases.len();
     let hn = haps[0].len();
     debug_assert_eq!(haps[0].len(), haps[1].len());
@@ -243,8 +237,10 @@ unsafe fn score_pack2(
     let m = &mut scratch.m;
     let ins = &mut scratch.ins;
     let del = &mut scratch.del;
-    let prior = &mut scratch.prior;
 
+    // Row-0 M/I must be 0 (may be stale after grow); free leading dels.
+    m[..cols * LANES].fill(0.0);
+    ins[..cols * LANES].fill(0.0);
     let init = INITIAL_CONDITION / hn as f64;
     for j in 0..=hn {
         let base = j * LANES;
@@ -252,25 +248,10 @@ unsafe fn score_pack2(
         del[base + 1] = init;
     }
 
-    for i in 0..rn {
-        let x = read_bases[i];
-        let (match_p, mismatch_p) = logless_match_mismatch_prior(read_quals[i]);
-        let row = (i + 1) * cols;
-        for j in 0..hn {
-            let idx = (row + j + 1) * LANES;
-            for lane in 0..LANES {
-                let y = haps[lane][j];
-                prior[idx + lane] = if x == y || x == b'N' || y == b'N' {
-                    match_p
-                } else {
-                    mismatch_p
-                };
-            }
-        }
-    }
-
     for i in 1..=rn {
         let t = transitions[i];
+        let x = read_bases[i - 1];
+        let (match_p, mismatch_p) = logless_match_mismatch_prior(read_quals[i - 1]);
         let tm2m = vdupq_n_f64(t[MATCH_TO_MATCH]);
         let ti2m = vdupq_n_f64(t[INDEL_TO_MATCH]);
         let tm2i = vdupq_n_f64(t[MATCH_TO_INSERTION]);
@@ -279,11 +260,34 @@ unsafe fn score_pack2(
         let td2d = vdupq_n_f64(t[DELETION_TO_DELETION]);
         let row = i * cols;
         let prev = (i - 1) * cols;
+        // Col 0 stays 0 for del[j=1] left term.
+        let col0 = row * LANES;
+        m[col0] = 0.0;
+        m[col0 + 1] = 0.0;
+        ins[col0] = 0.0;
+        ins[col0 + 1] = 0.0;
+        del[col0] = 0.0;
+        del[col0 + 1] = 0.0;
         for j in 1..=hn {
             let idx = (row + j) * LANES;
             let diag = (prev + j - 1) * LANES;
             let up = (prev + j) * LANES;
             let left = (row + j - 1) * LANES;
+
+            let y0 = haps[0][j - 1];
+            let y1 = haps[1][j - 1];
+            let p0 = if x == y0 || x == b'N' || y0 == b'N' {
+                match_p
+            } else {
+                mismatch_p
+            };
+            let p1 = if x == y1 || x == b'N' || y1 == b'N' {
+                match_p
+            } else {
+                mismatch_p
+            };
+            let prior_arr = [p0, p1];
+            let p = vld1q_f64(prior_arr.as_ptr());
 
             // SAFETY: SoA buffers sized for cells*LANES; NEON enabled; equal-length pack.
             let m_diag = vld1q_f64(m.as_ptr().add(diag));
@@ -293,7 +297,6 @@ unsafe fn score_pack2(
             let i_up = vld1q_f64(ins.as_ptr().add(up));
             let m_left = vld1q_f64(m.as_ptr().add(left));
             let d_left = vld1q_f64(del.as_ptr().add(left));
-            let p = vld1q_f64(prior.as_ptr().add(idx));
 
             let sum = vaddq_f64(
                 vaddq_f64(vmulq_f64(m_diag, tm2m), vmulq_f64(i_diag, ti2m)),
@@ -301,7 +304,6 @@ unsafe fn score_pack2(
             );
             let m_new = vmulq_f64(p, sum);
             let i_new = vaddq_f64(vmulq_f64(m_up, tm2i), vmulq_f64(i_up, ti2i));
-            // del[i][j] uses match[i][j-1] already stored at previous j (m_left).
             let d_new = vaddq_f64(vmulq_f64(m_left, tm2d), vmulq_f64(d_left, td2d));
 
             vst1q_f64(m.as_mut_ptr().add(idx), m_new);

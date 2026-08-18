@@ -11,9 +11,15 @@ pub fn prune_spillover_supplement_haplotypes(assembly: &mut AssemblyResultSet) {
     // L11: allow long insertions up to EventMap allele cap (was ref+8, which pruned
     // +36 INS haps → empty-mapper rescue + prefer_dominant dropped nearby true indels).
     let max_alt_len = ref_len.saturating_add(MAX_VARIATION_EVENT_ALLELE_LENGTH);
-    assembly
-        .haplotypes
-        .retain(|h| h.is_reference || h.bases.len() <= max_alt_len);
+    let full_len = assembly.reference_bases().len();
+    assembly.haplotypes.retain(|h| {
+        if h.is_reference || h.bases.len() <= max_alt_len {
+            return true;
+        }
+        // Spine SNPs outside the trimmed apply window are built on the full padded ref;
+        // do not treat those as spillover (otherwise CIGAR sync never sees the SNP).
+        h.bases.len() == full_len && (h.score - SUPPLEMENT_HAPLOTYPE_SCORE).abs() < 1e-6
+    });
 }
 
 fn apply_read_events_to_assembly(

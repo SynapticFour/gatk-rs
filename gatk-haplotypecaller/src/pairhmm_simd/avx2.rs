@@ -53,12 +53,6 @@ impl Avx2Scratch {
             self.del.resize(need, 0.0);
             self.prior.resize(need, 0.0);
         }
-        // Always clear the active prefix. On grow, `resize` only zeroes the new
-        // tail — leaving stale row-0 M/I from a prior smaller pack, which corrupts DP.
-        self.m[..need].fill(0.0);
-        self.ins[..need].fill(0.0);
-        self.del[..need].fill(0.0);
-        self.prior[..need].fill(0.0);
     }
 }
 
@@ -214,6 +208,7 @@ unsafe fn score_haps_avx2_f64_unchecked(
 }
 
 /// SAFETY: caller must ensure AVX2 is available (`#[target_feature(enable = "avx2")]`).
+/// Equal-length packs only (`by_len` groups) — no per-j lane masks.
 #[target_feature(enable = "avx2")]
 unsafe fn score_pack4(
     read_bases: &[u8],
@@ -223,42 +218,29 @@ unsafe fn score_pack4(
     scratch: &mut Avx2Scratch,
 ) -> [f64; 4] {
     let rn = read_bases.len();
-    let hn = [haps[0].len(), haps[1].len(), haps[2].len(), haps[3].len()];
-    let hn_max = hn.iter().copied().max().unwrap_or(1);
-    let cols = hn_max + 1;
+    let hn = haps[0].len();
+    debug_assert!(haps.iter().all(|h| h.len() == hn));
+    let cols = hn + 1;
     let cells = (rn + 1) * cols;
     scratch.ensure(cells);
     let m = &mut scratch.m;
     let ins = &mut scratch.ins;
     let del = &mut scratch.del;
-    let prior = &mut scratch.prior;
 
-    for lane in 0..LANES {
-        let init = INITIAL_CONDITION / hn[lane] as f64;
-        for j in 0..=hn[lane] {
-            del[j * LANES + lane] = init;
-        }
-    }
-
-    for i in 0..rn {
-        let x = read_bases[i];
-        let (match_p, mismatch_p) = logless_match_mismatch_prior(read_quals[i]);
-        let row = (i + 1) * cols;
+    m[..cols * LANES].fill(0.0);
+    ins[..cols * LANES].fill(0.0);
+    let init = INITIAL_CONDITION / hn as f64;
+    for j in 0..=hn {
+        let base = j * LANES;
         for lane in 0..LANES {
-            for j in 0..hn[lane] {
-                let y = haps[lane][j];
-                let p = if x == y || x == b'N' || y == b'N' {
-                    match_p
-                } else {
-                    mismatch_p
-                };
-                prior[(row + j + 1) * LANES + lane] = p;
-            }
+            del[base + lane] = init;
         }
     }
 
     for i in 1..=rn {
         let t = transitions[i];
+        let x = read_bases[i - 1];
+        let (match_p, mismatch_p) = logless_match_mismatch_prior(read_quals[i - 1]);
         let tm2m = _mm256_set1_pd(t[MATCH_TO_MATCH]);
         let ti2m = _mm256_set1_pd(t[INDEL_TO_MATCH]);
         let tm2i = _mm256_set1_pd(t[MATCH_TO_INSERTION]);
@@ -267,22 +249,29 @@ unsafe fn score_pack4(
         let td2d = _mm256_set1_pd(t[DELETION_TO_DELETION]);
         let row = i * cols;
         let prev = (i - 1) * cols;
-        for j in 1..=hn_max {
-            // Active mask: lane participates if j <= hn[lane]
-            let active = [
-                if j <= hn[0] { 1.0 } else { 0.0 },
-                if j <= hn[1] { 1.0 } else { 0.0 },
-                if j <= hn[2] { 1.0 } else { 0.0 },
-                if j <= hn[3] { 1.0 } else { 0.0 },
-            ];
-            let mask = _mm256_set_pd(active[3], active[2], active[1], active[0]);
-
+        let col0 = row * LANES;
+        for lane in 0..LANES {
+            m[col0 + lane] = 0.0;
+            ins[col0 + lane] = 0.0;
+            del[col0 + lane] = 0.0;
+        }
+        for j in 1..=hn {
             let idx = (row + j) * LANES;
             let diag = ((prev + j - 1) * LANES) as isize;
             let up = ((prev + j) * LANES) as isize;
             let left = ((row + j - 1) * LANES) as isize;
 
-            // SAFETY: indices are within allocated SoA buffers; AVX2 enabled by target_feature.
+            let mut prior_arr = [0.0f64; 4];
+            for lane in 0..LANES {
+                let y = haps[lane][j - 1];
+                prior_arr[lane] = if x == y || x == b'N' || y == b'N' {
+                    match_p
+                } else {
+                    mismatch_p
+                };
+            }
+
+            // SAFETY: indices within SoA; AVX2 enabled; equal-length pack.
             let m_diag = _mm256_loadu_pd(m.as_ptr().offset(diag));
             let i_diag = _mm256_loadu_pd(ins.as_ptr().offset(diag));
             let d_diag = _mm256_loadu_pd(del.as_ptr().offset(diag));
@@ -290,28 +279,17 @@ unsafe fn score_pack4(
             let i_up = _mm256_loadu_pd(ins.as_ptr().offset(up));
             let m_left = _mm256_loadu_pd(m.as_ptr().offset(left));
             let d_left = _mm256_loadu_pd(del.as_ptr().offset(left));
-            let p = _mm256_loadu_pd(prior.as_ptr().add(idx));
+            let p = _mm256_loadu_pd(prior_arr.as_ptr());
 
             let from_m = _mm256_mul_pd(m_diag, tm2m);
             let from_i = _mm256_mul_pd(i_diag, ti2m);
             let from_d = _mm256_mul_pd(d_diag, ti2m);
             let sum = _mm256_add_pd(_mm256_add_pd(from_m, from_i), from_d);
-            let mut m_new = _mm256_mul_pd(p, sum);
-            m_new = _mm256_mul_pd(m_new, mask);
+            let m_new = _mm256_mul_pd(p, sum);
+            let i_new = _mm256_add_pd(_mm256_mul_pd(m_up, tm2i), _mm256_mul_pd(i_up, ti2i));
+            let d_new = _mm256_add_pd(_mm256_mul_pd(m_left, tm2d), _mm256_mul_pd(d_left, td2d));
 
-            let mut i_new = _mm256_add_pd(_mm256_mul_pd(m_up, tm2i), _mm256_mul_pd(i_up, ti2i));
-            i_new = _mm256_mul_pd(i_new, mask);
-
-            // Deletion depends on newly written M at (i,j-1) — already in m_left for active left.
-            let mut d_new = _mm256_add_pd(_mm256_mul_pd(m_left, tm2d), _mm256_mul_pd(d_left, td2d));
-            // For j==1, m_left is row+0 which is 0 — correct.
-            // After writing m_new we need d to use m_new for next j; store m first.
             _mm256_storeu_pd(m.as_mut_ptr().add(idx), m_new);
-            // Reload m_left equivalent: for this cell's del we needed m[row+j-1], already loaded.
-            // But wait — standard DP: del[i][j] uses match[i][j-1] which for same row was just
-            // computed at previous j. m_left was loaded before we stored m_new at current j,
-            // and points to j-1 — correct.
-            d_new = _mm256_mul_pd(d_new, mask);
             _mm256_storeu_pd(ins.as_mut_ptr().add(idx), i_new);
             _mm256_storeu_pd(del.as_mut_ptr().add(idx), d_new);
         }
@@ -319,7 +297,7 @@ unsafe fn score_pack4(
 
     let end_row = rn * cols;
     let mut sums = [0.0f64; 4];
-    for j in 1..=hn_max {
+    for j in 1..=hn {
         let idx = (end_row + j) * LANES;
         let mv = _mm256_loadu_pd(m.as_ptr().add(idx));
         let iv = _mm256_loadu_pd(ins.as_ptr().add(idx));
@@ -327,9 +305,7 @@ unsafe fn score_pack4(
         let mut tmp = [0.0f64; 4];
         _mm256_storeu_pd(tmp.as_mut_ptr(), s);
         for lane in 0..LANES {
-            if j <= hn[lane] {
-                sums[lane] += tmp[lane];
-            }
+            sums[lane] += tmp[lane];
         }
     }
 

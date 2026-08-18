@@ -12,15 +12,11 @@ use gatk_haplotypecaller::{
 };
 use std::path::Path;
 
-fn first_active_outcome(
-    _repo: &Path,
+fn first_active_region(
     ref_fa: &Path,
     bam: &Path,
     interval: &str,
-) -> (
-    gatk_haplotypecaller::assembly_region_iterator::AssemblyRegion,
-    gatk_haplotypecaller::engine::CallRegionOutcome,
-) {
+) -> gatk_haplotypecaller::assembly_region_iterator::AssemblyRegion {
     let dict = SequenceDictionary::from_fasta_path(ref_fa).expect("dict");
     let specs = parse_intervals_cli_string(&dict, interval).expect("interval");
     let walk = traverse_assembly_region_walker(
@@ -32,8 +28,7 @@ fn first_active_outcome(
         &WalkerTraversalConfig::gatk_haplotype_caller_production(0),
     )
     .expect("walk");
-    let regions = flatten_assembly_regions(&walk);
-    let region = regions
+    flatten_assembly_regions(&walk)
         .into_iter()
         .find(|r| {
             matches!(
@@ -41,12 +36,7 @@ fn first_active_outcome(
                 AssemblyRegionCallDisposition::ActiveFull
             )
         })
-        .expect("active region");
-    let outcome =
-        HaplotypeCallerEngine::call_region(&region, &dict, ref_fa, &CallRegionArgs::strict_java())
-            .expect("call_region")
-            .expect("outcome");
-    (region, outcome)
+        .expect("active region")
 }
 
 #[test]
@@ -58,7 +48,16 @@ fn j2_vcf_p5_sparse_snp_does_not_emit() {
     if !bam.is_file() {
         return;
     }
-    let (region, outcome) = first_active_outcome(&repo, &ref_fa, &bam, "chrLive:1-24");
+    let region = first_active_region(&ref_fa, &bam, "chrLive:1-24");
+    let dict = SequenceDictionary::from_fasta_path(&ref_fa).expect("dict");
+    // Java j2-vcf golden is `variant_emitted false` only. Ok(None) (early no-variation
+    // bail) and Some(outcome)+emit-empty are both product-equivalent to that golden.
+    let Some(outcome) =
+        HaplotypeCallerEngine::call_region(&region, &dict, &ref_fa, &CallRegionArgs::strict_java())
+            .expect("call_region")
+    else {
+        return;
+    };
     assert!(
         try_emit_call_region_variants(&region, &outcome, "S", DEFAULT_STAND_EMIT_CONFIDENCE)
             .expect("multi")
@@ -79,7 +78,12 @@ fn j2_vcf_p11_java_positive_emits() {
     if !bam.is_file() {
         return;
     }
-    let (region, outcome) = first_active_outcome(&repo, &ref_fa, &bam, "chrLive:1-63");
+    let region = first_active_region(&ref_fa, &bam, "chrLive:1-63");
+    let dict = SequenceDictionary::from_fasta_path(&ref_fa).expect("dict");
+    let outcome =
+        HaplotypeCallerEngine::call_region(&region, &dict, &ref_fa, &CallRegionArgs::strict_java())
+            .expect("call_region")
+            .expect("outcome");
     let multi =
         try_emit_call_region_variants(&region, &outcome, "S", DEFAULT_STAND_EMIT_CONFIDENCE)
             .expect("multi");
