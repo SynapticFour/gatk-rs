@@ -58,6 +58,15 @@ env:
   GATK_DOCKER_PLATFORM: linux/amd64
 
 jobs:
+  config-notice:
+    name: Paid runner config
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.skip_vm_control != 'true' && vars.CLOUD_PROVIDER == '' }}
+    steps:
+      - name: CLOUD_PROVIDER unset
+        run: |
+          echo "::notice::Repository variable CLOUD_PROVIDER is unset. Skipping paid autosome VM start. Set CLOUD_PROVIDER=hetzner|aws (and tokens) to run this workflow."
+
   # --------------------------------------------------------------------------
   # 1) Power on paid VM (GitHub-hosted — free for public repos)
   # --------------------------------------------------------------------------
@@ -65,7 +74,9 @@ jobs:
     name: Start cloud VM
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    if: ${{ github.event.inputs.skip_vm_control != 'true' }}
+    # Skip (do not fail) when the paid VM is not configured. Manual
+    # skip_vm_control=true means the runner is already up.
+    if: ${{ github.event.inputs.skip_vm_control != 'true' && vars.CLOUD_PROVIDER != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -101,8 +112,10 @@ jobs:
   genomewide:
     name: GIAB ${{ github.event.inputs.mode || 'autosomes' }} (self-hosted)
     needs: [start-vm]
-    # Run even if start-vm was skipped (manual skip_vm_control) via a dummy path:
-    if: ${{ always() && (needs.start-vm.result == 'success' || needs.start-vm.result == 'skipped') }}
+    # Run when start-vm succeeded, or when the operator skipped VM control
+    # because the runner is already up. Do not run when start-vm was skipped
+    # because CLOUD_PROVIDER is unset — that would queue a missing runner.
+    if: ${{ always() && (needs.start-vm.result == 'success' || (needs.start-vm.result == 'skipped' && github.event.inputs.skip_vm_control == 'true')) }}
     runs-on: [self-hosted, gatk-rs-genomewide]
     timeout-minutes: 720
     steps:
@@ -217,7 +230,7 @@ jobs:
   stop-vm:
     name: Stop cloud VM
     needs: [start-vm, genomewide]
-    if: ${{ always() && github.event.inputs.skip_vm_control != 'true' }}
+    if: ${{ always() && github.event.inputs.skip_vm_control != 'true' && vars.CLOUD_PROVIDER != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -272,8 +285,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/parity-site/data/history.json docs/parity-site/data/latest.json
           if ! git diff --cached --quiet; then
-            git commit -m "docs(parity-site): genomewide history (${GITHUB_SHA::12})"
-            git push
+            git commit -m "docs(parity-site): genomewide history (${GITHUB_SHA::12})" || true
+            # Protected main rejects GITHUB_TOKEN push (GH006); Pages deploy uses workspace files.
+            echo "[parity-site] history updated for Pages deploy (no push to main)"
           fi
 
       - name: Deploy public parity-site to GitHub Pages (root)

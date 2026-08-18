@@ -374,48 +374,58 @@ fn calculate_matrix(
     let w_match = parameters.match_value;
     let w_mismatch = parameters.mismatch_penalty;
 
+    // Hot path: bounds are [1,nrow)×[1,ncol) with nrow=ref+1, ncol=alt+1 — use
+    // unchecked indexing after the length checks in `align_uppercase_ready`.
     for i in 1..nrow {
-        let a_base = reference[i - 1];
+        // SAFETY: i in 1..nrow ⇒ i-1 < reference.len().
+        let a_base = unsafe { *reference.get_unchecked(i - 1) };
         let prev_base = (i - 1) * ncol;
         let cur_base = i * ncol;
         for j in 1..ncol {
-            let b_base = alternate[j - 1];
-            let step_diag = sw[prev_base + j - 1]
+            // SAFETY: j in 1..ncol ⇒ j-1 < alternate.len(); sw/btrack sized to nrow*ncol.
+            let b_base = unsafe { *alternate.get_unchecked(j - 1) };
+            let diag = unsafe { *sw.get_unchecked(prev_base + j - 1) }
                 + if a_base == b_base {
                     w_match
                 } else {
                     w_mismatch
                 };
-            let prev_gap = sw[prev_base + j] + w_open;
-            best_gap_v[j] += w_extend;
-            if prev_gap > best_gap_v[j] {
-                best_gap_v[j] = prev_gap;
-                gap_size_v[j] = 1;
+            let prev_gap = unsafe { *sw.get_unchecked(prev_base + j) } + w_open;
+            // SAFETY: best_gap_* / gap_size_* resized to ncol+1 / nrow+1 above.
+            let bv = unsafe { best_gap_v.get_unchecked_mut(j) };
+            let gv = unsafe { gap_size_v.get_unchecked_mut(j) };
+            *bv += w_extend;
+            if prev_gap > *bv {
+                *bv = prev_gap;
+                *gv = 1;
             } else {
-                gap_size_v[j] += 1;
+                *gv += 1;
             }
-            let step_down = best_gap_v[j];
-            let kd = gap_size_v[j];
-            let prev_gap_h = sw[cur_base + j - 1] + w_open;
-            best_gap_h[i] += w_extend;
-            if prev_gap_h > best_gap_h[i] {
-                best_gap_h[i] = prev_gap_h;
-                gap_size_h[i] = 1;
+            let step_down = *bv;
+            let kd = *gv;
+            let prev_gap_h = unsafe { *sw.get_unchecked(cur_base + j - 1) } + w_open;
+            let bh = unsafe { best_gap_h.get_unchecked_mut(i) };
+            let gh = unsafe { gap_size_h.get_unchecked_mut(i) };
+            *bh += w_extend;
+            if prev_gap_h > *bh {
+                *bh = prev_gap_h;
+                *gh = 1;
             } else {
-                gap_size_h[i] += 1;
+                *gh += 1;
             }
-            let step_right = best_gap_h[i];
-            let ki = gap_size_h[i];
+            let step_right = *bh;
+            let ki = *gh;
             let cur_idx = cur_base + j;
-            if step_diag >= step_down && step_diag >= step_right {
-                sw[cur_idx] = step_diag.max(MATRIX_MIN_CUTOFF);
-                btrack[cur_idx] = 0;
+            let (score, track) = if diag >= step_down && diag >= step_right {
+                (diag.max(MATRIX_MIN_CUTOFF), 0)
             } else if step_right >= step_down {
-                sw[cur_idx] = step_right.max(MATRIX_MIN_CUTOFF);
-                btrack[cur_idx] = -ki;
+                (step_right.max(MATRIX_MIN_CUTOFF), -ki)
             } else {
-                sw[cur_idx] = step_down.max(MATRIX_MIN_CUTOFF);
-                btrack[cur_idx] = kd;
+                (step_down.max(MATRIX_MIN_CUTOFF), kd)
+            };
+            unsafe {
+                *sw.get_unchecked_mut(cur_idx) = score;
+                *btrack.get_unchecked_mut(cur_idx) = track;
             }
         }
     }
@@ -448,7 +458,8 @@ fn calculate_cigar(
         p1 = ref_length;
     } else {
         for i in 1..=ref_length {
-            let cur = sw[cell(i, alt_length, ncol)];
+            // SAFETY: sw sized nrow*ncol; i in 1..=ref_length, alt_length = ncol-1.
+            let cur = unsafe { *sw.get_unchecked(cell(i, alt_length, ncol)) };
             if cur >= maxscore {
                 p1 = i;
                 maxscore = cur;
@@ -457,7 +468,8 @@ fn calculate_cigar(
         if overhang_strategy != SwOverhangStrategy::LeadingIndel {
             let bottom = ref_length * ncol;
             for j in 1..ncol {
-                let cur = sw[bottom + j];
+                // SAFETY: bottom+j < nrow*ncol.
+                let cur = unsafe { *sw.get_unchecked(bottom + j) };
                 if cur > maxscore
                     || (cur == maxscore
                         && (ref_length as i32 - j as i32).abs() < (p1 as i32 - p2 as i32).abs())
@@ -481,7 +493,8 @@ fn calculate_cigar(
         if p1 == 0 || p2 == 0 {
             break;
         }
-        let btr = btrack[cell(p1, p2, ncol)];
+        // SAFETY: p1,p2 in range while looping; matrices sized nrow*ncol.
+        let btr = unsafe { *btrack.get_unchecked(cell(p1, p2, ncol)) };
         let (new_state, step_length) = if btr > 0 {
             (SwState::Deletion, btr as usize)
         } else if btr < 0 {
