@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786937016756,
+  "lastUpdate": 1787023218456,
   "repoUrl": "https://github.com/SynapticFour/gatk-rs",
   "entries": {
     "Benchmark": [
@@ -13675,6 +13675,910 @@ window.BENCHMARK_DATA = {
             "name": "smith_waterman_align/indel/256x192",
             "value": 252381,
             "range": "± 875",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "SynapticFour",
+            "username": "SynapticFour",
+            "email": "contact@synapticfour.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "67df80140b9a5c5a2c2ff42238adc54a5c5e8b2e",
+          "message": "ci: stop parity-site jobs pushing protected main (#124)\n\nPublish history.json via Pages instead of git push to protected main. Skip paid genomewide VM when CLOUD_PROVIDER is unset.",
+          "timestamp": "2026-08-17T17:58:17Z",
+          "url": "https://github.com/SynapticFour/gatk-rs/commit/67df80140b9a5c5a2c2ff42238adc54a5c5e8b2e"
+        },
+        "date": 1787023215247,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "sam_parsing/parsing/100",
+            "value": 111882,
+            "range": "± 1395",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sam_parsing/parsing/1000",
+            "value": 1138393,
+            "range": "± 23542",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sam_parsing/parsing/10000",
+            "value": 11146019,
+            "range": "± 374322",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sam_iterator/iterator",
+            "value": 865850,
+            "range": "± 14337",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sam_writing/writing",
+            "value": 3362116,
+            "range": "± 164446",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cigar_parsing/parse/0",
+            "value": 128,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cigar_parsing/parse/1",
+            "value": 174,
+            "range": "± 13",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cigar_parsing/parse/2",
+            "value": 136,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cigar_parsing/parse/3",
+            "value": 145,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cigar_parsing/parse/4",
+            "value": 173,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "optional_fields/parsing",
+            "value": 7149,
+            "range": "± 34",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fasta_gc_content",
+            "value": 814868,
+            "range": "± 21465",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fasta_revcomp",
+            "value": 297753,
+            "range": "± 3543",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fasta_subsequence",
+            "value": 163,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "variant_type",
+            "value": 15838,
+            "range": "± 28",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "quality_error_prob",
+            "value": 1215,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "memory_mapped_access",
+            "value": 9295,
+            "range": "± 168",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "hamming_distance",
+            "value": 9,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fasta_parsing/buffered/100",
+            "value": 29286,
+            "range": "± 181",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fasta_parsing/memory_mapped/100",
+            "value": 53882,
+            "range": "± 186",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fasta_parsing/iterator/100",
+            "value": 26035,
+            "range": "± 243",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fasta_parsing/buffered/1000",
+            "value": 242299,
+            "range": "± 1155",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fasta_parsing/memory_mapped/1000",
+            "value": 406596,
+            "range": "± 3609",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fasta_parsing/iterator/1000",
+            "value": 207729,
+            "range": "± 1166",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fasta_parsing/buffered/10000",
+            "value": 2453166,
+            "range": "± 27697",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fasta_parsing/memory_mapped/10000",
+            "value": 3746541,
+            "range": "± 44394",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fasta_parsing/iterator/10000",
+            "value": 2093921,
+            "range": "± 15920",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_parsing/buffered/100",
+            "value": 32439,
+            "range": "± 209",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_parsing/memory_mapped/100",
+            "value": 41417,
+            "range": "± 523",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_parsing/iterator/100",
+            "value": 25037,
+            "range": "± 158",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_parsing/buffered/1000",
+            "value": 264191,
+            "range": "± 2809",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_parsing/memory_mapped/1000",
+            "value": 274729,
+            "range": "± 1403",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_parsing/iterator/1000",
+            "value": 200968,
+            "range": "± 1302",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_parsing/buffered/10000",
+            "value": 2588520,
+            "range": "± 30844",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_parsing/memory_mapped/10000",
+            "value": 2578404,
+            "range": "± 18053",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_parsing/iterator/10000",
+            "value": 1963681,
+            "range": "± 17831",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sequence_operations/gc_content",
+            "value": 63,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sequence_operations/reverse_complement",
+            "value": 61,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sequence_operations/subsequence",
+            "value": 23,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sequence_operations/count_pattern",
+            "value": 226,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_operations/average_quality",
+            "value": 62,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_operations/min_quality",
+            "value": 45,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_operations/max_quality",
+            "value": 49,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_operations/median_quality",
+            "value": 67,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_operations/trim_quality",
+            "value": 52,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_operations/reverse_complement",
+            "value": 93,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_operations/is_valid",
+            "value": 92,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fasta_indexing/build_index",
+            "value": 348301,
+            "range": "± 1404",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fasta_indexing/random_access",
+            "value": 4931,
+            "range": "± 20",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fasta_indexing/save_index",
+            "value": 221601,
+            "range": "± 10950",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fasta_indexing/load_index",
+            "value": 314148,
+            "range": "± 8017",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_filtering/filter_by_quality",
+            "value": 327577,
+            "range": "± 1379",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_filtering/filter_by_length",
+            "value": 182546,
+            "range": "± 1054",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fastq_filtering/sample_reads",
+            "value": 182583,
+            "range": "± 2090",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "io_writing/write_fasta",
+            "value": 277221,
+            "range": "± 12061",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "io_writing/write_fastq",
+            "value": 8896149,
+            "range": "± 44456",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "memory_usage/parse_memory_usage",
+            "value": 2399277,
+            "range": "± 160247",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "macro_sum_bench",
+            "value": 1,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_parsing/parsing/100",
+            "value": 90819,
+            "range": "± 1295",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_parsing/parsing/1000",
+            "value": 868527,
+            "range": "± 12174",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_parsing/parsing/10000",
+            "value": 9185318,
+            "range": "± 87199",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_iterator/iterator",
+            "value": 625497,
+            "range": "± 9230",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_writing/writing",
+            "value": 3855281,
+            "range": "± 32003",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_info_parsing/parsing/0",
+            "value": 105,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_info_parsing/parsing/1",
+            "value": 97,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_info_parsing/parsing/2",
+            "value": 93,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_info_parsing/parsing/3",
+            "value": 129,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_info_parsing/parsing/4",
+            "value": 110,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_info_parsing/parsing/5",
+            "value": 59,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_info_parsing/parsing/6",
+            "value": 114,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_info_parsing/parsing/7",
+            "value": 476,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_genotype_parsing/parsing/0",
+            "value": 94,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_genotype_parsing/parsing/1",
+            "value": 94,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_genotype_parsing/parsing/2",
+            "value": 66,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_genotype_parsing/parsing/3",
+            "value": 94,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_genotype_parsing/parsing/4",
+            "value": 94,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_genotype_parsing/parsing/5",
+            "value": 95,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_genotype_parsing/parsing/6",
+            "value": 94,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_genotype_parsing/parsing/7",
+            "value": 94,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_operations/variant_type_detection",
+            "value": 2474,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_operations/allele_frequency_access",
+            "value": 4241,
+            "range": "± 41",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "vcf_operations/sample_data_access",
+            "value": 1523,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "band_pass_normalized_kernel_gatk_defaults",
+            "value": 992,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "band_pass_add_then_pop_ready_256_loci",
+            "value": 330532,
+            "range": "± 1018",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "assembly_graph_medium_depth_k10",
+            "value": 253502,
+            "range": "± 1418",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "assembly_graph_high_depth_k10",
+            "value": 1822128,
+            "range": "± 3124",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_scaffold_vectorized/batch/4",
+            "value": 24927144,
+            "range": "± 467312",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_scaffold_vectorized/batch/16",
+            "value": 99384513,
+            "range": "± 258987",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_scaffold_vectorized/batch/64",
+            "value": 397732611,
+            "range": "± 426397",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/logless_scalar_r100_h/8",
+            "value": 548239,
+            "range": "± 1369",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_r100_h/8",
+            "value": 299654,
+            "range": "± 1126",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_f32_r100_h/8",
+            "value": 1036671,
+            "range": "± 15665",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/log10_scalar_r100_h/8",
+            "value": 9016230,
+            "range": "± 30774",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/logless_scalar_r100_h/32",
+            "value": 2193204,
+            "range": "± 6194",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_r100_h/32",
+            "value": 881152,
+            "range": "± 1822",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_f32_r100_h/32",
+            "value": 4128030,
+            "range": "± 3196",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/log10_scalar_r100_h/32",
+            "value": 36057819,
+            "range": "± 131467",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/logless_scalar_r100_h/64",
+            "value": 4386534,
+            "range": "± 60142",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_r100_h/64",
+            "value": 1395207,
+            "range": "± 7529",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_f32_r100_h/64",
+            "value": 8251892,
+            "range": "± 10491",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/log10_scalar_r100_h/64",
+            "value": 72109488,
+            "range": "± 99372",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/logless_scalar_r100_h/128",
+            "value": 8759811,
+            "range": "± 14155",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_r100_h/128",
+            "value": 1982864,
+            "range": "± 3243",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_f32_r100_h/128",
+            "value": 16499093,
+            "range": "± 231630",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/log10_scalar_r100_h/128",
+            "value": 144228174,
+            "range": "± 219147",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/logless_scalar_r200_h/8",
+            "value": 2138709,
+            "range": "± 2645",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_r200_h/8",
+            "value": 1207987,
+            "range": "± 5950",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_f32_r200_h/8",
+            "value": 4095440,
+            "range": "± 6581",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/log10_scalar_r200_h/8",
+            "value": 36435188,
+            "range": "± 41019",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/logless_scalar_r200_h/32",
+            "value": 8543532,
+            "range": "± 8647",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_r200_h/32",
+            "value": 3795488,
+            "range": "± 3452",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_f32_r200_h/32",
+            "value": 16387886,
+            "range": "± 14988",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/log10_scalar_r200_h/32",
+            "value": 145751789,
+            "range": "± 573720",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/logless_scalar_r200_h/64",
+            "value": 17081260,
+            "range": "± 24878",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_r200_h/64",
+            "value": 6711021,
+            "range": "± 6678",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_f32_r200_h/64",
+            "value": 32764079,
+            "range": "± 419019",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/log10_scalar_r200_h/64",
+            "value": 291546406,
+            "range": "± 1077594",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/logless_scalar_r200_h/128",
+            "value": 34166099,
+            "range": "± 555471",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_r200_h/128",
+            "value": 10770564,
+            "range": "± 14201",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_f32_r200_h/128",
+            "value": 65517047,
+            "range": "± 55741",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/log10_scalar_r200_h/128",
+            "value": 583559726,
+            "range": "± 3199296",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/logless_scalar_r300_h/8",
+            "value": 4732328,
+            "range": "± 11719",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_r300_h/8",
+            "value": 2709835,
+            "range": "± 34164",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_f32_r300_h/8",
+            "value": 9115566,
+            "range": "± 11504",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/log10_scalar_r300_h/8",
+            "value": 82266954,
+            "range": "± 768331",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/logless_scalar_r300_h/32",
+            "value": 18926119,
+            "range": "± 24190",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_r300_h/32",
+            "value": 8725043,
+            "range": "± 12278",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_f32_r300_h/32",
+            "value": 36378231,
+            "range": "± 50782",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/log10_scalar_r300_h/32",
+            "value": 329020036,
+            "range": "± 679421",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/logless_scalar_r300_h/64",
+            "value": 37835353,
+            "range": "± 42607",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_r300_h/64",
+            "value": 15950231,
+            "range": "± 17321",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_f32_r300_h/64",
+            "value": 72727753,
+            "range": "± 237429",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/log10_scalar_r300_h/64",
+            "value": 658251711,
+            "range": "± 1912989",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/logless_scalar_r300_h/128",
+            "value": 76112528,
+            "range": "± 148423",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_r300_h/128",
+            "value": 27715067,
+            "range": "± 35298",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/simd_f32_r300_h/128",
+            "value": 145995733,
+            "range": "± 115180",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pairhmm_logless_simd/log10_scalar_r300_h/128",
+            "value": 1316631668,
+            "range": "± 2321639",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "shared_reference_arc/value_copy_stages/3072x12",
+            "value": 5099,
+            "range": "± 20",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "shared_reference_arc/arc_share_stages/3072x12",
+            "value": 3923,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "shared_reference_arc/assembly_result_set_arc_fanout/3072",
+            "value": 56,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "shared_reference_arc/assembly_result_set_value_fanout/3072",
+            "value": 1209,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "smith_waterman_align/soft_clip/64x48",
+            "value": 16564,
+            "range": "± 181",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "smith_waterman_align/indel/64x48",
+            "value": 16596,
+            "range": "± 191",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "smith_waterman_align/soft_clip/128x96",
+            "value": 66150,
+            "range": "± 901",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "smith_waterman_align/indel/128x96",
+            "value": 66082,
+            "range": "± 308",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "smith_waterman_align/soft_clip/256x192",
+            "value": 292387,
+            "range": "± 970",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "smith_waterman_align/indel/256x192",
+            "value": 290026,
+            "range": "± 1134",
             "unit": "ns/iter"
           }
         ]
