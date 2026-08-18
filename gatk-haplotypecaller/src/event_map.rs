@@ -517,7 +517,7 @@ fn supplemental_indel_variation_events(
 
 /// When an indel and SNP share the same start, keep the indel (Java VCF alleles at P12 cluster).
 pub fn prefer_indel_over_colocated_snps(events: &mut Vec<VariationEvent>) {
-    let indel_starts: BTreeSet<GenomePosition> = events
+    let indel_starts: std::collections::HashSet<GenomePosition> = events
         .iter()
         .filter(|e| e.is_indel())
         .map(|e| e.start_1based)

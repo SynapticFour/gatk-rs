@@ -49,11 +49,14 @@ impl F64Scratch {
         }
     }
 
-    fn clear_prefix(&mut self, cells: usize) {
-        self.m[..cells].fill(0.0);
-        self.ins[..cells].fill(0.0);
-        self.del[..cells].fill(0.0);
-        self.prior[..cells].fill(0.0);
+    /// Rolling 2-row path only needs `2 * cols` in m/ins/del (prior unused).
+    fn ensure_rolling_cols(&mut self, cols: usize) {
+        let need = cols.saturating_mul(2);
+        if self.m.len() < need {
+            self.m.resize(need, 0.0);
+            self.ins.resize(need, 0.0);
+            self.del.resize(need, 0.0);
+        }
     }
 }
 
@@ -125,6 +128,15 @@ pub fn score_haps_logless_packed_f64(
 pub(crate) fn first_hap_divergence(a: &[u8], b: &[u8]) -> usize {
     let n = a.len().min(b.len());
     let mut i = 0;
+    // Word-at-a-time reject before byte scan (same-length assembly haps share long prefixes).
+    while i + 8 <= n {
+        let aw = u64::from_ne_bytes(a[i..i + 8].try_into().unwrap());
+        let bw = u64::from_ne_bytes(b[i..i + 8].try_into().unwrap());
+        if aw != bw {
+            break;
+        }
+        i += 8;
+    }
     while i < n {
         if a[i] != b[i] {
             return i;
@@ -134,7 +146,37 @@ pub(crate) fn first_hap_divergence(a: &[u8], b: &[u8]) -> usize {
     n
 }
 
+/// Score one hap with prebuilt transition planes (shared across a read's hap pack).
+///
+/// `hap_start`: 0-based haplotype index to (re)compute from — columns before this are
+/// assumed valid from a prior same-length hap with an identical prefix (Java contract).
+/// `reinit_del`: when true, refresh free leading-deletion row (`INITIAL / hn`).
+///
+/// Always uses the full-matrix path so consecutive same-length haps can reuse prefix
+/// columns. Leftover singles that never reuse should call [`score_one_f64_rolling`].
+pub(crate) fn score_one_f64(
+    read_bases: &[u8],
+    read_quals: &[u8],
+    hap: &[u8],
+    transitions: &[[f64; 6]],
+    hap_start: usize,
+    reinit_del: bool,
+    scratch: &mut F64Scratch,
+) -> f64 {
+    let start = hap_start.min(hap.len());
+    score_one_f64_prefix_reuse(
+        read_bases,
+        read_quals,
+        hap,
+        transitions,
+        start,
+        reinit_del,
+        scratch,
+    )
+}
+
 /// Score one haplotype with prebuilt transitions (NEON leftover singles; avoids Vec alloc).
+/// Uses rolling 2-row DP — safe because leftovers do not participate in hapStartIndex reuse.
 pub(crate) fn score_one_hap_logless_f64_with_transitions(
     read_bases: &[u8],
     read_quals: &[u8],
@@ -157,23 +199,15 @@ pub(crate) fn score_one_hap_logless_f64_with_transitions(
     }
     Ok(PACK_F64_SCRATCH.with(|cell| {
         let mut scratch = cell.borrow_mut();
-        scratch.ensure_cells(max_cells);
-        score_one_f64(
-            read_bases,
-            read_quals,
-            hap,
-            transitions,
-            0,
-            true,
-            &mut scratch,
-        )
+        score_one_f64_rolling(read_bases, read_quals, hap, transitions, &mut scratch)
     }))
 }
 
 /// Score haplotypes with already-built Logless transitions (avoids rebuild on NEON leftovers).
 ///
 /// Same-length consecutive haplotypes reuse DP columns before the first divergence
-/// (Java `LoglessPairHMM` `hapStartIndex` / `nextHapStartIndex` contract).
+/// (Java `LoglessPairHMM` `hapStartIndex` / `nextHapStartIndex` contract). Measured
+/// faster than independent rolling on dense mega packs.
 pub(crate) fn score_haps_logless_packed_f64_with_transitions(
     read_bases: &[u8],
     read_quals: &[u8],
@@ -223,51 +257,29 @@ pub(crate) fn score_haps_logless_packed_f64_with_transitions(
     Ok(out)
 }
 
-/// Score one hap with prebuilt transition planes (shared across a read's hap pack).
-///
-/// `hap_start`: 0-based haplotype index to (re)compute from — columns before this are
-/// assumed valid from a prior same-length hap with an identical prefix (Java contract).
-/// `reinit_del`: when true, refresh free leading-deletion row (`INITIAL / hn`).
-pub(crate) fn score_one_f64(
+/// Full-matrix path for Java `hapStartIndex` prefix reuse (columns `< start` kept).
+fn score_one_f64_prefix_reuse(
     read_bases: &[u8],
     read_quals: &[u8],
     hap: &[u8],
     transitions: &[[f64; 6]],
-    hap_start: usize,
+    start: usize,
     reinit_del: bool,
     scratch: &mut F64Scratch,
 ) -> f64 {
     let rn = read_bases.len();
     let hn = hap.len();
     let cols = hn + 1;
-    let cells = (rn + 1) * cols;
-    // Full wipe only on a fresh matrix (length change / first hap). Prefix reuse must
-    // keep columns `< hap_start` from the previous same-length haplotype.
-    if reinit_del {
-        scratch.clear_prefix(cells);
-    }
     let m = &mut scratch.m;
     let ins = &mut scratch.ins;
     let del = &mut scratch.del;
-    let prior = &mut scratch.prior;
-
-    let start = hap_start.min(hn);
-    for i in 0..rn {
-        let x = read_bases[i];
-        let (match_p, mismatch_p) = logless_match_mismatch_prior(read_quals[i]);
-        let row = (i + 1) * cols;
-        for j in start..hn {
-            let y = hap[j];
-            prior[row + j + 1] = if x == y || x == b'N' || y == b'N' {
-                match_p
-            } else {
-                mismatch_p
-            };
-        }
-    }
 
     if reinit_del {
+        // Fresh hap: do NOT memset the full rn×hn planes — every used cell is overwritten.
+        // Only seed row-0 free deletions + keep col-0 zeros via per-row writes below.
         let init_del = INITIAL_CONDITION / hn as f64;
+        m[..cols].fill(0.0);
+        ins[..cols].fill(0.0);
         for j in 0..=hn {
             del[j] = init_del;
         }
@@ -276,10 +288,21 @@ pub(crate) fn score_one_f64(
     let j0 = start + 1; // 1-based DP column; Java uses hapStartIndex+1
     for i in 1..=rn {
         let t = transitions[i];
+        let x = read_bases[i - 1];
+        let (match_p, mismatch_p) = logless_match_mismatch_prior(read_quals[i - 1]);
         let row = i * cols;
         let prev = (i - 1) * cols;
+        // Col 0 stays 0 (never written in the j-loop); required for del[j=1] left term.
+        m[row] = 0.0;
+        ins[row] = 0.0;
+        del[row] = 0.0;
         for j in j0..=hn {
-            let p = prior[row + j];
+            let y = hap[j - 1];
+            let p = if x == y || x == b'N' || y == b'N' {
+                match_p
+            } else {
+                mismatch_p
+            };
             m[row + j] = p
                 * (m[prev + j - 1] * t[MATCH_TO_MATCH]
                     + ins[prev + j - 1] * t[INDEL_TO_MATCH]
@@ -295,6 +318,91 @@ pub(crate) fn score_one_f64(
     let mut final_sum = 0.0;
     for j in 1..=hn {
         final_sum += m[end_row + j] + ins[end_row + j];
+    }
+    if final_sum <= 0.0 || !final_sum.is_finite() {
+        return f64::NEG_INFINITY;
+    }
+    final_sum.log10() - INITIAL_CONDITION_LOG10
+}
+
+/// Compact DP: only previous + current read rows (priors computed inline).
+fn score_one_f64_rolling(
+    read_bases: &[u8],
+    read_quals: &[u8],
+    hap: &[u8],
+    transitions: &[[f64; 6]],
+    scratch: &mut F64Scratch,
+) -> f64 {
+    let rn = read_bases.len();
+    let hn = hap.len();
+    let cols = hn + 1;
+    scratch.ensure_rolling_cols(cols);
+    // Layout: [0..cols) = prev row, [cols..2*cols) = curr row for m/ins/del.
+    let (m_a, m_b) = scratch.m[..cols * 2].split_at_mut(cols);
+    let (ins_a, ins_b) = scratch.ins[..cols * 2].split_at_mut(cols);
+    let (del_a, del_b) = scratch.del[..cols * 2].split_at_mut(cols);
+
+    m_a.fill(0.0);
+    ins_a.fill(0.0);
+    let init_del = INITIAL_CONDITION / hn as f64;
+    for j in 0..=hn {
+        del_a[j] = init_del;
+    }
+
+    let mut prev_is_a = true;
+    for i in 1..=rn {
+        let t = transitions[i];
+        let x = read_bases[i - 1];
+        let (match_p, mismatch_p) = logless_match_mismatch_prior(read_quals[i - 1]);
+        let (m_prev, m_curr, ins_prev, ins_curr, del_prev, del_curr) = if prev_is_a {
+            (
+                &m_a[..],
+                &mut m_b[..],
+                &ins_a[..],
+                &mut ins_b[..],
+                &del_a[..],
+                &mut del_b[..],
+            )
+        } else {
+            (
+                &m_b[..],
+                &mut m_a[..],
+                &ins_b[..],
+                &mut ins_a[..],
+                &del_b[..],
+                &mut del_a[..],
+            )
+        };
+        m_curr[0] = 0.0;
+        ins_curr[0] = 0.0;
+        del_curr[0] = 0.0;
+        for j in 1..=hn {
+            let y = hap[j - 1];
+            let p = if x == y || x == b'N' || y == b'N' {
+                match_p
+            } else {
+                mismatch_p
+            };
+            m_curr[j] = p
+                * (m_prev[j - 1] * t[MATCH_TO_MATCH]
+                    + ins_prev[j - 1] * t[INDEL_TO_MATCH]
+                    + del_prev[j - 1] * t[INDEL_TO_MATCH]);
+            ins_curr[j] =
+                m_prev[j] * t[MATCH_TO_INSERTION] + ins_prev[j] * t[INSERTION_TO_INSERTION];
+            del_curr[j] =
+                m_curr[j - 1] * t[MATCH_TO_DELETION] + del_curr[j - 1] * t[DELETION_TO_DELETION];
+        }
+        prev_is_a = !prev_is_a;
+    }
+
+    let (m_end, ins_end) = if prev_is_a {
+        (&m_a[..], &ins_a[..])
+    } else {
+        (&m_b[..], &ins_b[..])
+    };
+    let mut final_sum = 0.0;
+    for j in 1..=hn {
+        final_sum += m_end[j] + ins_end[j];
     }
     if final_sum <= 0.0 || !final_sum.is_finite() {
         return f64::NEG_INFINITY;

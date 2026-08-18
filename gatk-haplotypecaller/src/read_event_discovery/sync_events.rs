@@ -79,8 +79,8 @@ pub fn sync_assembly_events_from_haplotype_cigars_with_harvest(
         repair_alt_haplotype_alignment_for_event_map(&mut assembly.haplotypes, sw);
     }
     refresh_alt_haplotype_indel_cigars(&mut assembly.haplotypes, trimmed_ref.as_ref(), full_pad, sw);
+    let prior_events = std::mem::take(&mut assembly.variation_events);
     let (full_ref, full_pad) = assembly.event_map_reference();
-    let prior_events = assembly.variation_events.clone();
     let mut events = collect_variation_events(
         &assembly.haplotypes,
         full_ref,
@@ -90,8 +90,16 @@ pub fn sync_assembly_events_from_haplotype_cigars_with_harvest(
     );
     // R4-2: outside contig 2, keep prior read-proven indels across CIGAR regen (assembly often
     // fails to encode genome-wide indels on alt haplotypes; list + pileup AD carry them).
+    // Same retain for biallelic SNPs: trim-window materialize + spillover prune can leave
+    // strong hets list-only (call-rate dig 21:9411785), and CIGAR-only regen would drop them.
     let genome_wide_contig = contig != "2" && contig != "chr2";
-    let merge_preserved = |events: &mut Vec<VariationEvent>, source: &[VariationEvent]| {
+    let mut event_keys: std::collections::HashSet<(u64, String, String)> = events
+        .iter()
+        .map(|e| (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone()))
+        .collect();
+    let merge_preserved = |events: &mut Vec<VariationEvent>,
+                           keys: &mut std::collections::HashSet<(u64, String, String)>,
+                           source: &[VariationEvent]| {
         for e in source {
             let keep = is_cluster_coupled_event(e)
                 || is_cluster_ctc_del(e)
@@ -100,18 +108,26 @@ pub fn sync_assembly_events_from_haplotype_cigars_with_harvest(
                 || (strict_java_asm8_only_enabled() && is_p12_phase_e_gap_event(e))
                 || (!strict_java_asm8_only_enabled()
                     && (is_p12_phase_e_gap_event(e) || is_java_diff_oracle_allele(e)))
-                || (genome_wide_contig && e.is_indel());
-            if keep && !events.iter().any(|x| events_match(x, e)) {
+                || (genome_wide_contig && e.is_indel())
+                || (genome_wide_contig
+                    && e.ref_allele.len() == 1
+                    && e.alt_allele.len() == 1);
+            if !keep {
+                continue;
+            }
+            let key = (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone());
+            if keys.insert(key) {
                 // CLONE: needed because owned element into collection.
                 events.push(e.clone());
             }
         }
     };
-    merge_preserved(&mut events, &prior_events);
+    merge_preserved(&mut events, &mut event_keys, &prior_events);
     if !strict_event_map_only
         && harvest_trim_snps {
             for e in harvest_snps_from_alt_haplotypes_on_trim_window(&assembly.haplotypes, contig) {
-                if !events.iter().any(|x| events_match(x, &e)) {
+                let key = (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone());
+                if event_keys.insert(key) {
                     events.push(e);
                 }
             }

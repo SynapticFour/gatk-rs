@@ -30,13 +30,46 @@ pub const MIN_ACCEPTED_LINEAR_SUM: f64 = 1e-28;
 
 #[inline]
 pub(crate) fn logless_match_mismatch_prior(qual: u8) -> (f64, f64) {
-    let mismatch = qual_to_error_prob(qual) / 3.0;
-    (qual_to_prob(qual), mismatch)
+    let q = qual as usize;
+    if q <= MAX_QUAL {
+        match_mismatch_prior_table()[q]
+    } else {
+        let mismatch = qual_to_error_prob(qual) / 3.0;
+        (qual_to_prob(qual), mismatch)
+    }
+}
+
+fn match_mismatch_prior_table() -> &'static [(f64, f64); MAX_QUAL + 1] {
+    static TABLE: OnceLock<[(f64, f64); MAX_QUAL + 1]> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        let mut t = [(0.0f64, 0.0f64); MAX_QUAL + 1];
+        for q in 0..=MAX_QUAL {
+            let err = 10f64.powf(-(q as f64) / 10.0);
+            t[q] = (1.0 - err, err / 3.0);
+        }
+        t
+    })
 }
 
 #[inline]
 fn qual_to_error_prob(qual: u8) -> f64 {
-    10f64.powf(-(qual as f64) / 10.0)
+    let q = qual as usize;
+    if q <= MAX_QUAL {
+        qual_error_prob_table()[q]
+    } else {
+        10f64.powf(-(qual as f64) / 10.0)
+    }
+}
+
+fn qual_error_prob_table() -> &'static [f64; MAX_QUAL + 1] {
+    static TABLE: OnceLock<[f64; MAX_QUAL + 1]> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        let mut t = [0.0f64; MAX_QUAL + 1];
+        for q in 0..=MAX_QUAL {
+            t[q] = 10f64.powf(-(q as f64) / 10.0);
+        }
+        t
+    })
 }
 
 #[inline]
@@ -267,47 +300,32 @@ fn logless_pairhmm_likelihood_into(
             logless_qual_to_trans_probs(insertion_gop[i], deletion_gop[i], overall_gcp[i]);
     }
 
-    let cells = (rn + 1) * cols;
-    for slot in &mut scratch.m[..cells] {
-        *slot = 0.0;
-    }
-    for slot in &mut scratch.ins[..cells] {
-        *slot = 0.0;
-    }
-    for slot in &mut scratch.del[..cells] {
-        *slot = 0.0;
-    }
-    for slot in &mut scratch.prior[..cells] {
-        *slot = 0.0;
-    }
-
-    for i in 0..rn {
-        let x = read_bases[i];
-        let qual = read_quals[i];
-        let match_p = qual_to_prob(qual);
-        let mismatch_p = qual_to_error_prob(qual) / 3.0;
-        let row = (i + 1) * cols;
-        for j in 0..hn {
-            let y = haplotype_bases[j];
-            scratch.prior[row + j + 1] = if x == y || x == b'N' || y == b'N' {
-                match_p
-            } else {
-                mismatch_p
-            };
-        }
-    }
-
+    // Fresh hap: do NOT memset the full rn×hn planes — every used cell is overwritten.
+    // Seed row-0 free deletions; keep col-0 zeros via per-row writes below.
     let init_del = INITIAL_CONDITION / hn as f64;
+    scratch.m[..cols].fill(0.0);
+    scratch.ins[..cols].fill(0.0);
     for j in 0..=hn {
         scratch.del[j] = init_del;
     }
 
     for i in 1..=rn {
         let t = scratch.transition[i];
+        let x = read_bases[i - 1];
+        let (match_p, mismatch_p) = logless_match_mismatch_prior(read_quals[i - 1]);
         let row = i * cols;
         let prev = (i - 1) * cols;
+        // Col 0 stays 0 (never written in the j-loop); required for del[j=1] left term.
+        scratch.m[row] = 0.0;
+        scratch.ins[row] = 0.0;
+        scratch.del[row] = 0.0;
         for j in 1..=hn {
-            let p = scratch.prior[row + j];
+            let y = haplotype_bases[j - 1];
+            let p = if x == y || x == b'N' || y == b'N' {
+                match_p
+            } else {
+                mismatch_p
+            };
             scratch.m[row + j] = p
                 * (scratch.m[prev + j - 1] * t[MATCH_TO_MATCH]
                     + scratch.ins[prev + j - 1] * t[INDEL_TO_MATCH]

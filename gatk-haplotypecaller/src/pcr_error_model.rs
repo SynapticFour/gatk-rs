@@ -1,8 +1,20 @@
 //! GATK `PairHMMLikelihoodCalculationEngine` PCR indel error model.
 
+use std::sync::OnceLock;
+
 const MIN_ADJUSTED_QSCORE: i32 = 6;
 const INITIAL_QSCORE: f64 = 45.0;
 const MAX_REPEAT_LENGTH: usize = 20;
+
+fn pcr_cache_conservative() -> &'static [u8; MAX_REPEAT_LENGTH + 1] {
+    static CACHE: OnceLock<[u8; MAX_REPEAT_LENGTH + 1]> = OnceLock::new();
+    CACHE.get_or_init(|| build_pcr_cache(20.0))
+}
+
+fn pcr_cache_aggressive() -> &'static [u8; MAX_REPEAT_LENGTH + 1] {
+    static CACHE: OnceLock<[u8; MAX_REPEAT_LENGTH + 1]> = OnceLock::new();
+    CACHE.get_or_init(|| build_pcr_cache(10.0))
+}
 
 /// GATK `PCRErrorModel` for HC defaults.
 /// # Invariants
@@ -77,10 +89,11 @@ pub fn apply_pcr_error_model(
     del_quals: &mut [u8],
     model: PcrErrorModel,
 ) {
-    let Some(rate_factor) = model.rate_factor() else {
-        return;
+    let cache = match model {
+        PcrErrorModel::None => return,
+        PcrErrorModel::Conservative => pcr_cache_conservative(),
+        PcrErrorModel::Aggressive => pcr_cache_aggressive(),
     };
-    let cache = build_pcr_cache(rate_factor);
     for i in 1..read_bases.len() {
         let repeat = tandem_repeat_units(read_bases, i - 1);
         let cap = cache[repeat.min(MAX_REPEAT_LENGTH)];

@@ -89,5 +89,39 @@ local TRACE dig under `callrate-stage-dig/` when BAMs available.
 
 So the bulk miss class is **discovery/EventMap empty**, with a smaller residual
 **pileup/FORMAT AD undercount** that fails `alt_ad≥4` even when Java DepthPerAllele
-is strong. Next code bet: evidence-class EventMap/SNP retain in
-`supplement_assembly.rs` — not lowering emit thresholds.
+is strong.
+
+### Evidence-class fix (post-#120 dig)
+
+**Root cause (compound):**
+
+1. `parity_spine_read_proven_snps` used `ReadEventDiscoveryOptions::strict()`, whose
+   high-depth gate (`alt_frac≥0.55` at DP≥5) rejects classic ~30% hets
+   (e.g. `21:9411785` Java AD 38,16).
+2. EventMap saturation (`≥64` events) skipped SNP spine entirely on dense neighbors.
+3. CIGAR sync retained genome-wide **indels** across regen but dropped list SNPs;
+   trim-window materialize + spillover prune could leave hets list-only.
+4. Pre-trim: expand AssemblyRegion trim anchors with the same strong-het SNP set so
+   trim does not shrink past active-span hets assembly missed.
+
+**Fix (minimal, no emit-threshold / P12 band change):**
+
+- Spine SNPs use `parity_spine_snps()` (`alt≥4`, frac≥0.20).
+- Always run SNP spine even when EventMap is saturated (indel spine still skips).
+- Preserve genome-wide biallelic SNPs across EventMap sync (symmetric to indels);
+  keep full-pad supplement SNP haps in spillover prune.
+- Pre-trim: `discover_parity_spine_snp_events` → trim anchors.
+
+**Local rematch** (`21:9411500-9414600`, `01_chr21_w09.bam`, product thr=2):
+
+| Bucket (of 12) | Before | After |
+|----------------|------:|------:|
+| Appeared in VCF | 0 | **5** (`9413840`, `9414185`, `9414193`, `9414283`, `9414483`) |
+| `emit_skip_non_p12_support` | 2 | **2** (`9411732`, `9412808` — AD undercount residual) |
+| Still ABSENT | 10 | **5** (`9411785`, `9412269`, `9412526`, `9412886`, `9413373`) |
+
+Unit: `parity_spine_snp_opts_admit_classic_het_rejected_by_strict`,
+`dig_window_9411785_discoverable_with_spine_gates` (BAM-gated).
+
+Remaining ABSENT class: still not reaching genotype in some active regions despite
+pileup-clear hets — follow-up (region read span / activity), not emit loosening.
