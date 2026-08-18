@@ -18,7 +18,7 @@
       "dir": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci/HG001",
       "equiv_results": {
         "manifest": {
-          "created_utc": "2026-08-17T21:39:03.155715809+00:00",
+          "created_utc": "2026-08-18T07:26:03.450109901+00:00",
           "tool_version": "0.1.0",
           "engine": "hap.py",
           "reference": "/home/runner/work/gatk-rs/gatk-rs/parity/realworld/assets/hs37d5.simple.fa",
@@ -65,20 +65,20 @@
             "query_label": "rust",
             "stratum": "*",
             "snp": {
-              "precision": 0.958063,
-              "recall": 0.031595,
-              "f1": 0.061172,
-              "truth_tp": 102741,
-              "truth_fn": 3149082,
-              "query_fp": 4498
+              "precision": 0.917866,
+              "recall": 0.031704,
+              "f1": 0.061292,
+              "truth_tp": 103097,
+              "truth_fn": 3148726,
+              "query_fp": 9227
             },
             "indel": {
-              "precision": 0.890432,
-              "recall": 0.031097,
-              "f1": 0.060095,
-              "truth_tp": 14518,
-              "truth_fn": 452348,
-              "query_fp": 1815
+              "precision": 0.890111,
+              "recall": 0.031077,
+              "f1": 0.060058,
+              "truth_tp": 14509,
+              "truth_fn": 452357,
+              "query_fp": 1819
             },
             "all": null
           }
@@ -88,32 +88,32 @@
             "stratum": "*",
             "class": "SNP",
             "java_f1": 0.068276,
-            "rust_f1": 0.061172,
-            "delta": -0.007104000000000006,
-            "abs_delta": 0.007104000000000006,
+            "rust_f1": 0.061292,
+            "delta": -0.006984000000000004,
+            "abs_delta": 0.006984000000000004,
             "within_threshold": true
           },
           {
             "stratum": "*",
             "class": "INDEL",
             "java_f1": 0.069993,
-            "rust_f1": 0.060095,
-            "delta": -0.009897999999999997,
-            "abs_delta": 0.009897999999999997,
+            "rust_f1": 0.060058,
+            "delta": -0.009935,
+            "abs_delta": 0.009935,
             "within_threshold": true
           }
         ],
         "direct_compare": {
           "java_sites": 203108,
-          "rust_sites": 177782,
+          "rust_sites": 199888,
           "identical_sites": 0,
-          "allele_match_gt_mismatch": 5710,
-          "format_mismatch_same_gt": 157730,
-          "java_only": 39668,
-          "rust_only": 14342
+          "allele_match_gt_mismatch": 6220,
+          "format_mismatch_same_gt": 163410,
+          "java_only": 33478,
+          "rust_only": 30258
         },
         "gate_passed": true,
-        "max_abs_delta": 0.009897999999999997,
+        "max_abs_delta": 0.009935,
         "notes": [
           "Primary equivalence metric is Rust\u2212Java F1 delta (not absolute F1).",
           "Evaluation uses community engines (hap.py or RTG vcfeval), not in-house VCF heuristics."

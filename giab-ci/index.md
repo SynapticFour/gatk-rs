@@ -1,7 +1,7 @@
 # GIAB genome-wide equivalence dashboard
 
 - **Run dir:** `/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci`
-- **Generated (UTC):** 2026-08-17T21:39:03Z
+- **Generated (UTC):** 2026-08-18T07:26:04Z
 - **Scope:** CI-SUBSET (default “genome-wide” in this repo): FULL chr20 + FULL chr21 + one 50kb probe on each other autosome. Not all bases of chr1–19/22.
 
 ## Samples
