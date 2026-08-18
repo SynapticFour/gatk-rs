@@ -560,20 +560,23 @@ impl HaplotypeCallerEngine {
         given_alleles_to_trim_variants(&args.given_alleles, &region.contig, &mut trim_variants);
         // Expand trim anchors with strong read-proven SNPs in the active span so
         // AssemblyRegion trim does not shrink past hets assembly EventMap missed
-        // (call-rate dig: 21:9411785 beside 9411732).
+        // (call-rate dig: 21:9411785 beside 9411732). Reuse this scan in the
+        // post-HMM SNP spine (same untrimmed reads + full padded ref).
+        let mut trim_anchor_snps = Vec::new();
         if args.is_strict_java()
             && region.contig != "2"
             && region.contig != "chr2"
             && !args.enable_read_event_supplement
         {
-            for e in crate::read_event_discovery::discover_parity_spine_snp_events(
+            trim_anchor_snps = crate::read_event_discovery::discover_parity_spine_snp_events(
                 &region.reads,
                 untrimmed.reference_bases(),
                 untrimmed.padded_reference_start_1based(),
                 region.start.get(),
                 region.end.get(),
                 &region.contig,
-            ) {
+            );
+            for e in &trim_anchor_snps {
                 if trim_variants
                     .iter()
                     .any(|t| t.start == e.start_1based.get() && !t.is_indel)
@@ -1112,6 +1115,7 @@ impl HaplotypeCallerEngine {
                 region.end.get(),
                 sw,
                 true,
+                Some(trim_anchor_snps.as_slice()),
             )?;
             crate::runtime_config::rss_trace_checkpoint(
                 "prep_parity_spine",
@@ -1142,16 +1146,27 @@ impl HaplotypeCallerEngine {
                     region.end.get(),
                     sw,
                     true,
+                    None,
                 )?;
             }
         }
-        rebuild_variation_events_for_genotyping(
-            &mut assembly,
-            &region.contig,
-            args.enable_read_event_supplement,
-            &preserved_supplement,
-            args.is_strict_java() && crate::read_event_discovery::p12_java_event_registry_enabled(),
-        );
+        // Java regenerates EventMap once from haplotype CIGARs after assemble/trim.
+        // `trim_to` already collected; spine SNPs call `sync_assembly_events` when they
+        // add alts. A third `collect_variation_events` walk is redundant genome-wide
+        // (TRACE: `prep_strict_event_map` step_ms=0 while the rebuild sat in that delta).
+        let skip_post_spine_rebuild = !post_hmm_hap_bridges
+            && !assembly.variation_events.is_empty()
+            && !crate::read_event_discovery::alt_needs_indel_cigar_refresh(&assembly.haplotypes);
+        if !skip_post_spine_rebuild {
+            rebuild_variation_events_for_genotyping(
+                &mut assembly,
+                &region.contig,
+                args.enable_read_event_supplement,
+                &preserved_supplement,
+                args.is_strict_java()
+                    && crate::read_event_discovery::p12_java_event_registry_enabled(),
+            );
+        }
         let strict_cluster_span = args.is_strict_java()
             && crate::read_event_discovery::strict_java_p12_cluster_span(
                 region.start.get(),

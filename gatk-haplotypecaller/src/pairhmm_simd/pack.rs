@@ -146,6 +146,30 @@ pub(crate) fn first_hap_divergence(a: &[u8], b: &[u8]) -> usize {
     n
 }
 
+/// Mean fraction of haplotype bases covered by consecutive `hapStartIndex` prefixes
+/// after lexicographic sort. High ⇒ scalar prefix reuse beats 2/4-wide SIMD packs
+/// (Java Logless `hapStartIndex`); low ⇒ SIMD packs win (GKL-style lane throughput).
+pub(crate) fn mean_consecutive_prefix_frac(haps: &[&[u8]]) -> f64 {
+    if haps.len() < 2 {
+        return 0.0;
+    }
+    let mut prefix = 0usize;
+    let mut total = 0usize;
+    for w in haps.windows(2) {
+        total += w[1].len();
+        prefix += first_hap_divergence(w[0], w[1]);
+    }
+    if total == 0 {
+        0.0
+    } else {
+        prefix as f64 / total as f64
+    }
+}
+
+/// Prefer Java hapStartIndex scalar reuse when consecutive same-length haps share
+/// this fraction of bases; otherwise use SIMD packs (GKL lane throughput).
+pub(crate) const PREFIX_REUSE_OVER_SIMD_FRAC: f64 = 0.35;
+
 /// Score one hap with prebuilt transition planes (shared across a read's hap pack).
 ///
 /// `hap_start`: 0-based haplotype index to (re)compute from — columns before this are
@@ -257,6 +281,316 @@ pub(crate) fn score_haps_logless_packed_f64_with_transitions(
     Ok(out)
 }
 
+#[inline(always)]
+fn logless_emission(x: u8, y: u8, match_p: f64, mismatch_p: f64) -> f64 {
+    if x == y || x == b'N' || y == b'N' {
+        match_p
+    } else {
+        mismatch_p
+    }
+}
+
+/// One Logless DP read-row from column `j0` through `hn`.
+///
+/// M and I depend only on the previous row, so consecutive haplotype columns are
+/// independent — GKL-style SIMD along the hap axis inside Java `hapStartIndex`.
+/// D stays scalar (left-cell dependence on the current row).
+///
+/// SAFETY: `m`/`ins`/`del` cover `(row|prev)+hn`; `hap.len()==hn`; `j0>=1`.
+unsafe fn fill_prefix_row(
+    hap: &[u8],
+    x: u8,
+    match_p: f64,
+    mismatch_p: f64,
+    t: [f64; 6],
+    m: &mut [f64],
+    ins: &mut [f64],
+    del: &mut [f64],
+    row: usize,
+    prev: usize,
+    j0: usize,
+    hn: usize,
+) {
+    #[cfg(target_arch = "aarch64")]
+    {
+        fill_prefix_row_neon(
+            hap, x, match_p, mismatch_p, t, m, ins, del, row, prev, j0, hn,
+        );
+        return;
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        fill_prefix_row_sse2(
+            hap, x, match_p, mismatch_p, t, m, ins, del, row, prev, j0, hn,
+        );
+        return;
+    }
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    fill_prefix_row_scalar(
+        hap, x, match_p, mismatch_p, t, m, ins, del, row, prev, j0, hn,
+    );
+}
+
+unsafe fn fill_prefix_row_scalar(
+    hap: &[u8],
+    x: u8,
+    match_p: f64,
+    mismatch_p: f64,
+    t: [f64; 6],
+    m: &mut [f64],
+    ins: &mut [f64],
+    del: &mut [f64],
+    row: usize,
+    prev: usize,
+    j0: usize,
+    hn: usize,
+) {
+    for j in j0..=hn {
+        let p = logless_emission(x, *hap.get_unchecked(j - 1), match_p, mismatch_p);
+        let mj = row + j;
+        let diag = prev + j - 1;
+        let up = prev + j;
+        *m.get_unchecked_mut(mj) = p
+            * (*m.get_unchecked(diag) * t[MATCH_TO_MATCH]
+                + *ins.get_unchecked(diag) * t[INDEL_TO_MATCH]
+                + *del.get_unchecked(diag) * t[INDEL_TO_MATCH]);
+        *ins.get_unchecked_mut(mj) = *m.get_unchecked(up) * t[MATCH_TO_INSERTION]
+            + *ins.get_unchecked(up) * t[INSERTION_TO_INSERTION];
+        *del.get_unchecked_mut(mj) = *m.get_unchecked(mj - 1) * t[MATCH_TO_DELETION]
+            + *del.get_unchecked(mj - 1) * t[DELETION_TO_DELETION];
+    }
+}
+
+/// 4-wide then 2-wide M/I via NEON; D remains a scalar left-to-right sweep.
+#[cfg(target_arch = "aarch64")]
+unsafe fn fill_prefix_row_neon(
+    hap: &[u8],
+    x: u8,
+    match_p: f64,
+    mismatch_p: f64,
+    t: [f64; 6],
+    m: &mut [f64],
+    ins: &mut [f64],
+    del: &mut [f64],
+    row: usize,
+    prev: usize,
+    j0: usize,
+    hn: usize,
+) {
+    use std::arch::aarch64::*;
+    let tm2m = vdupq_n_f64(t[MATCH_TO_MATCH]);
+    let ti2m = vdupq_n_f64(t[INDEL_TO_MATCH]);
+    let tm2i = vdupq_n_f64(t[MATCH_TO_INSERTION]);
+    let ti2i = vdupq_n_f64(t[INSERTION_TO_INSERTION]);
+    let tm2d = t[MATCH_TO_DELETION];
+    let td2d = t[DELETION_TO_DELETION];
+    let mut j = j0;
+    while j + 3 <= hn {
+        let p01 = [
+            logless_emission(x, *hap.get_unchecked(j - 1), match_p, mismatch_p),
+            logless_emission(x, *hap.get_unchecked(j), match_p, mismatch_p),
+        ];
+        let p23 = [
+            logless_emission(x, *hap.get_unchecked(j + 1), match_p, mismatch_p),
+            logless_emission(x, *hap.get_unchecked(j + 2), match_p, mismatch_p),
+        ];
+        let diag = prev + j - 1;
+        let up = prev + j;
+        let mj = row + j;
+        let m_d0 = vld1q_f64(m.as_ptr().add(diag));
+        let m_d1 = vld1q_f64(m.as_ptr().add(diag + 2));
+        let i_d0 = vld1q_f64(ins.as_ptr().add(diag));
+        let i_d1 = vld1q_f64(ins.as_ptr().add(diag + 2));
+        let d_d0 = vld1q_f64(del.as_ptr().add(diag));
+        let d_d1 = vld1q_f64(del.as_ptr().add(diag + 2));
+        let m_u0 = vld1q_f64(m.as_ptr().add(up));
+        let m_u1 = vld1q_f64(m.as_ptr().add(up + 2));
+        let i_u0 = vld1q_f64(ins.as_ptr().add(up));
+        let i_u1 = vld1q_f64(ins.as_ptr().add(up + 2));
+        let sum0 = vaddq_f64(
+            vaddq_f64(vmulq_f64(m_d0, tm2m), vmulq_f64(i_d0, ti2m)),
+            vmulq_f64(d_d0, ti2m),
+        );
+        let sum1 = vaddq_f64(
+            vaddq_f64(vmulq_f64(m_d1, tm2m), vmulq_f64(i_d1, ti2m)),
+            vmulq_f64(d_d1, ti2m),
+        );
+        vst1q_f64(
+            m.as_mut_ptr().add(mj),
+            vmulq_f64(vld1q_f64(p01.as_ptr()), sum0),
+        );
+        vst1q_f64(
+            m.as_mut_ptr().add(mj + 2),
+            vmulq_f64(vld1q_f64(p23.as_ptr()), sum1),
+        );
+        vst1q_f64(
+            ins.as_mut_ptr().add(mj),
+            vaddq_f64(vmulq_f64(m_u0, tm2i), vmulq_f64(i_u0, ti2i)),
+        );
+        vst1q_f64(
+            ins.as_mut_ptr().add(mj + 2),
+            vaddq_f64(vmulq_f64(m_u1, tm2i), vmulq_f64(i_u1, ti2i)),
+        );
+        *del.get_unchecked_mut(mj) =
+            *m.get_unchecked(mj - 1) * tm2d + *del.get_unchecked(mj - 1) * td2d;
+        *del.get_unchecked_mut(mj + 1) =
+            *m.get_unchecked(mj) * tm2d + *del.get_unchecked(mj) * td2d;
+        *del.get_unchecked_mut(mj + 2) =
+            *m.get_unchecked(mj + 1) * tm2d + *del.get_unchecked(mj + 1) * td2d;
+        *del.get_unchecked_mut(mj + 3) =
+            *m.get_unchecked(mj + 2) * tm2d + *del.get_unchecked(mj + 2) * td2d;
+        j += 4;
+    }
+    while j + 1 <= hn {
+        let p0 = logless_emission(x, *hap.get_unchecked(j - 1), match_p, mismatch_p);
+        let p1 = logless_emission(x, *hap.get_unchecked(j), match_p, mismatch_p);
+        let priors = [p0, p1];
+        let p = vld1q_f64(priors.as_ptr());
+        let diag = prev + j - 1;
+        let up = prev + j;
+        let mj = row + j;
+        let m_diag = vld1q_f64(m.as_ptr().add(diag));
+        let i_diag = vld1q_f64(ins.as_ptr().add(diag));
+        let d_diag = vld1q_f64(del.as_ptr().add(diag));
+        let m_up = vld1q_f64(m.as_ptr().add(up));
+        let i_up = vld1q_f64(ins.as_ptr().add(up));
+        let sum = vaddq_f64(
+            vaddq_f64(vmulq_f64(m_diag, tm2m), vmulq_f64(i_diag, ti2m)),
+            vmulq_f64(d_diag, ti2m),
+        );
+        vst1q_f64(m.as_mut_ptr().add(mj), vmulq_f64(p, sum));
+        vst1q_f64(
+            ins.as_mut_ptr().add(mj),
+            vaddq_f64(vmulq_f64(m_up, tm2i), vmulq_f64(i_up, ti2i)),
+        );
+        *del.get_unchecked_mut(mj) =
+            *m.get_unchecked(mj - 1) * tm2d + *del.get_unchecked(mj - 1) * td2d;
+        *del.get_unchecked_mut(mj + 1) =
+            *m.get_unchecked(mj) * tm2d + *del.get_unchecked(mj) * td2d;
+        j += 2;
+    }
+    if j <= hn {
+        fill_prefix_row_scalar(
+            hap, x, match_p, mismatch_p, t, m, ins, del, row, prev, j, hn,
+        );
+    }
+}
+
+/// 4-wide then 2-wide M/I via SSE2 (x86_64 baseline); D remains scalar.
+#[cfg(target_arch = "x86_64")]
+unsafe fn fill_prefix_row_sse2(
+    hap: &[u8],
+    x: u8,
+    match_p: f64,
+    mismatch_p: f64,
+    t: [f64; 6],
+    m: &mut [f64],
+    ins: &mut [f64],
+    del: &mut [f64],
+    row: usize,
+    prev: usize,
+    j0: usize,
+    hn: usize,
+) {
+    use std::arch::x86_64::*;
+    let tm2m = _mm_set1_pd(t[MATCH_TO_MATCH]);
+    let ti2m = _mm_set1_pd(t[INDEL_TO_MATCH]);
+    let tm2i = _mm_set1_pd(t[MATCH_TO_INSERTION]);
+    let ti2i = _mm_set1_pd(t[INSERTION_TO_INSERTION]);
+    let tm2d = t[MATCH_TO_DELETION];
+    let td2d = t[DELETION_TO_DELETION];
+    let mut j = j0;
+    while j + 3 <= hn {
+        let p01 = [
+            logless_emission(x, *hap.get_unchecked(j - 1), match_p, mismatch_p),
+            logless_emission(x, *hap.get_unchecked(j), match_p, mismatch_p),
+        ];
+        let p23 = [
+            logless_emission(x, *hap.get_unchecked(j + 1), match_p, mismatch_p),
+            logless_emission(x, *hap.get_unchecked(j + 2), match_p, mismatch_p),
+        ];
+        let diag = prev + j - 1;
+        let up = prev + j;
+        let mj = row + j;
+        let m_d0 = _mm_loadu_pd(m.as_ptr().add(diag));
+        let m_d1 = _mm_loadu_pd(m.as_ptr().add(diag + 2));
+        let i_d0 = _mm_loadu_pd(ins.as_ptr().add(diag));
+        let i_d1 = _mm_loadu_pd(ins.as_ptr().add(diag + 2));
+        let d_d0 = _mm_loadu_pd(del.as_ptr().add(diag));
+        let d_d1 = _mm_loadu_pd(del.as_ptr().add(diag + 2));
+        let m_u0 = _mm_loadu_pd(m.as_ptr().add(up));
+        let m_u1 = _mm_loadu_pd(m.as_ptr().add(up + 2));
+        let i_u0 = _mm_loadu_pd(ins.as_ptr().add(up));
+        let i_u1 = _mm_loadu_pd(ins.as_ptr().add(up + 2));
+        let sum0 = _mm_add_pd(
+            _mm_add_pd(_mm_mul_pd(m_d0, tm2m), _mm_mul_pd(i_d0, ti2m)),
+            _mm_mul_pd(d_d0, ti2m),
+        );
+        let sum1 = _mm_add_pd(
+            _mm_add_pd(_mm_mul_pd(m_d1, tm2m), _mm_mul_pd(i_d1, ti2m)),
+            _mm_mul_pd(d_d1, ti2m),
+        );
+        _mm_storeu_pd(
+            m.as_mut_ptr().add(mj),
+            _mm_mul_pd(_mm_loadu_pd(p01.as_ptr()), sum0),
+        );
+        _mm_storeu_pd(
+            m.as_mut_ptr().add(mj + 2),
+            _mm_mul_pd(_mm_loadu_pd(p23.as_ptr()), sum1),
+        );
+        _mm_storeu_pd(
+            ins.as_mut_ptr().add(mj),
+            _mm_add_pd(_mm_mul_pd(m_u0, tm2i), _mm_mul_pd(i_u0, ti2i)),
+        );
+        _mm_storeu_pd(
+            ins.as_mut_ptr().add(mj + 2),
+            _mm_add_pd(_mm_mul_pd(m_u1, tm2i), _mm_mul_pd(i_u1, ti2i)),
+        );
+        *del.get_unchecked_mut(mj) =
+            *m.get_unchecked(mj - 1) * tm2d + *del.get_unchecked(mj - 1) * td2d;
+        *del.get_unchecked_mut(mj + 1) =
+            *m.get_unchecked(mj) * tm2d + *del.get_unchecked(mj) * td2d;
+        *del.get_unchecked_mut(mj + 2) =
+            *m.get_unchecked(mj + 1) * tm2d + *del.get_unchecked(mj + 1) * td2d;
+        *del.get_unchecked_mut(mj + 3) =
+            *m.get_unchecked(mj + 2) * tm2d + *del.get_unchecked(mj + 2) * td2d;
+        j += 4;
+    }
+    while j + 1 <= hn {
+        let p0 = logless_emission(x, *hap.get_unchecked(j - 1), match_p, mismatch_p);
+        let p1 = logless_emission(x, *hap.get_unchecked(j), match_p, mismatch_p);
+        let priors = [p0, p1];
+        let p = _mm_loadu_pd(priors.as_ptr());
+        let diag = prev + j - 1;
+        let up = prev + j;
+        let mj = row + j;
+        let m_diag = _mm_loadu_pd(m.as_ptr().add(diag));
+        let i_diag = _mm_loadu_pd(ins.as_ptr().add(diag));
+        let d_diag = _mm_loadu_pd(del.as_ptr().add(diag));
+        let m_up = _mm_loadu_pd(m.as_ptr().add(up));
+        let i_up = _mm_loadu_pd(ins.as_ptr().add(up));
+        let sum = _mm_add_pd(
+            _mm_add_pd(_mm_mul_pd(m_diag, tm2m), _mm_mul_pd(i_diag, ti2m)),
+            _mm_mul_pd(d_diag, ti2m),
+        );
+        _mm_storeu_pd(m.as_mut_ptr().add(mj), _mm_mul_pd(p, sum));
+        _mm_storeu_pd(
+            ins.as_mut_ptr().add(mj),
+            _mm_add_pd(_mm_mul_pd(m_up, tm2i), _mm_mul_pd(i_up, ti2i)),
+        );
+        *del.get_unchecked_mut(mj) =
+            *m.get_unchecked(mj - 1) * tm2d + *del.get_unchecked(mj - 1) * td2d;
+        *del.get_unchecked_mut(mj + 1) =
+            *m.get_unchecked(mj) * tm2d + *del.get_unchecked(mj) * td2d;
+        j += 2;
+    }
+    if j <= hn {
+        fill_prefix_row_scalar(
+            hap, x, match_p, mismatch_p, t, m, ins, del, row, prev, j, hn,
+        );
+    }
+}
+
 /// Full-matrix path for Java `hapStartIndex` prefix reuse (columns `< start` kept).
 fn score_one_f64_prefix_reuse(
     read_bases: &[u8],
@@ -296,21 +630,11 @@ fn score_one_f64_prefix_reuse(
         m[row] = 0.0;
         ins[row] = 0.0;
         del[row] = 0.0;
-        for j in j0..=hn {
-            let y = hap[j - 1];
-            let p = if x == y || x == b'N' || y == b'N' {
-                match_p
-            } else {
-                mismatch_p
-            };
-            m[row + j] = p
-                * (m[prev + j - 1] * t[MATCH_TO_MATCH]
-                    + ins[prev + j - 1] * t[INDEL_TO_MATCH]
-                    + del[prev + j - 1] * t[INDEL_TO_MATCH]);
-            ins[row + j] =
-                m[prev + j] * t[MATCH_TO_INSERTION] + ins[prev + j] * t[INSERTION_TO_INSERTION];
-            del[row + j] =
-                m[row + j - 1] * t[MATCH_TO_DELETION] + del[row + j - 1] * t[DELETION_TO_DELETION];
+        // SAFETY: row = i * cols, cols = hn+1, scratch sized to (rn+1)*cols; j in j0..=hn.
+        unsafe {
+            fill_prefix_row(
+                hap, x, match_p, mismatch_p, t, m, ins, del, row, prev, j0, hn,
+            );
         }
     }
 

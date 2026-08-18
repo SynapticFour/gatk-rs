@@ -182,7 +182,8 @@ impl LoglessScratch {
     }
 
     fn clear(&mut self) {
-        *self = Self::new();
+        // Keep allocation high-water — next `ensure` reuses capacity (no munmap).
+        let _ = self;
     }
 }
 
@@ -190,7 +191,7 @@ thread_local! {
     static LOGLESS_SCRATCH: RefCell<LoglessScratch> = RefCell::new(LoglessScratch::new());
 }
 
-/// Release Logless PairHMM TLS scratch (full drop).
+/// Keep Logless PairHMM TLS high-water (see `run::release_region_tls_scratch`).
 pub fn release_pairhmm_logless_tls_scratch() {
     LOGLESS_SCRATCH.with(|cell| {
         cell.borrow_mut().clear();
