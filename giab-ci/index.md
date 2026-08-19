@@ -1,14 +1,14 @@
 # GIAB genome-wide equivalence dashboard
 
 - **Run dir:** `/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci`
-- **Generated (UTC):** 2026-08-18T07:26:04Z
-- **Scope:** CI-SUBSET (default “genome-wide” in this repo): FULL chr20 + FULL chr21 + one 50kb probe on each other autosome. Not all bases of chr1–19/22.
+- **Generated (UTC):** 2026-08-19T13:06:56Z
+- **Scope:** WALL-LOSERS: eight 1 Mb dense campaign windows (chr20/21 w09/w11/w26/w29). Product wall (no GATK_RS_HC_SEQUENTIAL). Peak abort retained.
 
 ## Samples
 
 | Sample | Mode | Gate | Max\|ΔF1\| | Java wall | Java RSS | Rust wall | Rust RSS |
 |--------|------|:----:|----------:|----------:|---------:|----------:|---------:|
-| HG001 | ci-subset | PASS | 0.0099 | — | — | — | — |
+| HG001 | wall-losers | PASS | 0.0004 | — | — | — | — |
 
 ## Notes
 
