@@ -158,7 +158,7 @@ unsafe fn score_haps_avx2_f64_unchecked(
                     for &i in ordered.iter() {
                         subset.push(haplotypes[i]);
                     }
-                    let use_prefix = ordered.len() >= 5
+                    let use_prefix = ordered.len() >= super::pack::PREFIX_REUSE_MIN_HAPS_AVX2
                         && mean_consecutive_prefix_frac(&subset)
                             >= super::pack::PREFIX_REUSE_OVER_SIMD_FRAC;
                     if use_prefix {

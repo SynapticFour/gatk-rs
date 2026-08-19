@@ -181,6 +181,13 @@ pub(crate) fn mean_consecutive_prefix_frac(haps: &[&[u8]]) -> f64 {
 /// this fraction of bases; otherwise use SIMD packs (GKL lane throughput).
 pub(crate) const PREFIX_REUSE_OVER_SIMD_FRAC: f64 = 0.35;
 
+/// NEON: min same-length group size for hapStartIndex prefix reuse (else pack2).
+/// A/B 3→6 on w11 200 kb: occupancy identical (~3% packs) — groups already ≥6.
+pub(crate) const PREFIX_REUSE_MIN_HAPS_NEON: usize = 3;
+
+/// AVX2: min same-length group size for prefix reuse (else pack4). A/B 5→8: no-op.
+pub(crate) const PREFIX_REUSE_MIN_HAPS_AVX2: usize = 5;
+
 /// Score one hap with prebuilt transition planes (shared across a read's hap pack).
 ///
 /// `hap_start`: 0-based haplotype index to (re)compute from — columns before this are

@@ -1,25 +1,25 @@
-# Beat Java wall — hard look (phase6→10)
+# Beat Java wall — hard look (phase6→10 + ledger tip)
 
 Goal: product-shaped wall (thr=2, no sequential) **&lt;1.0×** Java on dense GIAB, with
 algorithm parity (no P12 band widening). Peak RSS already wins on probe.
 
-## What the evidence says now (phase10 / #120 rematch)
+## What the evidence says now (ledger tip / #128 rematch)
 
-Signed product lane: `GIAB_MODE=wall-losers` on `main` @ `6a478ca`
-([run 32003572266](https://github.com/SynapticFour/gatk-rs/actions/runs/32003572266)):
+Signed product lane: `GIAB_MODE=wall-losers` on `perf/hc-wall-ledger-g1-p1-p2`
+([run 32244936304](https://github.com/SynapticFour/gatk-rs/actions/runs/32244936304)):
 
 | Metric | Value |
 |--------|------:|
-| Median wall Rust/Java | **~1.61×** (was ~1.62× @ 7991f28 / ~1.79× baseline) |
-| Σ wall | **1.65×** (44m14 / 26m51; was 1.74×) |
-| Worst shard | `01_chr21_w09` **2.01×** (was **2.58×**) |
-| Best dense | `00_chr20_w09` **1.39×** |
-| Peak RSS | ~0.16–0.62× Java (still wins) |
+| Median wall Rust/Java | **~1.15×** (was **~1.61×** @ 6a478ca / 32003572266) |
+| Σ wall | **1.27×** (32m54 / 25m53; was 1.65×) |
+| Worst shard | `01_chr21_w11` **1.65×** (was w09 **2.01×**) |
+| Best dense | `01_chr21_w29` **0.82×** (Rust faster) |
+| Peak RSS | ~0.14–0.66× Java (still wins) |
 | Equivalence gate | **PASS** `max_\|ΔF1\|=0.0004` |
-| Call-rate rust/java sites | **0.857** (26544 / 30984) |
 
-Workflow red only on **Publish** (protected-main GH006) — Finalize PASS.
-Peak-mode ci-subset dense median (~1.55×) is **not** the product-wall claim —
+Living method + experiment table: [`PERFORMANCE_LEDGER.md`](PERFORMANCE_LEDGER.md).
+
+Peak-mode ci-subset dense median is **not** the product-wall claim —
 `GATK_RS_HC_SEQUENTIAL=1` there. Use wall-losers for beat-Java wall.
 
 ## Highest-leverage wall bets (evidence-class)
@@ -27,10 +27,11 @@ Peak-mode ci-subset dense median (~1.55×) is **not** the product-wall claim —
 | Priority | Bet | Status |
 |----------|-----|--------|
 | 1 | **Collapse multi-pass AD + CIGAR/seq cache** | Landed (#120): TLS `AdDecodeCache`, pad/slice reuse, single-pass softclip counts |
-| 2 | **Softclip-aware TLS base lookup** | Landed: `AdDecodeCache::softclip_base_at_ref_1based` (SoftClip-as-ref ≠ AD `query_index`) |
-| 3 | **PairHMM leaf / packs** | Landed: NEON + AVX2 TLS `by_len` / leftover `score_one_hap`; **read-axis packs deferred** until TRACE proves hap-axis still leaves &gt;1.0× |
-| 4 | **Gate parity_spine when redundant** | Indel CIGAR-complete skip kept; SNP no-alt skip **reverted** (blocked materialize / p5 j2 fixture) |
-| 5 | **Realign SW** | Landed: `last_index_of` first-byte reject (phase8) — no further cheap reject |
+| 2 | **Softclip-aware TLS base lookup** | Landed: `AdDecodeCache::softclip_base_at_ref_1based` |
+| 3 | **Genotype reshape / AD memo (G1)** | Landed (#128): TLS borrow likelihood rows + indel AD memo — mega assign no longer dominant |
+| 4 | **PairHMM leaf / packs + prefix threshold** | Landed packs + hapStartIndex; **retune** `PREFIX_REUSE_OVER_SIMD_FRAC` with TRACE A/B on remaining losers |
+| 5 | **Gate parity_spine when redundant** | Indel CIGAR-complete skip kept; SNP no-alt skip **reverted** |
+| 6 | **Realign SW** | Rolling scores + oracle landed; striped/SIMD **deferred** until loser profiles show SW ≥ PairHMM |
 
 Prove: `pairhmm_simd_vs_scalar_test`, softclip engine tests, mega TRACE + wall-losers rematch; no P12 band widening.
 
@@ -41,30 +42,29 @@ Prove: `pairhmm_simd_vs_scalar_test`, softclip engine tests, mega TRACE + wall-l
 - Full EventMap precache in allele filtering (regressed prep wall badly).
 - Marketing genome-wide equivalence from Peak-mode CI Σ.
 - Read-axis PairHMM packs before TRACE Σδ proof on current hap-axis.
+- Striped SIMD SW before rematch shows SW still dominates after rolling leaf.
 
 ## Immediate next experiment
 
-1. ~~Phase6–9 / wall-losers baseline~~ — see table above (#112–#120).
-2. ~~Softclip TLS / AVX2 hygiene~~ — landed on #120 tip.
-3. ~~Product wall rematch~~ — [32003572266](https://github.com/SynapticFour/gatk-rs/actions/runs/32003572266):
-   w09 **2.58→2.01×**, Σ **1.74→1.65×**; still 8/8 rust_slower.
-4. **chr21 genotype leaf** — local TRACE (product thr=2):
-   - mega `21:9825–9828k`: **assign 130 s** vs pairhmm 9 s / realign 3 s; hot region
-     `21:9826233` alone ~37 s assign.
-   - w11 densest-ish: assign **32 s** / pairhmm **24 s** / realign **9 s**.
-   Next wall cut = structural genotype/AD on mega loci, not PairHMM packs.
-   Complexity + AD memo / hap-base sort: [`GENOTYPE_ASSIGN_COMPLEXITY.md`](GENOTYPE_ASSIGN_COMPLEXITY.md).
-   Living ledger (method → top-3 → keep/revert): [`PERFORMANCE_LEDGER.md`](PERFORMANCE_LEDGER.md).
-5. **Call-rate / L8** — spine strong-het gates + sync retain (see
-   [`CALLRATE_EMIT_AD_DIG.md`](CALLRATE_EMIT_AD_DIG.md)); rematch 5/12 miss sites emitted.
-6. **Publish hygiene** — stop `git push` to protected `main` in GIAB Publish jobs.
+1. ~~Phase6–10 / wall-losers baselines~~ — see table above (#112–#128).
+2. ~~G1/P1/P2 tip rematch~~ — [32244936304](https://github.com/SynapticFour/gatk-rs/actions/runs/32244936304):
+   median **1.61→1.15×**, Σ **1.65→1.27×**; first Rust wall wins on dense shards.
+3. **Profile remaining slower shards** — `01_chr21_w11`, `00_chr20_w26/w29`
+   (200 kb heads locally; full 1 Mb is CI).
+4. ~~**PairHMM prefix-vs-pack A/B**~~ — frac + min-haps A/B **reverted** (occupancy
+   unchanged); next = read-axis / wavefront with TRACE.
+5. **ci-subset** — F1 safety only (Peak sequential); run [32263139535](https://github.com/SynapticFour/gatk-rs/actions/runs/32263139535).
+6. **Call-rate / L8** — spine strong-het gates + sync retain (see
+   [`CALLRATE_EMIT_AD_DIG.md`](CALLRATE_EMIT_AD_DIG.md)).
+7. **Publish hygiene** — stop `git push` to protected `main` in GIAB Publish jobs.
 
-### Local TRACE rematch (phase10 tip, product thr=2)
+### Local TRACE rematch (phase10 tip → ledger tip)
 
 | Window | assign_genotype_s | pairhmm_s | realign_s |
 |--------|------------------:|----------:|----------:|
-| mega `21:9825–9828k` | ~147–172 | ~15–20 | ~4–7 |
-| w10 hot 50 kb | ~14 | ~12–14 | ~7–8 |
-| w11 densest-ish 50 kb | ~28–32 | ~31–36 | ~14–18 |
+| mega `21:9825–9828k` (pre-G1) | ~147–172 | ~15–20 | ~4–7 |
+| mega (post-G1 tip) | **~1.2** | ~13 | ~4.7 |
+| w09 200 kb (tip profile) | ~3.2 | ~22 | ~22 |
+| w11 densest-ish 50 kb (phase10) | ~28–32 | ~31–36 | ~14–18 |
 
 Laptop assign noise is high; prefer CI wall-losers for signed wall ratios.

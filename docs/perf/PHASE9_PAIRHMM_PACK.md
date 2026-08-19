@@ -18,6 +18,16 @@ median on `wall-losers` (baseline ~1.79×).
 | NEON: TLS `by_len` + in-place sort (no idxs clone); leftover via `score_one_hap` | Same scores; less alloc churn |
 | AVX2: TLS `by_len` + leftover via `score_one_hap` (mirror NEON) | Same scores; less alloc churn |
 
+## Prefix-vs-pack A/B (2026-08-19, post wall-losers 1.15× rematch)
+
+| Knob | Result | Keep? |
+|------|--------|------:|
+| `PREFIX_REUSE_OVER_SIMD_FRAC` 0.35→0.50 | Occupancy unchanged (~3% packs / ~95% prefix) on w11 200 kb — mean consecutive prefix already &gt;0.50 | **REVERT** |
+| `PREFIX_REUSE_MIN_HAPS_NEON` 3→6 / AVX2 5→8 | Occupancy **identical** (same pack/prefix counts) — groups already large | **REVERT** |
+
+Named constants kept at original 3/5. Next PairHMM bet: read-axis packs / wavefront
+with TRACE Σδ — hap-axis prefix path is saturated on dense losers.
+
 ## Deferred
 
 - Equal-length **read** packs (transpose SIMD axis) — only after product TRACE shows

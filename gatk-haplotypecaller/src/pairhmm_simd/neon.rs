@@ -163,7 +163,7 @@ unsafe fn score_haps_neon_f64_unchecked(
                     }
                     // Java Logless hapStartIndex vs GKL SIMD lanes: prefix reuse wins when
                     // sorted same-length haps share long prefixes; otherwise pack2.
-                    let use_prefix = ordered.len() >= 3
+                    let use_prefix = ordered.len() >= super::pack::PREFIX_REUSE_MIN_HAPS_NEON
                         && mean_consecutive_prefix_frac(&subset)
                             >= super::pack::PREFIX_REUSE_OVER_SIMD_FRAC;
                     if use_prefix {

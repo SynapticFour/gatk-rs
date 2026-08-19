@@ -67,8 +67,21 @@ Exact-substring SoftClip stays on the `lastIndexOf` path (sub-µs class; see
 Score-plane TLS footprint drops from \(O(nm)\) to \(O(n+m)\); backtrack plane
 unchanged (still the Peak driver for large cells).
 
+## Gate to start striped SIMD (post #128 rematch)
+
+Local 200 kb heads on remaining wall-losers still rank **PairHMM #1, SW #2**
+(w11 / w26 / w29). SW share remains large enough to justify a striped experiment,
+but only with:
+
+1. Existing oracle `rolling_matches_full_matrix_oracle` extended to striped path
+2. SoftClip / Indel Criterion benches showing wall↓ on HC lengths (80–280)
+3. No CIGAR/pos drift vs production rolling path
+
+Until those land, keep rolling + `last_index_of` — do **not** merge striped without
+oracle proof.
+
 ## Non-goals
 
-- No striped SIMD SW in this change
+- No striped SIMD SW without the gate above
 - No score-only API (HC always needs CIGAR)
 - No P12 band widening / heuristic indel shortcuts that alter CIGAR
