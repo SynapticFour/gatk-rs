@@ -12,6 +12,7 @@ use crate::hc_emit_policy::passes_emit_for_variation_event;
 #[test]
 fn biallelic_gl_gatk_single_read() {
     let rows = vec![ReadLikelihoodRow {
+        read_index: 0,
         read_id: "r0".into(),
         haplotype_log10_likelihoods: vec![-0.1, -2.0, -1.5],
     }];
@@ -26,6 +27,7 @@ fn biallelic_gl_gatk_single_read() {
 #[test]
 fn biallelic_gl_parity_legacy_double_weights() {
     let rows = vec![ReadLikelihoodRow {
+        read_index: 0,
         read_id: "r0".into(),
         haplotype_log10_likelihoods: vec![-0.1, -2.0, -1.5],
     }];
@@ -38,6 +40,7 @@ fn biallelic_gl_parity_legacy_double_weights() {
 #[test]
 fn marginalize_takes_max_per_allele_hap_group() {
     let rows = vec![ReadLikelihoodRow {
+        read_index: 0,
         read_id: "r0".into(),
         haplotype_log10_likelihoods: vec![-5.0, -0.5, -2.0, -0.2],
     }];
@@ -60,14 +63,17 @@ fn marginalize_takes_max_per_allele_hap_group() {
 fn biallelic_ad_counts_only_informative_reads() {
     let rows = vec![
         ReadLikelihoodRow {
+            read_index: 0,
             read_id: "r0".into(),
             haplotype_log10_likelihoods: vec![-0.1, -0.25],
         },
         ReadLikelihoodRow {
+            read_index: 0,
             read_id: "r1".into(),
             haplotype_log10_likelihoods: vec![-0.1, -0.5],
         },
         ReadLikelihoodRow {
+            read_index: 0,
             read_id: "r2".into(),
             haplotype_log10_likelihoods: vec![-2.0, -0.1],
         },

@@ -629,7 +629,7 @@ impl JunctionTreeGraphBuilder {
                 support: 1,
             })
             .collect();
-        let kmer_to_id: std::collections::BTreeMap<_, _> = self
+        let kmer_to_id: HashMap<_, _> = self
             .kmer_to_vertex
             .iter()
             .map(|(k, &id)| (std::sync::Arc::from(k.as_slice()), id))

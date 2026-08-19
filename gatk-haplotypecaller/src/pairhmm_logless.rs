@@ -134,17 +134,36 @@ pub(crate) fn logless_build_transitions(
     deletion_gop: &[u8],
     overall_gcp: &[u8],
 ) -> Vec<[f64; 6]> {
-    let mut transitions = vec![[0.0f64; 6]; rn + 1];
-    for i in 0..rn {
-        transitions[i + 1] =
-            logless_qual_to_trans_probs(insertion_gop[i], deletion_gop[i], overall_gcp[i]);
-    }
+    let mut transitions = Vec::new();
+    logless_fill_transitions(
+        &mut transitions,
+        rn,
+        insertion_gop,
+        deletion_gop,
+        overall_gcp,
+    );
     transitions
+}
+
+/// Grow/reuse `out` and fill transition rows `[1..=rn]` (index 0 unused).
+pub(crate) fn logless_fill_transitions(
+    out: &mut Vec<[f64; 6]>,
+    rn: usize,
+    insertion_gop: &[u8],
+    deletion_gop: &[u8],
+    overall_gcp: &[u8],
+) {
+    let need = rn + 1;
+    if out.len() < need {
+        out.resize(need, [0.0; 6]);
+    }
+    for i in 0..rn {
+        out[i + 1] = logless_qual_to_trans_probs(insertion_gop[i], deletion_gop[i], overall_gcp[i]);
+    }
 }
 
 struct LoglessScratch {
     transition: Vec<[f64; 6]>,
-    prior: Vec<f64>,
     m: Vec<f64>,
     ins: Vec<f64>,
     del: Vec<f64>,
@@ -154,7 +173,6 @@ impl LoglessScratch {
     fn new() -> Self {
         Self {
             transition: Vec::new(),
-            prior: Vec::new(),
             m: Vec::new(),
             ins: Vec::new(),
             del: Vec::new(),
@@ -173,8 +191,7 @@ impl LoglessScratch {
         if self.transition.len() < rows {
             self.transition.resize(rows, [0.0; 6]);
         }
-        if self.prior.len() < cells {
-            self.prior.resize(cells, 0.0);
+        if self.m.len() < cells {
             self.m.resize(cells, 0.0);
             self.ins.resize(cells, 0.0);
             self.del.resize(cells, 0.0);

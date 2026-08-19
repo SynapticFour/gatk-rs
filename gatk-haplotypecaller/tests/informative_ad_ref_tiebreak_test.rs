@@ -11,6 +11,7 @@ use gatk_haplotypecaller::hc_genotyping_engine::{
 fn informative_ad_near_tie_is_uninformative() {
     // Within threshold: ALT slightly ahead — Java drops the vote (does not count as REF).
     let rows = vec![ReadLikelihoodRow {
+        read_index: 0,
         read_id: "r0".into(),
         haplotype_log10_likelihoods: vec![-1.0, -1.01],
     }];
@@ -28,6 +29,7 @@ fn informative_ad_near_tie_is_uninformative() {
 #[test]
 fn informative_ad_clear_alt_winner_counts_alt() {
     let rows = vec![ReadLikelihoodRow {
+        read_index: 0,
         read_id: "r0".into(),
         haplotype_log10_likelihoods: vec![-3.0, -0.5],
     }];
@@ -38,6 +40,7 @@ fn informative_ad_clear_alt_winner_counts_alt() {
 #[test]
 fn informative_ad_clear_ref_winner_counts_ref() {
     let rows = vec![ReadLikelihoodRow {
+        read_index: 0,
         read_id: "r0".into(),
         haplotype_log10_likelihoods: vec![-0.5, -3.0],
     }];

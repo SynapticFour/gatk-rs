@@ -637,6 +637,7 @@ impl AssemblyRegionIterator {
     }
 
     fn flush_profile_to_pending(&mut self, force_conversion: bool) -> GatkResult<()> {
+        let t0 = crate::hc_profile::enabled().then(std::time::Instant::now);
         let ext = self.cfg.assembly_region_extension;
         let min = self.cfg.min_region_size;
         let max = self.cfg.max_region_size;
@@ -655,6 +656,9 @@ impl AssemblyRegionIterator {
                 reg.extension,
             );
             self.pending.push_back(AssemblyRegion::from(reg));
+        }
+        if let Some(t0) = t0 {
+            crate::hc_profile::note_active_region_wall(t0.elapsed());
         }
         Ok(())
     }
@@ -706,6 +710,7 @@ impl AssemblyRegionIterator {
     /// still cover later loci stay pinned in `all_records` via [`Arc::clone`] so per-locus
     /// activity scoring does not see empty sentinels (P12 mid-B second peak / emit gate).
     fn fill_region_with_reads(&mut self, region: &mut AssemblyRegion) {
+        let _prof = crate::hc_profile::begin(crate::hc_profile::Stage::InputBamDecode);
         let ext_start = region.extended_start.get();
         let ext_end = region.extended_end.get();
         // `next_region` scores `pos` then polls; at fill time `next_pos` is still that locus.
@@ -949,19 +954,25 @@ impl AssemblyRegionIterator {
                 self.flush_profile_to_pending(force_conversion)?;
             }
 
-            add_locus_for_smoothed_activity(
-                &mut self.profile,
-                &self.all_records,
-                &self.header,
-                &self.header_semantics,
-                &self.contig,
-                pos,
-                &self.read_filters,
-                ref_base,
-                &self.cfg.scoring,
-                Some(&mut self.pileup_state),
-                false,
-            )?;
+            {
+                let t0 = crate::hc_profile::enabled().then(std::time::Instant::now);
+                add_locus_for_smoothed_activity(
+                    &mut self.profile,
+                    &self.all_records,
+                    &self.header,
+                    &self.header_semantics,
+                    &self.contig,
+                    pos,
+                    &self.read_filters,
+                    ref_base,
+                    &self.cfg.scoring,
+                    Some(&mut self.pileup_state),
+                    false,
+                )?;
+                if let Some(t0) = t0 {
+                    crate::hc_profile::note_active_region_wall(t0.elapsed());
+                }
+            }
             if let Some(pending) = self.pending_pileups.as_mut() {
                 let depth = self.pileup_state.pileup_depth();
                 pending.push_back(RegionPileupLocus {

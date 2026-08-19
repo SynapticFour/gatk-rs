@@ -180,6 +180,7 @@ impl HcLikelihoodEngineConfig {
             PairHmmImpl::LoglessPairHmm => "LoglessPairHMM",
             PairHmmImpl::Simd => "Simd",
             PairHmmImpl::SimdF32 => "SimdF32",
+            PairHmmImpl::Wavefront => "Wavefront",
             PairHmmImpl::FastestAvailable => "FastestAvailable",
         }
     }

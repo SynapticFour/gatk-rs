@@ -7,7 +7,7 @@ use super::pack::{
     score_haps_logless_packed_f64_with_transitions, score_one_hap_logless_f64_with_transitions,
 };
 use crate::pairhmm_logless::{
-    logless_build_transitions, logless_match_mismatch_prior, INITIAL_CONDITION,
+    logless_fill_transitions, logless_match_mismatch_prior, INITIAL_CONDITION,
     INITIAL_CONDITION_LOG10,
 };
 use gatk_common::GatkResult;
@@ -32,7 +32,6 @@ struct Avx2Scratch {
     m: Vec<f64>,
     ins: Vec<f64>,
     del: Vec<f64>,
-    prior: Vec<f64>,
 }
 
 impl Avx2Scratch {
@@ -41,7 +40,6 @@ impl Avx2Scratch {
             m: Vec::new(),
             ins: Vec::new(),
             del: Vec::new(),
-            prior: Vec::new(),
         }
     }
 
@@ -51,20 +49,31 @@ impl Avx2Scratch {
             self.m.resize(need, 0.0);
             self.ins.resize(need, 0.0);
             self.del.resize(need, 0.0);
-            self.prior.resize(need, 0.0);
         }
     }
 }
 
 thread_local! {
     static AVX2_SCRATCH: RefCell<Avx2Scratch> = RefCell::new(Avx2Scratch::new());
+    static AVX2_TRANSITIONS: RefCell<Vec<[f64; 6]>> = const { RefCell::new(Vec::new()) };
     static AVX2_BY_LEN: RefCell<HashMap<usize, Vec<usize>>> =
         RefCell::new(HashMap::new());
+    static AVX2_PACK4: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static AVX2_PREFIX_REUSE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static AVX2_LEFTOVER: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// Keep AVX2 PairHMM TLS high-water (see `run::release_region_tls_scratch`).
 pub fn release_pairhmm_avx2_tls_scratch() {}
 
+/// Take-and-reset AVX2 pack occupancy: `(pack4, prefix_reuse_haps, leftover_singles)`.
+pub fn take_avx2_pack_stats() -> (u64, u64, u64) {
+    (
+        AVX2_PACK4.replace(0),
+        AVX2_PREFIX_REUSE.replace(0),
+        AVX2_LEFTOVER.replace(0),
+    )
+}
 /// Score haplotypes with AVX2 when available; otherwise portable packed f64.
 pub fn score_haps_avx2_f64(
     read_bases: &[u8],
@@ -114,84 +123,97 @@ unsafe fn score_haps_avx2_f64_unchecked(
         return Ok(vec![0.0; haplotypes.len()]);
     }
 
-    let transitions = logless_build_transitions(rn, insertion_gop, deletion_gop, overall_gcp);
     let mut out = vec![0.0f64; haplotypes.len()];
     let mut err = None;
-    AVX2_BY_LEN.with(|by_len_cell| {
-        let mut by_len = by_len_cell.borrow_mut();
-        for v in by_len.values_mut() {
-            v.clear();
-        }
-        for (i, h) in haplotypes.iter().enumerate() {
-            by_len.entry(h.len()).or_default().push(i);
-        }
-        let lengths: Vec<usize> = by_len
-            .iter()
-            .filter(|(_, idxs)| !idxs.is_empty())
-            .map(|(len, _)| *len)
-            .collect();
-        AVX2_SCRATCH.with(|cell| {
-            let mut scratch = cell.borrow_mut();
-            for len in lengths {
-                let Some(ordered) = by_len.get_mut(&len) else {
-                    continue;
-                };
-                ordered.sort_by(|&a, &b| haplotypes[a].cmp(haplotypes[b]));
-                let mut subset = Vec::with_capacity(ordered.len());
-                for &i in ordered.iter() {
-                    subset.push(haplotypes[i]);
-                }
-                let use_prefix = ordered.len() >= 5
-                    && mean_consecutive_prefix_frac(&subset)
-                        >= super::pack::PREFIX_REUSE_OVER_SIMD_FRAC;
-                if use_prefix {
-                    match score_haps_logless_packed_f64_with_transitions(
-                        read_bases,
-                        read_quals,
-                        &subset,
-                        &transitions,
-                    ) {
-                        Ok(scores) => {
-                            for (k, &i) in ordered.iter().enumerate() {
-                                out[i] = scores[k];
+    AVX2_TRANSITIONS.with(|tcell| {
+        let mut transitions = tcell.borrow_mut();
+        logless_fill_transitions(
+            &mut transitions,
+            rn,
+            insertion_gop,
+            deletion_gop,
+            overall_gcp,
+        );
+        AVX2_BY_LEN.with(|by_len_cell| {
+            let mut by_len = by_len_cell.borrow_mut();
+            for v in by_len.values_mut() {
+                v.clear();
+            }
+            for (i, h) in haplotypes.iter().enumerate() {
+                by_len.entry(h.len()).or_default().push(i);
+            }
+            let lengths: Vec<usize> = by_len
+                .iter()
+                .filter(|(_, idxs)| !idxs.is_empty())
+                .map(|(len, _)| *len)
+                .collect();
+            AVX2_SCRATCH.with(|cell| {
+                let mut scratch = cell.borrow_mut();
+                for len in lengths {
+                    let Some(ordered) = by_len.get_mut(&len) else {
+                        continue;
+                    };
+                    ordered.sort_by(|&a, &b| haplotypes[a].cmp(haplotypes[b]));
+                    let mut subset = Vec::with_capacity(ordered.len());
+                    for &i in ordered.iter() {
+                        subset.push(haplotypes[i]);
+                    }
+                    let use_prefix = ordered.len() >= 5
+                        && mean_consecutive_prefix_frac(&subset)
+                            >= super::pack::PREFIX_REUSE_OVER_SIMD_FRAC;
+                    if use_prefix {
+                        match score_haps_logless_packed_f64_with_transitions(
+                            read_bases,
+                            read_quals,
+                            &subset,
+                            &transitions,
+                        ) {
+                            Ok(scores) => {
+                                for (k, &i) in ordered.iter().enumerate() {
+                                    out[i] = scores[k];
+                                }
+                                AVX2_PREFIX_REUSE
+                                    .set(AVX2_PREFIX_REUSE.get() + ordered.len() as u64);
+                            }
+                            Err(e) => {
+                                err = Some(e);
+                                return;
                             }
                         }
-                        Err(e) => {
-                            err = Some(e);
-                            return;
+                        continue;
+                    }
+                    let mut chunks = ordered.chunks_exact(LANES);
+                    for pack_src in chunks.by_ref() {
+                        let pack = [
+                            haplotypes[pack_src[0]],
+                            haplotypes[pack_src[1]],
+                            haplotypes[pack_src[2]],
+                            haplotypes[pack_src[3]],
+                        ];
+                        let scores =
+                            score_pack4(read_bases, read_quals, &pack, &transitions, &mut scratch);
+                        for (k, &idx) in pack_src.iter().enumerate() {
+                            out[idx] = scores[k];
                         }
+                        AVX2_PACK4.set(AVX2_PACK4.get() + 1);
                     }
-                    continue;
-                }
-                let mut chunks = ordered.chunks_exact(LANES);
-                for pack_src in chunks.by_ref() {
-                    let pack = [
-                        haplotypes[pack_src[0]],
-                        haplotypes[pack_src[1]],
-                        haplotypes[pack_src[2]],
-                        haplotypes[pack_src[3]],
-                    ];
-                    let scores =
-                        score_pack4(read_bases, read_quals, &pack, &transitions, &mut scratch);
-                    for (k, &idx) in pack_src.iter().enumerate() {
-                        out[idx] = scores[k];
-                    }
-                }
-                for &i in chunks.remainder() {
-                    match score_one_hap_logless_f64_with_transitions(
-                        read_bases,
-                        read_quals,
-                        haplotypes[i],
-                        &transitions,
-                    ) {
-                        Ok(score) => out[i] = score,
-                        Err(e) => {
-                            err = Some(e);
-                            return;
+                    for &i in chunks.remainder() {
+                        match score_one_hap_logless_f64_with_transitions(
+                            read_bases,
+                            read_quals,
+                            haplotypes[i],
+                            &transitions,
+                        ) {
+                            Ok(score) => out[i] = score,
+                            Err(e) => {
+                                err = Some(e);
+                                return;
+                            }
                         }
+                        AVX2_LEFTOVER.set(AVX2_LEFTOVER.get() + 1);
                     }
                 }
-            }
+            });
         });
     });
     if let Some(e) = err {

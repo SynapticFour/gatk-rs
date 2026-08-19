@@ -53,6 +53,8 @@ Prove: `pairhmm_simd_vs_scalar_test`, softclip engine tests, mega TRACE + wall-l
      `21:9826233` alone ~37 s assign.
    - w11 densest-ish: assign **32 s** / pairhmm **24 s** / realign **9 s**.
    Next wall cut = structural genotype/AD on mega loci, not PairHMM packs.
+   Complexity + AD memo / hap-base sort: [`GENOTYPE_ASSIGN_COMPLEXITY.md`](GENOTYPE_ASSIGN_COMPLEXITY.md).
+   Living ledger (method → top-3 → keep/revert): [`PERFORMANCE_LEDGER.md`](PERFORMANCE_LEDGER.md).
 5. **Call-rate / L8** — spine strong-het gates + sync retain (see
    [`CALLRATE_EMIT_AD_DIG.md`](CALLRATE_EMIT_AD_DIG.md)); rematch 5/12 miss sites emitted.
 6. **Publish hygiene** — stop `git push` to protected `main` in GIAB Publish jobs.

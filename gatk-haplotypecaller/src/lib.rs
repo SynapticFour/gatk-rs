@@ -49,10 +49,13 @@ pub mod haplotype_cigar;
 pub mod hc_allele_mapping;
 pub mod hc_emit_policy;
 pub mod hc_genotyping_engine;
+/// Observe-only production HC profiler (`GATK_RS_HC_PROFILE`).
+pub mod hc_profile;
 pub mod hq_soft_clip;
 pub mod junction_kbest;
 pub mod junction_tree_graph;
 pub mod kbest_haplotype;
+pub mod kmer_key;
 pub mod likelihood_engine;
 pub mod locus_iterator;
 pub mod minimal_genotyping;
@@ -369,10 +372,11 @@ pub use haplotype::Haplotype;
 pub use hc_genotyping_engine::{
     biallelic_genotype_log10_likelihoods_gatk, diagnose_genotype_variation_event,
     genotype_active_region, java_emit_af_decision, java_vcf_shaped_rescue_gl,
-    marginalize_rows_to_biallelic_alleles, subset_biallelic_haplotype_indices,
-    GenotypeRejectReason, GenotypingSemantics, HcGenotypingConfig, InformativeAd,
-    JavaEmitAfDecision, RegionGenotypeResult, SparsePlShape,
-    DEFAULT_INFORMATIVE_READ_OVERLAP_MARGIN, DEFAULT_STAND_EMIT_CONFIDENCE,
+    marginalize_rows_to_biallelic_alleles, region_likelihoods_to_rows,
+    subset_biallelic_haplotype_indices, with_region_likelihood_rows, GenotypeRejectReason,
+    GenotypingSemantics, HcGenotypingConfig, InformativeAd, JavaEmitAfDecision,
+    RegionGenotypeResult, SparsePlShape, DEFAULT_INFORMATIVE_READ_OVERLAP_MARGIN,
+    DEFAULT_STAND_EMIT_CONFIDENCE,
 };
 #[cfg(feature = "dev-dumps")]
 pub use hc_genotyping_engine::{format_locus_genotype_pl_dump, pairhmm_locus_trace_dump};
@@ -411,7 +415,9 @@ pub use pairhmm_logless::{
 };
 pub use pairhmm_simd::{
     best_simd_backend, parse_pair_hmm_impl, resolve_pair_hmm_impl, score_haps_logless_packed_f64,
-    score_read_haps_logless, PairHmmBackend, PairHmmImpl,
+    score_haps_wavefront_f32, score_haps_wavefront_portable_f32, score_haps_wavefront_rolling_f64,
+    score_read_haps_logless, select_wavefront_kernel, PairHmmBackend, PairHmmImpl, ReadPrep,
+    WavefrontKernel,
 };
 pub use read_downsample::{
     apply_positional_downsampler, GatkJavaRng, PositionalDownsamplerConfig,
@@ -445,6 +451,7 @@ pub use read_threading_assembler::{
 };
 pub use read_threading_assembler::{probe_seq_graph_kmer_attempts, SeqGraphKmerProbeRow};
 pub use read_threading_graph::{
+    assembly_graph_from_reads_threading, assembly_graph_from_ref_and_reads_threading,
     assembly_graph_from_ref_and_reads_threading_with_summary, reference_has_non_unique_kmers,
     threading_non_unique_summary, ThreadingNonUniqueSummary,
 };

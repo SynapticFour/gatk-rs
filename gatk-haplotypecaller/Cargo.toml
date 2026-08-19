@@ -72,6 +72,11 @@ harness = false
 name = "shared_reference_arc"
 harness = false
 
+[[bench]]
+name = "genotype_assign"
+harness = false
+required-features = ["parity_harness"]
+
 [[example]]
 name = "hc_full_parity_gate_dump"
 path = "examples/hc_full_parity_gate_dump.rs"

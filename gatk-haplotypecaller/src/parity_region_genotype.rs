@@ -34,6 +34,7 @@ pub fn parity_java_aligned_read_rows<R: std::borrow::Borrow<rust_htslib::bam::Re
         }
         let read_id = String::from_utf8_lossy(rec.qname()).into_owned();
         rows.push(ReadLikelihoodRow {
+            read_index: 0,
             read_id,
             haplotype_log10_likelihoods: ll,
         });
@@ -209,6 +210,7 @@ mod tests {
     #[test]
     fn parity_region_genotype_dump_writes_genotyped_row() {
         let rows = vec![ReadLikelihoodRow {
+            read_index: 0,
             read_id: "r1".into(),
             haplotype_log10_likelihoods: vec![-1.0],
         }];

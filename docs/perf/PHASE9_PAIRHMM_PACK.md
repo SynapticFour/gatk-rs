@@ -24,6 +24,9 @@ median on `wall-losers` (baseline ~1.79×).
   hap-axis still leaves wall-losers median &gt;1.0×.
 - GKL flank windows — only if ≡ scalar Logless under SIMD unit test.
 - `f32` SIMD promotion (Criterion slower than f64).
+- **Architecture C row-wavefront** — implemented opt-in as `--pair-hmm WAVEFRONT`
+  ([`PAIRHMM_WAVEFRONT.md`](PAIRHMM_WAVEFRONT.md)); not in `FASTEST_AVAILABLE` yet.
+  True GKL anti-diagonal remains the next measurement target after wavefront TRACE.
 
 ## Prove
 

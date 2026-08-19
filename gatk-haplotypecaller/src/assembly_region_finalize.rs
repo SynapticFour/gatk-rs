@@ -99,6 +99,7 @@ pub(crate) fn finalize_owned_bam_records(
     min_tail_quality: u8,
     soft_clip_low_quality_ends: bool,
 ) -> Vec<bam::Record> {
+    let _prof = crate::hc_profile::begin(crate::hc_profile::Stage::ReadPreprocess);
     let policy = HcSoftclipPolicy::haplotype_caller_defaults();
     let ref_start = region.extended_start.get();
     let ref_stop = region.extended_end.get();

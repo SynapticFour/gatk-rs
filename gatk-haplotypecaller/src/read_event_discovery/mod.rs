@@ -10,6 +10,7 @@ use crate::java_hc_site_semantics::{
 include!("sync_events.rs");
 
 pub mod ad_decode_cache;
+pub mod ad_result_memo;
 pub mod indel_evidence;
 pub use ad_decode_cache::clear_ad_decode_cache;
 pub(crate) use indel_evidence::{
@@ -639,40 +640,64 @@ pub fn read_allele_depths_at_locus(
     event: &VariationEvent,
     pad_start_1based: u64,
 ) -> (i32, i32) {
+    let profiling = crate::hc_profile::enabled();
+    let t0 = profiling.then(std::time::Instant::now);
+    let out = read_allele_depths_at_locus_inner(reads, event, pad_start_1based);
+    if let Some(t0) = t0 {
+        crate::hc_profile::note_ad_wall(t0.elapsed());
+    }
+    out
+}
+
+fn read_allele_depths_at_locus_inner(
+    reads: &[SharedBamRecord],
+    event: &VariationEvent,
+    pad_start_1based: u64,
+) -> (i32, i32) {
     if event.is_indel() {
         // pad is unused for CIGAR-coordinate indel counting (genomic POS is absolute).
         let _ = pad_start_1based;
-        return read_indel_allele_depths_from_cigars(reads, event);
+        let loc = event.start_1based.get();
+        return ad_result_memo::memo_indel_ad(
+            reads,
+            loc,
+            &event.ref_allele,
+            &event.alt_allele,
+            || read_indel_allele_depths_from_cigars(reads, event),
+        );
     }
     if event.ref_allele.len() != 1 || event.alt_allele.len() != 1 {
         return (0, 0);
     }
-    let off = event.start_1based.get().saturating_sub(pad_start_1based) as usize;
     let ref_b = event.ref_allele.as_bytes()[0].to_ascii_uppercase();
     let alt_b = event.alt_allele.as_bytes()[0].to_ascii_uppercase();
-    let ref_pos0 = pad_start_1based.saturating_sub(1) as i64 + off as i64;
-    let mut ref_count = 0i32;
-    let mut alt_count = 0i32;
-    ad_decode_cache::with_ad_decode_cache(|cache| {
-        for rec in reads {
-            if rec.is_unmapped() {
-                continue;
+    let loc = event.start_1based.get();
+    ad_result_memo::memo_snp_ad(reads, loc, pad_start_1based, ref_b, alt_b, false, || {
+        let off = loc.saturating_sub(pad_start_1based) as usize;
+        let ref_pos0 = pad_start_1based.saturating_sub(1) as i64 + off as i64;
+        let mut ref_count = 0i32;
+        let mut alt_count = 0i32;
+        ad_decode_cache::with_ad_decode_cache(|cache| {
+            for rec in reads {
+                if rec.is_unmapped() {
+                    continue;
+                }
+                let (cigar, seq_bytes) = cache.cigar_and_seq(rec);
+                let Some(qi) = query_index_at_reference_position(rec.pos(), cigar, ref_pos0) else {
+                    continue;
+                };
+                let Some(qb) = seq_bytes.get(qi) else {
+                    continue;
+                };
+                match qb.to_ascii_uppercase() {
+                    b if b == alt_b => alt_count += 1,
+                    b if b == ref_b => ref_count += 1,
+                    _ => {}
+                }
             }
-            let (cigar, seq_bytes) = cache.cigar_and_seq(rec);
-            let Some(qi) = query_index_at_reference_position(rec.pos(), cigar, ref_pos0) else {
-                continue;
-            };
-            let Some(qb) = seq_bytes.get(qi) else {
-                continue;
-            };
-            match qb.to_ascii_uppercase() {
-                b if b == alt_b => alt_count += 1,
-                b if b == ref_b => ref_count += 1,
-                _ => {}
-            }
-        }
-    });
-    (ref_count, alt_count)
+        });
+        (ref_count, alt_count)
+    })
 }
 
 /// AD at a SNP locus: one count per QNAME (Java fragment/template, not per-mate).
@@ -684,40 +709,49 @@ pub fn read_allele_depths_at_locus_dedupe_qname(
     if event.ref_allele.len() != 1 || event.alt_allele.len() != 1 {
         return read_allele_depths_at_locus(reads, event, pad_start_1based);
     }
-    // HashSet: order-independent QNAME dedupe (count-only; same AD as BTreeSet).
-    let mut seen: std::collections::HashSet<Vec<u8>> =
-        std::collections::HashSet::with_capacity(reads.len().min(512));
-    let off = event.start_1based.get().saturating_sub(pad_start_1based) as usize;
+    let profiling = crate::hc_profile::enabled();
+    let t0 = profiling.then(std::time::Instant::now);
     let ref_b = event.ref_allele.as_bytes()[0].to_ascii_uppercase();
     let alt_b = event.alt_allele.as_bytes()[0].to_ascii_uppercase();
-    let ref_pos0 = pad_start_1based.saturating_sub(1) as i64 + off as i64;
-    let mut ref_count = 0i32;
-    let mut alt_count = 0i32;
-    ad_decode_cache::with_ad_decode_cache(|cache| {
-        for rec in reads {
-            if rec.is_unmapped() {
-                continue;
+    let loc = event.start_1based.get();
+    let out = ad_result_memo::memo_snp_ad(reads, loc, pad_start_1based, ref_b, alt_b, true, || {
+        // HashSet: order-independent QNAME dedupe (count-only; same AD as BTreeSet).
+        let mut seen: std::collections::HashSet<Vec<u8>> =
+            std::collections::HashSet::with_capacity(reads.len().min(512));
+        let off = loc.saturating_sub(pad_start_1based) as usize;
+        let ref_pos0 = pad_start_1based.saturating_sub(1) as i64 + off as i64;
+        let mut ref_count = 0i32;
+        let mut alt_count = 0i32;
+        ad_decode_cache::with_ad_decode_cache(|cache| {
+            for rec in reads {
+                if rec.is_unmapped() {
+                    continue;
+                }
+                let qname = rec.qname();
+                if seen.contains(qname) {
+                    continue;
+                }
+                seen.insert(qname.to_owned());
+                let (cigar, seq_bytes) = cache.cigar_and_seq(rec);
+                let Some(qi) = query_index_at_reference_position(rec.pos(), cigar, ref_pos0) else {
+                    continue;
+                };
+                let Some(qb) = seq_bytes.get(qi) else {
+                    continue;
+                };
+                match qb.to_ascii_uppercase() {
+                    b if b == alt_b => alt_count += 1,
+                    b if b == ref_b => ref_count += 1,
+                    _ => {}
+                }
             }
-            let qname = rec.qname();
-            if seen.contains(qname) {
-                continue;
-            }
-            seen.insert(qname.to_owned());
-            let (cigar, seq_bytes) = cache.cigar_and_seq(rec);
-            let Some(qi) = query_index_at_reference_position(rec.pos(), cigar, ref_pos0) else {
-                continue;
-            };
-            let Some(qb) = seq_bytes.get(qi) else {
-                continue;
-            };
-            match qb.to_ascii_uppercase() {
-                b if b == alt_b => alt_count += 1,
-                b if b == ref_b => ref_count += 1,
-                _ => {}
-            }
-        }
+        });
+        (ref_count, alt_count)
     });
-    (ref_count, alt_count)
+    if let Some(t0) = t0 {
+        crate::hc_profile::note_ad_wall(t0.elapsed());
+    }
+    out
 }
 
 /// One ref-base and one alt-base read QNAME at a cluster anchor SNP (Java het DP=2 / AD 1,1 class).

@@ -6,6 +6,7 @@ equivalence from smoke RSS.
 
 Doctrine: workspace rule `rust-native-algorithm-parity` (under `.cursor/rules/`),
 [`AIR_M4_GIAB_RECIPE.md`](AIR_M4_GIAB_RECIPE.md), [`PAIRHMM_SPEEDUP.md`](PAIRHMM_SPEEDUP.md),
+[`HC_PRODUCTION_PROFILE.md`](HC_PRODUCTION_PROFILE.md),
 [`CLAIM_MATRIX.md`](../CLAIM_MATRIX.md).
 
 ## Mission constraints

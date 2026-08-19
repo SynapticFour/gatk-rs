@@ -16,8 +16,26 @@ use gatk_common::{GatkError, GatkResult};
 /// GATK `ReadLikelihoods` row slice (genotyping aggregation primitive).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReadLikelihoodRow {
+    /// Dense likelihood-matrix row index (production reshape fills this).
+    pub read_index: usize,
+    /// Diagnostic / fixture id. Production `region_likelihoods_to_rows` leaves this
+    /// empty to avoid per-read `format!` in the genotype hot path.
     pub read_id: String,
     pub haplotype_log10_likelihoods: Vec<f64>,
+}
+
+impl ReadLikelihoodRow {
+    /// Resolve matrix row index: prefer `read_index` when `read_id` is empty.
+    #[inline]
+    pub fn matrix_read_index(&self) -> Option<usize> {
+        if self.read_id.is_empty() {
+            return Some(self.read_index);
+        }
+        self.read_id
+            .strip_prefix("read_")
+            .and_then(|s| s.parse().ok())
+            .or(Some(self.read_index))
+    }
 }
 
 /// Aggregated log10 likelihood sums over all reads for each haplotype.
@@ -1334,14 +1352,17 @@ mod tests {
     fn aggregation_sums_log10_likelihoods_per_haplotype() {
         let rows = vec![
             ReadLikelihoodRow {
+                read_index: 0,
                 read_id: "r1".to_string(),
                 haplotype_log10_likelihoods: vec![-0.1, -1.2, -2.3],
             },
             ReadLikelihoodRow {
+                read_index: 0,
                 read_id: "r2".to_string(),
                 haplotype_log10_likelihoods: vec![-0.3, -0.8, -2.6],
             },
             ReadLikelihoodRow {
+                read_index: 0,
                 read_id: "r3".to_string(),
                 haplotype_log10_likelihoods: vec![-0.2, -1.1, -2.0],
             },
@@ -1362,10 +1383,12 @@ mod tests {
     fn aggregation_rejects_haplotype_width_mismatch() {
         let rows = vec![
             ReadLikelihoodRow {
+                read_index: 0,
                 read_id: "r1".to_string(),
                 haplotype_log10_likelihoods: vec![-0.1, -1.2],
             },
             ReadLikelihoodRow {
+                read_index: 0,
                 read_id: "r2".to_string(),
                 haplotype_log10_likelihoods: vec![-0.2],
             },
@@ -1377,6 +1400,7 @@ mod tests {
     #[test]
     fn aggregation_skips_non_finite_likelihoods() {
         let rows = vec![ReadLikelihoodRow {
+            read_index: 0,
             read_id: "r1".to_string(),
             haplotype_log10_likelihoods: vec![f64::NEG_INFINITY],
         }];

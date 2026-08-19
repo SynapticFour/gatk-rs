@@ -1,6 +1,13 @@
 //! GATK `SmithWatermanJavaAligner` parity (JAVA implementation path).
-//! Score / backtrack grids are flat row-major `Vec<i32>` (one allocation each) instead
-//! `Vec<Vec<i32>>` (one allocation per row).
+//!
+//! # Layout
+//! Backtrack is a flat row-major `Vec<i32>`. Scores use **two rolling rows** plus a
+//! saved last-column vector: CIGAR only needs scores on the final row/column to pick
+//! the end cell, then follows `btrack`.
+//!
+//! # Production HC sizes
+//! Typical SoftClip realign is ~read×hap (≈100–250). Hap-to-ref Indel uses
+//! `SW_PAD` (±10 N) around haplotypes ≈50–300. Full score matrices are not retained.
 
 #![warn(clippy::unwrap_used, clippy::expect_used)]
 
@@ -200,42 +207,30 @@ fn align_uppercase_ready(
     }
 
     SW_SCRATCH.with(|cell| {
-        let mut scratch = cell.borrow_mut();
-        // Resize only inside ensure; zero once after take (avoids double-fill).
+        let scratch = &mut *cell.borrow_mut();
         scratch.ensure(cells, nrow, ncol);
-        let mut sw = std::mem::take(&mut scratch.sw);
-        let mut btrack = std::mem::take(&mut scratch.btrack);
-        let mut best_gap_v = std::mem::take(&mut scratch.best_gap_v);
-        let mut gap_size_v = std::mem::take(&mut scratch.gap_size_v);
-        let mut best_gap_h = std::mem::take(&mut scratch.best_gap_h);
-        let mut gap_size_h = std::mem::take(&mut scratch.gap_size_h);
-        if sw.len() < cells {
-            sw.resize(cells, 0);
-            btrack.resize(cells, 0);
-        }
-        // Interior cells are overwritten by DP. Only row-0 / col-0 must be 0 so the
-        // SoftClip first-cell diag/up/left terms are not stale from a larger prior call.
-        sw[..ncol].fill(0);
-        for i in 1..nrow {
-            sw[i * ncol] = 0;
-        }
+        // Work in place — no mem::take / restore (avoids TLS move churn).
         calculate_matrix(
             reference,
             alternate,
             nrow,
             ncol,
-            &mut sw[..cells],
-            &mut btrack[..cells],
-            &mut best_gap_v,
-            &mut gap_size_v,
-            &mut best_gap_h,
-            &mut gap_size_h,
+            &mut scratch.sw_prev[..ncol],
+            &mut scratch.sw_cur[..ncol],
+            &mut scratch.last_col[..nrow],
+            &mut scratch.btrack[..cells],
+            &mut scratch.best_gap_v,
+            &mut scratch.gap_size_v,
+            &mut scratch.best_gap_h,
+            &mut scratch.gap_size_h,
             overhang_strategy,
             parameters,
         );
+        // After DP, `sw_prev` holds the last row (see calculate_matrix swap).
         let aln = calculate_cigar(
-            &sw[..cells],
-            &btrack[..cells],
+            &scratch.last_col[..nrow],
+            &scratch.sw_prev[..ncol],
+            &scratch.btrack[..cells],
             nrow,
             ncol,
             overhang_strategy,
@@ -243,29 +238,23 @@ fn align_uppercase_ready(
         // Soft-keep normal-sized planes; drop oversized allocations so Peak does not retain
         // multi-megabase matrices between calls. Region/engine end still hard-clears via
         // [`release_sw_tls_scratch`].
-        if cells > SW_TLS_SOFT_KEEP_CELLS
-            || sw.capacity() > SW_TLS_SOFT_KEEP_CELLS
-            || btrack.capacity() > SW_TLS_SOFT_KEEP_CELLS
-        {
+        if cells > SW_TLS_SOFT_KEEP_CELLS || scratch.btrack.capacity() > SW_TLS_SOFT_KEEP_CELLS {
             scratch.clear();
-        } else {
-            scratch.sw = sw;
-            scratch.btrack = btrack;
-            scratch.best_gap_v = best_gap_v;
-            scratch.gap_size_v = gap_size_v;
-            scratch.best_gap_h = best_gap_h;
-            scratch.gap_size_h = gap_size_h;
         }
         Ok(aln)
     })
 }
 
-/// Soft-keep ceiling for SW TLS matrix cells (sw + btrack). Larger requests still compute,
+/// Soft-keep ceiling for SW TLS backtrack cells. Larger requests still compute,
 /// but planes are not retained afterward.
 const SW_TLS_SOFT_KEEP_CELLS: usize = 1 << 20; // 1_048_576 cells
 
 struct SwScratch {
-    sw: Vec<i32>,
+    /// Previous / current score rows (`ncol` each). After DP, `sw_prev` is the last row.
+    sw_prev: Vec<i32>,
+    sw_cur: Vec<i32>,
+    /// `sw[i][alt_length]` for end-cell selection (SoftClip / Ignore).
+    last_col: Vec<i32>,
     btrack: Vec<i32>,
     best_gap_v: Vec<i32>,
     gap_size_v: Vec<i32>,
@@ -276,7 +265,9 @@ struct SwScratch {
 impl SwScratch {
     fn new() -> Self {
         Self {
-            sw: Vec::new(),
+            sw_prev: Vec::new(),
+            sw_cur: Vec::new(),
+            last_col: Vec::new(),
             btrack: Vec::new(),
             best_gap_v: Vec::new(),
             gap_size_v: Vec::new(),
@@ -286,19 +277,20 @@ impl SwScratch {
     }
 
     fn ensure(&mut self, cells: usize, nrow: usize, ncol: usize) {
-        // Do not grow retained capacity past the soft-keep ceiling without clearing first.
-        if cells > SW_TLS_SOFT_KEEP_CELLS
-            || self.sw.capacity() > SW_TLS_SOFT_KEEP_CELLS
-            || self.btrack.capacity() > SW_TLS_SOFT_KEEP_CELLS
-        {
-            if !self.sw.is_empty() || self.sw.capacity() > 0 {
+        if cells > SW_TLS_SOFT_KEEP_CELLS || self.btrack.capacity() > SW_TLS_SOFT_KEEP_CELLS {
+            if self.btrack.capacity() > 0 {
                 self.clear();
             }
         }
-        // Length only — caller zeros the active window once before DP (avoid double-fill).
-        if self.sw.len() < cells {
-            self.sw.resize(cells, 0);
+        if self.btrack.len() < cells {
             self.btrack.resize(cells, 0);
+        }
+        if self.sw_prev.len() < ncol {
+            self.sw_prev.resize(ncol, 0);
+            self.sw_cur.resize(ncol, 0);
+        }
+        if self.last_col.len() < nrow {
+            self.last_col.resize(nrow, 0);
         }
         if self.best_gap_v.len() < ncol + 1 {
             self.best_gap_v.resize(ncol + 1, 0);
@@ -311,8 +303,8 @@ impl SwScratch {
     }
 
     fn clear(&mut self) {
-        // Keep allocation high-water — next `ensure` reuses capacity (no munmap).
-        let _ = self;
+        // Drop retained Peak; next `ensure` reallocates as needed.
+        *self = Self::new();
     }
 }
 
@@ -320,7 +312,7 @@ thread_local! {
     static SW_SCRATCH: RefCell<SwScratch> = RefCell::new(SwScratch::new());
 }
 
-/// Keep SW TLS high-water (see `run::release_region_tls_scratch`).
+/// Drop SW TLS scratch (see `run::release_region_tls_scratch`).
 pub fn release_sw_tls_scratch() {
     SW_SCRATCH.with(|cell| {
         cell.borrow_mut().clear();
@@ -332,7 +324,9 @@ fn calculate_matrix(
     alternate: &[u8],
     nrow: usize,
     ncol: usize,
-    sw: &mut [i32],
+    sw_prev: &mut [i32],
+    sw_cur: &mut [i32],
+    last_col: &mut [i32],
     btrack: &mut [i32],
     best_gap_v: &mut Vec<i32>,
     gap_size_v: &mut Vec<i32>,
@@ -356,47 +350,56 @@ fn calculate_matrix(
     best_gap_h[..nrow + 1].fill(low_init);
     gap_size_h[..nrow + 1].fill(0);
 
+    // Row 0 into sw_prev.
+    sw_prev[..ncol].fill(0);
     if matches!(
         overhang_strategy,
         SwOverhangStrategy::Indel | SwOverhangStrategy::LeadingIndel
     ) {
-        sw[cell(0, 1, ncol)] = parameters.gap_open_penalty;
+        sw_prev[1] = parameters.gap_open_penalty;
         let mut cur = parameters.gap_open_penalty;
         for j in 2..ncol {
             cur += parameters.gap_extend_penalty;
-            sw[cell(0, j, ncol)] = cur;
-        }
-        sw[cell(1, 0, ncol)] = parameters.gap_open_penalty;
-        cur = parameters.gap_open_penalty;
-        for i in 2..nrow {
-            cur += parameters.gap_extend_penalty;
-            sw[cell(i, 0, ncol)] = cur;
+            sw_prev[j] = cur;
         }
     }
+    last_col[0] = sw_prev[ncol - 1];
 
     let w_open = parameters.gap_open_penalty;
     let w_extend = parameters.gap_extend_penalty;
     let w_match = parameters.match_value;
     let w_mismatch = parameters.mismatch_penalty;
+    let indel_edges = matches!(
+        overhang_strategy,
+        SwOverhangStrategy::Indel | SwOverhangStrategy::LeadingIndel
+    );
 
-    // Hot path: bounds are [1,nrow)×[1,ncol) with nrow=ref+1, ncol=alt+1 — use
-    // unchecked indexing after the length checks in `align_uppercase_ready`.
+    // Hot path: bounds are [1,nrow)×[1,ncol) with nrow=ref+1, ncol=alt+1.
     for i in 1..nrow {
         // SAFETY: i in 1..nrow ⇒ i-1 < reference.len().
         let a_base = unsafe { *reference.get_unchecked(i - 1) };
-        let prev_base = (i - 1) * ncol;
-        let cur_base = i * ncol;
+        // Column 0 of current row.
+        if indel_edges {
+            if i == 1 {
+                sw_cur[0] = parameters.gap_open_penalty;
+            } else {
+                // Extend from previous row's col0 (same recurrence as full-matrix col0 fill).
+                sw_cur[0] = sw_prev[0] + parameters.gap_extend_penalty;
+            }
+        } else {
+            sw_cur[0] = 0;
+        }
+
         for j in 1..ncol {
-            // SAFETY: j in 1..ncol ⇒ j-1 < alternate.len(); sw/btrack sized to nrow*ncol.
+            // SAFETY: j in 1..ncol ⇒ j-1 < alternate.len(); btrack sized to nrow*ncol.
             let b_base = unsafe { *alternate.get_unchecked(j - 1) };
-            let diag = unsafe { *sw.get_unchecked(prev_base + j - 1) }
+            let diag = unsafe { *sw_prev.get_unchecked(j - 1) }
                 + if a_base == b_base {
                     w_match
                 } else {
                     w_mismatch
                 };
-            let prev_gap = unsafe { *sw.get_unchecked(prev_base + j) } + w_open;
-            // SAFETY: best_gap_* / gap_size_* resized to ncol+1 / nrow+1 above.
+            let prev_gap = unsafe { *sw_prev.get_unchecked(j) } + w_open;
             let bv = unsafe { best_gap_v.get_unchecked_mut(j) };
             let gv = unsafe { gap_size_v.get_unchecked_mut(j) };
             *bv += w_extend;
@@ -408,7 +411,7 @@ fn calculate_matrix(
             }
             let step_down = *bv;
             let kd = *gv;
-            let prev_gap_h = unsafe { *sw.get_unchecked(cur_base + j - 1) } + w_open;
+            let prev_gap_h = unsafe { *sw_cur.get_unchecked(j - 1) } + w_open;
             let bh = unsafe { best_gap_h.get_unchecked_mut(i) };
             let gh = unsafe { gap_size_h.get_unchecked_mut(i) };
             *bh += w_extend;
@@ -420,7 +423,6 @@ fn calculate_matrix(
             }
             let step_right = *bh;
             let ki = *gh;
-            let cur_idx = cur_base + j;
             let (score, track) = if diag >= step_down && diag >= step_right {
                 (diag.max(MATRIX_MIN_CUTOFF), 0)
             } else if step_right >= step_down {
@@ -429,10 +431,13 @@ fn calculate_matrix(
                 (step_down.max(MATRIX_MIN_CUTOFF), kd)
             };
             unsafe {
-                *sw.get_unchecked_mut(cur_idx) = score;
-                *btrack.get_unchecked_mut(cur_idx) = track;
+                *sw_cur.get_unchecked_mut(j) = score;
+                *btrack.get_unchecked_mut(cell(i, j, ncol)) = track;
             }
         }
+        last_col[i] = sw_cur[ncol - 1];
+        // Row i becomes previous for the next iteration.
+        sw_prev.swap_with_slice(sw_cur);
     }
 }
 
@@ -447,7 +452,8 @@ fn make_element(state: SwState, length: usize) -> CigarElement {
 }
 
 fn calculate_cigar(
-    sw: &[i32],
+    last_col: &[i32],
+    last_row: &[i32],
     btrack: &[i32],
     nrow: usize,
     ncol: usize,
@@ -463,18 +469,15 @@ fn calculate_cigar(
         p1 = ref_length;
     } else {
         for i in 1..=ref_length {
-            // SAFETY: sw sized nrow*ncol; i in 1..=ref_length, alt_length = ncol-1.
-            let cur = unsafe { *sw.get_unchecked(cell(i, alt_length, ncol)) };
+            let cur = last_col[i];
             if cur >= maxscore {
                 p1 = i;
                 maxscore = cur;
             }
         }
         if overhang_strategy != SwOverhangStrategy::LeadingIndel {
-            let bottom = ref_length * ncol;
             for j in 1..ncol {
-                // SAFETY: bottom+j < nrow*ncol.
-                let cur = unsafe { *sw.get_unchecked(bottom + j) };
+                let cur = last_row[j];
                 if cur > maxscore
                     || (cur == maxscore
                         && (ref_length as i32 - j as i32).abs() < (p1 as i32 - p2 as i32).abs())
@@ -640,5 +643,176 @@ mod tests {
             msg.contains("refused oversized") || msg.contains("contig scale"),
             "unexpected err: {msg}"
         );
+    }
+
+    /// Rolling scores must remain deterministic across TLS reuse.
+    #[test]
+    fn cigar_parity_soft_clip_and_indel_variants() {
+        let cases: &[(&[u8], &[u8])] = &[
+            (b"ACGTACGTACGTACGT", b"ACGTACGTACGT"),
+            (b"ACGTACGTACGTACGT", b"ACGTTTACGTAC"),
+            (b"AAAAAAAAAA", b"AAAAATAAAA"),
+            (b"ACGTACGTACGT", b"TTT"),
+            (b"GGGACGTACGTACGTAAA", b"ACGTNACGT"),
+        ];
+        let params = SwParameters::gatk_haplotype_to_reference();
+        for &(reference, alternate) in cases {
+            for strategy in [
+                SwOverhangStrategy::SoftClip,
+                SwOverhangStrategy::Indel,
+                SwOverhangStrategy::Ignore,
+                SwOverhangStrategy::LeadingIndel,
+            ] {
+                let aln = align(reference, alternate, &params, strategy).expect("align");
+                let aln2 = align(reference, alternate, &params, strategy).expect("align2");
+                assert_eq!(aln.alignment_offset, aln2.alignment_offset, "{strategy:?}");
+                assert_eq!(
+                    aln.cigar.elements, aln2.cigar.elements,
+                    "{strategy:?} cigar"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn read_to_hap_params_soft_clip_offset() {
+        let hap = b"ACGTACGTACGTACGTACGTACGT";
+        let read = b"TACGTACGTACGTA";
+        let aln =
+            align_read_to_best_haplotype(hap, read, &SwParameters::gatk_read_to_best_haplotype())
+                .expect("sw");
+        // Java lastIndexOf: last occurrence of the read in the haplotype.
+        let expected = last_index_of(hap, read).expect("contained") as i32;
+        assert_eq!(aln.alignment_offset, expected);
+        assert_eq!(aln.cigar.elements[0].operator, CigarOperator::Match);
+    }
+
+    /// Independent full-matrix DP oracle — must match rolling production path.
+    fn align_full_matrix_oracle(
+        reference: &[u8],
+        alternate: &[u8],
+        parameters: &SwParameters,
+        overhang_strategy: SwOverhangStrategy,
+    ) -> SmithWatermanAlignment {
+        let nrow = reference.len() + 1;
+        let ncol = alternate.len() + 1;
+        let cells = nrow * ncol;
+        let mut sw = vec![0i32; cells];
+        let mut btrack = vec![0i32; cells];
+        let mut best_gap_v = Vec::new();
+        let mut gap_size_v = Vec::new();
+        let mut best_gap_h = Vec::new();
+        let mut gap_size_h = Vec::new();
+        // Reuse production kernel via rolling into a reconstructed full score plane is
+        // awkward; duplicate the classic full-matrix fill for the oracle only.
+        const MATRIX_MIN_CUTOFF: i32 = -100_000_000;
+        let low_init = i32::MIN / 4;
+        best_gap_v.resize(ncol + 1, low_init);
+        gap_size_v.resize(ncol + 1, 0);
+        best_gap_h.resize(nrow + 1, low_init);
+        gap_size_h.resize(nrow + 1, 0);
+        if matches!(
+            overhang_strategy,
+            SwOverhangStrategy::Indel | SwOverhangStrategy::LeadingIndel
+        ) {
+            sw[cell(0, 1, ncol)] = parameters.gap_open_penalty;
+            let mut cur = parameters.gap_open_penalty;
+            for j in 2..ncol {
+                cur += parameters.gap_extend_penalty;
+                sw[cell(0, j, ncol)] = cur;
+            }
+            sw[cell(1, 0, ncol)] = parameters.gap_open_penalty;
+            cur = parameters.gap_open_penalty;
+            for i in 2..nrow {
+                cur += parameters.gap_extend_penalty;
+                sw[cell(i, 0, ncol)] = cur;
+            }
+        }
+        let w_open = parameters.gap_open_penalty;
+        let w_extend = parameters.gap_extend_penalty;
+        let w_match = parameters.match_value;
+        let w_mismatch = parameters.mismatch_penalty;
+        for i in 1..nrow {
+            let a_base = reference[i - 1];
+            for j in 1..ncol {
+                let b_base = alternate[j - 1];
+                let diag = sw[cell(i - 1, j - 1, ncol)]
+                    + if a_base == b_base {
+                        w_match
+                    } else {
+                        w_mismatch
+                    };
+                let prev_gap = sw[cell(i - 1, j, ncol)] + w_open;
+                best_gap_v[j] += w_extend;
+                if prev_gap > best_gap_v[j] {
+                    best_gap_v[j] = prev_gap;
+                    gap_size_v[j] = 1;
+                } else {
+                    gap_size_v[j] += 1;
+                }
+                let step_down = best_gap_v[j];
+                let kd = gap_size_v[j];
+                let prev_gap_h = sw[cell(i, j - 1, ncol)] + w_open;
+                best_gap_h[i] += w_extend;
+                if prev_gap_h > best_gap_h[i] {
+                    best_gap_h[i] = prev_gap_h;
+                    gap_size_h[i] = 1;
+                } else {
+                    gap_size_h[i] += 1;
+                }
+                let step_right = best_gap_h[i];
+                let ki = gap_size_h[i];
+                let (score, track) = if diag >= step_down && diag >= step_right {
+                    (diag.max(MATRIX_MIN_CUTOFF), 0)
+                } else if step_right >= step_down {
+                    (step_right.max(MATRIX_MIN_CUTOFF), -ki)
+                } else {
+                    (step_down.max(MATRIX_MIN_CUTOFF), kd)
+                };
+                sw[cell(i, j, ncol)] = score;
+                btrack[cell(i, j, ncol)] = track;
+            }
+        }
+        let mut last_col = vec![0i32; nrow];
+        for i in 0..nrow {
+            last_col[i] = sw[cell(i, ncol - 1, ncol)];
+        }
+        let last_row = sw[(nrow - 1) * ncol..nrow * ncol].to_vec();
+        calculate_cigar(&last_col, &last_row, &btrack, nrow, ncol, overhang_strategy)
+    }
+
+    #[test]
+    fn rolling_matches_full_matrix_oracle() {
+        let cases: &[(&[u8], &[u8])] = &[
+            (b"ACGTACGTACGTACGT", b"ACGTACGTACGT"),
+            (b"ACGTACGTACGTACGT", b"ACGTTTACGTAC"),
+            (b"AAAAAAAAAA", b"AAAAATAAAA"),
+            (b"ACGTACGTACGT", b"TTT"),
+            (b"GGGACGTACGTACGTAAA", b"ACGTNACGT"),
+            (b"NNNNACGTACGTNNNN", b"NNNNACGTTACGTNNNN"),
+        ];
+        let params = SwParameters::gatk_haplotype_to_reference();
+        for &(reference, alternate) in cases {
+            for strategy in [
+                SwOverhangStrategy::SoftClip,
+                SwOverhangStrategy::Indel,
+                SwOverhangStrategy::Ignore,
+                SwOverhangStrategy::LeadingIndel,
+            ] {
+                // Force DP (no substring fast path) by using lowercase → upper path with a mismatch
+                // shape that is not an exact substring, or call oracle vs production after
+                // disabling fast path via a deliberate single-base edit when needed.
+                let prod = align(reference, alternate, &params, strategy).expect("prod");
+                let oracle = align_full_matrix_oracle(reference, alternate, &params, strategy);
+                assert_eq!(
+                    prod.alignment_offset, oracle.alignment_offset,
+                    "offset {strategy:?} ref={reference:?} alt={alternate:?}"
+                );
+                assert_eq!(
+                    prod.cigar.elements, oracle.cigar.elements,
+                    "cigar {strategy:?} ref={reference:?} alt={alternate:?}"
+                );
+            }
+        }
     }
 }

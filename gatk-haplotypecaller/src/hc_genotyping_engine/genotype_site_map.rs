@@ -21,6 +21,8 @@ impl SiteMap {
         config: &HcGenotypingConfig,
         hap_events: Option<&crate::event_map::PerHaplotypeVariationEvents>,
     ) -> AlleleHaplotypeMapping {
+        let profiling = crate::hc_profile::enabled();
+        let t0 = profiling.then(std::time::Instant::now);
         let loc = event.start_1based.get();
         let mut mapping = create_allele_mapper_with_events(
             event,
@@ -58,6 +60,9 @@ impl SiteMap {
                 }
                 mapping = mapping_full;
             }
+        }
+        if let Some(t0) = t0 {
+            crate::hc_profile::note_allele_map_wall(t0.elapsed());
         }
         mapping
     }

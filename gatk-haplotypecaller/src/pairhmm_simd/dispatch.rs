@@ -16,6 +16,8 @@ pub enum PairHmmImpl {
     Simd,
     /// SIMD f32 with f64 retry on underflow.
     SimdF32,
+    /// Architecture C: rolling-row f32 wavefront (opt-in; not yet in FastestAvailable).
+    Wavefront,
     /// Resolve at score time: SIMD if available, else Logless, else Log10.
     /// Production default — beats Java wall time on dense GIAB when NEON/AVX is present.
     FastestAvailable,
@@ -30,6 +32,8 @@ pub enum PairHmmBackend {
     Avx2F64,
     NeonF64,
     PackedF32Retry,
+    /// Row-wavefront f32 + f64 retry ([`super::wavefront`]).
+    WavefrontF32,
 }
 
 impl PairHmmImpl {
@@ -39,6 +43,7 @@ impl PairHmmImpl {
             Self::LoglessPairHmm => "LOGLESS_HMM",
             Self::Simd => "SIMD",
             Self::SimdF32 => "SIMD_F32",
+            Self::Wavefront => "WAVEFRONT",
             Self::FastestAvailable => "FASTEST_AVAILABLE",
         }
     }
@@ -53,6 +58,7 @@ impl PairHmmBackend {
             Self::Avx2F64 => "AVX2_F64",
             Self::NeonF64 => "NEON_F64",
             Self::PackedF32Retry => "PACKED_F32_RETRY",
+            Self::WavefrontF32 => "WAVEFRONT_F32",
         }
     }
 }
@@ -65,9 +71,10 @@ pub fn parse_pair_hmm_impl(s: &str) -> GatkResult<PairHmmImpl> {
         "LOGLESS_HMM" | "LOGLESS" => Ok(PairHmmImpl::LoglessPairHmm),
         "AVX" | "SIMD" => Ok(PairHmmImpl::Simd),
         "SIMD_F32" | "AVX_F32" => Ok(PairHmmImpl::SimdF32),
+        "WAVEFRONT" | "GKL_STYLE" | "ROW_WAVEFRONT" => Ok(PairHmmImpl::Wavefront),
         "FASTEST_AVAILABLE" | "FASTEST" => Ok(PairHmmImpl::FastestAvailable),
         _ => Err(GatkError::argument(format!(
-            "unknown --pair-hmm value '{s}' (expected LOG10_PAIRHMM|LOGLESS_HMM|AVX|SIMD|SIMD_F32|FASTEST_AVAILABLE)"
+            "unknown --pair-hmm value '{s}' (expected LOG10_PAIRHMM|LOGLESS_HMM|AVX|SIMD|SIMD_F32|WAVEFRONT|FASTEST_AVAILABLE)"
         ))),
     }
 }
@@ -78,10 +85,12 @@ pub fn resolve_pair_hmm_impl(imp: PairHmmImpl) -> PairHmmBackend {
         PairHmmImpl::Log10PairHmm => PairHmmBackend::Log10Scalar,
         PairHmmImpl::LoglessPairHmm => PairHmmBackend::LoglessScalar,
         PairHmmImpl::SimdF32 => PairHmmBackend::PackedF32Retry,
+        PairHmmImpl::Wavefront => PairHmmBackend::WavefrontF32,
         PairHmmImpl::Simd => best_simd_backend(),
         PairHmmImpl::FastestAvailable => {
             // Until GIAB sign-off, callers should still pass Log10 as production default.
             // When FastestAvailable is explicitly requested, prefer SIMD → Logless.
+            // Wavefront is opt-in only (not part of FastestAvailable yet).
             let simd = best_simd_backend();
             if matches!(
                 simd,
@@ -212,5 +221,13 @@ pub fn score_read_haps_logless(
                 )
             }
         }
+        PairHmmBackend::WavefrontF32 => super::wavefront::score_haps_wavefront_f32(
+            read_bases,
+            read_quals,
+            haplotypes,
+            insertion_gop,
+            deletion_gop,
+            overall_gcp,
+        ),
     }
 }
