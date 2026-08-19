@@ -416,52 +416,53 @@
 <a href=#416 id=416 data-nosnippet>416</a>    loc_1based: u64,
 <a href=#417 id=417 data-nosnippet>417</a>    include_spanning: bool,
 <a href=#418 id=418 data-nosnippet>418</a>) {
-<a href=#419 id=419 data-nosnippet>419</a>    <span class="kw">let </span><span class="kw-2">mut </span>seen: BTreeSet&lt;(u64, String, String)&gt; = from_haps
-<a href=#420 id=420 data-nosnippet>420</a>        .iter()
-<a href=#421 id=421 data-nosnippet>421</a>        .map(|e| (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone()))
-<a href=#422 id=422 data-nosnippet>422</a>        .collect();
-<a href=#423 id=423 data-nosnippet>423</a>    <span class="kw">for </span>e <span class="kw">in </span>stored {
-<a href=#424 id=424 data-nosnippet>424</a>        <span class="kw">let </span>overlaps = e.end_1based &gt;= GenomePosition::new_1based(loc_1based) &amp;&amp; e.start_1based &lt;= GenomePosition::new_1based(loc_1based);
-<a href=#425 id=425 data-nosnippet>425</a>        <span class="kw">if </span>!overlaps {
-<a href=#426 id=426 data-nosnippet>426</a>            <span class="kw">continue</span>;
-<a href=#427 id=427 data-nosnippet>427</a>        }
-<a href=#428 id=428 data-nosnippet>428</a>        <span class="kw">if </span>!include_spanning &amp;&amp; e.start_1based != GenomePosition::new_1based(loc_1based) {
-<a href=#429 id=429 data-nosnippet>429</a>            <span class="kw">continue</span>;
-<a href=#430 id=430 data-nosnippet>430</a>        }
-<a href=#431 id=431 data-nosnippet>431</a>        <span class="comment">// CLONE: needed because owned composite key for dedup/lookup.
-<a href=#432 id=432 data-nosnippet>432</a>        </span><span class="kw">let </span>key = (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone());
-<a href=#433 id=433 data-nosnippet>433</a>        <span class="kw">if </span>seen.insert(key) {
-<a href=#434 id=434 data-nosnippet>434</a>            <span class="comment">// CLONE: needed because owned element into collection.
-<a href=#435 id=435 data-nosnippet>435</a>            </span>from_haps.push(e.clone());
-<a href=#436 id=436 data-nosnippet>436</a>        }
-<a href=#437 id=437 data-nosnippet>437</a>    }
-<a href=#438 id=438 data-nosnippet>438</a>    <span class="kw">crate</span>::event_map::prefer_indel_over_colocated_snps(from_haps);
-<a href=#439 id=439 data-nosnippet>439</a>}
-<a href=#440 id=440 data-nosnippet>440</a>
-<a href=#441 id=441 data-nosnippet>441</a><span class="doccomment">/// Biallelic genotyping for an explicit REF/ALT haplotype pair (per variation event).
-<a href=#442 id=442 data-nosnippet>442</a></span><span class="kw">pub fn </span>genotype_biallelic_indices(
-<a href=#443 id=443 data-nosnippet>443</a>    likelihoods: <span class="kw-2">&amp;</span>[RegionReadLikelihood],
-<a href=#444 id=444 data-nosnippet>444</a>    haplotypes: <span class="kw-2">&amp;</span>[Haplotype],
-<a href=#445 id=445 data-nosnippet>445</a>    ref_idx: usize,
-<a href=#446 id=446 data-nosnippet>446</a>    alt_idx: usize,
-<a href=#447 id=447 data-nosnippet>447</a>    config: <span class="kw-2">&amp;</span>HcGenotypingConfig,
-<a href=#448 id=448 data-nosnippet>448</a>) -&gt; GatkResult&lt;RegionGenotypeResult&gt; {
-<a href=#449 id=449 data-nosnippet>449</a>    <span class="kw">let </span>rows = region_likelihoods_to_rows(likelihoods, haplotypes.len());
-<a href=#450 id=450 data-nosnippet>450</a>    <span class="kw">let </span>aggregation = aggregate_haplotype_log10_likelihoods(<span class="kw-2">&amp;</span>rows)<span class="question-mark">?</span>;
-<a href=#451 id=451 data-nosnippet>451</a>    <span class="kw">let </span>best = best_haplotype_index(<span class="kw-2">&amp;</span>aggregation).unwrap_or(<span class="kw">crate</span>::bio_ids::HaplotypeIndex::new(<span class="number">0</span>)).get();
-<a href=#452 id=452 data-nosnippet>452</a>    <span class="kw">let </span>gls = biallelic_genotype_log10_likelihoods_gatk(<span class="kw-2">&amp;</span>rows, ref_idx, alt_idx);
-<a href=#453 id=453 data-nosnippet>453</a>    <span class="kw">let </span>depths = biallelic_allele_depths_from_rows(<span class="kw-2">&amp;</span>rows, ref_idx, alt_idx);
-<a href=#454 id=454 data-nosnippet>454</a>    <span class="kw">let </span>priors = biallelic_diploid_log10_priors(config.priors)<span class="question-mark">?</span>;
-<a href=#455 id=455 data-nosnippet>455</a>    <span class="kw">let </span>_posterior = genotype_posteriors_from_log10_likelihoods(<span class="kw-2">&amp;</span>gls, <span class="kw-2">&amp;</span>priors)<span class="question-mark">?</span>;
-<a href=#456 id=456 data-nosnippet>456</a>    <span class="kw">let </span>format = emit_genotype_format_fields(<span class="kw-2">&amp;</span>gls, <span class="kw-2">&amp;</span>depths)<span class="question-mark">?</span>;
-<a href=#457 id=457 data-nosnippet>457</a>    <span class="prelude-val">Ok</span>(RegionGenotypeResult {
-<a href=#458 id=458 data-nosnippet>458</a>        aggregation,
-<a href=#459 id=459 data-nosnippet>459</a>        best_haplotype_index: best,
-<a href=#460 id=460 data-nosnippet>460</a>        ref_haplotype_index: ref_idx,
-<a href=#461 id=461 data-nosnippet>461</a>        alt_haplotype_index: alt_idx,
-<a href=#462 id=462 data-nosnippet>462</a>        genotype_log10_likelihoods: gls,
-<a href=#463 id=463 data-nosnippet>463</a>        format,
-<a href=#464 id=464 data-nosnippet>464</a>    })
-<a href=#465 id=465 data-nosnippet>465</a>}
-<a href=#466 id=466 data-nosnippet>466</a>
+<a href=#419 id=419 data-nosnippet>419</a>    <span class="comment">// Membership-only dedupe — HashSet matches BTreeSet cardinality/content.
+<a href=#420 id=420 data-nosnippet>420</a>    </span><span class="kw">let </span><span class="kw-2">mut </span>seen: std::collections::HashSet&lt;(u64, String, String)&gt; = from_haps
+<a href=#421 id=421 data-nosnippet>421</a>        .iter()
+<a href=#422 id=422 data-nosnippet>422</a>        .map(|e| (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone()))
+<a href=#423 id=423 data-nosnippet>423</a>        .collect();
+<a href=#424 id=424 data-nosnippet>424</a>    <span class="kw">for </span>e <span class="kw">in </span>stored {
+<a href=#425 id=425 data-nosnippet>425</a>        <span class="kw">let </span>overlaps = e.end_1based &gt;= GenomePosition::new_1based(loc_1based) &amp;&amp; e.start_1based &lt;= GenomePosition::new_1based(loc_1based);
+<a href=#426 id=426 data-nosnippet>426</a>        <span class="kw">if </span>!overlaps {
+<a href=#427 id=427 data-nosnippet>427</a>            <span class="kw">continue</span>;
+<a href=#428 id=428 data-nosnippet>428</a>        }
+<a href=#429 id=429 data-nosnippet>429</a>        <span class="kw">if </span>!include_spanning &amp;&amp; e.start_1based != GenomePosition::new_1based(loc_1based) {
+<a href=#430 id=430 data-nosnippet>430</a>            <span class="kw">continue</span>;
+<a href=#431 id=431 data-nosnippet>431</a>        }
+<a href=#432 id=432 data-nosnippet>432</a>        <span class="comment">// CLONE: needed because owned composite key for dedup/lookup.
+<a href=#433 id=433 data-nosnippet>433</a>        </span><span class="kw">let </span>key = (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone());
+<a href=#434 id=434 data-nosnippet>434</a>        <span class="kw">if </span>seen.insert(key) {
+<a href=#435 id=435 data-nosnippet>435</a>            <span class="comment">// CLONE: needed because owned element into collection.
+<a href=#436 id=436 data-nosnippet>436</a>            </span>from_haps.push(e.clone());
+<a href=#437 id=437 data-nosnippet>437</a>        }
+<a href=#438 id=438 data-nosnippet>438</a>    }
+<a href=#439 id=439 data-nosnippet>439</a>    <span class="kw">crate</span>::event_map::prefer_indel_over_colocated_snps(from_haps);
+<a href=#440 id=440 data-nosnippet>440</a>}
+<a href=#441 id=441 data-nosnippet>441</a>
+<a href=#442 id=442 data-nosnippet>442</a><span class="doccomment">/// Biallelic genotyping for an explicit REF/ALT haplotype pair (per variation event).
+<a href=#443 id=443 data-nosnippet>443</a></span><span class="kw">pub fn </span>genotype_biallelic_indices(
+<a href=#444 id=444 data-nosnippet>444</a>    likelihoods: <span class="kw-2">&amp;</span>[RegionReadLikelihood],
+<a href=#445 id=445 data-nosnippet>445</a>    haplotypes: <span class="kw-2">&amp;</span>[Haplotype],
+<a href=#446 id=446 data-nosnippet>446</a>    ref_idx: usize,
+<a href=#447 id=447 data-nosnippet>447</a>    alt_idx: usize,
+<a href=#448 id=448 data-nosnippet>448</a>    config: <span class="kw-2">&amp;</span>HcGenotypingConfig,
+<a href=#449 id=449 data-nosnippet>449</a>) -&gt; GatkResult&lt;RegionGenotypeResult&gt; {
+<a href=#450 id=450 data-nosnippet>450</a>    <span class="kw">let </span>rows = region_likelihoods_to_rows(likelihoods, haplotypes.len());
+<a href=#451 id=451 data-nosnippet>451</a>    <span class="kw">let </span>aggregation = aggregate_haplotype_log10_likelihoods(<span class="kw-2">&amp;</span>rows)<span class="question-mark">?</span>;
+<a href=#452 id=452 data-nosnippet>452</a>    <span class="kw">let </span>best = best_haplotype_index(<span class="kw-2">&amp;</span>aggregation).unwrap_or(<span class="kw">crate</span>::bio_ids::HaplotypeIndex::new(<span class="number">0</span>)).get();
+<a href=#453 id=453 data-nosnippet>453</a>    <span class="kw">let </span>gls = biallelic_genotype_log10_likelihoods_gatk(<span class="kw-2">&amp;</span>rows, ref_idx, alt_idx);
+<a href=#454 id=454 data-nosnippet>454</a>    <span class="kw">let </span>depths = biallelic_allele_depths_from_rows(<span class="kw-2">&amp;</span>rows, ref_idx, alt_idx);
+<a href=#455 id=455 data-nosnippet>455</a>    <span class="kw">let </span>priors = biallelic_diploid_log10_priors(config.priors)<span class="question-mark">?</span>;
+<a href=#456 id=456 data-nosnippet>456</a>    <span class="kw">let </span>_posterior = genotype_posteriors_from_log10_likelihoods(<span class="kw-2">&amp;</span>gls, <span class="kw-2">&amp;</span>priors)<span class="question-mark">?</span>;
+<a href=#457 id=457 data-nosnippet>457</a>    <span class="kw">let </span>format = emit_genotype_format_fields(<span class="kw-2">&amp;</span>gls, <span class="kw-2">&amp;</span>depths)<span class="question-mark">?</span>;
+<a href=#458 id=458 data-nosnippet>458</a>    <span class="prelude-val">Ok</span>(RegionGenotypeResult {
+<a href=#459 id=459 data-nosnippet>459</a>        aggregation,
+<a href=#460 id=460 data-nosnippet>460</a>        best_haplotype_index: best,
+<a href=#461 id=461 data-nosnippet>461</a>        ref_haplotype_index: ref_idx,
+<a href=#462 id=462 data-nosnippet>462</a>        alt_haplotype_index: alt_idx,
+<a href=#463 id=463 data-nosnippet>463</a>        genotype_log10_likelihoods: gls,
+<a href=#464 id=464 data-nosnippet>464</a>        format,
+<a href=#465 id=465 data-nosnippet>465</a>    })
+<a href=#466 id=466 data-nosnippet>466</a>}
+<a href=#467 id=467 data-nosnippet>467</a>
 </code></pre></div></section></main></body></html>

@@ -79,8 +79,8 @@
 <a href=#79 id=79 data-nosnippet>79</a>        repair_alt_haplotype_alignment_for_event_map(<span class="kw-2">&amp;mut </span>assembly.haplotypes, sw);
 <a href=#80 id=80 data-nosnippet>80</a>    }
 <a href=#81 id=81 data-nosnippet>81</a>    refresh_alt_haplotype_indel_cigars(<span class="kw-2">&amp;mut </span>assembly.haplotypes, trimmed_ref.as_ref(), full_pad, sw);
-<a href=#82 id=82 data-nosnippet>82</a>    <span class="kw">let </span>(full_ref, full_pad) = assembly.event_map_reference();
-<a href=#83 id=83 data-nosnippet>83</a>    <span class="kw">let </span>prior_events = assembly.variation_events.clone();
+<a href=#82 id=82 data-nosnippet>82</a>    <span class="kw">let </span>prior_events = std::mem::take(<span class="kw-2">&amp;mut </span>assembly.variation_events);
+<a href=#83 id=83 data-nosnippet>83</a>    <span class="kw">let </span>(full_ref, full_pad) = assembly.event_map_reference();
 <a href=#84 id=84 data-nosnippet>84</a>    <span class="kw">let </span><span class="kw-2">mut </span>events = collect_variation_events(
 <a href=#85 id=85 data-nosnippet>85</a>        <span class="kw-2">&amp;</span>assembly.haplotypes,
 <a href=#86 id=86 data-nosnippet>86</a>        full_ref,
@@ -90,46 +90,62 @@
 <a href=#90 id=90 data-nosnippet>90</a>    );
 <a href=#91 id=91 data-nosnippet>91</a>    <span class="comment">// R4-2: outside contig 2, keep prior read-proven indels across CIGAR regen (assembly often
 <a href=#92 id=92 data-nosnippet>92</a>    // fails to encode genome-wide indels on alt haplotypes; list + pileup AD carry them).
-<a href=#93 id=93 data-nosnippet>93</a>    </span><span class="kw">let </span>genome_wide_contig = contig != <span class="string">"2" </span>&amp;&amp; contig != <span class="string">"chr2"</span>;
-<a href=#94 id=94 data-nosnippet>94</a>    <span class="kw">let </span>merge_preserved = |events: <span class="kw-2">&amp;mut </span>Vec&lt;VariationEvent&gt;, source: <span class="kw-2">&amp;</span>[VariationEvent]| {
-<a href=#95 id=95 data-nosnippet>95</a>        <span class="kw">for </span>e <span class="kw">in </span>source {
-<a href=#96 id=96 data-nosnippet>96</a>            <span class="kw">let </span>keep = is_cluster_coupled_event(e)
-<a href=#97 id=97 data-nosnippet>97</a>                || is_cluster_ctc_del(e)
-<a href=#98 id=98 data-nosnippet>98</a>                || is_cluster_anchor_snp(e)
-<a href=#99 id=99 data-nosnippet>99</a>                <span class="comment">// ASM-8: read-proven gap SNPs survive strict CIGAR regen (post-backfill).
-<a href=#100 id=100 data-nosnippet>100</a>                </span>|| (strict_java_asm8_only_enabled() &amp;&amp; is_p12_phase_e_gap_event(e))
-<a href=#101 id=101 data-nosnippet>101</a>                || (!strict_java_asm8_only_enabled()
-<a href=#102 id=102 data-nosnippet>102</a>                    &amp;&amp; (is_p12_phase_e_gap_event(e) || is_java_diff_oracle_allele(e)))
-<a href=#103 id=103 data-nosnippet>103</a>                || (genome_wide_contig &amp;&amp; e.is_indel());
-<a href=#104 id=104 data-nosnippet>104</a>            <span class="kw">if </span>keep &amp;&amp; !events.iter().any(|x| events_match(x, e)) {
-<a href=#105 id=105 data-nosnippet>105</a>                <span class="comment">// CLONE: needed because owned element into collection.
-<a href=#106 id=106 data-nosnippet>106</a>                </span>events.push(e.clone());
-<a href=#107 id=107 data-nosnippet>107</a>            }
-<a href=#108 id=108 data-nosnippet>108</a>        }
-<a href=#109 id=109 data-nosnippet>109</a>    };
-<a href=#110 id=110 data-nosnippet>110</a>    merge_preserved(<span class="kw-2">&amp;mut </span>events, <span class="kw-2">&amp;</span>prior_events);
-<a href=#111 id=111 data-nosnippet>111</a>    <span class="kw">if </span>!strict_event_map_only
-<a href=#112 id=112 data-nosnippet>112</a>        &amp;&amp; harvest_trim_snps {
-<a href=#113 id=113 data-nosnippet>113</a>            <span class="kw">for </span>e <span class="kw">in </span>harvest_snps_from_alt_haplotypes_on_trim_window(<span class="kw-2">&amp;</span>assembly.haplotypes, contig) {
-<a href=#114 id=114 data-nosnippet>114</a>                <span class="kw">if </span>!events.iter().any(|x| events_match(x, <span class="kw-2">&amp;</span>e)) {
-<a href=#115 id=115 data-nosnippet>115</a>                    events.push(e);
-<a href=#116 id=116 data-nosnippet>116</a>                }
+<a href=#93 id=93 data-nosnippet>93</a>    // Same retain for biallelic SNPs: trim-window materialize + spillover prune can leave
+<a href=#94 id=94 data-nosnippet>94</a>    // strong hets list-only (call-rate dig 21:9411785), and CIGAR-only regen would drop them.
+<a href=#95 id=95 data-nosnippet>95</a>    </span><span class="kw">let </span>genome_wide_contig = contig != <span class="string">"2" </span>&amp;&amp; contig != <span class="string">"chr2"</span>;
+<a href=#96 id=96 data-nosnippet>96</a>    <span class="kw">let </span><span class="kw-2">mut </span>event_keys: std::collections::HashSet&lt;(u64, String, String)&gt; = events
+<a href=#97 id=97 data-nosnippet>97</a>        .iter()
+<a href=#98 id=98 data-nosnippet>98</a>        .map(|e| (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone()))
+<a href=#99 id=99 data-nosnippet>99</a>        .collect();
+<a href=#100 id=100 data-nosnippet>100</a>    <span class="kw">let </span>merge_preserved = |events: <span class="kw-2">&amp;mut </span>Vec&lt;VariationEvent&gt;,
+<a href=#101 id=101 data-nosnippet>101</a>                           keys: <span class="kw-2">&amp;mut </span>std::collections::HashSet&lt;(u64, String, String)&gt;,
+<a href=#102 id=102 data-nosnippet>102</a>                           source: <span class="kw-2">&amp;</span>[VariationEvent]| {
+<a href=#103 id=103 data-nosnippet>103</a>        <span class="kw">for </span>e <span class="kw">in </span>source {
+<a href=#104 id=104 data-nosnippet>104</a>            <span class="kw">let </span>keep = is_cluster_coupled_event(e)
+<a href=#105 id=105 data-nosnippet>105</a>                || is_cluster_ctc_del(e)
+<a href=#106 id=106 data-nosnippet>106</a>                || is_cluster_anchor_snp(e)
+<a href=#107 id=107 data-nosnippet>107</a>                <span class="comment">// ASM-8: read-proven gap SNPs survive strict CIGAR regen (post-backfill).
+<a href=#108 id=108 data-nosnippet>108</a>                </span>|| (strict_java_asm8_only_enabled() &amp;&amp; is_p12_phase_e_gap_event(e))
+<a href=#109 id=109 data-nosnippet>109</a>                || (!strict_java_asm8_only_enabled()
+<a href=#110 id=110 data-nosnippet>110</a>                    &amp;&amp; (is_p12_phase_e_gap_event(e) || is_java_diff_oracle_allele(e)))
+<a href=#111 id=111 data-nosnippet>111</a>                || (genome_wide_contig &amp;&amp; e.is_indel())
+<a href=#112 id=112 data-nosnippet>112</a>                || (genome_wide_contig
+<a href=#113 id=113 data-nosnippet>113</a>                    &amp;&amp; e.ref_allele.len() == <span class="number">1
+<a href=#114 id=114 data-nosnippet>114</a>                    </span>&amp;&amp; e.alt_allele.len() == <span class="number">1</span>);
+<a href=#115 id=115 data-nosnippet>115</a>            <span class="kw">if </span>!keep {
+<a href=#116 id=116 data-nosnippet>116</a>                <span class="kw">continue</span>;
 <a href=#117 id=117 data-nosnippet>117</a>            }
-<a href=#118 id=118 data-nosnippet>118</a>        }
-<a href=#119 id=119 data-nosnippet>119</a>    <span class="kw">crate</span>::event_map::prefer_indel_over_colocated_snps(<span class="kw-2">&amp;mut </span>events);
-<a href=#120 id=120 data-nosnippet>120</a>    <span class="kw">crate</span>::event_map::prefer_dominant_spanning_indels(<span class="kw-2">&amp;mut </span>events);
-<a href=#121 id=121 data-nosnippet>121</a>    events.sort_by_key(|e| e.start_1based);
-<a href=#122 id=122 data-nosnippet>122</a>    events.dedup_by(|a, b| {
-<a href=#123 id=123 data-nosnippet>123</a>        a.start_1based == b.start_1based
-<a href=#124 id=124 data-nosnippet>124</a>            &amp;&amp; a.ref_allele == b.ref_allele
-<a href=#125 id=125 data-nosnippet>125</a>            &amp;&amp; a.alt_allele == b.alt_allele
-<a href=#126 id=126 data-nosnippet>126</a>    });
-<a href=#127 id=127 data-nosnippet>127</a>    <span class="kw">if </span>!strict_event_map_only {
-<a href=#128 id=128 data-nosnippet>128</a>        scrub_p12_cluster_phantom_alleles(<span class="kw-2">&amp;mut </span>events);
-<a href=#129 id=129 data-nosnippet>129</a>    }
-<a href=#130 id=130 data-nosnippet>130</a>    assembly.variation_events = events;
-<a href=#131 id=131 data-nosnippet>131</a>    assembly.variation_present = assembly.haplotypes.iter().any(|h| !h.is_reference)
-<a href=#132 id=132 data-nosnippet>132</a>        &amp;&amp; assembly.haplotypes.len() &gt; <span class="number">1
-<a href=#133 id=133 data-nosnippet>133</a>        </span>&amp;&amp; !assembly.variation_events.is_empty();
-<a href=#134 id=134 data-nosnippet>134</a>}
+<a href=#118 id=118 data-nosnippet>118</a>            <span class="kw">let </span>key = (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone());
+<a href=#119 id=119 data-nosnippet>119</a>            <span class="kw">if </span>keys.insert(key) {
+<a href=#120 id=120 data-nosnippet>120</a>                <span class="comment">// CLONE: needed because owned element into collection.
+<a href=#121 id=121 data-nosnippet>121</a>                </span>events.push(e.clone());
+<a href=#122 id=122 data-nosnippet>122</a>            }
+<a href=#123 id=123 data-nosnippet>123</a>        }
+<a href=#124 id=124 data-nosnippet>124</a>    };
+<a href=#125 id=125 data-nosnippet>125</a>    merge_preserved(<span class="kw-2">&amp;mut </span>events, <span class="kw-2">&amp;mut </span>event_keys, <span class="kw-2">&amp;</span>prior_events);
+<a href=#126 id=126 data-nosnippet>126</a>    <span class="kw">if </span>!strict_event_map_only
+<a href=#127 id=127 data-nosnippet>127</a>        &amp;&amp; harvest_trim_snps {
+<a href=#128 id=128 data-nosnippet>128</a>            <span class="kw">for </span>e <span class="kw">in </span>harvest_snps_from_alt_haplotypes_on_trim_window(<span class="kw-2">&amp;</span>assembly.haplotypes, contig) {
+<a href=#129 id=129 data-nosnippet>129</a>                <span class="kw">let </span>key = (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone());
+<a href=#130 id=130 data-nosnippet>130</a>                <span class="kw">if </span>event_keys.insert(key) {
+<a href=#131 id=131 data-nosnippet>131</a>                    events.push(e);
+<a href=#132 id=132 data-nosnippet>132</a>                }
+<a href=#133 id=133 data-nosnippet>133</a>            }
+<a href=#134 id=134 data-nosnippet>134</a>        }
+<a href=#135 id=135 data-nosnippet>135</a>    <span class="kw">crate</span>::event_map::prefer_indel_over_colocated_snps(<span class="kw-2">&amp;mut </span>events);
+<a href=#136 id=136 data-nosnippet>136</a>    <span class="kw">crate</span>::event_map::prefer_dominant_spanning_indels(<span class="kw-2">&amp;mut </span>events);
+<a href=#137 id=137 data-nosnippet>137</a>    events.sort_by_key(|e| e.start_1based);
+<a href=#138 id=138 data-nosnippet>138</a>    events.dedup_by(|a, b| {
+<a href=#139 id=139 data-nosnippet>139</a>        a.start_1based == b.start_1based
+<a href=#140 id=140 data-nosnippet>140</a>            &amp;&amp; a.ref_allele == b.ref_allele
+<a href=#141 id=141 data-nosnippet>141</a>            &amp;&amp; a.alt_allele == b.alt_allele
+<a href=#142 id=142 data-nosnippet>142</a>    });
+<a href=#143 id=143 data-nosnippet>143</a>    <span class="kw">if </span>!strict_event_map_only {
+<a href=#144 id=144 data-nosnippet>144</a>        scrub_p12_cluster_phantom_alleles(<span class="kw-2">&amp;mut </span>events);
+<a href=#145 id=145 data-nosnippet>145</a>    }
+<a href=#146 id=146 data-nosnippet>146</a>    assembly.variation_events = events;
+<a href=#147 id=147 data-nosnippet>147</a>    assembly.variation_present = assembly.haplotypes.iter().any(|h| !h.is_reference)
+<a href=#148 id=148 data-nosnippet>148</a>        &amp;&amp; assembly.haplotypes.len() &gt; <span class="number">1
+<a href=#149 id=149 data-nosnippet>149</a>        </span>&amp;&amp; !assembly.variation_events.is_empty();
+<a href=#150 id=150 data-nosnippet>150</a>}
 </code></pre></div></section></main></body></html>

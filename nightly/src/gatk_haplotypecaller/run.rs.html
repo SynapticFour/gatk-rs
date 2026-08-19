@@ -52,12 +52,12 @@
 <a href=#52 id=52 data-nosnippet>52</a>/// fully sequential region apply (batch size 1) for 16 GiB hosts.
 <a href=#53 id=53 data-nosnippet>53</a></span><span class="kw">const </span>LARGE_REGION_READS_SEQUENTIAL_DEFAULT: usize = <span class="number">4_096</span>;
 <a href=#54 id=54 data-nosnippet>54</a>
-<a href=#55 id=55 data-nosnippet>55</a><span class="doccomment">/// Drop PairHMM / SW TLS scratch after a region (or between SW-heavy and PairHMM-heavy phases).
-<a href=#56 id=56 data-nosnippet>56</a>/// Full clear — soft high-water keep left sticky multi-hundred-MiB RSS on dense windows.
-<a href=#57 id=57 data-nosnippet>57</a>///
-<a href=#58 id=58 data-nosnippet>58</a>/// Includes SIMD/NEON planes (previously only cleared mid-`call_region` before realign,
-<a href=#59 id=59 data-nosnippet>59</a>/// which paid multi-second `munmap` gaps on dense NA12878 while leaving sticky Peak-RSS
-<a href=#60 id=60 data-nosnippet>60</a>/// when region-end release omitted them).
+<a href=#55 id=55 data-nosnippet>55</a><span class="doccomment">/// Region-end TLS hook.
+<a href=#56 id=56 data-nosnippet>56</a>///
+<a href=#57 id=57 data-nosnippet>57</a>/// Keep PairHMM/SW scratch **capacity** (high-water). Full `Vec::new()` drops paid
+<a href=#58 id=58 data-nosnippet>58</a>/// multi-second `munmap` on dense NA12878 and did not cut shard Peak (already set by
+<a href=#59 id=59 data-nosnippet>59</a>/// the densest region). Stacked SW+PairHMM planes still sit below Java Peak on
+<a href=#60 id=60 data-nosnippet>60</a>/// ci-subset (Rust max ~1.4 GiB vs Java JVM ~2.2 GiB).
 <a href=#61 id=61 data-nosnippet>61</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>release_region_tls_scratch() {
 <a href=#62 id=62 data-nosnippet>62</a>    <span class="kw">crate</span>::pairhmm_log10::release_pairhmm_tls_scratch();
 <a href=#63 id=63 data-nosnippet>63</a>    <span class="kw">crate</span>::pairhmm_logless::release_pairhmm_logless_tls_scratch();
@@ -65,13 +65,13 @@
 <a href=#65 id=65 data-nosnippet>65</a>    <span class="kw">crate</span>::smith_waterman::release_sw_tls_scratch();
 <a href=#66 id=66 data-nosnippet>66</a>}
 <a href=#67 id=67 data-nosnippet>67</a>
-<a href=#68 id=68 data-nosnippet>68</a><span class="doccomment">/// Same as [`release_region_tls_scratch`], broadcast onto every Rayon pool thread.
-<a href=#69 id=69 data-nosnippet>69</a>/// Needed when haplotype scoring used `par_iter` (worker TLS is invisible to the caller).
-<a href=#70 id=70 data-nosnippet>70</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>release_region_tls_scratch_all_threads() {
-<a href=#71 id=71 data-nosnippet>71</a>    release_region_tls_scratch();
-<a href=#72 id=72 data-nosnippet>72</a>    rayon::broadcast(|<span class="kw">_</span>| {
-<a href=#73 id=73 data-nosnippet>73</a>        release_region_tls_scratch();
-<a href=#74 id=74 data-nosnippet>74</a>    });
+<a href=#68 id=68 data-nosnippet>68</a><span class="doccomment">/// Same as [`release_region_tls_scratch`] on the calling thread.
+<a href=#69 id=69 data-nosnippet>69</a>///
+<a href=#70 id=70 data-nosnippet>70</a>/// Workers already keep TLS high-water at the end of each `par_iter` region.
+<a href=#71 id=71 data-nosnippet>71</a>/// A pool-wide `rayon::broadcast` was a region-end barrier that did not drop Peak
+<a href=#72 id=72 data-nosnippet>72</a>/// once scratch capacity is retained (memory-for-speed: skip the sync).
+<a href=#73 id=73 data-nosnippet>73</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>release_region_tls_scratch_all_threads() {
+<a href=#74 id=74 data-nosnippet>74</a>    release_region_tls_scratch();
 <a href=#75 id=75 data-nosnippet>75</a>}
 <a href=#76 id=76 data-nosnippet>76</a>
 <a href=#77 id=77 data-nosnippet>77</a><span class="attr">#[inline]
