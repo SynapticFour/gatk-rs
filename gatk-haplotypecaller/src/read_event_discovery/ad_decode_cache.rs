@@ -57,6 +57,7 @@ thread_local! {
 /// Clear the TLS AD decode cache (call once per genotyping region).
 pub fn clear_ad_decode_cache() {
     AD_DECODE_CACHE.with(|c| c.borrow_mut().clear());
+    crate::read_event_discovery::ad_result_memo::clear_ad_result_memo();
 }
 
 /// Borrow TLS cache for a pileup scan.

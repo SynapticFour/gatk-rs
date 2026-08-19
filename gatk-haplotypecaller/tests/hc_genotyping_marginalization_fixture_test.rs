@@ -10,10 +10,12 @@ use gatk_haplotypecaller::hc_genotyping_engine::{
 fn marginalize_pools_ref_and_alt_hap_columns() {
     let rows = vec![
         ReadLikelihoodRow {
+            read_index: 0,
             read_id: "r0".into(),
             haplotype_log10_likelihoods: vec![-0.1, -5.0, -0.5],
         },
         ReadLikelihoodRow {
+            read_index: 0,
             read_id: "r1".into(),
             haplotype_log10_likelihoods: vec![-0.2, -4.8, -0.4],
         },
@@ -33,10 +35,12 @@ fn marginalize_pools_ref_and_alt_hap_columns() {
 fn biallelic_gl_fixture_heterozygous_with_read_supporting_alt() {
     let rows = vec![
         ReadLikelihoodRow {
+            read_index: 0,
             read_id: "r0".into(),
             haplotype_log10_likelihoods: vec![-2.0, -0.1],
         },
         ReadLikelihoodRow {
+            read_index: 0,
             read_id: "r1".into(),
             haplotype_log10_likelihoods: vec![-2.0, -0.1],
         },

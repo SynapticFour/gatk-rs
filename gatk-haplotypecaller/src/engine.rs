@@ -1024,6 +1024,7 @@ impl HaplotypeCallerEngine {
             // bounded by region-end [`crate::run::release_region_tls_scratch`] (includes SIMD).
             // A3: realign via Arc COW (`BamRecordSlot`) — no deep clone of every BAM payload.
             let t_realign = std::time::Instant::now();
+            let _sw_prof = crate::hc_profile::begin(crate::hc_profile::Stage::SmithWaterman);
             let (_realigned, best_hap_per_read) = realign_reads_to_best_haplotype(
                 region_for_genotyping.reads.as_mut_slice(),
                 &assembly.haplotypes,
@@ -2345,6 +2346,7 @@ fn post_process_pairhmm_likelihoods<R: std::borrow::Borrow<rust_htslib::bam::Rec
     apply_normalize: bool,
     active_span: Option<(u64, u64)>,
 ) -> Vec<RegionReadLikelihood> {
+    let _prof = crate::hc_profile::begin(crate::hc_profile::Stage::LikelihoodProcessing);
     if !apply_normalize {
         // strict_java: normalize + filter after allele filtering (Java order).
         return ll;
@@ -2364,6 +2366,8 @@ fn score_pairhmm_from_records<R: std::borrow::Borrow<rust_htslib::bam::Record> +
     haplotypes: &[Haplotype],
     config: &HcLikelihoodEngineConfig,
 ) -> GatkResult<Vec<RegionReadLikelihood>> {
+    let _prof = crate::hc_profile::begin(crate::hc_profile::Stage::PairHmm);
+    let wall0 = std::time::Instant::now();
     let eligible = pairhmm_eligible_haplotype_indices(haplotypes);
     // L12-A3: zero-copy hap membership for PairHMM (no post-prune `Vec<u8>` rematerialize).
     let hap_refs: Vec<&[u8]> = eligible
@@ -2375,7 +2379,7 @@ fn score_pairhmm_from_records<R: std::borrow::Borrow<rust_htslib::bam::Record> +
     // stays threaded so we can undercut Java wall without stacking mid-size regions.
     // Hap scoring inside each read stays sequential when nested (one parallel axis).
     let parallel = rayon::current_num_threads() > 1 && reads.len() >= 8;
-    if !parallel {
+    let out = if !parallel {
         let mut out = Vec::with_capacity(reads.len() * eligible.len());
         for (ri, rec) in reads.iter().enumerate() {
             let rec = rec.borrow();
@@ -2390,33 +2394,44 @@ fn score_pairhmm_from_records<R: std::borrow::Borrow<rust_htslib::bam::Record> +
                 });
             }
         }
-        return Ok(out);
-    }
-    // Parallel across reads (Java native PairHMM threads). Each rayon worker has its own
-    // PairHMM TLS; collect then flatten in read-index order for stable LL rows.
-    use rayon::prelude::*;
-    let per_read: Vec<GatkResult<Vec<RegionReadLikelihood>>> = reads
-        .par_iter()
-        .enumerate()
-        .map(|(ri, rec)| {
-            let rec = rec.borrow();
-            let bases = rec.seq().as_bytes();
-            let scores =
-                score_read_against_haplotypes(config, &bases, rec.qual(), rec.mapq(), &hap_refs)?;
-            let mut rows = Vec::with_capacity(eligible.len());
-            for (score_i, &hi) in eligible.iter().enumerate() {
-                rows.push(RegionReadLikelihood {
-                    read_index: crate::bio_ids::ReadIndex::new(ri),
-                    haplotype_index: crate::bio_ids::HaplotypeIndex::new(hi),
-                    log10_likelihood: scores[score_i],
-                });
-            }
-            Ok(rows)
-        })
-        .collect();
-    let mut out = Vec::with_capacity(reads.len() * eligible.len());
-    for chunk in per_read {
-        out.extend(chunk?);
+        out
+    } else {
+        // Parallel across reads (Java native PairHMM threads). Each rayon worker has its own
+        // PairHMM TLS; collect then flatten in read-index order for stable LL rows.
+        use rayon::prelude::*;
+        let per_read: Vec<GatkResult<Vec<RegionReadLikelihood>>> = reads
+            .par_iter()
+            .enumerate()
+            .map(|(ri, rec)| {
+                let rec = rec.borrow();
+                let bases = rec.seq().as_bytes();
+                let scores = score_read_against_haplotypes(
+                    config,
+                    &bases,
+                    rec.qual(),
+                    rec.mapq(),
+                    &hap_refs,
+                )?;
+                let mut rows = Vec::with_capacity(eligible.len());
+                for (score_i, &hi) in eligible.iter().enumerate() {
+                    rows.push(RegionReadLikelihood {
+                        read_index: crate::bio_ids::ReadIndex::new(ri),
+                        haplotype_index: crate::bio_ids::HaplotypeIndex::new(hi),
+                        log10_likelihood: scores[score_i],
+                    });
+                }
+                Ok(rows)
+            })
+            .collect();
+        let mut out = Vec::with_capacity(reads.len() * eligible.len());
+        for chunk in per_read {
+            out.extend(chunk?);
+        }
+        out
+    };
+
+    if crate::hc_profile::enabled() {
+        crate::hc_profile::note_pairhmm_region(reads, &hap_refs, wall0.elapsed());
     }
     Ok(out)
 }

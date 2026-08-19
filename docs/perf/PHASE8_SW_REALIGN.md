@@ -21,3 +21,4 @@ Observable Java contract unchanged: same SoftClip / Indel SW scores, same
 - `cargo test -p gatk-haplotypecaller smith_waterman`
 - Existing realign / unclip unit tests
 - Optional: TRACE rematch w09 `prep_realign` share vs phase7
+- Follow-up rolling scores / HC length benches: [`SW_HC_OPTIMIZE.md`](SW_HC_OPTIMIZE.md)

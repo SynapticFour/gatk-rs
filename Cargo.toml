@@ -80,9 +80,10 @@ panic = "abort"
 opt-level = 3
 
 # Benchmarks inherit `release` settings; disable LTO here so `cargo bench` stays
-# within typical CI/Docker memory limits.
+# within typical CI/Docker memory limits. `debug = false`: measured ~23% PairHMM
+# Criterion win vs debuginfo (docs/perf/BENCH_PROFILE_MATRIX.md). Keep LTO off.
 [profile.bench]
 inherits = "release"
-debug = true
+debug = false
 lto = false
 codegen-units = 16

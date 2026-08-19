@@ -905,13 +905,17 @@ pub fn pairhmm_locus_trace_dump(
         let lr = row.haplotype_log10_likelihoods[0];
         let la = row.haplotype_log10_likelihoods[1];
         let qname = row
-            .read_id
-            .strip_prefix("read_")
-            .and_then(|s| s.parse::<usize>().ok())
+            .matrix_read_index()
             .and_then(|ri| reads.get(ri))
             .map(|r| String::from_utf8_lossy(r.qname()).into_owned())
             // CLONE: needed because fallback owns pileup/value when Option miss.
-            .unwrap_or_else(|| row.read_id.clone());
+            .unwrap_or_else(|| {
+                if row.read_id.is_empty() {
+                    format!("read_{}", row.read_index)
+                } else {
+                    row.read_id.clone()
+                }
+            });
         let (best_is_ref, best_ll, second_ll) = if lr >= la {
             (true, lr, la)
         } else {
@@ -1035,11 +1039,7 @@ pub fn pairhmm_locus_trace_dump(
     }
     out.push_str("per_read_pool_hap_ll\tread_idx\thap_idx\tlog10\tpool\n");
     for row in &rows {
-        let read_idx = row
-            .read_id
-            .strip_prefix("read_")
-            .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or(0);
+        let read_idx = row.matrix_read_index().unwrap_or(0);
         for &hi in ref_pool.iter().chain(mapping.alt_haplotype_indices.iter())
         {
             let ll = row

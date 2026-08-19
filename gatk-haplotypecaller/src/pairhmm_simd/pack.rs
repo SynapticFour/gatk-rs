@@ -5,8 +5,9 @@
 //! cache locality (phenotype: many haps × shared read). Numerics match scalar Logless.
 
 use crate::pairhmm_logless::{
-    logless_match_mismatch_prior, logless_pairhmm_likelihood, logless_qual_to_trans_probs,
-    INITIAL_CONDITION, INITIAL_CONDITION_LOG10, MIN_ACCEPTED_LINEAR_SUM,
+    logless_fill_transitions, logless_match_mismatch_prior, logless_pairhmm_likelihood,
+    logless_qual_to_trans_probs, INITIAL_CONDITION, INITIAL_CONDITION_LOG10,
+    MIN_ACCEPTED_LINEAR_SUM,
 };
 use gatk_common::{GatkError, GatkResult};
 use std::cell::RefCell;
@@ -20,14 +21,22 @@ const DELETION_TO_DELETION: usize = 5;
 
 thread_local! {
     static PACK_F64_SCRATCH: RefCell<F64Scratch> = RefCell::new(F64Scratch::empty());
+    static PACK_F64_TRANSITIONS: RefCell<Vec<[f64; 6]>> = const { RefCell::new(Vec::new()) };
     static PACK_F32_SCRATCH: RefCell<F32Scratch> = RefCell::new(F32Scratch::empty());
+    /// Observe-only: DP cells evaluated / avoided via hapStartIndex (profile).
+    static PACK_DP_EVAL: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static PACK_DP_AVOID: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Take-and-reset packed Logless DP cell counters (evaluated, avoided_by_prefix).
+pub fn take_pack_dp_cell_stats() -> (u64, u64) {
+    (PACK_DP_EVAL.replace(0), PACK_DP_AVOID.replace(0))
 }
 
 struct F64Scratch {
     m: Vec<f64>,
     ins: Vec<f64>,
     del: Vec<f64>,
-    prior: Vec<f64>,
 }
 
 impl F64Scratch {
@@ -36,7 +45,6 @@ impl F64Scratch {
             m: Vec::new(),
             ins: Vec::new(),
             del: Vec::new(),
-            prior: Vec::new(),
         }
     }
 
@@ -45,7 +53,6 @@ impl F64Scratch {
             self.m.resize(cells, 0.0);
             self.ins.resize(cells, 0.0);
             self.del.resize(cells, 0.0);
-            self.prior.resize(cells, 0.0);
         }
     }
 
@@ -78,12 +85,6 @@ pub fn score_haps_logless_packed_f64(
         return Ok(vec![0.0; haplotypes.len()]);
     }
 
-    let mut transitions = vec![[0.0f64; 6]; rn + 1];
-    for i in 0..rn {
-        transitions[i + 1] =
-            logless_qual_to_trans_probs(insertion_gop[i], deletion_gop[i], overall_gcp[i]);
-    }
-
     let max_hn = haplotypes.iter().map(|h| h.len()).max().unwrap_or(0);
     let max_cols = max_hn + 1;
     let max_cells = (rn + 1).saturating_mul(max_cols);
@@ -98,26 +99,36 @@ pub fn score_haps_logless_packed_f64(
     }
 
     let mut out = Vec::with_capacity(haplotypes.len());
-    PACK_F64_SCRATCH.with(|cell| {
-        let mut scratch = cell.borrow_mut();
-        scratch.ensure_cells(max_cells);
-        let mut prev: Option<&[u8]> = None;
-        for &hap in haplotypes {
-            let (hap_start, reinit_del) = match prev {
-                Some(p) if p.len() == hap.len() => (first_hap_divergence(p, hap), false),
-                _ => (0, true),
-            };
-            out.push(score_one_f64(
-                read_bases,
-                read_quals,
-                hap,
-                &transitions,
-                hap_start,
-                reinit_del,
-                &mut scratch,
-            ));
-            prev = Some(hap);
-        }
+    PACK_F64_TRANSITIONS.with(|tcell| {
+        let mut transitions = tcell.borrow_mut();
+        logless_fill_transitions(
+            &mut transitions,
+            rn,
+            insertion_gop,
+            deletion_gop,
+            overall_gcp,
+        );
+        PACK_F64_SCRATCH.with(|cell| {
+            let mut scratch = cell.borrow_mut();
+            scratch.ensure_cells(max_cells);
+            let mut prev: Option<&[u8]> = None;
+            for &hap in haplotypes {
+                let (hap_start, reinit_del) = match prev {
+                    Some(p) if p.len() == hap.len() => (first_hap_divergence(p, hap), false),
+                    _ => (0, true),
+                };
+                out.push(score_one_f64(
+                    read_bases,
+                    read_quals,
+                    hap,
+                    &transitions,
+                    hap_start,
+                    reinit_del,
+                    &mut scratch,
+                ));
+                prev = Some(hap);
+            }
+        });
     });
     Ok(out)
 }
@@ -169,6 +180,15 @@ pub(crate) fn mean_consecutive_prefix_frac(haps: &[&[u8]]) -> f64 {
 /// Prefer Java hapStartIndex scalar reuse when consecutive same-length haps share
 /// this fraction of bases; otherwise use SIMD packs (GKL lane throughput).
 pub(crate) const PREFIX_REUSE_OVER_SIMD_FRAC: f64 = 0.35;
+
+/// NEON: min same-length group size for hapStartIndex prefix reuse (else pack2).
+/// A/B 3→6 on w11 200 kb: occupancy identical (~3% packs) — groups already ≥6.
+#[cfg(target_arch = "aarch64")]
+pub(crate) const PREFIX_REUSE_MIN_HAPS_NEON: usize = 3;
+
+/// AVX2: min same-length group size for prefix reuse (else pack4). A/B 5→8: no-op.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub(crate) const PREFIX_REUSE_MIN_HAPS_AVX2: usize = 5;
 
 /// Score one hap with prebuilt transition planes (shared across a read's hap pack).
 ///
@@ -620,6 +640,13 @@ fn score_one_f64_prefix_reuse(
     }
 
     let j0 = start + 1; // 1-based DP column; Java uses hapStartIndex+1
+    if crate::hc_profile::enabled() {
+        let cols_eval = hn.saturating_sub(start);
+        let eval = (rn as u64).saturating_mul(cols_eval as u64);
+        let avoid = (rn as u64).saturating_mul(start as u64);
+        PACK_DP_EVAL.set(PACK_DP_EVAL.get().saturating_add(eval));
+        PACK_DP_AVOID.set(PACK_DP_AVOID.get().saturating_add(avoid));
+    }
     for i in 1..=rn {
         let t = transitions[i];
         let x = read_bases[i - 1];

@@ -53,6 +53,8 @@ pub struct DebugConfig {
     pub semantic_trace_path: Option<String>,
     /// `GATK_RS_HC_RSS_TRACE=1` — per-region Peak-RSS diagnostics (logging only).
     pub rss_trace: bool,
+    /// `GATK_RS_HC_PROFILE=<path>` — observe-only production profiler output path.
+    pub hc_profile_path: Option<std::path::PathBuf>,
 }
 
 /// Full runtime config. Prefer [`RuntimeConfig::from_env`] at process edges.
@@ -93,6 +95,25 @@ impl RuntimeConfig {
                     .ok()
                     .filter(|p| !p.is_empty() && p != "0" && !p.eq_ignore_ascii_case("off")),
                 rss_trace: env_truthy("GATK_RS_HC_RSS_TRACE"),
+                hc_profile_path: std::env::var("GATK_RS_HC_PROFILE").ok().and_then(|v| {
+                    let t = v.trim();
+                    if t.is_empty()
+                        || t == "0"
+                        || t.eq_ignore_ascii_case("off")
+                        || t.eq_ignore_ascii_case("false")
+                    {
+                        return None;
+                    }
+                    if t == "1" || t.eq_ignore_ascii_case("true") {
+                        return Some(std::path::PathBuf::from("hc_profile.json"));
+                    }
+                    let p = std::path::PathBuf::from(t);
+                    Some(if p.extension().and_then(|e| e.to_str()) == Some("json") {
+                        p
+                    } else {
+                        p.join("hc_profile.json")
+                    })
+                }),
             },
         }
     }
@@ -222,7 +243,7 @@ fn rss_trace_locus_lock() -> &'static Mutex<String> {
 
 /// Set the in-flight locus label for mid-phase RSS samples (observe-only).
 pub fn rss_trace_set_locus(contig: &str, start: u64, end: u64, detail: &str) {
-    if !hc_rss_diagnostics_enabled() {
+    if !hc_rss_diagnostics_enabled() && !crate::hc_profile::enabled() {
         return;
     }
     if let Ok(mut s) = rss_trace_locus_lock().lock() {
@@ -234,12 +255,14 @@ pub fn rss_trace_set_locus(contig: &str, start: u64, end: u64, detail: &str) {
         }
     }
     rss_trace_reset_wall_delta();
-    ensure_rss_sampler();
+    if hc_rss_diagnostics_enabled() {
+        ensure_rss_sampler();
+    }
 }
 
 /// Clear the in-flight locus label after a region finishes.
 pub fn rss_trace_clear_locus() {
-    if !hc_rss_diagnostics_enabled() {
+    if !hc_rss_diagnostics_enabled() && !crate::hc_profile::enabled() {
         return;
     }
     if let Ok(mut s) = rss_trace_locus_lock().lock() {
@@ -250,11 +273,16 @@ pub fn rss_trace_clear_locus() {
 /// Log a named phase RSS sample when TRACE is on or an RSS abort limit is set.
 ///
 /// Also emits `delta_ms` = wall since the previous checkpoint (assemble wall pie).
+/// When [`crate::hc_profile`] is armed, wall deltas are dual-written even if TRACE
+/// stderr logging is off (observe-only; no genotype effect).
 pub fn rss_trace_checkpoint(phase: &str, detail: &str) {
-    if !hc_rss_diagnostics_enabled() {
+    let profiling = crate::hc_profile::enabled();
+    if !hc_rss_diagnostics_enabled() && !profiling {
         return;
     }
-    ensure_rss_sampler();
+    if hc_rss_diagnostics_enabled() {
+        ensure_rss_sampler();
+    }
     let now = std::time::Instant::now();
     let delta_ms = {
         let lock = RSS_TRACE_LAST_INSTANT.get_or_init(|| Mutex::new(None));
@@ -263,27 +291,31 @@ pub fn rss_trace_checkpoint(phase: &str, detail: &str) {
         *prev = Some(now);
         d
     };
-    let rss = current_rss_mib()
-        .map(|v| format!("{v:.1}"))
-        .unwrap_or_else(|| "?".into());
-    let locus = rss_trace_locus_lock()
-        .lock()
-        .map(|s| s.clone())
-        .unwrap_or_default();
-    let delta = delta_ms
-        .map(|ms| format!(" delta_ms={ms:.1}"))
-        .unwrap_or_default();
-    if detail.is_empty() {
-        eprintln!("HC_RSS_TRACE phase={phase} locus={locus}{delta} rss_MiB={rss}");
-    } else {
-        eprintln!("HC_RSS_TRACE phase={phase} locus={locus} {detail}{delta} rss_MiB={rss}");
+    if hc_rss_diagnostics_enabled() {
+        let rss = current_rss_mib()
+            .map(|v| format!("{v:.1}"))
+            .unwrap_or_else(|| "?".into());
+        let locus = rss_trace_locus_lock()
+            .lock()
+            .map(|s| s.clone())
+            .unwrap_or_default();
+        let delta = delta_ms
+            .map(|ms| format!(" delta_ms={ms:.1}"))
+            .unwrap_or_default();
+        if detail.is_empty() {
+            eprintln!("HC_RSS_TRACE phase={phase} locus={locus}{delta} rss_MiB={rss}");
+        } else {
+            eprintln!("HC_RSS_TRACE phase={phase} locus={locus} {detail}{delta} rss_MiB={rss}");
+        }
+        let _ = std::io::Write::flush(&mut std::io::stderr());
     }
-    let _ = std::io::Write::flush(&mut std::io::stderr());
+    // Dual-write wall deltas into the production profiler when armed.
+    crate::hc_profile::observe_trace_phase(phase, delta_ms);
 }
 
 /// Reset wall-delta chain (call at region start so the first phase has no stale delta).
 pub fn rss_trace_reset_wall_delta() {
-    if !hc_rss_diagnostics_enabled() {
+    if !hc_rss_diagnostics_enabled() && !crate::hc_profile::enabled() {
         return;
     }
     let lock = RSS_TRACE_LAST_INSTANT.get_or_init(|| Mutex::new(None));

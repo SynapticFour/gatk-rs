@@ -41,6 +41,9 @@ change:
 
 `cargo test -p gatk-haplotypecaller --test pairhmm_simd_vs_scalar_test`
 
+Architecture C (opt-in wavefront, not production default):
+[`PAIRHMM_WAVEFRONT.md`](PAIRHMM_WAVEFRONT.md).
+
 Criterion phenotype matrix (read 100/200/300 × hap 8/32/64/128):  
 `cargo bench -p gatk-haplotypecaller --bench pairhmm --locked -- pairhmm_logless_simd`
 

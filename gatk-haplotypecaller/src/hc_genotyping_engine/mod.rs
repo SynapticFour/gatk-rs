@@ -161,13 +161,76 @@ pub struct RegionGenotypeResult {
 }
 
 /// Convert sparse `call_region` likelihood matrix to per-read rows.
+///
+/// Hot path avoids per-read `String` allocation (`read_id` left empty; use
+/// [`ReadLikelihoodRow::matrix_read_index`]). Prefer
+/// [`with_region_likelihood_rows`] in multi-allele loops to skip reshape + clone.
 pub fn region_likelihoods_to_rows(
+    likelihoods: &[RegionReadLikelihood],
+    n_haplotypes: usize,
+) -> Vec<ReadLikelihoodRow> {
+    with_region_likelihood_rows(likelihoods, n_haplotypes, |rows| rows.to_vec())
+}
+
+/// Borrow dense likelihood rows from a TLS cache keyed by `(ptr, len, n_haps)`.
+///
+/// Multi-allelic sites call this many times with the same sparse matrix; only the
+/// first call rebuilds. Callback must not escape the borrowed slice.
+pub fn with_region_likelihood_rows<R>(
+    likelihoods: &[RegionReadLikelihood],
+    n_haplotypes: usize,
+    f: impl FnOnce(&[ReadLikelihoodRow]) -> R,
+) -> R {
+    if likelihoods.is_empty() {
+        return f(&[]);
+    }
+    let key = (
+        likelihoods.as_ptr() as usize,
+        likelihoods.len(),
+        n_haplotypes,
+    );
+    thread_local! {
+        static ROWS_CACHE: std::cell::RefCell<Option<(usize, usize, usize, Vec<ReadLikelihoodRow>)>> =
+            const { std::cell::RefCell::new(None) };
+    }
+    ROWS_CACHE.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        let hit = matches!(
+            slot.as_ref(),
+            Some((p, n, h, _)) if (*p, *n, *h) == key
+        );
+        if !hit {
+            *slot = Some((
+                key.0,
+                key.1,
+                key.2,
+                region_likelihoods_to_rows_uncached(likelihoods, n_haplotypes),
+            ));
+        }
+        // `slot` is Some after the fill above (or was already a hit).
+        match slot.as_ref() {
+            Some((_, _, _, rows)) => f(rows),
+            None => f(&[]),
+        }
+    })
+}
+
+/// Bench/test helper: rebuild dense rows without TLS cache.
+#[doc(hidden)]
+pub fn region_likelihoods_to_rows_uncached_pub(
     likelihoods: &[RegionReadLikelihood],
     n_haplotypes: usize,
 ) -> Vec<ReadLikelihoodRow> {
     if likelihoods.is_empty() {
         return Vec::new();
     }
+    region_likelihoods_to_rows_uncached(likelihoods, n_haplotypes)
+}
+
+fn region_likelihoods_to_rows_uncached(
+    likelihoods: &[RegionReadLikelihood],
+    n_haplotypes: usize,
+) -> Vec<ReadLikelihoodRow> {
     let max_read = likelihoods
         .iter()
         .map(|rl| rl.read_index.get())
@@ -185,7 +248,8 @@ pub fn region_likelihoods_to_rows(
         .enumerate()
         .filter_map(|(read_index, haplotype_log10_likelihoods)| {
             haplotype_log10_likelihoods.map(|haplotype_log10_likelihoods| ReadLikelihoodRow {
-                read_id: format!("read_{read_index}"),
+                read_index,
+                read_id: String::new(),
                 haplotype_log10_likelihoods,
             })
         })
@@ -513,6 +577,7 @@ pub fn marginalize_rows_to_biallelic_alleles(
             let ref_ll = pool_max_log10(ref_hap_indices, row);
             let alt_ll = pool_max_log10(alt_hap_indices, row);
             ReadLikelihoodRow {
+                read_index: row.read_index,
                 // CLONE: needed because owned read id string for output.
                 read_id: row.read_id.clone(),
                 haplotype_log10_likelihoods: vec![ref_ll, alt_ll],

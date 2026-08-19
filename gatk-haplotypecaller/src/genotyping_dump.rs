@@ -60,6 +60,7 @@ pub fn dump_genotyping_aggregate_tsv(
         .into_iter()
         .enumerate()
         .map(|(i, (read_id, haps))| ReadLikelihoodRow {
+            read_index: i,
             read_id: format!("read_{i}_{read_id}"),
             haplotype_log10_likelihoods: haps,
         })

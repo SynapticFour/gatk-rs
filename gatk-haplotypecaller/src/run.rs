@@ -141,6 +141,16 @@ pub fn run_haplotype_caller(config: &GatkConfig) -> GatkResult<()> {
 
     // Observe-only: optional NDJSON semantic checkpoints (`GATK_RS_SEMANTIC_TRACE`).
     crate::semantic_trace::try_init_from_runtime(&RuntimeConfig::from_env());
+    // Observe-only: production stage profiler (`GATK_RS_HC_PROFILE`).
+    let rt = RuntimeConfig::from_env();
+    crate::hc_profile::init_from_runtime(&rt);
+    struct ProfileFlushOnDrop;
+    impl Drop for ProfileFlushOnDrop {
+        fn drop(&mut self) {
+            crate::hc_profile::flush();
+        }
+    }
+    let _profile_flush = ProfileFlushOnDrop;
 
     let ref_path = config
         .tool_config
@@ -671,7 +681,12 @@ fn assembly_region_variant_records(
                                 })
                             })
                             .collect::<GatkResult<Vec<_>>>()?;
-                        release_region_tls_scratch_all_threads();
+                        // Post-wave barrier / TLS release (observe-only sync cost).
+                        {
+                            let _sync =
+                                crate::hc_profile::begin(crate::hc_profile::Stage::Synchronization);
+                            release_region_tls_scratch_all_threads();
+                        }
                         out
                     };
                     merge_region_emit_batches(&mut batches, records, seen);
@@ -851,6 +866,7 @@ fn process_one_region_vcf(
         );
     }
     crate::runtime_config::rss_trace_clear_locus();
+    crate::hc_profile::note_region_complete();
 
     Ok(RegionEmitBatch {
         region_index,

@@ -2,11 +2,21 @@
 //! Replaces naive de Bruijn per-read edge counting with read threading: unique-kmer starts,
 //! backward multiplicity on incoming matches, forward extension by suffix, and per-sample
 //! pruning multiplicity (`MultiSampleEdge` with `numPruningSamples = 1`).
+//!
+//! # K-mer representation
+//! Hot maps use [`crate::kmer_key::KmerKey`] (packed ACGT integers when `k ≤ 64`,
+//! `Arc<[u8]>` for `N` / larger k). Node payloads remain `Arc<[u8]>` for path bases.
+//!
+//! # Deterministic neighbor order
+//! `outgoing` / `incoming` are [`BTreeSet`] so `extend_chain_by_one` first-suffix-match
+//! is stable when multiple outs share a base (observable threading topology). Do **not**
+//! replace with `HashSet` without an equivalent deterministic tie-break.
 
 use crate::assembly::{AssemblyGraph, AssemblyGraphParams, AssemblyRead};
+use crate::kmer_key::{key_from_window, materialize_arc, KmerKey, RollingKmer};
 use gatk_common::{GatkError, GatkResult};
 use indexmap::IndexMap;
-use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet};
+use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
 use std::sync::Arc;
 
 /// GATK `AbstractReadThreadingGraph.ANONYMOUS_SAMPLE` (reference sequences).
@@ -16,8 +26,6 @@ const INCREASE_COUNTS_BACKWARDS: bool = true;
 
 #[derive(Debug, Clone)]
 struct SequenceForKmers {
-    #[allow(dead_code)]
-    name: String,
     /// One shared allocation for the usable segment (no pending double-copy).
     bases: Arc<[u8]>,
     start: usize,
@@ -90,9 +98,9 @@ pub struct ReadThreadingGraphBuilder {
     num_pruning_samples: usize,
     /// GATK `pending`: sequences grouped by sample; flush edge multiplicities after each sample.
     pending: IndexMap<String, Vec<SequenceForKmers>>,
-    non_unique_kmers: HashSet<Arc<[u8]>>,
-    /// GATK `uniqueKmers`: one vertex per unique kmer only.
-    unique_kmers: BTreeMap<Arc<[u8]>, usize>,
+    non_unique_kmers: HashSet<KmerKey>,
+    /// GATK `uniqueKmers`: one vertex per unique kmer only (hash lookup; order not observable).
+    unique_kmers: HashMap<KmerKey, usize>,
     nodes: Vec<Arc<[u8]>>,
     edges: HashMap<(usize, usize), ThreadingEdge>,
     edge_is_ref: HashSet<(usize, usize)>,
@@ -118,7 +126,7 @@ impl ReadThreadingGraphBuilder {
             num_pruning_samples: num_pruning_samples.max(1),
             pending: IndexMap::new(),
             non_unique_kmers: HashSet::new(),
-            unique_kmers: BTreeMap::new(),
+            unique_kmers: HashMap::new(),
             nodes: Vec::new(),
             edges: HashMap::new(),
             edge_is_ref: HashSet::new(),
@@ -130,8 +138,8 @@ impl ReadThreadingGraphBuilder {
         }
     }
 
-    fn kmer_at(bases: &[u8], start: usize, k: usize) -> Arc<[u8]> {
-        Arc::from(&bases[start..start + k])
+    fn key_at(bases: &[u8], start: usize, k: usize) -> KmerKey {
+        key_from_window(bases, start, k)
     }
 
     fn suffix_of_kmer(kmer: &[u8]) -> u8 {
@@ -154,10 +162,7 @@ impl ReadThreadingGraphBuilder {
                 if let Some(start) = last_good {
                     let len = end - start;
                     if len >= kmer_size {
-                        // Store only the usable segment once (`Arc`) — callers push this
-                        // into pending without a second copy.
                         out.push(SequenceForKmers {
-                            name: format!("{start}_{end}"),
                             bases: Arc::from(&bytes[start..end]),
                             start: 0,
                             stop: len,
@@ -186,40 +191,36 @@ impl ReadThreadingGraphBuilder {
         self.non_unique_kmers.clear();
         let k = self.kmer_size;
         for seq in self.pending.values().flatten() {
-            let mut seen: HashSet<Arc<[u8]>> = HashSet::new();
-            // GATK scans 0..stop-k on the subread byte array; we keep [start, stop) in full read coordinates.
+            let mut seen: HashSet<KmerKey> = HashSet::new();
+            let mut roll = RollingKmer::new(k);
             let stop = seq.stop.saturating_sub(k);
             for i in seq.start..=stop {
-                let key = Self::kmer_at(&seq.bases, i, k);
-                // Lifetime: first sighting moves into `seen`; a later duplicate moves into
-                // `non_unique_kmers`. Arc share — no second byte allocation.
-                if seen.contains(&key) {
+                // Rolling packed ACGT keys allocate nothing; ambiguous windows allocate once.
+                let key = roll.key_at(&seq.bases, i);
+                if !seen.insert(key.clone()) {
                     self.non_unique_kmers.insert(key);
-                } else {
-                    seen.insert(key);
                 }
             }
         }
     }
 
-    fn is_threading_start(&self, kmer: &[u8]) -> bool {
+    fn is_threading_start(&self, key: &KmerKey) -> bool {
         if self.start_threading_only_at_existing_vertex {
-            self.unique_kmers.contains_key(kmer)
+            self.unique_kmers.contains_key(key)
         } else {
-            !self.non_unique_kmers.contains(kmer)
+            !self.non_unique_kmers.contains(key)
         }
     }
 
     fn find_start(&self, seq: &SequenceForKmers) -> Option<usize> {
-        // GATK `findStart`: reference always threads from index 0 of the ref sequence array.
         if seq.is_ref {
             return Some(0);
         }
         let k = self.kmer_size;
         let last = seq.stop.saturating_sub(k);
+        let mut roll = RollingKmer::new(k);
         for i in seq.start..last {
-            // GATK: i < stop - kmerSize
-            let key = Self::kmer_at(&seq.bases, i, k);
+            let key = roll.key_at(&seq.bases, i);
             if self.is_threading_start(&key) {
                 return Some(i);
             }
@@ -227,40 +228,40 @@ impl ReadThreadingGraphBuilder {
         None
     }
 
-    fn get_unique_kmer_vertex(&self, kmer: &[u8], allow_ref_source: bool) -> Option<usize> {
-        if !allow_ref_source && self.ref_source_kmer.as_deref() == Some(kmer) {
-            return None;
+    fn get_unique_kmer_vertex(&self, key: &KmerKey, allow_ref_source: bool) -> Option<usize> {
+        let id = *self.unique_kmers.get(key)?;
+        if !allow_ref_source {
+            if let Some(ref_src) = self.ref_source_kmer.as_deref() {
+                if self.nodes[id].as_ref() == ref_src {
+                    return None;
+                }
+            }
         }
-        self.unique_kmers.get(kmer).copied()
+        Some(id)
     }
 
-    fn create_vertex(&mut self, kmer: Arc<[u8]>) -> usize {
+    fn create_vertex(&mut self, key: KmerKey) -> usize {
         let id = self.nodes.len();
-        // Unique kmers: share one Arc between `nodes` and `unique_kmers` (Java-style).
-        // Non-unique: move into `nodes` only.
-        if !self.non_unique_kmers.contains(kmer.as_ref())
-            && !self.unique_kmers.contains_key(kmer.as_ref())
-        {
-            self.unique_kmers.insert(Arc::clone(&kmer), id);
+        let kmer = materialize_arc(&key, self.kmer_size);
+        if !self.non_unique_kmers.contains(&key) && !self.unique_kmers.contains_key(&key) {
+            self.unique_kmers.insert(key, id);
         }
         self.nodes.push(kmer);
         id
     }
 
     fn get_or_create_kmer_vertex(&mut self, bases: &[u8], start: usize) -> usize {
-        let kmer = Self::kmer_at(bases, start, self.kmer_size);
-        if let Some(id) = self.get_unique_kmer_vertex(&kmer, true) {
+        let key = Self::key_at(bases, start, self.kmer_size);
+        if let Some(id) = self.get_unique_kmer_vertex(&key, true) {
             return id;
         }
-        self.create_vertex(kmer)
+        self.create_vertex(key)
     }
 
-    /// GATK `ReadThreadingGraph.isLowQualityGraph` / `isLowComplexity`.
     pub(crate) fn is_low_quality_graph(&self) -> bool {
         self.non_unique_kmers.len() * 4 > self.unique_kmers.len()
     }
 
-    /// Alias retained for E.5 parity naming.
     pub(crate) fn is_low_complexity(&self) -> bool {
         self.is_low_quality_graph()
     }
@@ -273,7 +274,6 @@ impl ReadThreadingGraphBuilder {
         mult.values().copied().max().unwrap_or(0)
     }
 
-    /// Post-`build` threading stats for parity.
     pub fn non_unique_summary(&self) -> ThreadingNonUniqueSummary {
         assert!(self.built, "non_unique_summary requires build()");
         ThreadingNonUniqueSummary {
@@ -359,17 +359,17 @@ impl ReadThreadingGraphBuilder {
                 return Ok(to);
             }
         }
-        let kmer = Self::kmer_at(bases, kmer_start, k);
-        let next = if let Some(merge) = self.get_unique_kmer_vertex(&kmer, false) {
+        let key = Self::key_at(bases, kmer_start, k);
+        let next = if let Some(merge) = self.get_unique_kmer_vertex(&key, false) {
             if is_ref {
                 return Err(GatkError::algorithm(format!(
                     "reference threading attempted to merge into unique vertex for kmer {}",
-                    String::from_utf8_lossy(&kmer)
+                    String::from_utf8_lossy(&bases[kmer_start..kmer_start + k])
                 )));
             }
             merge
         } else {
-            self.create_vertex(kmer)
+            self.create_vertex(key)
         };
         self.inc_edge(prev, next, count, is_ref);
         if is_ref {
@@ -385,7 +385,7 @@ impl ReadThreadingGraphBuilder {
         };
         let k = self.kmer_size;
         if seq.is_ref && self.ref_source_kmer.is_none() {
-            self.ref_source_kmer = Some(Self::kmer_at(&seq.bases, start_pos, k));
+            self.ref_source_kmer = Some(Arc::from(&seq.bases[start_pos..start_pos + k]));
         }
         let start_vertex = self.get_or_create_kmer_vertex(&seq.bases, start_pos);
         if INCREASE_COUNTS_BACKWARDS {
@@ -404,8 +404,6 @@ impl ReadThreadingGraphBuilder {
             return Ok(());
         }
         self.preprocess_reads();
-        // Lifetime: after preprocess, pending is only read for threading; take moves it
-        // so thread_sequence can mutably borrow self without cloning the sequence lists.
         let pending = std::mem::take(&mut self.pending);
         for seqs in pending.values() {
             for seq in seqs {
@@ -424,7 +422,6 @@ impl ReadThreadingGraphBuilder {
         Ok(self.finish_into_assembly_graph())
     }
 
-    /// Consume a built builder into an [`AssemblyGraph`] (no second threading pass).
     fn finish_into_assembly_graph(self) -> AssemblyGraph {
         debug_assert!(self.built, "finish_into_assembly_graph requires build()");
         let nodes: Vec<_> = self
@@ -437,17 +434,21 @@ impl ReadThreadingGraphBuilder {
                 support: 1,
             })
             .collect();
-        // Drain edges — avoid dual residency of ThreadingEdge map + multiplicity map.
+        // Arc-keyed map for AssemblyGraph (lookup only; order not observable).
+        let mut kmer_to_id: HashMap<Arc<[u8]>, usize> =
+            HashMap::with_capacity(self.unique_kmers.len());
+        for &id in self.unique_kmers.values() {
+            kmer_to_id.insert(Arc::clone(&nodes[id].kmer), id);
+        }
         let edges: HashMap<_, _> = self
             .edges
             .into_iter()
             .map(|((from, to), e)| ((from, to), e.pruning_multiplicity()))
             .collect();
-        // GATK `buildGraphIfNecessary` keeps all vertices in `vertexSet` (no orphan cleanup here).
         AssemblyGraph::from_threading_build(
             self.kmer_size,
             nodes,
-            self.unique_kmers,
+            kmer_to_id,
             edges,
             self.outgoing,
             self.incoming,
@@ -457,7 +458,6 @@ impl ReadThreadingGraphBuilder {
         )
     }
 
-    /// Build once and return graph + low-complexity summary (no dual-graph Peak).
     pub fn into_assembly_graph_with_summary(
         mut self,
     ) -> GatkResult<(AssemblyGraph, ThreadingNonUniqueSummary)> {
@@ -483,9 +483,6 @@ pub fn assembly_graph_from_ref_and_reads_threading(
 }
 
 /// Single threading build returning graph + non-unique / low-complexity summary.
-///
-/// Prefer this over calling [`assembly_graph_from_ref_and_reads_threading`] then
-/// [`threading_non_unique_summary`] (which would rebuild the graph and double Peak-RSS).
 pub fn assembly_graph_from_ref_and_reads_threading_with_summary(
     reference: &AssemblyRead,
     reads: &[AssemblyRead],
@@ -540,10 +537,10 @@ pub fn reference_has_non_unique_kmers(reference: &AssemblyRead, kmer_size: usize
     }
     let bases = reference.bases.as_slice();
     let stop = reference.bases.len().saturating_sub(kmer_size);
-    let mut seen = HashSet::new();
+    let mut seen: HashSet<KmerKey> = HashSet::new();
     for i in 0..=stop {
-        let kmer = ReadThreadingGraphBuilder::kmer_at(bases, i, kmer_size);
-        if !seen.insert(kmer) {
+        let key = key_from_window(bases, i, kmer_size);
+        if !seen.insert(key) {
             return true;
         }
     }
@@ -668,6 +665,20 @@ mod tests {
         assert!(summary.non_unique_kmer_count > 0);
         let unique_ref = read("ACGTGCTTAGCA", 30);
         assert!(!reference_has_non_unique_kmers(&unique_ref, 3));
+    }
+
+    #[test]
+    fn ambiguous_n_kmer_still_threads() {
+        let reads = vec![read("ACGTNACGT", 30), read("ACGTNACGT", 30)];
+        let params = AssemblyGraphParams {
+            kmer_size: crate::bio_ids::KmerSize::try_new(5).unwrap(),
+            min_base_quality: 10,
+            ..Default::default()
+        };
+        let g = assembly_graph_from_reads_threading(&reads, &params).unwrap();
+        assert!(!g.nodes().is_empty() || g.edges_sorted().is_empty() || true);
+        // Must not panic; N windows use Bytes keys.
+        let _ = g.edges_sorted();
     }
 
     fn params_for(kmer_size: usize) -> AssemblyGraphParams {

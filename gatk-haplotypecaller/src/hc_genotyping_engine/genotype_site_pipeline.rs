@@ -10,6 +10,7 @@ fn sparse_softclip_pileup_alt_counts(
     margin: i32,
 ) -> (i32, i32) {
     use crate::read_event_discovery::ad_decode_cache::with_ad_decode_cache;
+    use crate::read_event_discovery::ad_result_memo::memo_softclip_alt;
     if event.ref_allele.len() != 1 || event.alt_allele.len() != 1 {
         return (0, 0);
     }
@@ -21,29 +22,36 @@ fn sparse_softclip_pileup_alt_counts(
     );
     let alt_b = event.alt_allele.as_bytes()[0].to_ascii_uppercase();
     let locus = event.start_1based.get() as i32;
-    with_ad_decode_cache(|cache| {
-        // Count-only QNAME dedupe — HashSet matches BTreeSet cardinality.
-        let mut seen: std::collections::HashSet<Vec<u8>> =
-            std::collections::HashSet::with_capacity(reads.len().min(512));
-        let mut deduped = 0i32;
-        let mut fragments = 0i32;
-        for rec in reads {
-            if !soft_unclipped_read_overlaps_interval(rec, event.start_1based.get(), var_end, margin)
-            {
-                continue;
-            }
-            if let Some(qb) = cache.softclip_base_at_ref_1based(rec, locus) {
-                if qb.to_ascii_uppercase() == alt_b {
-                    fragments += 1;
-                    let qn = rec.qname();
-                    if !seen.contains(qn) {
-                        seen.insert(qn.to_owned());
-                        deduped += 1;
+    let loc = event.start_1based.get();
+    memo_softclip_alt(reads, loc, margin, alt_b, || {
+        with_ad_decode_cache(|cache| {
+            // Count-only QNAME dedupe — HashSet matches BTreeSet cardinality.
+            let mut seen: std::collections::HashSet<Vec<u8>> =
+                std::collections::HashSet::with_capacity(reads.len().min(512));
+            let mut deduped = 0i32;
+            let mut fragments = 0i32;
+            for rec in reads {
+                if !soft_unclipped_read_overlaps_interval(
+                    rec,
+                    event.start_1based.get(),
+                    var_end,
+                    margin,
+                ) {
+                    continue;
+                }
+                if let Some(qb) = cache.softclip_base_at_ref_1based(rec, locus) {
+                    if qb.to_ascii_uppercase() == alt_b {
+                        fragments += 1;
+                        let qn = rec.qname();
+                        if !seen.contains(qn) {
+                            seen.insert(qn.to_owned());
+                            deduped += 1;
+                        }
                     }
                 }
             }
-        }
-        (deduped, fragments)
+            (deduped, fragments)
+        })
     })
 }
 
@@ -168,9 +176,7 @@ fn narrow_strict_java_cluster_coupled_indel_subset(
             let lr = row.haplotype_log10_likelihoods[0];
             let la = row.haplotype_log10_likelihoods[1];
             if la > lr {
-                row.read_id
-                    .strip_prefix("read_")
-                    .and_then(|s| s.parse::<usize>().ok())
+                row.matrix_read_index()
                     .and_then(|ri| likelihood_reads.get(ri).map(|r| r.qname().to_owned()))
                     .map(|qname| (qname, la - lr))
             } else {
@@ -255,9 +261,7 @@ fn narrow_strict_java_sparse_hom_alt_subset(
             let lr = row.haplotype_log10_likelihoods[0];
             let la = row.haplotype_log10_likelihoods[1];
             if la > lr {
-                row.read_id
-                    .strip_prefix("read_")
-                    .and_then(|s| s.parse::<usize>().ok())
+                row.matrix_read_index()
                     .and_then(|ri| likelihood_reads.get(ri).map(|r| r.qname().to_owned()))
                     .map(|qname| (qname, la - lr))
             } else {
@@ -314,9 +318,7 @@ fn narrow_strict_java_cluster_upstream_hom_alt_subset(
             let lr = row.haplotype_log10_likelihoods[0];
             let la = row.haplotype_log10_likelihoods[1];
             if la > lr {
-                row.read_id
-                    .strip_prefix("read_")
-                    .and_then(|s| s.parse::<usize>().ok())
+                row.matrix_read_index()
                     .and_then(|ri| likelihood_reads.get(ri).map(|r| r.qname().to_owned()))
             } else {
                 None
@@ -959,9 +961,7 @@ fn try_genotype_variation_event(
                     .take(keep_n)
                     .filter_map(|(i, _)| marg.get(*i))
                     .filter_map(|row| {
-                        row.read_id
-                            .strip_prefix("read_")
-                            .and_then(|s| s.parse::<usize>().ok())
+                        row.matrix_read_index()
                             .and_then(|ri| likelihood_reads.get(ri))
                             .map(|r| r.qname().to_owned())
                     })

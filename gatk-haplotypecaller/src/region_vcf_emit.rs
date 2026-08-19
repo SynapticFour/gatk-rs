@@ -406,6 +406,7 @@ pub fn try_emit_call_region_variants_with_config(
     stand_emit_confidence: f64,
     genotyping_config: &HcGenotypingConfig,
 ) -> GatkResult<Vec<VcfRecord>> {
+    let _prof = crate::hc_profile::begin(crate::hc_profile::Stage::VcfEmission);
     if !outcome.genotyped_calls.is_empty() {
         let assembly_events = outcome.assembly.variation_events();
         let mut records = Vec::new();

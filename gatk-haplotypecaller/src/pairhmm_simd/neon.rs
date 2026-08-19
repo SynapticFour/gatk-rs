@@ -7,7 +7,7 @@ use super::pack::{
     score_haps_logless_packed_f64_with_transitions, score_one_hap_logless_f64_with_transitions,
 };
 use crate::pairhmm_logless::{
-    logless_build_transitions, logless_match_mismatch_prior, INITIAL_CONDITION,
+    logless_fill_transitions, logless_match_mismatch_prior, INITIAL_CONDITION,
     INITIAL_CONDITION_LOG10,
 };
 use gatk_common::GatkResult;
@@ -28,7 +28,6 @@ struct NeonScratch {
     m: Vec<f64>,
     ins: Vec<f64>,
     del: Vec<f64>,
-    prior: Vec<f64>,
 }
 
 impl NeonScratch {
@@ -37,7 +36,6 @@ impl NeonScratch {
             m: Vec::new(),
             ins: Vec::new(),
             del: Vec::new(),
-            prior: Vec::new(),
         }
     }
 
@@ -47,13 +45,13 @@ impl NeonScratch {
             self.m.resize(need, 0.0);
             self.ins.resize(need, 0.0);
             self.del.resize(need, 0.0);
-            self.prior.resize(need, 0.0);
         }
     }
 }
 
 thread_local! {
     static NEON_SCRATCH: RefCell<NeonScratch> = RefCell::new(NeonScratch::new());
+    static NEON_TRANSITIONS: RefCell<Vec<[f64; 6]>> = const { RefCell::new(Vec::new()) };
     /// Reused equal-length index groups (cleared each call; keeps HashMap + Vec capacity).
     static NEON_BY_LEN: RefCell<HashMap<usize, Vec<usize>>> = RefCell::new(HashMap::new());
     /// TRACE occupancy: pack2 SIMD hits, hapStartIndex prefix-reuse haps, scalar singles.
@@ -125,85 +123,96 @@ unsafe fn score_haps_neon_f64_unchecked(
         return Ok(vec![0.0; haplotypes.len()]);
     }
 
-    let transitions = logless_build_transitions(rn, insertion_gop, deletion_gop, overall_gcp);
     let mut out = vec![0.0f64; haplotypes.len()];
     // TLS by_len: clear buckets but keep HashMap + Vec capacity across reads.
     let mut err: Option<gatk_common::GatkError> = None;
-    NEON_BY_LEN.with(|by_len_cell| {
-        let mut by_len = by_len_cell.borrow_mut();
-        for v in by_len.values_mut() {
-            v.clear();
-        }
-        for (i, h) in haplotypes.iter().enumerate() {
-            by_len.entry(h.len()).or_default().push(i);
-        }
-        let lengths: Vec<usize> = by_len
-            .iter()
-            .filter(|(_, idxs)| !idxs.is_empty())
-            .map(|(len, _)| *len)
-            .collect();
-        NEON_SCRATCH.with(|cell| {
-            let mut scratch = cell.borrow_mut();
-            for len in lengths {
-                let Some(ordered) = by_len.get_mut(&len) else {
-                    continue;
-                };
-                // Sort in place — no idxs.clone(); score-invariant hap order for prefix reuse.
-                ordered.sort_by(|&a, &b| haplotypes[a].cmp(haplotypes[b]));
-                let mut subset = Vec::with_capacity(ordered.len());
-                for &i in ordered.iter() {
-                    subset.push(haplotypes[i]);
-                }
-                // Java Logless hapStartIndex vs GKL SIMD lanes: prefix reuse wins when
-                // sorted same-length haps share long prefixes; otherwise pack2.
-                let use_prefix = ordered.len() >= 3
-                    && mean_consecutive_prefix_frac(&subset)
-                        >= super::pack::PREFIX_REUSE_OVER_SIMD_FRAC;
-                if use_prefix {
-                    match score_haps_logless_packed_f64_with_transitions(
-                        read_bases,
-                        read_quals,
-                        &subset,
-                        &transitions,
-                    ) {
-                        Ok(scores) => {
-                            for (k, &i) in ordered.iter().enumerate() {
-                                out[i] = scores[k];
-                            }
-                            NEON_PREFIX_REUSE.set(NEON_PREFIX_REUSE.get() + ordered.len() as u64);
-                        }
-                        Err(e) => {
-                            err = Some(e);
-                            return;
-                        }
-                    }
-                    continue;
-                }
-                let mut chunks = ordered.chunks_exact(LANES);
-                for pack_src in chunks.by_ref() {
-                    let pack = [haplotypes[pack_src[0]], haplotypes[pack_src[1]]];
-                    let scores =
-                        score_pack2(read_bases, read_quals, &pack, &transitions, &mut scratch);
-                    out[pack_src[0]] = scores[0];
-                    out[pack_src[1]] = scores[1];
-                    NEON_PACK2.set(NEON_PACK2.get() + 1);
-                }
-                for &i in chunks.remainder() {
-                    match score_one_hap_logless_f64_with_transitions(
-                        read_bases,
-                        read_quals,
-                        haplotypes[i],
-                        &transitions,
-                    ) {
-                        Ok(score) => out[i] = score,
-                        Err(e) => {
-                            err = Some(e);
-                            return;
-                        }
-                    }
-                    NEON_LEFTOVER.set(NEON_LEFTOVER.get() + 1);
-                }
+    NEON_TRANSITIONS.with(|tcell| {
+        let mut transitions = tcell.borrow_mut();
+        logless_fill_transitions(
+            &mut transitions,
+            rn,
+            insertion_gop,
+            deletion_gop,
+            overall_gcp,
+        );
+        NEON_BY_LEN.with(|by_len_cell| {
+            let mut by_len = by_len_cell.borrow_mut();
+            for v in by_len.values_mut() {
+                v.clear();
             }
+            for (i, h) in haplotypes.iter().enumerate() {
+                by_len.entry(h.len()).or_default().push(i);
+            }
+            let lengths: Vec<usize> = by_len
+                .iter()
+                .filter(|(_, idxs)| !idxs.is_empty())
+                .map(|(len, _)| *len)
+                .collect();
+            // ... rest stays nested — need to read more of file
+            NEON_SCRATCH.with(|cell| {
+                let mut scratch = cell.borrow_mut();
+                for len in lengths {
+                    let Some(ordered) = by_len.get_mut(&len) else {
+                        continue;
+                    };
+                    // Sort in place — no idxs.clone(); score-invariant hap order for prefix reuse.
+                    ordered.sort_by(|&a, &b| haplotypes[a].cmp(haplotypes[b]));
+                    let mut subset = Vec::with_capacity(ordered.len());
+                    for &i in ordered.iter() {
+                        subset.push(haplotypes[i]);
+                    }
+                    // Java Logless hapStartIndex vs GKL SIMD lanes: prefix reuse wins when
+                    // sorted same-length haps share long prefixes; otherwise pack2.
+                    let use_prefix = ordered.len() >= super::pack::PREFIX_REUSE_MIN_HAPS_NEON
+                        && mean_consecutive_prefix_frac(&subset)
+                            >= super::pack::PREFIX_REUSE_OVER_SIMD_FRAC;
+                    if use_prefix {
+                        match score_haps_logless_packed_f64_with_transitions(
+                            read_bases,
+                            read_quals,
+                            &subset,
+                            &transitions,
+                        ) {
+                            Ok(scores) => {
+                                for (k, &i) in ordered.iter().enumerate() {
+                                    out[i] = scores[k];
+                                }
+                                NEON_PREFIX_REUSE
+                                    .set(NEON_PREFIX_REUSE.get() + ordered.len() as u64);
+                            }
+                            Err(e) => {
+                                err = Some(e);
+                                return;
+                            }
+                        }
+                        continue;
+                    }
+                    let mut chunks = ordered.chunks_exact(LANES);
+                    for pack_src in chunks.by_ref() {
+                        let pack = [haplotypes[pack_src[0]], haplotypes[pack_src[1]]];
+                        let scores =
+                            score_pack2(read_bases, read_quals, &pack, &transitions, &mut scratch);
+                        out[pack_src[0]] = scores[0];
+                        out[pack_src[1]] = scores[1];
+                        NEON_PACK2.set(NEON_PACK2.get() + 1);
+                    }
+                    for &i in chunks.remainder() {
+                        match score_one_hap_logless_f64_with_transitions(
+                            read_bases,
+                            read_quals,
+                            haplotypes[i],
+                            &transitions,
+                        ) {
+                            Ok(score) => out[i] = score,
+                            Err(e) => {
+                                err = Some(e);
+                                return;
+                            }
+                        }
+                        NEON_LEFTOVER.set(NEON_LEFTOVER.get() + 1);
+                    }
+                }
+            });
         });
     });
     if let Some(e) = err {

@@ -3,7 +3,7 @@
 use crate::bio_ids::KmerSize;
 use gatk_common::{GatkError, GatkResult};
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet};
+use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssemblyRead {
@@ -121,7 +121,8 @@ pub struct AssemblyGraph {
     /// Successful dangling merges that carry variation off the ref-spine (ASM-1 → ASM-8).
     pub(crate) dangling_merge_haps: Vec<DanglingMergeHaplotype>,
     nodes: Vec<KmerNode>,
-    kmer_to_id: BTreeMap<std::sync::Arc<[u8]>, usize>,
+    /// Lookup only — iteration order is not an observable (dumps sort by k-mer bytes).
+    kmer_to_id: HashMap<std::sync::Arc<[u8]>, usize>,
     edges: HashMap<(usize, usize), u32>,
     outgoing: HashMap<usize, BTreeSet<usize>>,
     incoming: HashMap<usize, BTreeSet<usize>>,
@@ -147,7 +148,7 @@ impl AssemblyGraph {
     pub(crate) fn from_threading_build(
         kmer_size: usize,
         nodes: Vec<KmerNode>,
-        kmer_to_id: BTreeMap<std::sync::Arc<[u8]>, usize>,
+        kmer_to_id: HashMap<std::sync::Arc<[u8]>, usize>,
         edges: HashMap<(usize, usize), u32>,
         outgoing: HashMap<usize, BTreeSet<usize>>,
         incoming: HashMap<usize, BTreeSet<usize>>,

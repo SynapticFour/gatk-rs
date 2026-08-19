@@ -61,10 +61,12 @@ fn change_evidence_preserves_full_read_hap_matrix() {
 fn biallelic_gl_favors_het_when_reads_support_alt_hap() {
     let rows = vec![
         ReadLikelihoodRow {
+            read_index: 0,
             read_id: "r0".into(),
             haplotype_log10_likelihoods: vec![-3.0, -0.1],
         },
         ReadLikelihoodRow {
+            read_index: 0,
             read_id: "r1".into(),
             haplotype_log10_likelihoods: vec![-3.0, -0.1],
         },
