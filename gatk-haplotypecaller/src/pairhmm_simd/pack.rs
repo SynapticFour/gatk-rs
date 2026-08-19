@@ -183,9 +183,11 @@ pub(crate) const PREFIX_REUSE_OVER_SIMD_FRAC: f64 = 0.35;
 
 /// NEON: min same-length group size for hapStartIndex prefix reuse (else pack2).
 /// A/B 3→6 on w11 200 kb: occupancy identical (~3% packs) — groups already ≥6.
+#[cfg(target_arch = "aarch64")]
 pub(crate) const PREFIX_REUSE_MIN_HAPS_NEON: usize = 3;
 
 /// AVX2: min same-length group size for prefix reuse (else pack4). A/B 5→8: no-op.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub(crate) const PREFIX_REUSE_MIN_HAPS_AVX2: usize = 5;
 
 /// Score one hap with prebuilt transition planes (shared across a read's hap pack).
