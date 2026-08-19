@@ -26,7 +26,7 @@ win vs debuginfo). LTO stays off for CI/Docker memory. Overrides via
 | Tool | Path |
 |------|------|
 | Matrix runner | [`scripts/perf/run_bench_profile_matrix.sh`](../../scripts/perf/run_bench_profile_matrix.sh) |
-| Focused signed run | [`docs/perf/runs/bench_profile_focus_20260819T094411Z/SUMMARY.md`](runs/bench_profile_focus_20260819T094411Z/SUMMARY.md) |
+| Focused signed run | gitignored `docs/perf/runs/bench_profile_focus_*/SUMMARY.md` (local matrix) |
 | PGO workflow (opt-in) | [`scripts/perf/run_pgo_hc.sh`](../../scripts/perf/run_pgo_hc.sh) |
 
 ```bash

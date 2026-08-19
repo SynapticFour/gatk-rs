@@ -16,9 +16,8 @@ microbench-only. No P12 widening, no semantic shortcuts, no nested Rayon.
 
 ## Top-3 wall contributors (evidence class)
 
-Sources: **this tip** production profile
-[`runs/hc_profile_ledger_w09`](runs/hc_profile_ledger_w09/hc_profile.md);
-local TRACE mega ([BEAT_JAVA_WALL_NEXT.md](BEAT_JAVA_WALL_NEXT.md));
+Sources: **this tip** production profile (gitignored local `hc_profile` under
+`docs/perf/runs/`); local TRACE mega ([BEAT_JAVA_WALL_NEXT.md](BEAT_JAVA_WALL_NEXT.md));
 phase7 Instruments ([PHASE7_WALL_PROFILE.md](PHASE7_WALL_PROFILE.md)).
 
 ### Product window w09 `21:9.5–9.7Mb` (thr=2, FASTEST_AVAILABLE) — **this tip**
