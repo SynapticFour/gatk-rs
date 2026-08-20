@@ -57,10 +57,11 @@
 <a href=#57 id=57 data-nosnippet>57</a><span class="doccomment">/// Clear the TLS AD decode cache (call once per genotyping region).
 <a href=#58 id=58 data-nosnippet>58</a></span><span class="kw">pub fn </span>clear_ad_decode_cache() {
 <a href=#59 id=59 data-nosnippet>59</a>    AD_DECODE_CACHE.with(|c| c.borrow_mut().clear());
-<a href=#60 id=60 data-nosnippet>60</a>}
-<a href=#61 id=61 data-nosnippet>61</a>
-<a href=#62 id=62 data-nosnippet>62</a><span class="doccomment">/// Borrow TLS cache for a pileup scan.
-<a href=#63 id=63 data-nosnippet>63</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>with_ad_decode_cache&lt;R&gt;(f: <span class="kw">impl </span>FnOnce(<span class="kw-2">&amp;mut </span>AdDecodeCache) -&gt; R) -&gt; R {
-<a href=#64 id=64 data-nosnippet>64</a>    AD_DECODE_CACHE.with(|c| f(<span class="kw-2">&amp;mut </span>c.borrow_mut()))
-<a href=#65 id=65 data-nosnippet>65</a>}
+<a href=#60 id=60 data-nosnippet>60</a>    <span class="kw">crate</span>::read_event_discovery::ad_result_memo::clear_ad_result_memo();
+<a href=#61 id=61 data-nosnippet>61</a>}
+<a href=#62 id=62 data-nosnippet>62</a>
+<a href=#63 id=63 data-nosnippet>63</a><span class="doccomment">/// Borrow TLS cache for a pileup scan.
+<a href=#64 id=64 data-nosnippet>64</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>with_ad_decode_cache&lt;R&gt;(f: <span class="kw">impl </span>FnOnce(<span class="kw-2">&amp;mut </span>AdDecodeCache) -&gt; R) -&gt; R {
+<a href=#65 id=65 data-nosnippet>65</a>    AD_DECODE_CACHE.with(|c| f(<span class="kw-2">&amp;mut </span>c.borrow_mut()))
+<a href=#66 id=66 data-nosnippet>66</a>}
 </code></pre></div></section></main></body></html>

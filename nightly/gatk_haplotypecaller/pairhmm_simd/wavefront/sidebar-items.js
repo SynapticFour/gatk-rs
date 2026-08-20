@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["WavefrontKernel"],"fn":["release_wavefront_tls_scratch","score_haps_wavefront_f32","score_haps_wavefront_f32_with_prep","score_haps_wavefront_portable_f32","score_haps_wavefront_rolling_f64","score_one_rolling_f64","select_wavefront_kernel"],"struct":["ReadPrep","WavefrontScratch"]};

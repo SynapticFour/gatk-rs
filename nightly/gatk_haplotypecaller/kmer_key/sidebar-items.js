@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_PACKED128_K","MAX_PACKED64_K"],"enum":["KmerKey"],"fn":["decode_packed","key_from_window","materialize_arc","suffix_byte","try_pack"],"struct":["RollingKmer"]};

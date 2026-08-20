@@ -629,7 +629,7 @@
 <a href=#629 id=629 data-nosnippet>629</a>                support: <span class="number">1</span>,
 <a href=#630 id=630 data-nosnippet>630</a>            })
 <a href=#631 id=631 data-nosnippet>631</a>            .collect();
-<a href=#632 id=632 data-nosnippet>632</a>        <span class="kw">let </span>kmer_to_id: std::collections::BTreeMap&lt;<span class="kw">_</span>, <span class="kw">_</span>&gt; = <span class="self">self
+<a href=#632 id=632 data-nosnippet>632</a>        <span class="kw">let </span>kmer_to_id: HashMap&lt;<span class="kw">_</span>, <span class="kw">_</span>&gt; = <span class="self">self
 <a href=#633 id=633 data-nosnippet>633</a>            </span>.kmer_to_vertex
 <a href=#634 id=634 data-nosnippet>634</a>            .iter()
 <a href=#635 id=635 data-nosnippet>635</a>            .map(|(k, <span class="kw-2">&amp;</span>id)| (std::sync::Arc::from(k.as_slice()), id))
