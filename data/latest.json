@@ -1,70 +1,28 @@
 {
-  "id": "genomewide-2adb4566f800fc0dc6098ffeaf79d7c1287bfd27-wall-losers",
-  "workflow": "genomewide-validation",
-  "generated_utc": "2026-08-19T13:07:10Z",
-  "commit_sha": "2adb4566f800fc0dc6098ffeaf79d7c1287bfd27",
-  "workflow_run_url": "https://github.com/SynapticFour/gatk-rs/actions/runs/32244936304",
+  "id": "nightly-2026-08-20T11:09:43Z",
+  "workflow": "nightly-equivalence",
+  "generated_utc": "2026-08-20T11:09:43Z",
+  "commit_sha": "7611aec4df1ae21e300af62dc5e2ebc801421465",
+  "workflow_run_url": "https://github.com/SynapticFour/gatk-rs/actions/runs/32334528404",
   "scope": {
-    "kind": "hc_genomewide",
-    "pipeline": "HaplotypeCaller (Java GATK 4.4 vs gatk-rs) \u2192 hap.py/RTG via gatk-rs-equiv",
+    "kind": "trio_joint_e2e",
+    "pipeline": "HaplotypeCaller (GVCF) \u2192 CombineGVCFs \u2192 GenotypeGVCFs \u2192 VariantFiltration",
     "samples": [
-      "HG001"
+      "HG002",
+      "HG003",
+      "HG004"
     ],
     "regions": [
-      "20:9000001-10000000",
-      "20:11000001-12000000",
-      "20:26000001-27000000",
-      "20:29000001-30000000",
-      "21:9000001-10000000",
-      "21:11000001-12000000",
-      "21:26000001-27000000",
-      "21:29000001-30000000"
+      "chr20",
+      "chr21"
     ],
-    "mode_description": "WALL-LOSERS: eight 1 Mb dense campaign windows (chr20/21 w09/w11/w26/w29). Product wall (no GATK_RS_HC_SEQUENTIAL). Peak abort retained.",
     "assembly": "hs37d5 (GRCh37)",
-    "truth": "GIAB NISTv4.2.1 per sample (confident BED)",
-    "eval_engine": "gatk-rs-equiv (hap.py preferred, RTG fallback)",
+    "truth": "GIAB HG002 NISTv4.2.1 (joint callset scored on HG002)",
+    "eval_engine": "Illumina hap.py (Docker) vs HG002 truth",
     "java_gatk_version": "4.4.0.0",
     "java_gatk_sha": "2dbc025821bc5f686c423ff332a41e6cef892a77",
     "java_gatk_docker": "us.gcr.io/broad-gatk/gatk:4.4.0.0",
-    "honesty": "GIAB_MODE=wall-losers. Metrics are per-sample truth F1 from hap.py/RTG. Full `autosomes` is WGS-scale and runs on the paid self-hosted runner; `ci-subset` / window modes are not whole-genome claims."
+    "honesty": "Nightly trio E2E covers only the listed chromosomes/hard slices (not full WGS). BAMs are region-sliced; metrics are hap.py vs HG002 truth after joint genotyping + SNP hard-filters."
   },
-  "metrics": [
-    {
-      "region": "wall-losers:HG001",
-      "sample": "HG001",
-      "engine": "rust",
-      "variant_type": "SNP",
-      "precision": 0.644276,
-      "recall": 0.001697,
-      "f1": 0.003384
-    },
-    {
-      "region": "wall-losers:HG001",
-      "sample": "HG001",
-      "engine": "rust",
-      "variant_type": "INDEL",
-      "precision": 0.757874,
-      "recall": 0.001613,
-      "f1": 0.003219
-    },
-    {
-      "region": "wall-losers:HG001",
-      "sample": "HG001",
-      "engine": "java",
-      "variant_type": "SNP",
-      "precision": 0.686848,
-      "recall": 0.001864,
-      "f1": 0.003718
-    },
-    {
-      "region": "wall-losers:HG001",
-      "sample": "HG001",
-      "engine": "java",
-      "variant_type": "INDEL",
-      "precision": 0.761246,
-      "recall": 0.001825,
-      "f1": 0.003641
-    }
-  ]
+  "metrics": []
 }
