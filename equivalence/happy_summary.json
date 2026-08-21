@@ -1,7 +1,7 @@
 {
-  "generated_utc": "2026-08-20T11:09:43Z",
+  "generated_utc": "2026-08-21T11:10:37Z",
   "commit_sha": "7611aec4df1ae21e300af62dc5e2ebc801421465",
-  "run_dir": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/nightly_trio_20260820T051732Z",
+  "run_dir": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/nightly_trio_20260821T052004Z",
   "baseline_path": "docs/equivalence/baseline.json",
   "regression_threshold": 0.02,
   "regions": [
