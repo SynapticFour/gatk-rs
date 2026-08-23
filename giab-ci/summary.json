@@ -1,10 +1,10 @@
 {
   "run_dir": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci",
-  "scope": "WALL-LOSERS: eight 1 Mb dense campaign windows (chr20/21 w09/w11/w26/w29). Product wall (no GATK_RS_HC_SEQUENTIAL). Peak abort retained.\n",
+  "scope": "CI-SUBSET (default \u201cgenome-wide\u201d in this repo): FULL chr20 + FULL chr21 + one 50kb probe on each other autosome. Not all bases of chr1\u201319/22.\n",
   "samples": [
     {
       "sample": "HG001",
-      "mode": "wall-losers",
+      "mode": "ci-subset",
       "equiv_exit": 0,
       "gate_passed": true,
       "java_perf": {
@@ -18,11 +18,11 @@
       "dir": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci/HG001",
       "equiv_results": {
         "manifest": {
-          "created_utc": "2026-08-19T13:06:55.905822727+00:00",
+          "created_utc": "2026-08-23T05:33:37.003943342+00:00",
           "tool_version": "0.1.0",
           "engine": "hap.py",
           "reference": "/home/runner/work/gatk-rs/gatk-rs/parity/realworld/assets/hs37d5.simple.fa",
-          "bam": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci/HG001/hc/HG001.wall-losers.bam",
+          "bam": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/runs/ci/HG001/hc/HG001.ci-subset.bam",
           "truth_vcf": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/truth/HG001_GRCh37_1_22_v4.2.1_benchmark.vcf.gz",
           "confident_regions": "/home/runner/work/gatk-rs/gatk-rs/parity/giab/truth/HG001_GRCh37_1_22_v4.2.1_benchmark.bed",
           "interval": null,
@@ -42,20 +42,20 @@
             "query_label": "java",
             "stratum": "*",
             "snp": {
-              "precision": 0.686848,
-              "recall": 0.001864,
-              "f1": 0.003718,
-              "truth_tp": 6061,
-              "truth_fn": 3245762,
-              "query_fp": 2762
+              "precision": 0.965161,
+              "recall": 0.03539,
+              "f1": 0.068276,
+              "truth_tp": 115082,
+              "truth_fn": 3136741,
+              "query_fp": 4155
             },
             "indel": {
-              "precision": 0.761246,
-              "recall": 0.001825,
-              "f1": 0.003641,
-              "truth_tp": 852,
-              "truth_fn": 466014,
-              "query_fp": 276
+              "precision": 0.973582,
+              "recall": 0.036302,
+              "f1": 0.069993,
+              "truth_tp": 16948,
+              "truth_fn": 449918,
+              "query_fp": 475
             },
             "all": null
           }
@@ -65,20 +65,20 @@
             "query_label": "rust",
             "stratum": "*",
             "snp": {
-              "precision": 0.644276,
-              "recall": 0.001697,
-              "f1": 0.003384,
-              "truth_tp": 5517,
-              "truth_fn": 3246306,
-              "query_fp": 3045
+              "precision": 0.917833,
+              "recall": 0.031704,
+              "f1": 0.061291,
+              "truth_tp": 103096,
+              "truth_fn": 3148727,
+              "query_fp": 9231
             },
             "indel": {
-              "precision": 0.757874,
-              "recall": 0.001613,
-              "f1": 0.003219,
-              "truth_tp": 753,
-              "truth_fn": 466113,
-              "query_fp": 246
+              "precision": 0.890231,
+              "recall": 0.031082,
+              "f1": 0.060066,
+              "truth_tp": 14511,
+              "truth_fn": 452355,
+              "query_fp": 1817
             },
             "all": null
           }
@@ -87,33 +87,33 @@
           {
             "stratum": "*",
             "class": "SNP",
-            "java_f1": 0.003718,
-            "rust_f1": 0.003384,
-            "delta": -0.0003340000000000001,
-            "abs_delta": 0.0003340000000000001,
+            "java_f1": 0.068276,
+            "rust_f1": 0.061291,
+            "delta": -0.006985000000000005,
+            "abs_delta": 0.006985000000000005,
             "within_threshold": true
           },
           {
             "stratum": "*",
             "class": "INDEL",
-            "java_f1": 0.003641,
-            "rust_f1": 0.003219,
-            "delta": -0.00042200000000000007,
-            "abs_delta": 0.00042200000000000007,
+            "java_f1": 0.069993,
+            "rust_f1": 0.060066,
+            "delta": -0.009926999999999998,
+            "abs_delta": 0.009926999999999998,
             "within_threshold": true
           }
         ],
         "direct_compare": {
-          "java_sites": 30984,
-          "rust_sites": 31587,
+          "java_sites": 203108,
+          "rust_sites": 199890,
           "identical_sites": 0,
-          "allele_match_gt_mismatch": 1089,
-          "format_mismatch_same_gt": 23011,
-          "java_only": 6884,
-          "rust_only": 7487
+          "allele_match_gt_mismatch": 6218,
+          "format_mismatch_same_gt": 163416,
+          "java_only": 33474,
+          "rust_only": 30256
         },
         "gate_passed": true,
-        "max_abs_delta": 0.00042200000000000007,
+        "max_abs_delta": 0.009926999999999998,
         "notes": [
           "Primary equivalence metric is Rust\u2212Java F1 delta (not absolute F1).",
           "Evaluation uses community engines (hap.py or RTG vcfeval), not in-house VCF heuristics."
