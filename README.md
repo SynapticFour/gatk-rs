@@ -8,7 +8,8 @@ Built by **[Synaptic Four](https://synapticfour.com)**.
 gatk-rs is an independent, community-driven reimplementation and is not
 affiliated with, endorsed by, or supported by the Broad Institute.
 "GATK" is a trademark of the Broad Institute; this project's name and
-branding will be revisited if requested.
+branding will be revisited if requested. Parity tests **call** a pinned
+GATK 4.4 jar as an oracle; they do not ship Broad source (see [`NOTICE.md`](NOTICE.md)).
 
 > **Maturity: Alpha** — validated on limited genomic regions and fixtures, not as a
 > genome-wide clinical drop-in. Authoritative claims and non-claims:

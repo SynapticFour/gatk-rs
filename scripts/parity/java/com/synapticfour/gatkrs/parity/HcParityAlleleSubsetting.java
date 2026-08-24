@@ -1,6 +1,7 @@
-package org.broadinstitute.hellbender.tools.walkers.haplotypecaller;
+package com.synapticfour.gatkrs.parity;
 
 import htsjdk.variant.variantcontext.Allele;
+import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.HaplotypeCallerGenotypingEngine;
 import org.broadinstitute.hellbender.utils.haplotype.Haplotype;
 
 import java.util.ArrayList;

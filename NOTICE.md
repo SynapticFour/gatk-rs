@@ -47,6 +47,19 @@ Downstream users and CI scripts may download external assets. Those assets are
 | **htslib / rust-htslib** and other Rust crates | BAM/VCF/FASTA I/O | Covered by each crate’s license (see `Cargo.lock` / `cargo deny`). |
 | **Fixture BAMs / FASTAs under `parity/fixtures/`** | Tiny synthetic or derived test inputs | Intended for automated tests; if a fixture embeds restricted human data, treat upstream terms as controlling and prefer synthetic replacements. |
 
+## Parity Java in this tree
+
+Oracle dump programs under `scripts/parity/java/` are **original Synaptic Four
+code**. They compile **against** a user- or CI-supplied pinned GATK 4.4 jar
+(`import org.broadinstitute.hellbender…` is interoperability with the published
+oracle). They do **not** live in the `org.broadinstitute.*` package namespace
+and they are **not** Broad/Hellbender source.
+
+Do not add files under `org/broadinstitute/` in this repository. If a future
+parity dump needs a package-private GATK API, prefer a documented reflection
+shim or a public GATK entry point — do not re-home Synaptic Four sources into
+Broad packages.
+
 ## Citation / marketing
 
 Do not describe gatk-rs as “official GATK”, “Broad GATK for Rust”, or a

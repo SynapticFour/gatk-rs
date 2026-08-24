@@ -1,5 +1,7 @@
-package org.broadinstitute.hellbender.tools.walkers.genotyper;
+package com.synapticfour.gatkrs.parity;
 
+import org.broadinstitute.hellbender.tools.walkers.genotyper.AlleleSubsettingUtils;
+import org.broadinstitute.hellbender.tools.walkers.genotyper.GenotypeAssignmentMethod;
 import htsjdk.variant.variantcontext.Allele;
 import htsjdk.variant.variantcontext.Genotype;
 import htsjdk.variant.variantcontext.GenotypeBuilder;

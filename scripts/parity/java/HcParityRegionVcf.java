@@ -1,4 +1,4 @@
-import org.broadinstitute.hellbender.tools.walkers.genotyper.HcParityAfEm;
+import com.synapticfour.gatkrs.parity.HcParityAfEm;
 
 import java.util.List;
 import java.util.Locale;

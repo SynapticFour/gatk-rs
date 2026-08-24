@@ -34,8 +34,8 @@ import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.readthreading
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.HaplotypeCallerEngine;
-import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.HcParityAlleleSubsetting;
-import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.HcParityGvcfMerger;
+import com.synapticfour.gatkrs.parity.HcParityAlleleSubsetting;
+import com.synapticfour.gatkrs.parity.HcParityGvcfMerger;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.ReferenceConfidenceModel;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.RefVsAnyResult;
 import org.broadinstitute.hellbender.tools.walkers.genotyper.MinimalGenotypingEngine;
