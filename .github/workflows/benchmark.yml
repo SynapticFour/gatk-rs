@@ -12,9 +12,10 @@
 name: Performance benchmark (dedicated host)
 
 on:
-  schedule:
-    # Saturdays 10:00 UTC — away from Sunday genomewide (06:00)
-    - cron: "0 10 * * 6"
+  # Temporarily disabled — restore when scheduled CI should resume.
+  # schedule:
+  #   # Saturdays 10:00 UTC — away from Sunday genomewide (06:00)
+  #   - cron: "0 10 * * 6"
   workflow_dispatch:
     inputs:
       skip_vm_control:

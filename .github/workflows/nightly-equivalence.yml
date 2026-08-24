@@ -7,9 +7,10 @@
 name: Nightly trio equivalence
 
 on:
-  schedule:
-    # Daily 05:00 UTC (after nightly.yml 02:00, before weekly GIAB Sunday 04:00)
-    - cron: "0 5 * * *"
+  # Temporarily disabled — restore when scheduled CI should resume.
+  # schedule:
+  #   # Daily 05:00 UTC (after nightly.yml 02:00, before weekly GIAB Sunday 04:00)
+  #   - cron: "0 5 * * *"
   workflow_dispatch:
     inputs:
       regression_threshold:

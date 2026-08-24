@@ -1,4 +1,4 @@
-package org.broadinstitute.hellbender.tools.walkers.haplotypecaller;
+package com.synapticfour.gatkrs.parity;
 
 import htsjdk.variant.variantcontext.Allele;
 import htsjdk.variant.variantcontext.Genotype;

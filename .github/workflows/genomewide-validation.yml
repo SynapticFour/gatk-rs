@@ -9,9 +9,10 @@
 name: Genomewide validation (self-hosted)
 
 on:
-  schedule:
-    # Sundays 06:00 UTC — after free-tier giab-genomewide (04:00)
-    - cron: "0 6 * * 0"
+  # Temporarily disabled — restore when scheduled CI should resume.
+  # schedule:
+  #   # Sundays 06:00 UTC — after free-tier giab-genomewide (04:00)
+  #   - cron: "0 6 * * 0"
   workflow_dispatch:
     inputs:
       mode:

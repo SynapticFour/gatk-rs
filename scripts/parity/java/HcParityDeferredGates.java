@@ -199,7 +199,7 @@ public final class HcParityDeferredGates {
     }
 
     static void dumpAfEmFixture(final Path fixture) throws Exception {
-        org.broadinstitute.hellbender.tools.walkers.genotyper.HcParityAfEm.dumpAfEmFixture(
+        com.synapticfour.gatkrs.parity.HcParityAfEm.dumpAfEmFixture(
                 fixture);
     }
 
@@ -326,17 +326,17 @@ public final class HcParityDeferredGates {
 
     static void dumpAlleleSubsetting(
             final String sumsCsv, final String isRefCsv, final int maxAlleles) {
-        org.broadinstitute.hellbender.tools.walkers.haplotypecaller.HcParityAlleleSubsetting
+        com.synapticfour.gatkrs.parity.HcParityAlleleSubsetting
                 .dumpAlleleSubsetting(sumsCsv, isRefCsv, maxAlleles);
     }
 
     static void dumpSubsetAllelesPl(final Path fixture) throws Exception {
-        org.broadinstitute.hellbender.tools.walkers.genotyper.HcParitySubsetAlleles
+        com.synapticfour.gatkrs.parity.HcParitySubsetAlleles
                 .dumpSubsetAllelesFixture(fixture);
     }
 
     static void dumpSubsetAllelesVc(final Path fixture) throws Exception {
-        org.broadinstitute.hellbender.tools.walkers.genotyper.HcParitySubsetAlleles
+        com.synapticfour.gatkrs.parity.HcParitySubsetAlleles
                 .dumpSubsetAllelesVcFixture(fixture);
     }
 
@@ -346,9 +346,9 @@ public final class HcParityDeferredGates {
             final int maxAlleles,
             final Path vcFixture)
             throws Exception {
-        org.broadinstitute.hellbender.tools.walkers.haplotypecaller.HcParityAlleleSubsetting
+        com.synapticfour.gatkrs.parity.HcParityAlleleSubsetting
                 .dumpAlleleSubsetting(hapSums, isRef, maxAlleles);
-        org.broadinstitute.hellbender.tools.walkers.genotyper.HcParitySubsetAlleles
+        com.synapticfour.gatkrs.parity.HcParitySubsetAlleles
                 .dumpSubsetAllelesVcFixture(vcFixture);
     }
 

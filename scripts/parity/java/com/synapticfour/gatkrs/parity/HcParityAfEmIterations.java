@@ -1,5 +1,6 @@
-package org.broadinstitute.hellbender.tools.walkers.genotyper;
+package com.synapticfour.gatkrs.parity;
 
+import org.broadinstitute.hellbender.tools.walkers.genotyper.GenotypeCalculationArgumentCollection;
 import org.broadinstitute.hellbender.utils.MathUtils;
 
 import java.util.List;

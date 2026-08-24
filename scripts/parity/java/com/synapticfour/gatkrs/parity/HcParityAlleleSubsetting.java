@@ -1,12 +1,15 @@
-package org.broadinstitute.hellbender.tools.walkers.haplotypecaller;
+package com.synapticfour.gatkrs.parity;
 
 import htsjdk.variant.variantcontext.Allele;
+import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.HaplotypeCallerGenotypingEngine;
 import org.broadinstitute.hellbender.utils.haplotype.Haplotype;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Parity dump for GATK {@link HaplotypeCallerGenotypingEngine#whichAllelesToKeepBasedonHapScores}.
@@ -80,9 +83,7 @@ public final class HcParityAlleleSubsetting {
             hap.setScore(sums[i]);
             alleleMapper.put(alleles[i], Collections.singletonList(hap));
         }
-        final List<Allele> keptAlleles =
-                HaplotypeCallerGenotypingEngine.whichAllelesToKeepBasedonHapScores(
-                        alleleMapper, maxAlleles);
+        final List<Allele> keptAlleles = whichAllelesToKeepBasedonHapScores(alleleMapper, maxAlleles);
         final List<Integer> kept = new ArrayList<>();
         for (int i = 0; i < n; i++) {
             if (keptAlleles.contains(alleles[i])) {
@@ -91,6 +92,26 @@ public final class HcParityAlleleSubsetting {
         }
         Collections.sort(kept);
         return kept;
+    }
+
+    /**
+     * GATK 4.4 {@code whichAllelesToKeepBasedonHapScores} is package-private
+     * ({@code @VisibleForTesting}). Call it via reflection so this dump can live
+     * in {@code com.synapticfour.gatkrs.parity} instead of Broad packages.
+     */
+    @SuppressWarnings("unchecked")
+    private static List<Allele> whichAllelesToKeepBasedonHapScores(
+            final Map<Allele, List<Haplotype>> alleleMapper, final int maxAlleles) {
+        try {
+            final Method method =
+                    HaplotypeCallerGenotypingEngine.class.getDeclaredMethod(
+                            "whichAllelesToKeepBasedonHapScores", Map.class, int.class);
+            method.setAccessible(true);
+            return (List<Allele>) method.invoke(null, alleleMapper, maxAlleles);
+        } catch (final ReflectiveOperationException e) {
+            throw new IllegalStateException(
+                    "GATK package-private whichAllelesToKeepBasedonHapScores (pinned 4.4 jar)", e);
+        }
     }
 
     private static boolean[] parseIsRefFlags(final String[] refTok, final int n) {
