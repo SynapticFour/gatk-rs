@@ -3,7 +3,7 @@
 [![CI](https://github.com/SynapticFour/gatk-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/SynapticFour/gatk-rs/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-Built by **[Synaptic Four](https://synapticfour.com)**.
+Built by **[Synaptic Four](https://synapticfour.com)** · [contact@synapticfour.com](mailto:contact@synapticfour.com).
 
 gatk-rs is an independent, community-driven reimplementation and is not
 affiliated with, endorsed by, or supported by the Broad Institute.
