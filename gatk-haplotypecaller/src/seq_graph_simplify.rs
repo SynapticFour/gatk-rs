@@ -3,7 +3,7 @@
 //! SplitCommonSuffices (`CommonSuffixSplitter`), MergeCommonSuffices (`SharedSequenceMerger`), zip.
 
 use crate::seq_graph::SeqGraph;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 const MIN_TAIL_SUFFIX_LEN: usize = 10;
 const MAX_SIMPLIFICATION_ITERATIONS: usize = 100;
@@ -52,6 +52,54 @@ fn simplify_graph_once(graph: &mut SeqGraph) -> bool {
     did
 }
 
+/// Test-only substages of [`simplify_graph_once`] / [`simplify_graph_full`].
+/// Production `simplify_graph_full` is unchanged.
+#[cfg(test)]
+pub(crate) fn traced_simplify_graph_full(
+    graph: &mut SeqGraph,
+    mut snap: impl FnMut(&'static str, &SeqGraph),
+) {
+    snap("simplify_before_initial_zip", graph);
+    let _ = graph.zip_linear_chains();
+    snap("simplify_after_initial_zip", graph);
+    let mut prev_signature: Option<Vec<u8>> = None;
+    for i in 0..MAX_SIMPLIFICATION_ITERATIONS {
+        if i > MAX_REASONABLE_SIMPLIFICATION_CYCLES {
+            break;
+        }
+        if !traced_simplify_graph_once(graph, &mut snap) {
+            break;
+        }
+        if i > 5 {
+            let sig = graph_topology_signature(graph);
+            if prev_signature.as_ref() == Some(&sig) {
+                break;
+            }
+            prev_signature = Some(sig);
+        }
+    }
+    snap("simplify_done", graph);
+}
+
+#[cfg(test)]
+fn traced_simplify_graph_once(
+    graph: &mut SeqGraph,
+    snap: &mut impl FnMut(&'static str, &SeqGraph),
+) -> bool {
+    let mut did = false;
+    did |= merge_diamonds_until_complete(graph);
+    snap("after_merge_diamonds", graph);
+    did |= merge_tails_until_complete(graph);
+    snap("after_merge_tails", graph);
+    did |= split_common_suffices_until_complete(graph);
+    snap("after_split_common_suffices", graph);
+    did |= merge_common_suffices_until_complete(graph);
+    snap("after_merge_common_suffices", graph);
+    did |= graph.zip_linear_chains();
+    snap("after_simplify_zip", graph);
+    did
+}
+
 fn merge_diamonds_until_complete(graph: &mut SeqGraph) -> bool {
     transform_until_complete(graph, try_merge_diamond)
 }
@@ -69,7 +117,11 @@ fn split_common_suffices_until_complete(graph: &mut SeqGraph) -> bool {
             if already_split.contains(&bottom) {
                 continue;
             }
-            if try_split_common_suffix(graph, bottom, &mut already_split) {
+            if let Some(map) = try_split_common_suffix(graph, bottom, &mut already_split) {
+                already_split = already_split
+                    .iter()
+                    .filter_map(|id| map.get(id).copied())
+                    .collect();
                 found = true;
                 did = true;
                 break;
@@ -158,71 +210,85 @@ fn try_merge_tails(graph: &mut SeqGraph, top: usize) -> bool {
 }
 
 /// GATK `CommonSuffixSplitter.split` — split incoming vertices of `bottom` on shared suffix.
+///
+/// Java allocates a **new** suffix vertex per predecessor (identical sequence), then
+/// `SharedSequenceMerger` collapses those copies. A shared suffix node is not equivalent:
+/// it changes merge_common_suffices connectivity. Returns the compact remap so
+/// `already_split` can follow vertex identity through dense IDs.
 fn try_split_common_suffix(
     graph: &mut SeqGraph,
     bottom: usize,
     already_split: &mut HashSet<usize>,
-) -> bool {
+) -> Option<HashMap<usize, usize>> {
     already_split.insert(bottom);
     let prevs: Vec<usize> = graph.incoming_nodes(bottom);
     if prevs.len() < 2 {
-        return false;
+        return None;
     }
     if !safe_to_split_suffix(graph, bottom, &prevs) {
-        return false;
+        return None;
     }
     let seqs: Vec<&[u8]> = prevs.iter().map(|&p| graph.vertex_sequence(p)).collect();
     let suffix = common_suffix_only(&seqs);
     if suffix.is_empty() {
-        return false;
+        return None;
     }
     if would_eliminate_ref_source(graph, &suffix, &prevs) {
-        return false;
+        return None;
     }
     if all_vertices_are_only_suffix(&seqs, &suffix) {
-        return false;
+        return None;
     }
 
-    let suffix_v = graph.add_seq_vertex(suffix.clone());
-    let mut edges_to_remove: Vec<(usize, usize)> = Vec::new();
-    let mut mids_to_remove: HashSet<usize> = HashSet::new();
-
+    struct MidSplit {
+        mid: usize,
+        prefix: Option<Vec<u8>>,
+        out_target: usize,
+        out_sup: u32,
+        out_ref: bool,
+        incoming: Vec<(usize, u32, bool)>,
+    }
+    let mut plans: Vec<MidSplit> = Vec::with_capacity(prevs.len());
     for &mid in &prevs {
-        mids_to_remove.insert(mid);
-        let mid_seq = graph.vertex_sequence(mid).to_vec();
-        let prefix = without_suffix(&mid_seq, &suffix);
-        let out_targets = graph.outgoing_nodes(mid);
-        if out_targets.len() != 1 {
-            return false;
+        let outs = graph.outgoing_nodes(mid);
+        if outs.len() != 1 {
+            return None;
         }
-        let out_target = out_targets[0];
-        let (out_sup, out_ref) = graph.outgoing_edge_support_is_ref(mid);
+        let from_mid = graph.edges_from(mid);
+        let (out_sup, out_ref) = from_mid
+            .first()
+            .map(|&(_, s, r)| (s, r))
+            .unwrap_or((0, graph.is_reference_node(mid)));
+        plans.push(MidSplit {
+            mid,
+            prefix: without_suffix(graph.vertex_sequence(mid), &suffix),
+            out_target: outs[0],
+            out_sup,
+            out_ref,
+            incoming: graph.edges_into(mid),
+        });
+    }
 
-        let incoming_target = if let Some(prefix_bytes) = prefix {
+    let mut mids_to_remove: HashSet<usize> = HashSet::new();
+    for plan in &plans {
+        mids_to_remove.insert(plan.mid);
+        // One suffix vertex per predecessor (CommonSuffixSplitter.java).
+        let suffix_v = graph.add_seq_vertex(suffix.clone());
+        let incoming_target = if let Some(prefix_bytes) = plan.prefix.clone() {
             let pv = graph.add_seq_vertex(prefix_bytes);
-            graph.add_or_update_edge(pv, suffix_v, out_sup, out_ref);
-            edges_to_remove.push((mid, out_target));
+            // Java: prefix → suffix with BaseEdge(out.isRef(), multiplicity 1).
+            graph.add_or_update_edge(pv, suffix_v, 1, plan.out_ref);
             pv
         } else {
-            edges_to_remove.push((mid, out_target));
             suffix_v
         };
-
-        // GATK: suffixV -> getEdgeTarget(outgoingEdgeOf(mid)) == bottom (CommonSuffixSplitter.java).
-        graph.add_or_update_edge(suffix_v, out_target, out_sup, out_ref);
-
-        for prev in graph.incoming_nodes(mid) {
-            let (in_sup, in_ref) = graph.incoming_edge_support_is_ref(mid);
+        graph.add_or_update_edge(suffix_v, plan.out_target, plan.out_sup, plan.out_ref);
+        for &(prev, in_sup, in_ref) in &plan.incoming {
             graph.add_or_update_edge(prev, incoming_target, in_sup, in_ref);
-            edges_to_remove.push((prev, mid));
         }
     }
 
-    graph.remove_vertices_by_id(&mids_to_remove);
-    for (from, to) in edges_to_remove {
-        graph.remove_edge(from, to);
-    }
-    true
+    Some(graph.remove_vertices_by_id(&mids_to_remove))
 }
 
 /// GATK `SharedSequenceMerger.merge` — merge identical incoming vertices of `bottom`.
@@ -248,18 +314,17 @@ fn try_merge_common_suffices(graph: &mut SeqGraph, bottom: usize) -> bool {
 
     let mut merged_seq = first.to_vec();
     merged_seq.extend_from_slice(graph.vertex_sequence(bottom));
-    let new_v = graph.add_seq_vertex(merged_seq);
-
-    let bottom_outs: Vec<usize> = graph.outgoing_nodes(bottom);
+    let mut in_copies: Vec<(usize, u32, bool)> = Vec::new();
     for &p in &prevs {
-        for prev in graph.incoming_nodes(p) {
-            let (sup, is_ref) = graph.incoming_edge_support_is_ref(p);
-            graph.add_or_update_edge(prev, new_v, sup, is_ref);
-        }
+        in_copies.extend(graph.edges_into(p));
     }
-    for &t in &bottom_outs {
-        let (sup, is_ref) = graph.outgoing_edge_support_is_ref(bottom);
-        graph.add_or_update_edge(new_v, t, sup, is_ref);
+    let out_copies = graph.edges_from(bottom);
+    let new_v = graph.add_seq_vertex(merged_seq);
+    for (from, sup, is_ref) in in_copies {
+        graph.add_or_update_edge(from, new_v, sup, is_ref);
+    }
+    for (to, sup, is_ref) in out_copies {
+        graph.add_or_update_edge(new_v, to, sup, is_ref);
     }
 
     let mut remove: HashSet<usize> = prevs.iter().copied().collect();
@@ -269,11 +334,9 @@ fn try_merge_common_suffices(graph: &mut SeqGraph, bottom: usize) -> bool {
 }
 
 fn safe_to_split_suffix(graph: &SeqGraph, bottom: usize, prevs: &[usize]) -> bool {
-    let bottom_outs: Vec<usize> = graph.outgoing_nodes(bottom);
-    if bottom_outs.len() != 1 {
-        return false;
-    }
-    let outgoing_of_bottom: HashSet<usize> = bottom_outs.into_iter().collect();
+    // Java `CommonSuffixSplitter.safeToSplit` does not require bottom out-degree 1
+    // (the reference sink has out-degree 0).
+    let outgoing_of_bottom: HashSet<usize> = graph.outgoing_nodes(bottom).into_iter().collect();
     for &mid in prevs {
         if mid == bottom {
             return false;
@@ -337,6 +400,11 @@ fn without_suffix(seq: &[u8], suffix: &[u8]) -> Option<Vec<u8>> {
     }
 }
 
+/// GATK `SharedVertexSequenceSplitter.split` + `updateGraph`.
+///
+/// Edges are copied from the original middles *before* compact. Re-deriving
+/// top→prefix / suffix→bottom from the outer graph after removing middles
+/// yields support 0 / `is_ref` false (lost reference source and sink).
 fn split_and_update(
     graph: &mut SeqGraph,
     top: usize,
@@ -345,69 +413,130 @@ fn split_and_update(
     prefix: &[u8],
     suffix: &[u8],
 ) -> bool {
-    let prefix_v = if prefix.is_empty() {
-        None
-    } else {
+    #[derive(Clone, Copy)]
+    struct E {
+        support: u32,
+        is_ref: bool,
+    }
+    fn process_edge(graph: &SeqGraph, v: usize, incoming: bool) -> E {
+        // Java `processEdgeToRemove`: missing edge → BaseEdge(isReferenceNode(v), 0).
+        let edges = if incoming {
+            graph.edges_into(v)
+        } else {
+            graph.edges_from(v)
+        };
+        match edges.first() {
+            None => E {
+                support: 0,
+                is_ref: graph.is_reference_node(v),
+            },
+            Some(&(_, support, is_ref)) => E { support, is_ref },
+        }
+    }
+
+    struct MidPlan {
+        remaining: Option<Vec<u8>>,
+        to_mid: E,
+        from_mid: E,
+    }
+    let plans: Vec<MidPlan> = middles
+        .iter()
+        .map(|&mid| {
+            let to_mid = process_edge(graph, mid, true);
+            let from_mid = process_edge(graph, mid, false);
+            let remaining = without_prefix_suffix(graph.vertex_sequence(mid), prefix, suffix);
+            MidPlan {
+                remaining,
+                to_mid,
+                from_mid,
+            }
+        })
+        .collect();
+
+    let remaining_count = plans.iter().filter(|p| p.remaining.is_some()).count();
+    let consumed = plans.iter().any(|p| p.remaining.is_none());
+    let prefix_outdeg = remaining_count + usize::from(consumed);
+    let has_only_prefix_suffix = consumed && prefix_outdeg == 1;
+    // Java: needPrefixNode = !prefix.empty || (top == null && !hasOnlyPrefixSuffixEdges).
+    // Callers always pass a top vertex (MergeDiamonds / MergeTails).
+    let need_prefix = !prefix.is_empty();
+    let need_suffix = !suffix.is_empty() || (bottom.is_none() && !has_only_prefix_suffix);
+
+    let prefix_v = if need_prefix {
         Some(graph.add_seq_vertex(prefix.to_vec()))
-    };
-    let suffix_v = if suffix.is_empty() {
-        None
     } else {
+        None
+    };
+    let suffix_v = if need_suffix {
         Some(graph.add_seq_vertex(suffix.to_vec()))
+    } else {
+        None
     };
 
     let mut new_middles: Vec<usize> = Vec::new();
-    for &mid in middles {
-        let (in_sup, in_ref) = graph.incoming_edge_support_is_ref(mid);
-        let (out_sup, out_ref) = graph.outgoing_edge_support_is_ref(mid);
-        let mid_seq = graph.vertex_sequence(mid).to_vec();
-        if let Some(remaining) = without_prefix_suffix(&mid_seq, prefix, suffix) {
-            let nm = graph.add_seq_vertex(remaining);
+    let mut prefix_to_mid: Vec<(usize, E)> = Vec::new();
+    let mut mid_to_suffix: Vec<(usize, E)> = Vec::new();
+    let mut prefix_to_suffix: Option<E> = None;
+    for plan in &plans {
+        if let Some(remaining) = &plan.remaining {
+            let nm = graph.add_seq_vertex(remaining.clone());
             new_middles.push(nm);
-            if let Some(pv) = prefix_v {
-                graph.add_or_update_edge(pv, nm, in_sup, in_ref);
-            }
-            if let Some(sv) = suffix_v {
-                graph.add_or_update_edge(nm, sv, out_sup, out_ref);
-            } else if let Some(b) = bottom {
-                graph.add_or_update_edge(nm, b, out_sup, out_ref);
-            }
-        } else if let (Some(pv), Some(sv)) = (prefix_v, suffix_v) {
-            graph.add_or_update_edge(pv, sv, in_sup.saturating_add(out_sup), in_ref || out_ref);
-        } else if let (Some(pv), None) = (prefix_v, suffix_v) {
-            if let Some(b) = bottom {
-                graph.add_or_update_edge(pv, b, in_sup.saturating_add(out_sup), in_ref || out_ref);
+            prefix_to_mid.push((nm, plan.to_mid));
+            mid_to_suffix.push((nm, plan.from_mid));
+        } else {
+            let combined = E {
+                support: plan.to_mid.support.saturating_add(plan.from_mid.support),
+                is_ref: plan.to_mid.is_ref || plan.from_mid.is_ref,
+            };
+            match &mut prefix_to_suffix {
+                Some(prev) => {
+                    prev.support = prev.support.saturating_add(combined.support);
+                    prev.is_ref |= combined.is_ref;
+                }
+                None => prefix_to_suffix = Some(combined),
             }
         }
     }
 
-    let mut top_to_mid_sup = 0u32;
-    let mut top_to_mid_ref = false;
-    for &mid in middles {
-        if let Some(idx) = graph.find_edge(top, mid) {
-            let e = &graph.edges_pub()[idx];
-            top_to_mid_sup = top_to_mid_sup.saturating_add(e.support);
-            top_to_mid_ref |= e.is_ref;
+    let top_for = if need_prefix { prefix_v } else { Some(top) };
+    let bot_for = if need_suffix { suffix_v } else { bottom };
+
+    // Java `addPrefixNodeAndEdges`: top → prefix with makeOREdge(outgoing of prefix, 1).
+    if let Some(pv) = prefix_v {
+        let any_ref = prefix_to_mid.iter().any(|(_, e)| e.is_ref)
+            || prefix_to_suffix.map(|e| e.is_ref).unwrap_or(false);
+        graph.add_or_update_edge(top, pv, 1, any_ref);
+    }
+    // Java `addSuffixNodeAndEdges`: suffix → bottom with makeOREdge(incoming of suffix, 1).
+    if let (Some(sv), Some(b)) = (suffix_v, bottom) {
+        let any_ref = mid_to_suffix.iter().any(|(_, e)| e.is_ref)
+            || prefix_to_suffix.map(|e| e.is_ref).unwrap_or(false);
+        graph.add_or_update_edge(sv, b, 1, any_ref);
+    }
+
+    // Java `addEdgesFromTopNode`.
+    if let Some(tfc) = top_for {
+        for &(nm, e) in &prefix_to_mid {
+            graph.add_or_update_edge(tfc, nm, e.support, e.is_ref);
+        }
+        if let (Some(e), Some(bfc)) = (prefix_to_suffix, bot_for) {
+            graph.add_or_update_edge(tfc, bfc, e.support, e.is_ref);
+        }
+    }
+    // Java `addEdgesToBottomNode`. Skip the split-graph prefix vertex when it was
+    // not added to the outer graph (empty prefix); the fully-consumed path is
+    // already top → bot_for from addEdgesFromTopNode.
+    if let Some(bfc) = bot_for {
+        for &(nm, e) in &mid_to_suffix {
+            graph.add_or_update_edge(nm, bfc, e.support, e.is_ref);
+        }
+        if let (Some(pv), Some(e)) = (prefix_v, prefix_to_suffix) {
+            graph.add_or_update_edge(pv, bfc, e.support, e.is_ref);
         }
     }
 
     let remove: HashSet<usize> = middles.iter().copied().collect();
     graph.remove_vertices_by_id(&remove);
-
-    if let Some(pv) = prefix_v {
-        graph.add_or_update_edge(top, pv, top_to_mid_sup, top_to_mid_ref);
-    } else {
-        for &nm in &new_middles {
-            let (sup, is_ref) = graph.incoming_edge_support_is_ref(nm);
-            graph.add_or_update_edge(top, nm, sup, is_ref);
-        }
-    }
-
-    if let (Some(sv), Some(b)) = (suffix_v, bottom) {
-        let (sup, is_ref) = graph.incoming_edge_support_is_ref(b);
-        graph.add_or_update_edge(sv, b, sup, is_ref);
-    }
-
     !new_middles.is_empty() || prefix_v.is_some() || suffix_v.is_some()
 }
 
@@ -511,5 +640,51 @@ mod tests {
         let n = g.node_count();
         let _ = simplify_graph_full(&mut g);
         assert!(g.node_count() > 0 && g.node_count() <= n + 5);
+    }
+
+    #[test]
+    fn common_prefix_suffix_matches_gatk_prefix_suffix_data() {
+        // SharedVertexSequenceSplitterUnitTest.PrefixSuffixData (GATK 4.4.0.0).
+        let cases: &[(&[&[u8]], usize, usize)] = &[
+            (&[b"A", b"C"], 0, 0),
+            (&[b"C", b"C"], 1, 0),
+            (&[b"ACT", b"AGT"], 1, 1),
+            (&[b"ACCT", b"AGT"], 1, 1),
+            (&[b"ACT", b"ACT"], 3, 0),
+            (&[b"ACTA", b"ACT"], 3, 0),
+            (&[b"ACTA", b"ACTG"], 3, 0),
+            (&[b"ACTA", b"ACTGA"], 3, 1),
+            (&[b"GCTGA", b"ACTGA"], 0, 4),
+            (&[b"A", b"C", b"A"], 0, 0),
+            (&[b"A", b"A", b"A"], 1, 0),
+            (&[b"A", b"AA", b"A"], 1, 0),
+            (&[b"A", b"ACA", b"A"], 1, 0),
+            (&[b"ACT", b"ACAT", b"ACT"], 2, 1),
+            (&[b"ACT", b"ACAT", b"ACGT"], 2, 1),
+            (&[b"AAAT", b"AAA", b"CAAA"], 0, 0),
+            (&[b"AACTTT", b"AAGTTT", b"AAGCTTT"], 2, 3),
+            (&[b"AAA", b"AAA", b"CAAA"], 0, 3),
+            (&[b"AAA", b"AAA", b"AAA"], 3, 0),
+            (&[b"AC", b"ACA", b"AC"], 2, 0),
+        ];
+        for &(seqs, prefix_len, suffix_len) in cases {
+            let (prefix, suffix) = common_prefix_suffix(seqs);
+            assert_eq!(
+                prefix.len(),
+                prefix_len,
+                "prefix {:?}",
+                seqs.iter()
+                    .map(|s| std::str::from_utf8(s).unwrap())
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                suffix.len(),
+                suffix_len,
+                "suffix {:?}",
+                seqs.iter()
+                    .map(|s| std::str::from_utf8(s).unwrap())
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 }
