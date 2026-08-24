@@ -4,7 +4,7 @@
     "java_gatk_version": "4.4.0.0",
     "java_gatk_sha": "2dbc025821bc5f686c423ff332a41e6cef892a77",
     "java_gatk_docker": "us.gcr.io/broad-gatk/gatk:4.4.0.0",
-    "updated_utc": "2026-08-23T11:08:09Z",
+    "updated_utc": "2026-08-24T09:40:53Z",
     "notes": "Updated by nightly-equivalence / genomewide-validation / joint-cohort-scale gates."
   },
   "runs": [
@@ -609,11 +609,11 @@
       ]
     },
     {
-      "id": "nightly-2026-08-23T11:08:08Z",
+      "id": "nightly-2026-08-24T09:40:51Z",
       "workflow": "nightly-equivalence",
-      "generated_utc": "2026-08-23T11:08:08Z",
+      "generated_utc": "2026-08-24T09:40:51Z",
       "commit_sha": "7611aec4df1ae21e300af62dc5e2ebc801421465",
-      "workflow_run_url": "https://github.com/SynapticFour/gatk-rs/actions/runs/32619585179",
+      "workflow_run_url": "https://github.com/SynapticFour/gatk-rs/actions/runs/32692795861",
       "scope": {
         "kind": "trio_joint_e2e",
         "pipeline": "HaplotypeCaller (GVCF) \u2192 CombineGVCFs \u2192 GenotypeGVCFs \u2192 VariantFiltration",
@@ -623,8 +623,7 @@
           "HG004"
         ],
         "regions": [
-          "chr20",
-          "chr21"
+          "chr20"
         ],
         "assembly": "hs37d5 (GRCh37)",
         "truth": "GIAB HG002 NISTv4.2.1 (joint callset scored on HG002)",
