@@ -1,8 +1,9 @@
 name: P12 L4 Parity
 
 on:
-  schedule:
-    - cron: '0 3 * * 0'  # Weekly Sunday 03:00 UTC
+  # Temporarily disabled — restore when scheduled CI should resume.
+  # schedule:
+  #   - cron: '0 3 * * 0'  # Weekly Sunday 03:00 UTC
   workflow_dispatch:
 
 env:

@@ -1,8 +1,9 @@
 name: Nightly
 
 on:
-  schedule:
-    - cron: '0 2 * * *'  # Run at 2 AM UTC every day
+  # Temporarily disabled — restore when scheduled CI should resume.
+  # schedule:
+  #   - cron: '0 2 * * *'  # Run at 2 AM UTC every day
   workflow_dispatch:
 
 jobs:
