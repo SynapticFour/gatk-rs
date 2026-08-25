@@ -207,14 +207,15 @@ impl SeqGraph {
     }
 
     /// GATK `Path.getBases` on a sequence graph.
+    ///
+    /// SeqVertex payloads are already additional-only (k-mer last-byte applied once in
+    /// [`Self::from_assembly_graph`]). Concatenate the stored sequence of every vertex
+    /// on the path. Empty dummy vertices contribute nothing.
     pub fn path_bases_bytes(&self, start: usize, edges: &[(usize, usize)]) -> Vec<u8> {
         let first = if edges.is_empty() { start } else { edges[0].0 };
-        let mut bases = additional_sequence_bytes(&self.vertices[first].sequence, true);
+        let mut bases = self.vertices[first].sequence.to_vec();
         for &(_, to) in edges {
-            bases.extend(additional_sequence_bytes(
-                &self.vertices[to].sequence,
-                false,
-            ));
+            bases.extend_from_slice(&self.vertices[to].sequence);
         }
         bases
     }
@@ -794,3 +795,7 @@ mod id_invariant_tests;
 #[cfg(test)]
 #[path = "seq_graph_post_repair_simplify_test.rs"]
 mod post_repair_simplify_tests;
+
+#[cfg(test)]
+#[path = "seq_graph_path_bases_probe_test.rs"]
+mod path_bases_probe_tests;
