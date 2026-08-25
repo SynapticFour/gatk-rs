@@ -656,6 +656,55 @@ impl SeqGraph {
         self.vertices.iter().map(|v| v.id).collect()
     }
 
+    /// Test-only: same order as [`Self::cleanup_seq_graph`], with a snapshot after each stage.
+    #[cfg(test)]
+    pub(crate) fn traced_cleanup_seq_graph(
+        &mut self,
+        mut snap: impl FnMut(&str, &SeqGraph),
+    ) -> SeqGraphCleanupStatus {
+        snap("cleanup_entry", self);
+        self.zip_linear_chains();
+        snap("after_initial_zip_linear_chains", self);
+        self.remove_singleton_orphan_vertices();
+        snap("after_remove_singleton_orphan_vertices", self);
+        self.remove_vertices_not_connected_to_ref_regardless_of_direction();
+        snap(
+            "after_remove_vertices_not_connected_to_ref_undirected",
+            self,
+        );
+        crate::seq_graph_simplify::traced_simplify_graph_full(self, |stage, g| {
+            snap(&format!("simplify1_{stage}"), g);
+        });
+        snap("before_source_sink_jar", self);
+        if self.reference_source_vertex().is_none() || self.reference_sink_vertex().is_none() {
+            return SeqGraphCleanupStatus::JustAssembledReference;
+        }
+        let _ = self.remove_paths_not_connected_to_ref();
+        snap("after_remove_paths_not_connected_to_ref", self);
+        crate::seq_graph_simplify::traced_simplify_graph_full(self, |stage, g| {
+            snap(&format!("simplify2_{stage}"), g);
+        });
+        snap("after_second_simplify", self);
+        if self.vertices.len() == 1 {
+            let complete = 0usize;
+            let dummy_id = self.vertices.len();
+            self.vertices.push(SeqVertex {
+                id: dummy_id,
+                sequence: Vec::new(),
+            });
+            self.edges.push(SeqEdge {
+                from: complete,
+                to: dummy_id,
+                support: 0,
+                is_ref: true,
+            });
+            self.rebuild_index();
+            snap("after_dummy_vertex", self);
+        }
+        snap("final_for_kbest", self);
+        SeqGraphCleanupStatus::AssembledSomeVariation
+    }
+
     pub(crate) fn add_or_update_edge(
         &mut self,
         from: usize,
@@ -799,3 +848,11 @@ mod post_repair_simplify_tests;
 #[cfg(test)]
 #[path = "seq_graph_path_bases_probe_test.rs"]
 mod path_bases_probe_tests;
+
+#[cfg(test)]
+#[path = "seq_graph_p12_waiver_gate_test.rs"]
+mod p12_waiver_gate_tests;
+
+#[cfg(test)]
+#[path = "seq_graph_p12_k85_topology_test.rs"]
+mod p12_k85_topology_tests;

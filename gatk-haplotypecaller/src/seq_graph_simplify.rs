@@ -57,7 +57,7 @@ fn simplify_graph_once(graph: &mut SeqGraph) -> bool {
 #[cfg(test)]
 pub(crate) fn traced_simplify_graph_full(
     graph: &mut SeqGraph,
-    mut snap: impl FnMut(&'static str, &SeqGraph),
+    mut snap: impl FnMut(&str, &SeqGraph),
 ) {
     snap("simplify_before_initial_zip", graph);
     let _ = graph.zip_linear_chains();
@@ -84,7 +84,7 @@ pub(crate) fn traced_simplify_graph_full(
 #[cfg(test)]
 fn traced_simplify_graph_once(
     graph: &mut SeqGraph,
-    snap: &mut impl FnMut(&'static str, &SeqGraph),
+    snap: &mut impl FnMut(&str, &SeqGraph),
 ) -> bool {
     let mut did = false;
     did |= merge_diamonds_until_complete(graph);

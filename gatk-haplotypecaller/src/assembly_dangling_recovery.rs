@@ -1408,4 +1408,42 @@ mod tests {
         );
         assert_eq!(path[0], a);
     }
+
+    #[test]
+    fn disconnected_alt_island_not_attached_by_either_dangling_java_exact() {
+        let mut g = AssemblyGraph::new(3).expect("k=3");
+        let a = g.ensure_node(b"AAA");
+        let b = g.ensure_node(b"AAB");
+        let c = g.ensure_node(b"ABC");
+        g.add_edge_support(a, b, 4);
+        g.add_edge_support(b, c, 4);
+        g.ref_edges.insert((a, b));
+        g.ref_edges.insert((b, c));
+        g.ref_nodes.extend([a, b, c]);
+        let x = g.ensure_node(b"TTT");
+        let y = g.ensure_node(b"TTA");
+        let z = g.ensure_node(b"TAC");
+        g.add_edge_support(x, y, 2);
+        g.add_edge_support(y, z, 2);
+        for exact in [true, false] {
+            let mut g = g.clone();
+            let mut params = DanglingRecoveryParams::gatk_haplotype_caller_defaults();
+            params.dangling_java_exact = exact;
+            params.min_dangling_branch_length = 1;
+            let summary = g.recover_dangling_branches(&params).unwrap();
+            assert_eq!(
+                summary.heads_recovered, 0,
+                "disconnected island must not head-merge exact={exact}"
+            );
+            assert_eq!(
+                summary.tails_recovered, 0,
+                "disconnected island must not tail-merge exact={exact}"
+            );
+            let still_disconnected = g.incoming_count(x) == 0 && g.outgoing_nodes(z).is_empty();
+            assert!(
+                still_disconnected,
+                "island endpoints must stay detached exact={exact}"
+            );
+        }
+    }
 }
