@@ -56,6 +56,9 @@ pub struct CallRegionAuditSnap {
     pub n_haps_after_trim: Option<usize>,
     pub n_events_after_trim: Option<usize>,
     pub events_after_trim: Vec<AuditEvent>,
+    /// Test-only post-`trim_to` stage dumps (`after_trim_to` / `after_resync`).
+    pub post_trim_stages: Vec<String>,
+    pub needs_post_trim_resync: Option<bool>,
 }
 
 thread_local! {
@@ -132,13 +135,17 @@ pub fn record_after_trim(
             .iter()
             .map(|h| {
                 format!(
-                    "ref={} len={} cigar={} score={}",
+                    "ref={} len={} cigar={} loc={} align={} score={}",
                     h.is_reference,
                     h.bases.len(),
                     h.cigar
                         .as_ref()
                         .map(|c| c.to_gatk_string())
                         .unwrap_or_default(),
+                    h.genome_loc
+                        .map(|g| format!("{}-{}", g.start_1based(), g.end_1based()))
+                        .unwrap_or_else(|| "None".to_string()),
+                    h.alignment_start_hap_wrt_ref,
                     h.score
                 )
             })
@@ -181,6 +188,28 @@ pub fn record_after_read_filter(assembly: &AssemblyResultSet, n_reads: usize) {
             .map(AuditEvent::from_variation)
             .collect();
     });
+}
+
+pub fn note_hap_stage(label: &str, assembly: &AssemblyResultSet) {
+    let n_alt = assembly
+        .haplotypes
+        .iter()
+        .filter(|h| !h.is_reference)
+        .count();
+    let line = format!(
+        "{label} n_haps={} n_alt={} n_events={} has_variation_for_calling={} is_variation_present={}",
+        assembly.haplotypes.len(),
+        n_alt,
+        assembly.variation_events().len(),
+        assembly.has_variation_for_calling(),
+        assembly.is_variation_present(),
+    );
+    with_mut(|a| a.post_trim_stages.push(line));
+}
+
+pub fn note_resync(assembly: &AssemblyResultSet, needs_post_trim_resync: bool) {
+    with_mut(|a| a.needs_post_trim_resync = Some(needs_post_trim_resync));
+    note_hap_stage("after_resync", assembly);
 }
 
 pub fn record_no_variation_for_calling(assembly: &AssemblyResultSet, none_at: &str) {

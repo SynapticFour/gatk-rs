@@ -1313,3 +1313,19 @@ mod p12_6r23_threading_audit_tests;
 #[cfg(test)]
 #[path = "../tests/event_map/event_map_p12_6r24_test.rs"]
 mod p12_6r24_oracle_provenance_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r25_test.rs"]
+mod p12_6r25_java_ref_k25_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r26_test.rs"]
+mod p12_6r26_java_ref_gate_production_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r27_test.rs"]
+mod p12_6r27_call_region_none_audit_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r28_test.rs"]
+mod p12_6r28_allele_filtering_tests;

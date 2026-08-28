@@ -661,6 +661,8 @@ impl HaplotypeCallerEngine {
         let mut region_for_genotyping = AssemblyRegionTrimmer::apply_trim(region, &trim_result);
         remove_read_stubs_after_trim(&mut region_for_genotyping);
         let mut assembly = untrimmed.trim_to(&region_for_genotyping)?;
+        #[cfg(test)]
+        call_region_audit::note_hap_stage("after_trim_to", &assembly);
         if assembly.haplotypes.is_empty() {
             let pad = untrimmed.padded_reference_start_1based();
             let off = region_for_genotyping
@@ -754,6 +756,8 @@ impl HaplotypeCallerEngine {
                 },
             );
         }
+        #[cfg(test)]
+        call_region_audit::note_resync(&assembly, needs_post_trim_resync);
         crate::runtime_config::rss_trace_checkpoint(
             "prep_post_trim_events",
             &format!(
@@ -1057,6 +1061,8 @@ impl HaplotypeCallerEngine {
                     ),
                 );
             }
+            #[cfg(test)]
+            call_region_audit::note_hap_stage("after_early_allele_filter", &assembly);
             // Do **not** full-drop PairHMM TLS here: on dense NA12878, munmap of NEON/Logless
             // planes between early allele filter and realign was ~2 s/window while realign SW
             // itself was <0.5 s (`step_ms` ≪ `delta_ms` on `prep_realign`). Peak stacking is

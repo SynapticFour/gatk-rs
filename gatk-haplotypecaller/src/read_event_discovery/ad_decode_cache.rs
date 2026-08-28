@@ -61,6 +61,16 @@ pub fn clear_ad_decode_cache() {
 }
 
 /// Borrow TLS cache for a pileup scan.
+///
+/// Nested callers (genotyping after allele-filter keep) must not panic if an outer
+/// scan still holds the `RefCell`. Inner scans use a temporary map: AD counts are
+/// unchanged; only CIGAR/seq decode may be repeated.
 pub(crate) fn with_ad_decode_cache<R>(f: impl FnOnce(&mut AdDecodeCache) -> R) -> R {
-    AD_DECODE_CACHE.with(|c| f(&mut c.borrow_mut()))
+    AD_DECODE_CACHE.with(|c| match c.try_borrow_mut() {
+        Ok(mut cache) => f(&mut cache),
+        Err(_) => {
+            let mut nested = AdDecodeCache::default();
+            f(&mut nested)
+        }
+    })
 }
