@@ -856,3 +856,11 @@ mod p12_waiver_gate_tests;
 #[cfg(test)]
 #[path = "seq_graph_p12_k85_topology_test.rs"]
 mod p12_k85_topology_tests;
+
+#[cfg(test)]
+#[path = "seq_graph_p12_k85_threading_test.rs"]
+mod p12_k85_threading_tests;
+
+#[cfg(test)]
+#[path = "seq_graph_p12_k10_rt_test.rs"]
+mod p12_k10_rt_tests;

@@ -765,6 +765,22 @@ impl AssemblyGraph {
         out
     }
 
+    /// Probe one dangling-head source (6R.22; does not change recovery).
+    pub fn probe_dangling_head_at(
+        &self,
+        v: usize,
+        params: &DanglingRecoveryParams,
+    ) -> Option<String> {
+        if self.incoming_count(v) > 0 || self.outgoing_nodes(v).is_empty() || self.is_ref_source(v)
+        {
+            return None;
+        }
+        self.probe_dangling_head_failures(params)
+            .into_iter()
+            .find(|(id, _, _)| *id == v)
+            .map(|(_, _, reason)| reason)
+    }
+
     fn recover_dangling_tail(&mut self, sink: usize, params: &DanglingRecoveryParams) -> bool {
         match self.plan_dangling_tail_merge(sink, params) {
             Ok(plan) => {

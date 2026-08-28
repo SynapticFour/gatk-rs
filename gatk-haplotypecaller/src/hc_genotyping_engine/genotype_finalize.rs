@@ -1296,3 +1296,25 @@ pub fn filter_genotyped_calls_for_strict_java_emit(
     drop_clustered_short_indel_fragments(calls);
     Ok(())
 }
+
+/// 6R.15 investigation-only: expose [`stored_events_with_p12_cluster_anchors`] to tests.
+/// Does not change production genotyping.
+#[cfg(test)]
+pub(crate) fn audit_stored_events_with_p12_cluster_anchors(
+    stored_events: &[VariationEvent],
+    ref_bytes: &[u8],
+    pad_start_1based: u64,
+    active_start_1based: u64,
+    active_end_1based: u64,
+    contig: &str,
+) -> Vec<VariationEvent> {
+    stored_events_with_p12_cluster_anchors(
+        stored_events,
+        ref_bytes,
+        pad_start_1based,
+        active_start_1based,
+        active_end_1based,
+        contig,
+        &HcGenotypingConfig::strict_java(),
+    )
+}

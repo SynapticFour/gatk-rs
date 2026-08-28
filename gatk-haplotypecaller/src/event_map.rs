@@ -2,7 +2,8 @@
 //! # Coordinate invariants (B5)
 //! [`Event::start`] is a **0-based offset into the padded reference haplotype bytes**, not a
 //! genome locus. Convert with the pad start before emit.
-//! [`VariationEvent`] carries **1-based inclusive** VCF coordinates; use
+//! [`VariationEvent`] carries **1-based inclusive** VCF coordinates
+//! (`end = start + REF.len() − 1`, GATK 4.4); use
 //! [`VariationEvent::start_pos`] / [`VariationEvent::interval`] for typed access.
 
 use crate::alignment::SwParameters;
@@ -14,7 +15,7 @@ use crate::haplotype_cigar::calculate_haplotype_cigar_with_strategy;
 use crate::java_hc_site_semantics::is_cluster_anchor_snp;
 use crate::smith_waterman::SwOverhangStrategy;
 use std::cmp::Ordering;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
@@ -126,6 +127,7 @@ pub struct EventMap {
 /// VCF-ready variation event (sorted unique across haplotypes).
 /// # Invariants
 /// `start_1based` / `end_1based` are **1-based inclusive** VCF coordinates on `contig`.
+/// `end_1based = start_1based + REF.len() − 1` (insertions have `start == end`).
 /// REF/ALT strings are display alleles after left-alignment for emit.
 /// # Ownership
 /// Owns contig and allele strings; referenced by genotyping and emit policies.
@@ -255,6 +257,30 @@ impl VariationEvent {
     pub fn alt_allele_bases(&self) -> &[u8] {
         self.alt_allele.as_bytes()
     }
+
+    /// GATK 4.4 / HTSJDK VCF inclusive end: `start + REF.len() − 1` (insertion ⇒ `start == end`).
+    #[inline]
+    pub fn vcf_end_1based(start_1based: u64, ref_allele: &str) -> u64 {
+        start_1based.saturating_add(ref_allele.len().saturating_sub(1) as u64)
+    }
+
+    /// Biallelic event with Java 4.4 `VariantContext` start/end from alleles.
+    pub fn from_alleles(
+        contig: impl Into<String>,
+        start_1based: u64,
+        ref_allele: impl Into<String>,
+        alt_allele: impl Into<String>,
+    ) -> Self {
+        let ref_allele = ref_allele.into();
+        let end = Self::vcf_end_1based(start_1based, &ref_allele);
+        Self {
+            contig: contig.into(),
+            start_1based: GenomePosition::new_1based(start_1based),
+            end_1based: GenomePosition::new_1based(end),
+            ref_allele,
+            alt_allele: alt_allele.into(),
+        }
+    }
 }
 
 impl PartialOrd for VariationEvent {
@@ -281,8 +307,157 @@ fn is_all_regular(bases: &[u8]) -> bool {
     bases.iter().all(|&b| is_regular_base(b))
 }
 
+/// Failure matching Java `Utils.validateArg` in `EventMap.makeBlock`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MakeBlockError(pub String);
+
+impl fmt::Display for MakeBlockError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+fn is_simple_snp(e: &VariationEvent) -> bool {
+    e.ref_allele.len() == 1 && e.alt_allele.len() == 1
+}
+
+/// HTSJDK `VariantContext.isSimpleInsertion`: biallelic indel with REF length 1.
+fn is_simple_insertion(e: &VariationEvent) -> bool {
+    e.is_indel() && e.ref_allele.len() == 1
+}
+
+/// HTSJDK `VariantContext.isSimpleDeletion`: biallelic indel with ALT length 1.
+fn is_simple_deletion(e: &VariationEvent) -> bool {
+    e.is_indel() && e.alt_allele.len() == 1
+}
+
+/// GATK 4.4 `EventMap.makeBlock(vc1, vc2)`.
+///
+/// `vc1` is already stored at this start; `vc2` is the newly added event
+/// (`addVC` always calls `makeBlock(prev, vc)`). Encounter order matters.
+pub fn make_block(
+    vc1: &VariationEvent,
+    vc2: &VariationEvent,
+) -> Result<VariationEvent, MakeBlockError> {
+    if vc1.start_1based != vc2.start_1based {
+        return Err(MakeBlockError(format!(
+            "vc1 and 2 must have the same start but got {} and {}",
+            vc1.start_1based.get(),
+            vc2.start_1based.get()
+        )));
+    }
+    if !is_simple_snp(vc1) {
+        let ok = (is_simple_deletion(vc1) && is_simple_insertion(vc2))
+            || (is_simple_insertion(vc1) && is_simple_deletion(vc2));
+        if !ok {
+            return Err(MakeBlockError(format!(
+                "Can only merge single insertion with deletion (or vice versa) but got {}→{} merging with {}→{}",
+                vc1.ref_allele, vc1.alt_allele, vc2.ref_allele, vc2.alt_allele
+            )));
+        }
+    } else if is_simple_snp(vc2) {
+        return Err(MakeBlockError(format!(
+            "vc1 is {}→{} but vc2 is a SNP, which implies there's been some terrible bug in the cigar {}→{}",
+            vc1.ref_allele, vc1.alt_allele, vc2.ref_allele, vc2.alt_allele
+        )));
+    }
+
+    if is_simple_snp(vc1) {
+        if vc1.ref_allele == vc2.ref_allele {
+            if vc2.alt_allele.len() < 2 {
+                return Err(MakeBlockError(
+                    "insertion alt must include padding base".into(),
+                ));
+            }
+            let alt = format!("{}{}", vc1.alt_allele, &vc2.alt_allele[1..]);
+            let mut out = VariationEvent::from_alleles(
+                vc1.contig.as_str(),
+                vc1.start_1based.get(),
+                vc1.ref_allele.as_str(),
+                alt,
+            );
+            // Java: VariantContextBuilder(vc1) keeps the SNP stop (start == end).
+            out.end_1based = vc1.end_1based;
+            Ok(out)
+        } else {
+            let mut out = VariationEvent::from_alleles(
+                vc1.contig.as_str(),
+                vc1.start_1based.get(),
+                vc2.ref_allele.as_str(),
+                vc1.alt_allele.as_str(),
+            );
+            out.end_1based = vc2.end_1based;
+            Ok(out)
+        }
+    } else {
+        let (insertion, deletion) = if is_simple_insertion(vc1) {
+            (vc1, vc2)
+        } else {
+            (vc2, vc1)
+        };
+        let mut out = VariationEvent::from_alleles(
+            vc1.contig.as_str(),
+            vc1.start_1based.get(),
+            deletion.ref_allele.as_str(),
+            insertion.alt_allele.as_str(),
+        );
+        out.end_1based = deletion.end_1based;
+        Ok(out)
+    }
+}
+
+/// GATK 4.4 `EventMap.addVC(vc, merge=true)` over a proposed-event sequence.
+///
+/// Same-start events fold with [`make_block`] in **encounter order**. Output is start-sorted.
+/// A pair Java would reject leaves the first event (malformed CIGAR; HC does not throw).
+pub fn add_vc_merge(proposed: Vec<VariationEvent>) -> Vec<VariationEvent> {
+    let mut by_start: BTreeMap<u64, VariationEvent> = BTreeMap::new();
+    for vc in proposed {
+        let start = vc.start_1based.get();
+        match by_start.remove(&start) {
+            Some(prev) => match make_block(&prev, &vc) {
+                Ok(merged) => {
+                    by_start.insert(start, merged);
+                }
+                Err(_) => {
+                    by_start.insert(start, prev);
+                }
+            },
+            None => {
+                by_start.insert(start, vc);
+            }
+        }
+    }
+    by_start.into_values().collect()
+}
+
+/// GATK 4.4 `EventMap.getOverlappingEvents(loc)`.
+///
+/// `start <= loc <= end`. If a simple deletion ends at `loc` and a simple insertion also
+/// overlaps, the deletion is dropped (insertion kept).
+pub fn overlapping_events(events: &[VariationEvent], loc_1based: u64) -> Vec<VariationEvent> {
+    let loc = GenomePosition::new_1based(loc_1based);
+    let mut overlapping: Vec<VariationEvent> = events
+        .iter()
+        .filter(|e| e.start_1based <= loc && e.end_1based >= loc)
+        .cloned()
+        .collect();
+    let del_ending: Vec<usize> = overlapping
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| is_simple_deletion(e) && e.end_1based == loc)
+        .map(|(i, _)| i)
+        .collect();
+    let contains_insertion = overlapping.iter().any(is_simple_insertion);
+    if !del_ending.is_empty() && contains_insertion {
+        overlapping.remove(del_ending[0]);
+    }
+    overlapping
+}
+
 impl EventMap {
-    /// Build events from REF/ALT CIGAR walk (GATK `EventMap.processCigarForInitialEvents`).
+    /// Build events from REF/ALT CIGAR walk, then GATK 4.4 `addVC(merge=true)` / `makeBlock`
+    /// (`EventMap.processCigarForInitialEvents`).
     pub fn from_haplotype_and_reference(
         haplotype: &Haplotype,
         reference: &Haplotype,
@@ -415,8 +590,9 @@ impl EventMap {
             }
         }
         let _ = reference;
+        let merged = add_vc_merge(proposed);
         Self {
-            events: proposed
+            events: merged
                 .into_iter()
                 .map(|v| Event {
                     start: PadOffset0::new(
@@ -438,9 +614,8 @@ impl EventMap {
                     ref_loc_start_1based + e.start.get() as u64,
                 ),
                 end_1based: GenomePosition::new_1based(
-                    ref_loc_start_1based
-                        + e.start.get() as u64
-                        + e.ref_bases.len().max(e.alt_bases.len()).saturating_sub(1) as u64,
+                    (ref_loc_start_1based + e.start.get() as u64)
+                        .saturating_add(e.ref_bases.len().saturating_sub(1) as u64),
                 ),
                 // CLONE: needed because multi-owner or ownership transfer into new structure.
                 ref_allele: String::from_utf8(e.ref_bases.clone()).unwrap_or_else(|_| "N".into()),
@@ -1094,3 +1269,47 @@ mod tests {
         assert!(map.events.is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_java44.rs"]
+mod event_map_java44;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_java44_parity_test.rs"]
+mod event_map_java44_parity_test;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r14_test.rs"]
+mod p12_6r14_eventmap_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r15_test.rs"]
+mod p12_6r15_audit_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r16_test.rs"]
+mod p12_6r16_trimmed_audit_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r17_test.rs"]
+mod p12_6r17_mapper_audit_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r20_test.rs"]
+mod p12_6r20_mid_b_audit_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r21_test.rs"]
+mod p12_6r21_assembly_audit_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r22_test.rs"]
+mod p12_6r22_dangling_audit_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r23_test.rs"]
+mod p12_6r23_threading_audit_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r24_test.rs"]
+mod p12_6r24_oracle_provenance_tests;
