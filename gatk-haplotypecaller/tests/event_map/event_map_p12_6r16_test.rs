@@ -802,10 +802,13 @@ mod traces {
             "canonical ALT_WIN must remain after trim/fix/ensure_alt"
         );
         let canon = alt_after.unwrap();
-        assert_eq!(canon.bases.len(), 256);
+        // 6R.39: trim_modern uses Math.max(end+padding). Pre-fix this haplotype was
+        // 256 bp (`79M2D1M2I174M`) because padding accumulated until clipped to the
+        // extended-region end. Java-contract span is 159 bp.
+        assert_eq!(canon.bases.len(), 159);
         assert_eq!(
             canon.cigar.as_ref().map(|c| c.to_gatk_string()).as_deref(),
-            Some("79M2D1M2I174M")
+            Some("79M2D1M2I77M")
         );
         assert_eq!(canon.alignment_start_hap_wrt_ref, 0);
         assert_eq!(canon.kmer_size, 85);

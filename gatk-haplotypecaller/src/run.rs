@@ -141,6 +141,8 @@ pub fn run_haplotype_caller(config: &GatkConfig) -> GatkResult<()> {
 
     // Observe-only: optional NDJSON semantic checkpoints (`GATK_RS_SEMANTIC_TRACE`).
     crate::semantic_trace::try_init_from_runtime(&RuntimeConfig::from_env());
+    // Fresh JVM: `Utils.randomGenerator` starts at `GATK_RANDOM_SEED` (QualByDepth jitter).
+    crate::annotator::plugins::qual_by_depth::reset_gatk_qual_by_depth_rng();
     // Observe-only: production stage profiler (`GATK_RS_HC_PROFILE`).
     let rt = RuntimeConfig::from_env();
     crate::hc_profile::init_from_runtime(&rt);

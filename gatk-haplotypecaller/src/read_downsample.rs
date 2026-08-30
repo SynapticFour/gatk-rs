@@ -31,6 +31,8 @@ pub const GATK_DEFAULT_MAX_READS_PER_ALIGNMENT_START: u32 = 50;
 #[derive(Debug, Clone)]
 pub struct GatkJavaRng {
     seed: u64,
+    /// Java `Random.haveNextNextGaussian` / `nextNextGaussian` cache.
+    next_gaussian_spare: Option<f64>,
 }
 
 impl GatkJavaRng {
@@ -43,6 +45,7 @@ impl GatkJavaRng {
         const MASK: u64 = (1u64 << 48) - 1;
         Self {
             seed: ((seed as u64) ^ MULTIPLIER) & MASK,
+            next_gaussian_spare: None,
         }
     }
 
@@ -76,6 +79,30 @@ impl GatkJavaRng {
             r = self.next(31);
         }
         r
+    }
+
+    /// `java.util.Random.nextDouble`.
+    pub fn next_double(&mut self) -> f64 {
+        let hi = self.next(26) as u64;
+        let lo = self.next(27) as u64;
+        ((hi << 27) + lo) as f64 * (1.0 / ((1u64 << 53) as f64))
+    }
+
+    /// `java.util.Random.nextGaussian` (Box–Muller, `StrictMath` log/sqrt).
+    pub fn next_gaussian(&mut self) -> f64 {
+        if let Some(spare) = self.next_gaussian_spare.take() {
+            return spare;
+        }
+        loop {
+            let v1 = 2.0 * self.next_double() - 1.0;
+            let v2 = 2.0 * self.next_double() - 1.0;
+            let s = v1 * v1 + v2 * v2;
+            if s < 1.0 && s != 0.0 {
+                let m = (-2.0 * s.ln() / s).sqrt();
+                self.next_gaussian_spare = Some(v2 * m);
+                return v1 * m;
+            }
+        }
     }
 }
 
@@ -486,6 +513,15 @@ mod tests {
         for &e in &expected {
             assert_eq!(rng.next_int(300), e, "next_int(300) mismatch");
         }
+    }
+
+    #[test]
+    fn six_r41_next_gaussian_first_three_match_java_qd_jitter() {
+        let mut rng = GatkJavaRng::reset_gatk_default();
+        let printed: Vec<String> = (0..3)
+            .map(|_| format!("{:.2}", 30.0 + 3.0 * rng.next_gaussian()))
+            .collect();
+        assert_eq!(printed, ["25.36", "28.73", "30.97"]);
     }
 
     #[test]

@@ -1329,3 +1329,55 @@ mod p12_6r27_call_region_none_audit_tests;
 #[cfg(test)]
 #[path = "../tests/event_map/event_map_p12_6r28_test.rs"]
 mod p12_6r28_allele_filtering_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r29_test.rs"]
+mod p12_6r29_extra_snp_emission_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r30_test.rs"]
+mod p12_6r30_seqgraph_kbest_topology_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r31_test.rs"]
+mod p12_6r31_rt_cleanup_target_tracking_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r32_test.rs"]
+mod p12_6r32_dangling_head_parity_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r33_test.rs"]
+mod p12_6r33_prefix_match_legacy_parity_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r34_test.rs"]
+mod p12_6r34_path_bases_parity_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r35_test.rs"]
+mod p12_6r35_path_bases_holdout_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r36_test.rs"]
+mod p12_6r36_path_bases_java_parity_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r37_test.rs"]
+mod p12_6r37_cleaned_graph_divergence_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r38_test.rs"]
+mod p12_6r38_eventmap_vcf_parity_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r39_test.rs"]
+mod p12_6r39_trim_max_end_parity_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r40_test.rs"]
+mod p12_6r40_af_qual_mleac_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r41_test.rs"]
+mod p12_6r41_qual_by_depth_jitter_tests;

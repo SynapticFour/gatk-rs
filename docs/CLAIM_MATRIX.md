@@ -5,8 +5,8 @@ reachable from **`main`**, do not assert it.
 
 **Pinned Java oracle:** GATK **4.4.0.0** — see [`GATK_PINNED.env`](GATK_PINNED.env) and root `GATK_PINNED_SHA`.
 
-**Last updated:** 2026-08-15 (ci-subset HG001 ΔF1 gate signed on `main` via Finalize
-`gate_passed=true`; Peak RSS already wins; product wall still ~1.79× Java)
+**Last updated:** 2026-08-30 (canonical mid-B HC path documented in [`PARITY.md`](PARITY.md)
+as an engineering milestone; scoped Yes-row below is **not** whole-codebase HC equivalence)
 
 ---
 
@@ -15,6 +15,7 @@ reachable from **`main`**, do not assert it.
 | Claim | Scope | Evidence on `main` |
 |-------|-------|--------------------|
 | Production path is `CallRegionArgs::strict_java()` + `assembly-region-v1` | Default CLI HC | `gatk-haplotypecaller/src/run.rs` |
+| Canonical mid-B HC path (graph → EventMap → FORMAT → QUAL / MLEAC / QD) | One ActiveFull region, `2:92317000-92319000`, three oracle SNPs. **Not** genome-wide HC equivalence. | [`docs/PARITY.md`](PARITY.md), [`docs/PARITY_MILESTONE_6R.md`](PARITY_MILESTONE_6R.md); `cargo test -p gatk-haplotypecaller --lib six_r`; `p12_call_none_mid_b_test` |
 | P12 L3 variant emit parity | `chr2:92300000–92350000`, 66 Java sites, `rust_only=0` | `scripts/parity/run_p12_l3_signoff.sh` (+ P12 tests under `gatk-haplotypecaller/tests/`) |
 | P12 L4 FORMAT parity (algorithmic) | Same interval, 66 sites | `scripts/parity/run_p12_l4_signoff.sh` |
 | P12 L5 gVCF block parity | Same interval | `scripts/parity/run_p12_l5_gvcf.sh` |
@@ -74,7 +75,7 @@ evidence/scripts are restored here. Cite them as historical engineering notes on
 
 | Claim | Reality |
 |-------|---------|
-| Genome-wide (full autosomes) GATK 4.4 HaplotypeCaller equivalence | **No** — signed evidence on `main` is P12 + L2 + synthetic joint/filter minis |
+| Genome-wide (full autosomes) GATK 4.4 HaplotypeCaller equivalence | **No** — signed product evidence is P12 + L2 + synthetic joint/filter minis. Canonical **mid-B** path convergence ([`PARITY.md`](PARITY.md)) is **not** whole-codebase HC parity |
 | GIAB `ci-subset` / multi-sample truth equivalence as a product claim | **Partial** — HG001 ci-subset ΔF1 **signed**; HG002+HG005 and autosomes **not** |
 | Multi-sample joint HC (Java merges `-I` reads) | **No** — each BAM traversed independently |
 | CombineGVCFs / GenotypeGVCFs for **large cohorts** (WGS × N≫100, GenomicsDB-class) | **No** — gatk-rs Combine loads full gVCFs in memory and has no GenomicsDBImport path. Signed synthetic scale gate: **recommended ≤ 100 samples** on 10 kb/400-SNP ladder |

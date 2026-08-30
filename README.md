@@ -22,11 +22,14 @@ GATK 4.4 jar as an oracle; they do not ship Broad source (see [`NOTICE.md`](NOTI
 |--------------------|--------------------|
 | Germline spine vs pinned **GATK 4.4**: HC → CombineGVCFs → GenotypeGVCFs → hard `VariantFiltration` | Full GATK4 toolkit (BQSR, VQSR, Mutect2, gCNV/SV, Funcotator, …) |
 | **L2** synthetic gates (223/223) + **P12** L3/L4/L5 on `chr2:92300000–92350000` | Genome-wide / full-autosome HC equivalence |
+| Canonical **mid-B** HC path (assembly through QUAL/QD) on `2:92317000-92319000` — [`docs/PARITY.md`](docs/PARITY.md) | Whole-codebase HaplotypeCaller equivalence |
 | Synthetic joint-genotype cohort ladder (**≤100** samples on a tiny interval) | WGS × large-N / GenomicsDB-class joint calling |
 | Scoped algorithm parity with honest waivers (W-H1 / W-H3 / W-L7-FORMAT) | Clinical drop-in, bitwise-identical QUAL/FORMAT everywhere, or a product launch |
 | Equivalence **harness** green on GIAB **smoke** (hosted CI, RTG F1 Δ=0 on three ~50 kb windows) | A **signed** GIAB `ci-subset` / full-autosome F1 claim — still **unsigned** |
 
-Authority: [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Historical L6–L14 narratives live on `pre-cleanup-archive` only — not unqualified **Yes** rows here.
+Authority: [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Canonical mid-B is one
+ActiveFull region ([`docs/PARITY.md`](docs/PARITY.md)), not a genome-wide product claim.
+Historical L6–L14 narratives live on `pre-cleanup-archive` only — not unqualified **Yes** rows here.
 
 ## Why does this exist?
 
@@ -82,7 +85,8 @@ gatk-rs targets the **germline short-variant** workflow against pinned GATK
 
 Claims and non-claims for what that path has actually proven:
 [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Structure:
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Mid-B HC algorithm contracts:
+[`docs/PARITY.md`](docs/PARITY.md).
 
 **External pilots:** run the same spine on your own BAMs and compare Java↔Rust
 yourself — [`docs/PILOT_GUIDE.md`](docs/PILOT_GUIDE.md) +

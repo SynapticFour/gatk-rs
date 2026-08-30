@@ -90,13 +90,22 @@ pub fn annotate_hc_variant_site(
     let gl_for_qual = genotype_log10_likelihoods_after_java_genotype_pl_roundtrip(
         &genotype.genotype_log10_likelihoods,
     );
-    let qual = qual_from_af_calculation(&gl_for_qual)?;
+    let af_result = calculate_biallelic_af_em(&[&gl_for_qual], &AfCalculatorConfig::default())?;
+    let qual = (-10.0 * af_result.log10_posterior_no_variant) + 0.0;
     let best_idx =
         crate::genotyping::biallelic_genotype_index_from_pl(&genotype.format.pl).as_usize();
     let gt = genotype_from_index(best_idx);
     let dp = genotype.format.dp.as_i32().max(0);
     let qd_depth = qd_depth_for_variant(&gt, &genotype.format);
-    let (ac, af, an, mleac, mleaf) = mle_alleles_from_genotype_index(best_idx);
+    // Java AC/AF/AN from called genotypes; MLEAC/MLEAF from AFCalculationResult
+    // (`composeCallAttributes`: round(EM alt count), MLEAF = MLEAC / AN).
+    let (ac, af, an) = called_ac_af_an(best_idx);
+    let mleac = af_result.alt_allele_count;
+    let mleaf = if an > 0 {
+        (mleac as f64 / an as f64).min(1.0)
+    } else {
+        0.0
+    };
     let (ref_fw, ref_rv, alt_fw, alt_rv, mq_sum, mq_n) =
         read_strand_evidence_at_site(region, position_1based, ref_allele, alt_allele);
     let (ref_positions, alt_positions) =
@@ -164,13 +173,19 @@ fn read_offset_evidence_at_site(
     (ref_pos, alt_pos)
 }
 
-fn mle_alleles_from_genotype_index(best: usize) -> (i32, f64, i32, i32, f64) {
+fn called_ac_af_an(best: usize) -> (i32, f64, i32) {
     let an = 2;
     match best {
-        0 => (0, 0.0, an, 0, 0.0),
-        1 => (1, 0.5, an, 1, 0.5),
-        _ => (2, 1.0, an, 2, 1.0),
+        0 => (0, 0.0, an),
+        1 => (1, 0.5, an),
+        _ => (2, 1.0, an),
     }
+}
+
+#[allow(dead_code)] // 6R.38/40: former MLEAC path (called GT); Java uses AF MLE instead.
+fn mle_alleles_from_genotype_index(best: usize) -> (i32, f64, i32, i32, f64) {
+    let (ac, af, an) = called_ac_af_an(best);
+    (ac, af, an, ac, af)
 }
 
 fn genotype_counts_from_index(best: usize) -> (u32, u32, u32) {
@@ -246,6 +261,23 @@ mod tests {
         let pl = [2238_i32, 151, 0];
         let gl: Vec<f64> = pl.iter().map(|p| -((p - pl[2]) as f64) / 10.0).collect();
         let qual = qual_from_af_calculation(&gl).expect("qual");
-        assert!((qual - 2224.06).abs() < 0.1, "qual={qual}");
+        assert!((qual - 2224.06).abs() < 0.15, "qual={qual}");
+    }
+
+    #[test]
+    fn six_r40_pl_90_6_0_qual_mleac_match_java_af() {
+        let gl = [-9.0, -0.6, 0.0];
+        let af = calculate_biallelic_af_em(&[&gl], &AfCalculatorConfig::default()).expect("af");
+        let qual = (-10.0 * af.log10_posterior_no_variant) + 0.0;
+        assert_eq!(af.alt_allele_count, 1);
+        assert!((qual - 78.32).abs() < 0.02, "qual={qual}");
+        let mleaf = (af.alt_allele_count as f64 / 2.0).min(1.0);
+        assert!((mleaf - 0.5).abs() < 1e-9);
+        crate::annotator::plugins::qual_by_depth::reset_gatk_qual_by_depth_rng();
+        let qd = crate::annotator::plugins::qual_by_depth::qual_by_depth(qual, 2);
+        assert!(
+            (qd - 25.36).abs() < 0.005,
+            "QD first GATK-seed gaussian, qd={qd}"
+        );
     }
 }

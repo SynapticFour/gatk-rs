@@ -293,11 +293,11 @@ mod traces {
             eprintln!("Real-data mid-B comparison unavailable");
             return;
         };
-        assert_eq!(untrimmed.haplotypes.len(), 4);
-        assert_eq!(n_alt(&untrimmed), 3);
+        assert_eq!(untrimmed.haplotypes.len(), 2);
+        assert_eq!(n_alt(&untrimmed), 1);
         assert!(untrimmed.haplotypes.iter().all(|h| h.bases.len() == 430));
         dump_hap_trace("6R.28_UNTRIMMED_430M", &untrimmed);
-        assert_eq!(n_exact_snp(&untrimmed, SITE_CA, b'A'), 2);
+        assert_eq!(n_exact_snp(&untrimmed, SITE_CA, b'A'), 1);
 
         let mut legacy = untrimmed.clone();
         legacy_unique_snp_rank_filter_assembly(
@@ -308,11 +308,11 @@ mod traces {
         dump_hap_trace("6R.28_LEGACY_UNIQUE_SUPPORTER", &legacy);
         assert_eq!(
             legacy.haplotypes.len(),
-            1,
-            "legacy unique-supporter → REF only"
+            2,
+            "6R.33: no extra-SNP unique supporters remain; oracle ALT-A is kept"
         );
-        assert_eq!(n_alt(&legacy), 0);
-        assert_eq!(n_exact_snp(&legacy, SITE_CA, b'A'), 0);
+        assert_eq!(n_alt(&legacy), 1);
+        assert_eq!(n_exact_snp(&legacy, SITE_CA, b'A'), 1);
     }
 
     #[test]
@@ -321,10 +321,10 @@ mod traces {
             eprintln!("Real-data mid-B comparison unavailable");
             return;
         };
-        assert_eq!(untrimmed.haplotypes.len(), 4);
-        assert_eq!(n_alt(&untrimmed), 3);
-        assert_eq!(n_exact_snp(&untrimmed, SITE_CA, b'A'), 2);
-        assert_eq!(java44_default_hc_keep_all(4), vec![true; 4]);
+        assert_eq!(untrimmed.haplotypes.len(), 2);
+        assert_eq!(n_alt(&untrimmed), 1);
+        assert_eq!(n_exact_snp(&untrimmed, SITE_CA, b'A'), 1);
+        assert_eq!(java44_default_hc_keep_all(2), vec![true; 2]);
 
         let filtered = filter_span(&untrimmed, active_s, active_e);
         dump_hap_trace("6R.28_PRODUCTION_FILTER", &filtered);
