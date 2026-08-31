@@ -134,6 +134,81 @@ pub struct DanglingRecoverySummary {
     pub edges_merged: u32,
 }
 
+/// Test-only vertex row for a dangling-head alt/ref path dump (6R.32).
+#[cfg(test)]
+#[derive(Debug, Clone)]
+pub(crate) struct DanglingHeadPathVertexDump {
+    pub id: usize,
+    pub kmer: Vec<u8>,
+    pub in_degree: usize,
+    pub out_degree: usize,
+    pub is_ref: bool,
+    pub is_source: bool,
+    pub is_sink: bool,
+    pub is_ref_source: bool,
+    pub is_ref_sink: bool,
+    pub edge_to_next_support: Option<u32>,
+    pub outgoing: Vec<(usize, Vec<u8>, u32, bool)>,
+}
+
+/// Test-only `recoverDanglingHead` decision dump (6R.32). Does not mutate the graph.
+#[cfg(test)]
+#[derive(Debug, Clone)]
+pub(crate) struct DanglingHeadDecisionDump {
+    pub head_id: usize,
+    pub head_kmer: Vec<u8>,
+    pub classified_dangling_head: bool,
+    pub source_reachable: bool,
+    pub sink_reachable: bool,
+    pub min_vertices: usize,
+    pub prune_factor: u32,
+    pub min_dangling_branch_length: usize,
+    pub min_matching_bases: i32,
+    pub give_up_at_branch: bool,
+    pub kmer_size: usize,
+    pub branch_weight: Option<u32>,
+    pub path_find: &'static str,
+    pub min_length: &'static str,
+    pub not_ref_sink: &'static str,
+    pub alignment: &'static str,
+    pub cigar_ok: &'static str,
+    pub prefix_legacy_rust: String,
+    pub prefix_legacy_java_on_rust_seq: String,
+    pub prefix_legacy_java_on_java_seq: String,
+    pub final_rust: &'static str,
+    pub final_java_source_derived: &'static str,
+    pub rust_plan: String,
+    pub alt_path_ids: Vec<usize>,
+    pub ref_path_ids: Vec<usize>,
+    pub alt_path_vertices: Vec<DanglingHeadPathVertexDump>,
+    pub ref_path_vertices: Vec<DanglingHeadPathVertexDump>,
+    pub rust_alt_bases: Vec<u8>,
+    pub rust_ref_bases: Vec<u8>,
+    pub java_alt_bases: Vec<u8>,
+    pub java_ref_bases: Vec<u8>,
+    pub rust_cigar: String,
+    pub java_seq_cigar: String,
+    pub rust_alignment_offset: i32,
+    pub java_seq_alignment_offset: i32,
+    pub first_m_len: usize,
+    pub mismatches_in_first_m: usize,
+    pub matches_in_first_m: usize,
+    pub max_mismatches_legacy: usize,
+    pub rust_idx: Option<usize>,
+    pub java_idx_on_rust_seq: i32,
+    pub java_idx_on_java_seq: i32,
+    pub java_seq_first_m_len: usize,
+    pub java_seq_mismatches_in_first_m: usize,
+    pub java_seq_cigar_ok: bool,
+    pub sw_match: usize,
+    pub sw_mismatch: usize,
+    pub sw_ins: usize,
+    pub sw_del: usize,
+    pub sw_score_source_derived: i32,
+    pub merge_from_kmer: Vec<u8>,
+    pub merge_to_kmer: Vec<u8>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TraversalDir {
     Up,
@@ -240,7 +315,11 @@ fn best_prefix_match(
     }
 }
 
-/// GATK `bestPrefixMatchLegacy` for dangling heads; returns merge index or `None`.
+/// GATK 4.4 `bestPrefixMatchLegacy` (`AbstractReadThreadingGraph`, SHA `2dbc0258`).
+///
+/// Returns the last mismatch index in `[0, maxIndex)`, or `None` for Java `-1`:
+/// too many mismatches (`> max(1, maxIndex / kmerSize)`), or a perfect prefix
+/// (`lastGoodIndex` stays `-1`). Does **not** fall back to `maxIndex-1`.
 fn best_prefix_match_legacy(
     path1: &[u8],
     path2: &[u8],
@@ -258,14 +337,40 @@ fn best_prefix_match_legacy(
         if !base_eq(path1[index], path2[index]) {
             mismatches += 1;
             if mismatches > max_mismatches {
-                return last_good_index;
+                return None;
             }
             last_good_index = Some(index);
         }
         index += 1;
     }
-    if index == max_index {
-        last_good_index = Some(index.saturating_sub(1));
+    last_good_index
+}
+
+/// GATK 4.4 `bestPrefixMatchLegacy` (SHA `2dbc0258`): last **mismatch** index, or `-1` if
+/// none / too many mismatches. Production [`best_prefix_match_legacy`] matches this return.
+#[cfg(test)]
+fn best_prefix_match_legacy_java_44(
+    path1: &[u8],
+    path2: &[u8],
+    max_index: usize,
+    kmer_size: usize,
+) -> i32 {
+    let max_mismatches = (max_index / kmer_size.max(1)).max(1);
+    let mut mismatches = 0i32;
+    let mut index = 0usize;
+    let mut last_good_index: i32 = -1;
+    while index < max_index {
+        if index >= path1.len() || index >= path2.len() {
+            break;
+        }
+        if path1[index] != path2[index] {
+            mismatches += 1;
+            if mismatches > max_mismatches as i32 {
+                return -1;
+            }
+            last_good_index = index as i32;
+        }
+        index += 1;
     }
     last_good_index
 }
@@ -282,19 +387,303 @@ fn longest_suffix_match_java(seq: &[u8], kmer: &[u8], seq_start: usize) -> usize
     kmer.len()
 }
 
-/// GATK `getBasesForPath`: suffix per vertex; optional expanded source kmer (reversed).
+/// GATK 4.4 `getBasesForPath` (SHA `2dbc0258`): suffix per vertex; when `expand_source`,
+/// **every** `isSource` vertex (`inDegree == 0`) emits the full k-mer **byte-reversed**
+/// (not reverse-complement). `expand_source=false` is suffix-only (dangling tails).
 fn path_bases(graph: &AssemblyGraph, path: &[usize], expand_source: bool) -> Vec<u8> {
     let mut out = Vec::new();
-    for (idx, &node) in path.iter().enumerate() {
+    for &node in path {
         let kmer = graph.kmer_at(node);
-        if expand_source && idx == 0 && graph.is_source(node) {
-            let bytes: Vec<u8> = kmer.iter().rev().copied().collect();
-            out.extend_from_slice(&bytes);
+        if expand_source && graph.is_source(node) {
+            out.extend(kmer.iter().rev().copied());
         } else if let Some(&b) = kmer.last() {
             out.push(b);
         }
     }
     out
+}
+
+/// Test-only Java 4.4 `AbstractReadThreadingGraph.getBasesForPath` (SHA `2dbc0258`).
+///
+/// When `expand_source` is true, **every** `isSource` vertex (`inDegree == 0`) emits
+/// the full k-mer **reversed** (byte reverse, not reverse-complement). Otherwise each
+/// vertex emits `getSuffix()` (last k-mer byte). Production [`path_bases`] matches this.
+#[cfg(test)]
+pub(crate) fn java_get_bases_for_path_reference(
+    graph: &AssemblyGraph,
+    path: &[usize],
+    expand_source: bool,
+) -> Vec<u8> {
+    let mut out = Vec::new();
+    for &node in path {
+        let kmer = graph.kmer_at(node);
+        if expand_source && graph.is_source(node) {
+            out.extend(kmer.iter().rev().copied());
+        } else if let Some(&b) = kmer.last() {
+            out.push(b);
+        }
+    }
+    out
+}
+
+/// 6R.34 alias for [`java_get_bases_for_path_reference`].
+#[cfg(test)]
+fn path_bases_java_get_bases_for_path(
+    graph: &AssemblyGraph,
+    path: &[usize],
+    expand_source: bool,
+) -> Vec<u8> {
+    java_get_bases_for_path_reference(graph, path, expand_source)
+}
+
+/// One encoding pair scored with 6R.33 `bestPrefixMatchLegacy` + head CIGAR gate.
+#[cfg(test)]
+#[derive(Debug, Clone)]
+pub(crate) struct PathBasesHoldoutRow {
+    pub identity: String,
+    pub k: usize,
+    pub rust_alt_len: usize,
+    pub java_alt_len: usize,
+    pub rust_mm: Vec<usize>,
+    pub java_mm: Vec<usize>,
+    pub rust_cap: usize,
+    pub java_cap: usize,
+    pub rust_idx: Option<usize>,
+    pub java_idx: Option<usize>,
+    pub rust_merge: &'static str,
+    pub java_merge: &'static str,
+    pub flip: bool,
+    pub rust_cigar: String,
+    pub java_cigar: String,
+    pub seqs_differ: bool,
+    pub rust_alt: Vec<u8>,
+    pub java_alt: Vec<u8>,
+    pub delta: String,
+    pub later_sources: usize,
+}
+
+#[cfg(test)]
+fn path_bases_holdout_merge_label(
+    cigar_ok: bool,
+    prefix: Option<usize>,
+    ref_path_len: usize,
+) -> &'static str {
+    if !cigar_ok {
+        return "REJECT";
+    }
+    match prefix {
+        Some(i) if i > 0 && i < ref_path_len.saturating_sub(1) => "ACCEPT",
+        _ => "REJECT",
+    }
+}
+
+#[cfg(test)]
+fn path_bases_holdout_delta(rust: &[u8], java: &[u8]) -> String {
+    let common = rust
+        .iter()
+        .zip(java.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+    format!(
+        "common_prefix={} rust_tail={} java_tail={} d_len={}",
+        common,
+        rust.len().saturating_sub(common),
+        java.len().saturating_sub(common),
+        java.len() as isize - rust.len() as isize
+    )
+}
+
+/// Score Rust `path_bases` vs Java-equivalent encodings with production 6R.33 semantics.
+/// Each encoding uses its own first-M length for `max(1, firstM / k)`.
+#[cfg(test)]
+pub(crate) fn path_bases_holdout_from_encodings(
+    identity: impl Into<String>,
+    k: usize,
+    rust_ref: &[u8],
+    rust_alt: &[u8],
+    java_ref: &[u8],
+    java_alt: &[u8],
+    ref_path_len: usize,
+    later_sources: usize,
+) -> PathBasesHoldoutRow {
+    let rust_d = path_bases_holdout_score(rust_ref, rust_alt, k);
+    let java_d = path_bases_holdout_score(java_ref, java_alt, k);
+    let rust_merge = path_bases_holdout_merge_label(rust_d.0, rust_d.1, ref_path_len);
+    let java_merge = path_bases_holdout_merge_label(java_d.0, java_d.1, ref_path_len);
+    PathBasesHoldoutRow {
+        identity: identity.into(),
+        k,
+        rust_alt_len: rust_alt.len(),
+        java_alt_len: java_alt.len(),
+        rust_mm: rust_d.2,
+        java_mm: java_d.2,
+        rust_cap: rust_d.3,
+        java_cap: java_d.3,
+        rust_idx: rust_d.1,
+        java_idx: java_d.1,
+        rust_merge,
+        java_merge,
+        flip: rust_merge != java_merge,
+        rust_cigar: rust_d.4,
+        java_cigar: java_d.4,
+        seqs_differ: rust_alt != java_alt || rust_ref != java_ref,
+        rust_alt: rust_alt.to_vec(),
+        java_alt: java_alt.to_vec(),
+        delta: path_bases_holdout_delta(rust_alt, java_alt),
+        later_sources,
+    }
+}
+
+#[cfg(test)]
+fn path_bases_holdout_score(
+    ref_bases: &[u8],
+    alt_bases: &[u8],
+    k: usize,
+) -> (bool, Option<usize>, Vec<usize>, usize, String) {
+    let cigar = align_dangling(
+        ref_bases,
+        alt_bases,
+        &DanglingRecoverySwParams::gatk_defaults(),
+    );
+    let cigar_s = format_cigar_elements(&cigar);
+    let cigar_ok = cigar_ok_to_merge_head(&cigar);
+    if !cigar_ok {
+        return (false, None, Vec::new(), 0, cigar_s);
+    }
+    let first_m = cigar
+        .elements
+        .first()
+        .filter(|e| e.operator == CigarOperator::Match)
+        .map(|e| e.length)
+        .unwrap_or(0);
+    let n = first_m.min(ref_bases.len()).min(alt_bases.len());
+    let mm: Vec<usize> = (0..n)
+        .filter(|&i| !base_eq(ref_bases[i], alt_bases[i]))
+        .collect();
+    let cap = (first_m / k.max(1)).max(1);
+    let prefix = best_prefix_match_legacy(ref_bases, alt_bases, first_m, k);
+    (true, prefix, mm, cap, cigar_s)
+}
+
+#[cfg(test)]
+pub(crate) fn path_bases_holdout_from_graph_paths(
+    graph: &AssemblyGraph,
+    identity: impl Into<String>,
+    alt_path: &[usize],
+    ref_path: &[usize],
+    expand_source: bool,
+) -> PathBasesHoldoutRow {
+    let rust_ref = path_bases(graph, ref_path, expand_source);
+    let rust_alt = path_bases(graph, alt_path, expand_source);
+    let java_ref = java_get_bases_for_path_reference(graph, ref_path, expand_source);
+    let java_alt = java_get_bases_for_path_reference(graph, alt_path, expand_source);
+    let later_sources = alt_path
+        .iter()
+        .enumerate()
+        .filter(|(i, n)| *i > 0 && graph.is_source(**n))
+        .count()
+        + ref_path
+            .iter()
+            .enumerate()
+            .filter(|(i, n)| *i > 0 && graph.is_source(**n))
+            .count();
+    path_bases_holdout_from_encodings(
+        identity,
+        graph.kmer_size,
+        &rust_ref,
+        &rust_alt,
+        &java_ref,
+        &java_alt,
+        ref_path.len(),
+        later_sources,
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn eprintln_path_bases_holdout(row: &PathBasesHoldoutRow) {
+    eprintln!(
+        "6R.35 HOLDOUT identity={} k={} rust_len={} java_len={} rust_mm={:?} java_mm={:?} rust_cap={} java_cap={} rust_idx={:?} java_idx={:?} rust_merge={} java_merge={} flip={} seqs_differ={} later_sources={} rust_cigar={} java_cigar={} delta={}",
+        row.identity,
+        row.k,
+        row.rust_alt_len,
+        row.java_alt_len,
+        row.rust_mm,
+        row.java_mm,
+        row.rust_cap,
+        row.java_cap,
+        row.rust_idx,
+        row.java_idx,
+        row.rust_merge,
+        row.java_merge,
+        if row.flip { "YES" } else { "NO" },
+        row.seqs_differ,
+        row.later_sources,
+        row.rust_cigar,
+        row.java_cigar,
+        row.delta
+    );
+}
+
+#[cfg(test)]
+fn format_cigar_elements(cigar: &Cigar) -> String {
+    if cigar.elements.is_empty() {
+        return String::new();
+    }
+    cigar
+        .elements
+        .iter()
+        .map(|e| format!("{}{}", e.length, e.operator.as_char()))
+        .collect()
+}
+
+#[cfg(test)]
+fn cigar_sw_stats(
+    ref_bases: &[u8],
+    alt_bases: &[u8],
+    cigar: &Cigar,
+    p: &DanglingRecoverySwParams,
+) -> (i32, usize, usize, usize, usize) {
+    let mut r = 0usize;
+    let mut q = 0usize;
+    let mut score = 0i32;
+    let mut matches = 0usize;
+    let mut mismatches = 0usize;
+    let mut ins = 0usize;
+    let mut del = 0usize;
+    for e in &cigar.elements {
+        match e.operator {
+            CigarOperator::Match => {
+                for _ in 0..e.length {
+                    if r < ref_bases.len()
+                        && q < alt_bases.len()
+                        && base_eq(ref_bases[r], alt_bases[q])
+                    {
+                        score += p.match_value;
+                        matches += 1;
+                    } else {
+                        score += p.mismatch_penalty;
+                        mismatches += 1;
+                    }
+                    r += 1;
+                    q += 1;
+                }
+            }
+            CigarOperator::Insertion => {
+                ins += e.length;
+                score +=
+                    p.gap_open_penalty + p.gap_extend_penalty * (e.length.saturating_sub(1) as i32);
+                q += e.length;
+            }
+            CigarOperator::Deletion => {
+                del += e.length;
+                score +=
+                    p.gap_open_penalty + p.gap_extend_penalty * (e.length.saturating_sub(1) as i32);
+                r += e.length;
+            }
+            CigarOperator::SoftClip | CigarOperator::HardClip => {}
+        }
+    }
+    (score, matches, mismatches, ins, del)
 }
 
 impl AssemblyGraph {
@@ -765,6 +1154,354 @@ impl AssemblyGraph {
         out
     }
 
+    /// Probe one dangling-head source (6R.22; does not change recovery).
+    pub fn probe_dangling_head_at(
+        &self,
+        v: usize,
+        params: &DanglingRecoveryParams,
+    ) -> Option<String> {
+        if self.incoming_count(v) > 0 || self.outgoing_nodes(v).is_empty() || self.is_ref_source(v)
+        {
+            return None;
+        }
+        self.probe_dangling_head_failures(params)
+            .into_iter()
+            .find(|(id, _, _)| *id == v)
+            .map(|(_, _, reason)| reason)
+    }
+
+    #[cfg(test)]
+    fn dump_path_vertices(&self, path: &[usize]) -> Vec<DanglingHeadPathVertexDump> {
+        path.iter()
+            .enumerate()
+            .map(|(i, &id)| {
+                let outs = self.outgoing_nodes(id);
+                let next = path.get(i + 1).copied();
+                let edge_to_next_support = next.and_then(|n| {
+                    self.edge_support(id, n)
+                        .or_else(|| self.edge_support(n, id))
+                });
+                let outgoing = outs
+                    .iter()
+                    .map(|&t| {
+                        (
+                            t,
+                            self.kmer_at(t).to_vec(),
+                            self.edge_support(id, t).unwrap_or(0),
+                            self.edge_is_ref(id, t),
+                        )
+                    })
+                    .collect();
+                DanglingHeadPathVertexDump {
+                    id,
+                    kmer: self.kmer_at(id).to_vec(),
+                    in_degree: self.incoming_count(id),
+                    out_degree: outs.len(),
+                    is_ref: self.is_ref_node(id),
+                    is_source: self.is_source(id),
+                    is_sink: self.is_sink(id),
+                    is_ref_source: self.is_ref_source_vertex(id),
+                    is_ref_sink: self.is_ref_sink_vertex(id),
+                    edge_to_next_support,
+                    outgoing,
+                }
+            })
+            .collect()
+    }
+
+    /// Test-only: Java 4.4 `recoverDanglingHead` predicates for one source (no graph mutation).
+    #[cfg(test)]
+    pub(crate) fn test_dangling_head_decision_dump(
+        &self,
+        source: usize,
+        params: &DanglingRecoveryParams,
+    ) -> DanglingHeadDecisionDump {
+        let min_vertices = params.min_dangling_branch_length + 1;
+        let give_up = !params.recover_all_dangling_branches;
+        let classified = self.incoming_count(source) == 0
+            && !self.outgoing_nodes(source).is_empty()
+            && !self.is_ref_source_vertex(source);
+        let source_reachable = self.reference_source_vertex().is_some_and(|s| {
+            let mut seen = HashSet::new();
+            let mut stack = vec![s];
+            seen.insert(s);
+            while let Some(v) = stack.pop() {
+                if v == source {
+                    return true;
+                }
+                for to in self.outgoing_nodes(v) {
+                    if seen.insert(to) {
+                        stack.push(to);
+                    }
+                }
+            }
+            false
+        });
+        let sink_reachable = self.reference_sink_vertex().is_some_and(|sink| {
+            let mut seen = HashSet::new();
+            let mut stack = vec![sink];
+            seen.insert(sink);
+            while let Some(v) = stack.pop() {
+                if v == source {
+                    return true;
+                }
+                for from in self.incoming_nodes(v) {
+                    if seen.insert(from) {
+                        stack.push(from);
+                    }
+                }
+            }
+            false
+        });
+        let mut dump = DanglingHeadDecisionDump {
+            head_id: source,
+            head_kmer: self.kmer_at(source).to_vec(),
+            classified_dangling_head: classified,
+            source_reachable,
+            sink_reachable,
+            min_vertices,
+            prune_factor: params.min_prune_factor,
+            min_dangling_branch_length: params.min_dangling_branch_length,
+            min_matching_bases: params.min_matching_bases_to_dangling_end_recovery,
+            give_up_at_branch: give_up,
+            kmer_size: self.kmer_size,
+            branch_weight: None,
+            path_find: "FAIL",
+            min_length: "n/a",
+            not_ref_sink: "n/a",
+            alignment: "n/a",
+            cigar_ok: "n/a",
+            prefix_legacy_rust: "n/a".into(),
+            prefix_legacy_java_on_rust_seq: "n/a".into(),
+            prefix_legacy_java_on_java_seq: "n/a".into(),
+            final_rust: "REJECT",
+            final_java_source_derived: "REJECT",
+            rust_plan: String::new(),
+            alt_path_ids: Vec::new(),
+            ref_path_ids: Vec::new(),
+            alt_path_vertices: Vec::new(),
+            ref_path_vertices: Vec::new(),
+            rust_alt_bases: Vec::new(),
+            rust_ref_bases: Vec::new(),
+            java_alt_bases: Vec::new(),
+            java_ref_bases: Vec::new(),
+            rust_cigar: String::new(),
+            java_seq_cigar: String::new(),
+            rust_alignment_offset: 0,
+            java_seq_alignment_offset: 0,
+            first_m_len: 0,
+            mismatches_in_first_m: 0,
+            matches_in_first_m: 0,
+            max_mismatches_legacy: 0,
+            rust_idx: None,
+            java_idx_on_rust_seq: -1,
+            java_idx_on_java_seq: -1,
+            java_seq_first_m_len: 0,
+            java_seq_mismatches_in_first_m: 0,
+            java_seq_cigar_ok: false,
+            sw_match: 0,
+            sw_mismatch: 0,
+            sw_ins: 0,
+            sw_del: 0,
+            sw_score_source_derived: 0,
+            merge_from_kmer: Vec::new(),
+            merge_to_kmer: Vec::new(),
+        };
+        {
+            let mut g = self.clone();
+            dump.rust_plan = match g.plan_dangling_head_merge(source, params) {
+                Ok((from, to)) => format!(
+                    "ok_merge:{}->{}",
+                    String::from_utf8_lossy(self.kmer_at(from)),
+                    String::from_utf8_lossy(self.kmer_at(to))
+                ),
+                Err(r) => r.to_string(),
+            };
+        }
+        let Some(alt_path) =
+            self.find_path_downwards_to_ref(source, params.min_prune_factor, give_up)
+        else {
+            dump.path_find = "FAIL";
+            return dump;
+        };
+        dump.path_find = "PASS";
+        dump.alt_path_ids = alt_path.clone();
+        dump.alt_path_vertices = self.dump_path_vertices(&alt_path);
+        dump.branch_weight = alt_path
+            .windows(2)
+            .filter_map(|w| {
+                self.edge_support(w[0], w[1])
+                    .or_else(|| self.edge_support(w[1], w[0]))
+            })
+            .min();
+        if alt_path.is_empty() {
+            dump.path_find = "FAIL empty";
+            return dump;
+        }
+        dump.not_ref_sink = if self.is_ref_sink(alt_path[0]) {
+            "FAIL"
+        } else {
+            "PASS"
+        };
+        dump.min_length = if alt_path.len() < min_vertices {
+            "FAIL"
+        } else {
+            "PASS"
+        };
+        if self.is_ref_sink(alt_path[0]) || alt_path.len() < min_vertices {
+            return dump;
+        }
+        let lca = alt_path[0];
+        let ref_path = self.reference_path_from(lca, TraversalDir::Up, None);
+        dump.ref_path_ids = ref_path.clone();
+        dump.ref_path_vertices = self.dump_path_vertices(&ref_path);
+        let rust_ref = path_bases(self, &ref_path, true);
+        let rust_alt = path_bases(self, &alt_path, true);
+        let java_ref = path_bases_java_get_bases_for_path(self, &ref_path, true);
+        let java_alt = path_bases_java_get_bases_for_path(self, &alt_path, true);
+        dump.rust_ref_bases = rust_ref.clone();
+        dump.rust_alt_bases = rust_alt.clone();
+        dump.java_ref_bases = java_ref.clone();
+        dump.java_alt_bases = java_alt.clone();
+
+        let rust_aln = if rust_ref.is_empty() || rust_alt.is_empty() {
+            None
+        } else {
+            align(
+                &rust_ref,
+                &rust_alt,
+                &sw_parameters(&params.sw),
+                SwOverhangStrategy::LeadingIndel,
+            )
+            .ok()
+        };
+        let rust_cigar = rust_aln
+            .as_ref()
+            .map(|a| remove_trailing_deletions(a.cigar.clone()))
+            .unwrap_or_default();
+        dump.rust_alignment_offset = rust_aln.as_ref().map(|a| a.alignment_offset).unwrap_or(0);
+        dump.rust_cigar = format_cigar_elements(&rust_cigar);
+        dump.alignment = if rust_cigar.elements.is_empty() {
+            "FAIL empty"
+        } else {
+            "PASS"
+        };
+        dump.cigar_ok = if cigar_ok_to_merge_head(&rust_cigar) {
+            "PASS"
+        } else {
+            "FAIL"
+        };
+        let (score, m, mm, ins, del) =
+            cigar_sw_stats(&rust_ref, &rust_alt, &rust_cigar, &params.sw);
+        dump.sw_score_source_derived = score;
+        dump.sw_match = m;
+        dump.sw_mismatch = mm;
+        dump.sw_ins = ins;
+        dump.sw_del = del;
+
+        let java_aln = if java_ref.is_empty() || java_alt.is_empty() {
+            None
+        } else {
+            align(
+                &java_ref,
+                &java_alt,
+                &sw_parameters(&params.sw),
+                SwOverhangStrategy::LeadingIndel,
+            )
+            .ok()
+        };
+        let java_cigar = java_aln
+            .as_ref()
+            .map(|a| remove_trailing_deletions(a.cigar.clone()))
+            .unwrap_or_default();
+        dump.java_seq_alignment_offset = java_aln.as_ref().map(|a| a.alignment_offset).unwrap_or(0);
+        dump.java_seq_cigar = format_cigar_elements(&java_cigar);
+        dump.java_seq_cigar_ok = cigar_ok_to_merge_head(&java_cigar);
+
+        if cigar_ok_to_merge_head(&rust_cigar) {
+            let first_el_len = rust_cigar
+                .elements
+                .first()
+                .filter(|e| e.operator == CigarOperator::Match)
+                .map(|e| e.length)
+                .unwrap_or(1);
+            dump.first_m_len = first_el_len;
+            dump.max_mismatches_legacy = (first_el_len / self.kmer_size.max(1)).max(1);
+            dump.mismatches_in_first_m = (0..first_el_len.min(rust_ref.len()).min(rust_alt.len()))
+                .filter(|&i| !base_eq(rust_ref[i], rust_alt[i]))
+                .count();
+            dump.matches_in_first_m = first_el_len.saturating_sub(dump.mismatches_in_first_m);
+            let rust_idx =
+                best_prefix_match_legacy(&rust_ref, &rust_alt, first_el_len, self.kmer_size);
+            let java_idx = best_prefix_match_legacy_java_44(
+                &rust_ref,
+                &rust_alt,
+                first_el_len,
+                self.kmer_size,
+            );
+            dump.rust_idx = rust_idx;
+            dump.java_idx_on_rust_seq = java_idx;
+            dump.prefix_legacy_rust = match rust_idx {
+                Some(i) if i == 0 => "FAIL idx=0".into(),
+                Some(i) if i >= ref_path.len().saturating_sub(1) => {
+                    format!("FAIL idx={i} ref_oob")
+                }
+                Some(i) => format!("PASS idx={i}"),
+                None => "FAIL none".into(),
+            };
+            dump.prefix_legacy_java_on_rust_seq = if java_idx <= 0 {
+                format!("FAIL idx={java_idx}")
+            } else if (java_idx as usize) >= ref_path.len().saturating_sub(1) {
+                format!("FAIL idx={java_idx} ref_oob")
+            } else {
+                format!("PASS idx={java_idx}")
+            };
+            let rust_ok = rust_idx.is_some_and(|i| i > 0)
+                && rust_idx.is_some_and(|i| i < ref_path.len().saturating_sub(1));
+            dump.final_rust = if rust_ok { "ACCEPT" } else { "REJECT" };
+            if let Some(ri) = rust_idx {
+                if ri + 1 < ref_path.len() && ri < alt_path.len() {
+                    dump.merge_from_kmer = self.kmer_at(ref_path[ri + 1]).to_vec();
+                    dump.merge_to_kmer = self.kmer_at(alt_path[ri]).to_vec();
+                }
+            }
+        }
+
+        if dump.java_seq_cigar_ok {
+            let first_el_len = java_cigar
+                .elements
+                .first()
+                .filter(|e| e.operator == CigarOperator::Match)
+                .map(|e| e.length)
+                .unwrap_or(1);
+            dump.java_seq_first_m_len = first_el_len;
+            dump.java_seq_mismatches_in_first_m =
+                (0..first_el_len.min(java_ref.len()).min(java_alt.len()))
+                    .filter(|&i| java_ref[i] != java_alt[i])
+                    .count();
+            let java_idx = best_prefix_match_legacy_java_44(
+                &java_ref,
+                &java_alt,
+                first_el_len,
+                self.kmer_size,
+            );
+            dump.java_idx_on_java_seq = java_idx;
+            dump.prefix_legacy_java_on_java_seq = if java_idx <= 0 {
+                format!("FAIL idx={java_idx}")
+            } else if (java_idx as usize) >= ref_path.len().saturating_sub(1) {
+                format!("FAIL idx={java_idx} ref_oob")
+            } else {
+                format!("PASS idx={java_idx}")
+            };
+            let java_ok = java_idx > 0 && (java_idx as usize) < ref_path.len().saturating_sub(1);
+            dump.final_java_source_derived = if java_ok { "ACCEPT" } else { "REJECT" };
+        } else {
+            dump.prefix_legacy_java_on_java_seq = "n/a cigar_not_ok".into();
+            dump.final_java_source_derived = "REJECT";
+        }
+        dump
+    }
+
     fn recover_dangling_tail(&mut self, sink: usize, params: &DanglingRecoveryParams) -> bool {
         match self.plan_dangling_tail_merge(sink, params) {
             Ok(plan) => {
@@ -1166,6 +1903,66 @@ impl AssemblyGraph {
             edges_merged: tails_recovered + heads_recovered,
         })
     }
+
+    /// Test-only: same loops as `dangling_java_exact` in [`Self::recover_dangling_branches`],
+    /// with a snapshot after tails and after heads **before** `cleanup_isolated_nodes`.
+    /// Does not change production recovery.
+    #[cfg(test)]
+    pub(crate) fn test_java_exact_dangling_tails_then_heads(
+        &mut self,
+        params: &DanglingRecoveryParams,
+        mut after_tails: impl FnMut(&AssemblyGraph, u32, u32),
+        mut after_heads: impl FnMut(&AssemblyGraph, u32, u32),
+    ) -> GatkResult<DanglingRecoverySummary> {
+        if self.ref_nodes.is_empty() {
+            return Err(GatkError::argument(
+                "dangling recovery requires a reference-threaded graph",
+            ));
+        }
+        let edges_before = self.edge_count();
+        let mut tails_attempted = 0u32;
+        let mut tails_recovered = 0u32;
+        let mut heads_attempted = 0u32;
+        let mut heads_recovered = 0u32;
+
+        let sinks: Vec<usize> = (0..self.node_count())
+            .filter(|&v| self.outgoing_nodes(v).is_empty() && !self.is_ref_sink(v))
+            .collect();
+        for &v in &sinks {
+            tails_attempted += 1;
+            if self.recover_dangling_tail(v, params) {
+                tails_recovered += 1;
+            }
+        }
+        after_tails(self, tails_attempted, tails_recovered);
+
+        if params.recover_dangling_heads {
+            let sources: Vec<usize> = (0..self.node_count())
+                .filter(|&v| {
+                    self.incoming_count(v) == 0
+                        && !self.outgoing_nodes(v).is_empty()
+                        && !self.is_ref_source_vertex(v)
+                })
+                .collect();
+            for &v in &sources {
+                heads_attempted += 1;
+                if self.recover_dangling_head(v, params) {
+                    heads_recovered += 1;
+                }
+            }
+        }
+        after_heads(self, heads_attempted, heads_recovered);
+        self.cleanup_isolated_nodes();
+        Ok(DanglingRecoverySummary {
+            edges_before,
+            edges_after: self.edge_count(),
+            tails_attempted,
+            tails_recovered,
+            heads_attempted,
+            heads_recovered,
+            edges_merged: tails_recovered + heads_recovered,
+        })
+    }
 }
 
 /// Inject ASM-1 dangling merge haps into the assembly haplotype list (graph-only EventMap path).
@@ -1236,176 +2033,5 @@ pub fn apply_dangling_merge_haplotypes(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::assembly::{AssemblyGraphParams, AssemblyGraphPruningParams, AssemblyRead};
-    use crate::assembly_pruning::apply_gatk_pruning;
-    use crate::read_threading_graph::assembly_graph_from_ref_and_reads_threading;
-
-    fn read(seq: &str, q: u8) -> AssemblyRead {
-        AssemblyRead {
-            bases: seq.as_bytes().to_vec(),
-            base_quals: vec![q; seq.len()],
-        }
-    }
-
-    fn build_pruned_ref_graph_at_k(
-        reference: &str,
-        alt_reads: &[&str],
-        kmer_size: usize,
-    ) -> AssemblyGraph {
-        let params = AssemblyGraphParams {
-            kmer_size: crate::bio_ids::KmerSize::try_new(kmer_size as u16).expect("test k≥2"),
-            min_base_quality: 10,
-            ..Default::default()
-        };
-        let mut reads: Vec<AssemblyRead> = alt_reads.iter().map(|s| read(s, 30)).collect();
-        reads.insert(0, read(reference, 30));
-        reads.insert(0, read(reference, 30));
-        reads.insert(0, read(reference, 30));
-        let reference = read(reference, 30);
-        let mut graph =
-            assembly_graph_from_ref_and_reads_threading(&reference, &reads, &params).unwrap();
-        let mut prune = AssemblyGraphPruningParams::gatk_haplotype_caller_defaults();
-        prune.min_prune_factor = 2;
-        apply_gatk_pruning(&mut graph, &prune);
-        graph
-    }
-
-    fn build_pruned_ref_graph(reference: &str, alt_reads: &[&str]) -> AssemblyGraph {
-        build_pruned_ref_graph_at_k(reference, alt_reads, 3)
-    }
-
-    #[test]
-    fn find_path_upwards_is_lca_first() {
-        let graph = build_pruned_ref_graph(
-            "ACGTTGCATCG",
-            &["ACGTTGCATCG", "ACGTTGCATCG", "ACGTTGCATCA", "ACGTTGCATCA"],
-        );
-        let alt_sink = graph
-            .nodes()
-            .iter()
-            .position(|n| n.kmer.as_ref() == b"TCA")
-            .expect("TCA sink");
-        let path = graph
-            .find_path_upwards_to_lca(alt_sink, 2, true)
-            .expect("alt path");
-        assert_eq!(graph.kmer_at(path[0]), b"ATC");
-        assert_eq!(graph.kmer_at(*path.last().unwrap()), b"TCA");
-    }
-
-    #[test]
-    fn best_prefix_match_requires_min_matching_bases() {
-        let mut cigar = Cigar::new();
-        cigar.push(4, CigarOperator::Match);
-        let ref_bases = b"ACGT";
-        let alt_bases = b"ACGT";
-        assert!(best_prefix_match(&cigar, ref_bases, alt_bases, 3).is_some());
-        assert!(best_prefix_match(&cigar, ref_bases, alt_bases, 5).is_none());
-    }
-
-    #[test]
-    fn longest_suffix_match_matches_gatk_examples() {
-        assert_eq!(longest_suffix_match_java(b"ACGT", b"TGT", 3), 2);
-        assert_eq!(longest_suffix_match_java(b"ACGT", b"CGT", 3), 3);
-        assert_eq!(longest_suffix_match_java(b"CG", b"CA", 1), 0);
-    }
-
-    #[test]
-    fn dangling_java_exact_single_pass_matches_gatk_edge_count() {
-        let mut graph = build_pruned_ref_graph(
-            "ACGTTGCATCG",
-            &["ACGTTGCATCG", "ACGTTGCATCG", "ACGTTGCATCA", "ACGTTGCATCA"],
-        );
-        let mut params = DanglingRecoveryParams::gatk_haplotype_caller_defaults();
-        params.min_dangling_branch_length = 1;
-        params.dangling_java_exact = true;
-        let summary = graph.recover_dangling_branches(&params).unwrap();
-        assert!(summary.tails_attempted >= 1);
-        // This fixture needs ASM-1 suffix rescue for a merge; GATK-exact mode correctly skips it.
-        assert_eq!(summary.tails_recovered, 0);
-        let mut multi = params;
-        multi.dangling_java_exact = false;
-        let multi_summary = graph.recover_dangling_branches(&multi).unwrap();
-        assert_eq!(multi_summary.tails_recovered, 1);
-    }
-
-    #[test]
-    fn dangling_tail_recovery_attempts_alt_sink() {
-        let mut graph = build_pruned_ref_graph(
-            "ACGTTGCATCG",
-            &["ACGTTGCATCG", "ACGTTGCATCG", "ACGTTGCATCA", "ACGTTGCATCA"],
-        );
-        let mut dangling = DanglingRecoveryParams::gatk_haplotype_caller_defaults();
-        dangling.min_dangling_branch_length = 1;
-        let summary = graph.recover_dangling_branches(&dangling).unwrap();
-        assert!(summary.tails_attempted >= 1);
-        // Java idempotent `addEdge` → `edge_exists` counts as tail recovered (ASM-1).
-        assert_eq!(summary.tails_recovered, 1);
-    }
-
-    #[test]
-    fn cigar_ok_to_merge_tail_requires_terminal_match_op() {
-        let mut trailing_ins = Cigar::new();
-        trailing_ins.push(1, CigarOperator::Match);
-        trailing_ins.push(1, CigarOperator::Insertion);
-        assert!(!cigar_ok_to_merge_tail(&trailing_ins));
-
-        let mut ok = Cigar::new();
-        ok.push(2, CigarOperator::Match);
-        assert!(cigar_ok_to_merge_tail(&ok));
-    }
-
-    #[test]
-    fn align_dangling_uses_leading_indel_strategy() {
-        let p = DanglingRecoverySwParams::gatk_defaults();
-        let cigar = align_dangling(b"ACGTACGTAC", b"ACGTXACGTAC", &p);
-        assert!(cigar_ok_to_merge_tail(&cigar));
-        assert!(cigar
-            .elements
-            .last()
-            .is_some_and(|e| e.operator == CigarOperator::Match));
-    }
-
-    /// GATK `ReadThreadingGraphUnitTest.testForkedDanglingEnds`.
-    #[test]
-    fn forked_dangling_ends_recovers_all_alt_sinks_with_recover_all() {
-        let common_prefix = "AAAAAAAAAACCCCCCCCCCGGGGGGGGGGTTTTTTTTTT";
-        let reference = format!("{common_prefix}GCTAGCTAATCG");
-        let alt1 = format!("{common_prefix}ACTAGCTAATCG");
-        let alt2 = format!("{common_prefix}ACTAGATAATCG");
-        let mut graph = build_pruned_ref_graph_at_k(&reference, &[&alt1, &alt2], 15);
-        let mut dangling = DanglingRecoveryParams::gatk_haplotype_caller_defaults();
-        dangling.min_dangling_branch_length = 4;
-        dangling.recover_all_dangling_branches = true;
-        let summary = graph.recover_dangling_branches(&dangling).unwrap();
-        assert!(
-            summary.tails_attempted >= 1,
-            "GATK testForkedDanglingEnds expects non-ref sinks (Rust may collapse forks to fewer sinks)"
-        );
-        assert_eq!(
-            summary.tails_recovered, summary.tails_attempted,
-            "recoverAll should merge every attempted alt tail"
-        );
-    }
-
-    #[test]
-    fn reference_path_from_breaks_on_cycle() {
-        // Synthetic 2-node ref cycle: without the revisit guard this walk is unbounded.
-        let mut g = AssemblyGraph::new(3).expect("k=3 graph");
-        let a = g.ensure_node(b"AAA");
-        let b = g.ensure_node(b"AAB");
-        g.add_edge_support(a, b, 1);
-        g.add_edge_support(b, a, 1);
-        g.ref_edges.insert((a, b));
-        g.ref_edges.insert((b, a));
-        g.ref_nodes.extend([a, b]);
-        let path = g.reference_path_from(a, TraversalDir::Down, None);
-        assert!(
-            path.len() <= 3,
-            "cycle must not grow ref path unboundedly: got {}",
-            path.len()
-        );
-        assert_eq!(path[0], a);
-    }
-}
+#[path = "../tests/dangling_recovery/assembly_dangling_recovery_tests.rs"]
+mod tests;

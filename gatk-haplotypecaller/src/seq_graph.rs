@@ -1,4 +1,11 @@
 //! GATK `SeqGraph` conversion and cleanup (`BaseGraph.toSequenceGraph`, `SeqGraph.cleanup`).
+//!
+//! Vertex compaction remaps surviving edge endpoints (`compact_vertices_and_remap_edges`)
+//! so `vertex.id == index` and every `edge.from`/`edge.to` names a live vertex. Zip copies
+//! the last chain vertex's outgoing edges onto the merged keep vertex (GATK
+//! `mergeLinearChainVertex`). That is a structural identity/splice repair only: it does not
+//! claim Java SeqGraph haplotype parity, does not retire W-H1, and does not change the P12
+//! `use_seq_graph = false` production waiver.
 
 use crate::assembly::AssemblyGraph;
 use gatk_common::{GatkError, GatkResult};
@@ -61,7 +68,8 @@ pub enum SeqGraphCleanupStatus {
 /// Base sequence graph for k-best haplotype discovery after threading conversion.
 /// # Invariants
 /// Reference source/sink vertices exist after successful cleanup when variation is assembled.
-/// Vertex `id` values remain dense after prune/zip operations.
+/// Vertex `id` values remain dense (`id == index`) after prune/zip; edge `from`/`to`
+/// are rewritten through the same mapping (`compact_vertices_and_remap_edges`).
 /// # Ownership
 /// Owns vertices, edges, and adjacency indexes; built from [`AssemblyGraph`] without retaining reads.
 /// # Mutation
@@ -199,14 +207,15 @@ impl SeqGraph {
     }
 
     /// GATK `Path.getBases` on a sequence graph.
+    ///
+    /// SeqVertex payloads are already additional-only (k-mer last-byte applied once in
+    /// [`Self::from_assembly_graph`]). Concatenate the stored sequence of every vertex
+    /// on the path. Empty dummy vertices contribute nothing.
     pub fn path_bases_bytes(&self, start: usize, edges: &[(usize, usize)]) -> Vec<u8> {
         let first = if edges.is_empty() { start } else { edges[0].0 };
-        let mut bases = additional_sequence_bytes(&self.vertices[first].sequence, true);
+        let mut bases = self.vertices[first].sequence.to_vec();
         for &(_, to) in edges {
-            bases.extend(additional_sequence_bytes(
-                &self.vertices[to].sequence,
-                false,
-            ));
+            bases.extend_from_slice(&self.vertices[to].sequence);
         }
         bases
     }
@@ -293,17 +302,30 @@ impl SeqGraph {
     }
 
     pub fn zip_linear_chains(&mut self) -> bool {
-        let starts: Vec<usize> = (0..self.vertices.len())
+        let mut starts: Vec<usize> = (0..self.vertices.len())
             .filter(|&s| self.is_linear_chain_start(s))
             .collect();
         if starts.is_empty() {
             return false;
         }
         let mut merged = false;
-        for start in starts {
+        let mut i = 0;
+        while i < starts.len() {
+            let start = starts[i];
+            i += 1;
+            if start >= self.vertices.len() || !self.is_linear_chain_start(start) {
+                continue;
+            }
             let chain = self.trace_linear_chain(start);
-            if chain.len() > 1 {
-                merged |= self.merge_linear_chain(&chain);
+            if chain.len() <= 1 {
+                continue;
+            }
+            let Some(old_to_new) = self.merge_linear_chain_map(&chain) else {
+                continue;
+            };
+            merged = true;
+            for s in starts.iter_mut().skip(i) {
+                *s = old_to_new.get(s).copied().unwrap_or(usize::MAX);
             }
         }
         merged
@@ -344,16 +366,50 @@ impl SeqGraph {
         chain
     }
 
-    fn is_reference_node(&self, v: usize) -> bool {
+    pub(crate) fn is_reference_node(&self, v: usize) -> bool {
         self.outgoing_of(v).iter().any(|&t| self.edge_is_ref(v, t))
             || self.incoming_of(v).iter().any(|&p| self.edge_is_ref(p, v))
     }
 
+    /// Incoming edges of `v` as `(from, support, is_ref)`.
+    pub(crate) fn edges_into(&self, v: usize) -> Vec<(usize, u32, bool)> {
+        self.edges
+            .iter()
+            .filter(|e| e.to == v)
+            .map(|e| (e.from, e.support, e.is_ref))
+            .collect()
+    }
+
+    /// Outgoing edges of `v` as `(to, support, is_ref)`.
+    pub(crate) fn edges_from(&self, v: usize) -> Vec<(usize, u32, bool)> {
+        self.edges
+            .iter()
+            .filter(|e| e.from == v)
+            .map(|e| (e.to, e.support, e.is_ref))
+            .collect()
+    }
+
     fn merge_linear_chain(&mut self, chain: &[usize]) -> bool {
+        self.merge_linear_chain_map(chain).is_some()
+    }
+
+    /// GATK `mergeLinearChainVertex`: splice `chain[0]`+…+`last` into `keep`, then copy
+    /// outgoing edges of `last` onto `keep` (Java `outgoingEdgesOf(last)` → merged vertex).
+    /// Returns old-id → new-id so remaining zip starts can be retranslated after compact.
+    fn merge_linear_chain_map(&mut self, chain: &[usize]) -> Option<HashMap<usize, usize>> {
         if chain.len() < 2 {
-            return false;
+            return None;
         }
         let keep = chain[0];
+        let last = chain[chain.len() - 1];
+        let chain_set: HashSet<usize> = chain.iter().copied().collect();
+        // Java copies last's outgoing onto the merged vertex before removing the chain.
+        // Without this, compact drops `last → successor` (e.g. last → join) and disconnects.
+        for e in &mut self.edges {
+            if e.from == last && !chain_set.contains(&e.to) {
+                e.from = keep;
+            }
+        }
         let remove: HashSet<usize> = chain[1..].iter().copied().collect();
         // Take keep sequence then extend — avoid cloning every vertex seq on the chain.
         let mut merged_seq = std::mem::take(&mut self.vertices[keep].sequence);
@@ -407,7 +463,7 @@ impl SeqGraph {
         self.vertices = new_vertices;
         self.edges = new_edges;
         self.rebuild_index();
-        true
+        Some(old_to_new)
     }
 
     fn rebuild_index(&mut self) {
@@ -417,6 +473,66 @@ impl SeqGraph {
             self.outgoing.entry(e.from).or_default().push(e.to);
             self.incoming.entry(e.to).or_default().push(e.from);
         }
+    }
+
+    /// Compact surviving vertices to dense `id == index` and rewrite edge endpoints.
+    ///
+    /// Drops any edge whose `from`/`to` is not in the kept set. This is the identity
+    /// contract already used by [`Self::merge_linear_chain`]; prune helpers must not
+    /// reindex `vertex.id` while leaving `SeqEdge` in the old namespace.
+    fn compact_vertices_and_remap_edges(
+        &mut self,
+        remove: &HashSet<usize>,
+    ) -> HashMap<usize, usize> {
+        let n = self.vertices.len();
+        let kept: Vec<usize> = (0..n)
+            .filter(|&i| !remove.contains(&i) && !remove.contains(&self.vertices[i].id))
+            .collect();
+
+        let mut old_to_new: HashMap<usize, usize> = HashMap::with_capacity(kept.len() * 2);
+        for (new_id, &old_idx) in kept.iter().enumerate() {
+            old_to_new.insert(old_idx, new_id);
+            old_to_new.insert(self.vertices[old_idx].id, new_id);
+        }
+        if kept.len() == n {
+            return old_to_new;
+        }
+
+        let mut new_vertices = Vec::with_capacity(kept.len());
+        for (new_id, &old_idx) in kept.iter().enumerate() {
+            new_vertices.push(SeqVertex {
+                id: new_id,
+                sequence: std::mem::take(&mut self.vertices[old_idx].sequence),
+            });
+        }
+
+        let mut new_edges = Vec::with_capacity(self.edges.len());
+        for e in &self.edges {
+            let Some(&from) = old_to_new.get(&e.from) else {
+                continue;
+            };
+            let Some(&to) = old_to_new.get(&e.to) else {
+                continue;
+            };
+            new_edges.push(SeqEdge {
+                from,
+                to,
+                support: e.support,
+                is_ref: e.is_ref,
+            });
+        }
+
+        self.vertices = new_vertices;
+        self.edges = new_edges;
+        self.rebuild_index();
+        debug_assert!(
+            self.vertices.iter().enumerate().all(|(i, v)| v.id == i)
+                && self
+                    .edges
+                    .iter()
+                    .all(|e| e.from < self.vertices.len() && e.to < self.vertices.len())
+        );
+        old_to_new
     }
 
     pub fn remove_singleton_orphan_vertices(&mut self) {
@@ -429,13 +545,7 @@ impl SeqGraph {
             if orphans.is_empty() {
                 break;
             }
-            self.vertices.retain(|v| !orphans.contains(&v.id));
-            for (i, v) in self.vertices.iter_mut().enumerate() {
-                v.id = i;
-            }
-            self.edges
-                .retain(|e| !orphans.contains(&e.from) && !orphans.contains(&e.to));
-            self.rebuild_index();
+            self.compact_vertices_and_remap_edges(&orphans);
         }
     }
 
@@ -462,16 +572,7 @@ impl SeqGraph {
         let remove: HashSet<usize> = (0..self.vertices.len())
             .filter(|v| !keep.contains(v))
             .collect();
-        if remove.is_empty() {
-            return;
-        }
-        self.vertices.retain(|v| !remove.contains(&v.id));
-        for (i, v) in self.vertices.iter_mut().enumerate() {
-            v.id = i;
-        }
-        self.edges
-            .retain(|e| !remove.contains(&e.from) && !remove.contains(&e.to));
-        self.rebuild_index();
+        self.compact_vertices_and_remap_edges(&remove);
     }
 
     pub fn remove_paths_not_connected_to_ref(&mut self) -> GatkResult<()> {
@@ -505,13 +606,7 @@ impl SeqGraph {
         let remove: HashSet<usize> = (0..self.vertices.len())
             .filter(|v| !from_source.contains(v))
             .collect();
-        self.vertices.retain(|v| !remove.contains(&v.id));
-        for (i, v) in self.vertices.iter_mut().enumerate() {
-            v.id = i;
-        }
-        self.edges
-            .retain(|e| !remove.contains(&e.from) && !remove.contains(&e.to));
-        self.rebuild_index();
+        self.compact_vertices_and_remap_edges(&remove);
         Ok(())
     }
 
@@ -535,17 +630,11 @@ impl SeqGraph {
         &self.vertices[v].sequence
     }
 
-    pub(crate) fn remove_vertices_by_id(&mut self, remove: &HashSet<usize>) {
-        if remove.is_empty() {
-            return;
-        }
-        self.vertices.retain(|v| !remove.contains(&v.id));
-        for (i, v) in self.vertices.iter_mut().enumerate() {
-            v.id = i;
-        }
-        self.edges
-            .retain(|e| !remove.contains(&e.from) && !remove.contains(&e.to));
-        self.rebuild_index();
+    pub(crate) fn remove_vertices_by_id(
+        &mut self,
+        remove: &HashSet<usize>,
+    ) -> HashMap<usize, usize> {
+        self.compact_vertices_and_remap_edges(remove)
     }
 
     pub(crate) fn add_seq_vertex(&mut self, sequence: Vec<u8>) -> usize {
@@ -560,6 +649,60 @@ impl SeqGraph {
 
     pub(crate) fn edges_pub(&self) -> &[SeqEdge] {
         &self.edges
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_vertex_ids(&self) -> Vec<usize> {
+        self.vertices.iter().map(|v| v.id).collect()
+    }
+
+    /// Test-only: same order as [`Self::cleanup_seq_graph`], with a snapshot after each stage.
+    #[cfg(test)]
+    pub(crate) fn traced_cleanup_seq_graph(
+        &mut self,
+        mut snap: impl FnMut(&str, &SeqGraph),
+    ) -> SeqGraphCleanupStatus {
+        snap("cleanup_entry", self);
+        self.zip_linear_chains();
+        snap("after_initial_zip_linear_chains", self);
+        self.remove_singleton_orphan_vertices();
+        snap("after_remove_singleton_orphan_vertices", self);
+        self.remove_vertices_not_connected_to_ref_regardless_of_direction();
+        snap(
+            "after_remove_vertices_not_connected_to_ref_undirected",
+            self,
+        );
+        crate::seq_graph_simplify::traced_simplify_graph_full(self, |stage, g| {
+            snap(&format!("simplify1_{stage}"), g);
+        });
+        snap("before_source_sink_jar", self);
+        if self.reference_source_vertex().is_none() || self.reference_sink_vertex().is_none() {
+            return SeqGraphCleanupStatus::JustAssembledReference;
+        }
+        let _ = self.remove_paths_not_connected_to_ref();
+        snap("after_remove_paths_not_connected_to_ref", self);
+        crate::seq_graph_simplify::traced_simplify_graph_full(self, |stage, g| {
+            snap(&format!("simplify2_{stage}"), g);
+        });
+        snap("after_second_simplify", self);
+        if self.vertices.len() == 1 {
+            let complete = 0usize;
+            let dummy_id = self.vertices.len();
+            self.vertices.push(SeqVertex {
+                id: dummy_id,
+                sequence: Vec::new(),
+            });
+            self.edges.push(SeqEdge {
+                from: complete,
+                to: dummy_id,
+                support: 0,
+                is_ref: true,
+            });
+            self.rebuild_index();
+            snap("after_dummy_vertex", self);
+        }
+        snap("final_for_kbest", self);
+        SeqGraphCleanupStatus::AssembledSomeVariation
     }
 
     pub(crate) fn add_or_update_edge(
@@ -586,35 +729,6 @@ impl SeqGraph {
 
     pub(crate) fn incoming_nodes(&self, v: usize) -> Vec<usize> {
         self.incoming_of(v).to_vec()
-    }
-
-    pub(crate) fn remove_edge(&mut self, from: usize, to: usize) {
-        self.edges.retain(|e| !(e.from == from && e.to == to));
-        self.rebuild_index();
-    }
-
-    pub(crate) fn incoming_edge_support_is_ref(&self, v: usize) -> (u32, bool) {
-        let mut support = 0u32;
-        let mut is_ref = false;
-        for e in &self.edges {
-            if e.to == v {
-                support = support.saturating_add(e.support);
-                is_ref |= e.is_ref;
-            }
-        }
-        (support, is_ref)
-    }
-
-    pub(crate) fn outgoing_edge_support_is_ref(&self, v: usize) -> (u32, bool) {
-        let mut support = 0u32;
-        let mut is_ref = false;
-        for e in &self.edges {
-            if e.from == v {
-                support = support.saturating_add(e.support);
-                is_ref |= e.is_ref;
-            }
-        }
-        (support, is_ref)
     }
 
     pub fn cleanup_seq_graph(&mut self) -> SeqGraphCleanupStatus {
@@ -722,3 +836,31 @@ mod tests {
         assert!(seq.edge_count() > 0);
     }
 }
+
+#[cfg(test)]
+#[path = "seq_graph_id_invariant_test.rs"]
+mod id_invariant_tests;
+
+#[cfg(test)]
+#[path = "seq_graph_post_repair_simplify_test.rs"]
+mod post_repair_simplify_tests;
+
+#[cfg(test)]
+#[path = "seq_graph_path_bases_probe_test.rs"]
+mod path_bases_probe_tests;
+
+#[cfg(test)]
+#[path = "seq_graph_p12_waiver_gate_test.rs"]
+mod p12_waiver_gate_tests;
+
+#[cfg(test)]
+#[path = "seq_graph_p12_k85_topology_test.rs"]
+mod p12_k85_topology_tests;
+
+#[cfg(test)]
+#[path = "seq_graph_p12_k85_threading_test.rs"]
+mod p12_k85_threading_tests;
+
+#[cfg(test)]
+#[path = "seq_graph_p12_k10_rt_test.rs"]
+mod p12_k10_rt_tests;

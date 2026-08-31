@@ -2,8 +2,8 @@
 
 use crate::assembly::AssemblyRead;
 use crate::assembly_region_finalize::{
-    assembly_reference_read, gatk_min_tail_quality_for_assembly, padded_reference_loc,
-    records_to_assembly_reads, reference_haplotype_for_assembly_region,
+    assembly_reference_read, create_graph_reference_read, gatk_min_tail_quality_for_assembly,
+    padded_reference_loc, records_to_assembly_reads, reference_haplotype_for_assembly_region,
 };
 use crate::assembly_region_iterator::AssemblyRegion;
 use crate::assembly_result_set::AssemblyResultSet;
@@ -252,6 +252,10 @@ pub fn assemble_reads_with_finalized(
     )?;
     let reads = assembly_reads;
     let (padded_loc_start, _) = padded_reference_loc(region, dictionary);
+    // GATK `createGraph` uniqueness + `addSequence("ref", …)` use `refHaplotype.getBases()`
+    // (`getAssemblyRegionReference` padding 0), not `fullReferenceWithPadding` (±500).
+    let graph_ref = create_graph_reference_read(&reference, region, dictionary);
+    let graph_ref_start = region.extended_start.get();
     let mut assembler = args.assembler.clone();
     if args.strict_java_assembly {
         assembler.dangling_java_exact = true;
@@ -265,7 +269,7 @@ pub fn assemble_reads_with_finalized(
             assembler.skip_post_dangling_prune = true;
         }
         assembler.scoring = Some(crate::read_threading_assembler::AssemblyScoringContext {
-            padded_reference_start_1based: padded_loc_start,
+            padded_reference_start_1based: graph_ref_start,
             active_start_1based: region.start.get(),
             active_end_1based: region.end.get(),
             // CLONE: needed because owned contig id for output record.
@@ -276,14 +280,14 @@ pub fn assemble_reads_with_finalized(
         region.end.get(),
     ) {
         assembler.scoring = Some(crate::read_threading_assembler::AssemblyScoringContext {
-            padded_reference_start_1based: padded_loc_start,
+            padded_reference_start_1based: graph_ref_start,
             active_start_1based: region.start.get(),
             active_end_1based: region.end.get(),
             // CLONE: needed because owned contig id for output record.
             contig: region.contig.clone(),
         });
     }
-    let mut result = assemble_from_ref_and_reads(&reference, &reads, &assembler)?;
+    let mut result = assemble_from_ref_and_reads(&graph_ref, &reads, &assembler)?;
     normalize_production_haplotypes(
         &mut result,
         &reference,
@@ -291,6 +295,14 @@ pub fn assemble_reads_with_finalized(
         dictionary,
         args.strict_java_assembly,
     );
+    // EventMap indexes `refHaplotype.getBases()` (padding 0). `createReferenceHaplotype`
+    // stores alignment vs ±500 `fullReferenceWithPadding`; that offset is not an EventMap
+    // index into the 430-ish bp haplotype.
+    for h in &mut result.haplotypes {
+        if h.is_reference {
+            h.alignment_start_hap_wrt_ref = 0;
+        }
+    }
     let full_ref = reference.bases.as_slice();
     result.haplotypes = collapse_haplotypes_if_configured(
         result.haplotypes,
@@ -307,8 +319,8 @@ pub fn assemble_reads_with_finalized(
         status,
         kmer_size,
         haplotypes,
-        reference.bases.as_slice(),
-        padded_loc_start,
+        graph_ref.bases.as_slice(),
+        graph_ref_start,
         &region.contig,
         crate::assembly_result_set::DEFAULT_MAX_MNP_DISTANCE,
     );

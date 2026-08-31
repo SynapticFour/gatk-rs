@@ -237,25 +237,52 @@ pub fn padded_reference_loc(
     (left, right)
 }
 
+/// GATK `getAssemblyRegionReference(reader)` padding 0: extended/padded-span bytes
+/// plus `alignmentStartHapwrtRef` into the ±500 `fullReferenceWithPadding` window.
+fn assembly_region_reference_slice(
+    padded_reference: &AssemblyRead,
+    region: &AssemblyRegion,
+    dictionary: &SequenceDictionary,
+) -> (usize, Vec<u8>) {
+    let (loc_start, _) = padded_reference_loc(region, dictionary);
+    let alignment_start = region.extended_start.get().saturating_sub(loc_start) as usize;
+    let span_len = (region.extended_end.get() - region.extended_start.get() + 1) as usize;
+    let ref_bytes = padded_reference.bases.as_slice();
+    let end = (alignment_start + span_len).min(ref_bytes.len());
+    (alignment_start, ref_bytes[alignment_start..end].to_vec())
+}
+
 /// Reference hap aligned to the assembly region padded span (GATK `createReferenceHaplotype`).
 pub fn reference_haplotype_for_assembly_region(
     reference: &AssemblyRead,
     region: &AssemblyRegion,
     dictionary: &SequenceDictionary,
 ) -> Haplotype {
-    let (loc_start, _) = padded_reference_loc(region, dictionary);
-    let alignment_start = region.extended_start.get().saturating_sub(loc_start) as usize;
-    let span_len = (region.extended_end.get() - region.extended_start.get() + 1) as usize;
-    let ref_bytes = reference.bases.as_slice();
-    let end = (alignment_start + span_len).min(ref_bytes.len());
-    let bases = ref_bytes[alignment_start..end].to_vec();
-    // CLONE: needed because haplotype constructor takes owned bases.
-    let mut h = Haplotype::new(bases.clone(), true);
+    let (alignment_start, bases) = assembly_region_reference_slice(reference, region, dictionary);
+    let n = bases.len();
+    let mut h = Haplotype::new(bases, true);
     h.alignment_start_hap_wrt_ref = alignment_start;
     let mut cigar = Cigar::new();
-    cigar.push(bases.len(), CigarOperator::Match);
+    cigar.push(n, CigarOperator::Match);
     h.cigar = Some(cigar);
     h
+}
+
+/// GATK `createGraph` reference: `refHaplotype.getBases()` from
+/// `getAssemblyRegionReference(reader)` (padding 0), not ±500 `fullReferenceWithPadding`.
+///
+/// Uniqueness and `addSequence("ref", …)` must both use this object.
+pub fn create_graph_reference_read(
+    padded_reference: &AssemblyRead,
+    region: &AssemblyRegion,
+    dictionary: &SequenceDictionary,
+) -> AssemblyRead {
+    let (_, bases) = assembly_region_reference_slice(padded_reference, region, dictionary);
+    let n = bases.len();
+    AssemblyRead {
+        bases,
+        base_quals: vec![30; n],
+    }
 }
 
 /// Alias for parity gate dumps (same as production slice).

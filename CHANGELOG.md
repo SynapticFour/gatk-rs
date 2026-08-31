@@ -8,6 +8,17 @@ once a first numbered release is cut. Until then, versions remain `0.1.x` / Alph
 
 ## [Unreleased]
 
+### Added
+
+- Canonical mid-B HaplotypeCaller path vs GATK 4.4 (graph through QUAL/QD):
+  [`docs/PARITY.md`](docs/PARITY.md),
+  [`docs/PARITY_MILESTONE_6R.md`](docs/PARITY_MILESTONE_6R.md).
+- Independent 10-region holdout panel vs GATK 4.4: 7 equivalent, 3 remaining C
+  ([`docs/PARITY.md`](docs/PARITY.md)). Java contracts: `findBestPaths` CIGAR
+  retention, EventMap CIGAR allele length, QualByDepth process-global RNG,
+  EventMap supplemental skip on equal-length haplotypes, EventMap-union without
+  `prefer_dominant_spanning_indels`.
+
 ### Changed
 
 - Scope ADR:

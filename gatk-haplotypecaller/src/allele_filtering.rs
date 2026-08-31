@@ -9,17 +9,21 @@ use crate::event_map::{
 use crate::genome_loc::GenomePosition;
 use crate::genotyping::{emit_genotype_format_fields, ReadLikelihoodRow};
 use crate::haplotype::Haplotype;
+#[cfg(test)]
+use crate::hc_allele_mapping::hap_base_at_ref_locus;
 use crate::hc_allele_mapping::{
-    create_allele_mapper_with_events, hap_base_at_ref_locus,
-    haplotype_supports_allele_at_with_events, haplotype_supports_allele_at_with_ref,
+    create_allele_mapper_with_events, haplotype_supports_allele_at_with_events,
+    haplotype_supports_allele_at_with_ref,
 };
 use crate::hc_genotyping_engine::{
     biallelic_genotype_log10_likelihoods_gatk, marginalize_rows_to_biallelic_alleles,
     region_likelihoods_to_rows,
 };
+#[cfg(test)]
 use crate::java_hc_site_semantics::{
     is_cluster_anchor_snp, is_cluster_ctc_del, is_strict_java_production_emit_candidate,
 };
+#[cfg(test)]
 use crate::read_event_discovery::is_p12_phase_e_gap_event;
 use crate::region_read_likelihood::RegionReadLikelihood;
 use gatk_common::{GatkError, GatkResult};
@@ -202,13 +206,47 @@ fn variation_events_in_active_span(
         .collect()
 }
 
-fn mark_haplotypes_supporting_variation_events(
+/// Pre-6R.28 contig-2 unique-supporter SNP keep (`exact.len() == 1`).
+///
+/// **Not** GATK 4.4 `AlleleFiltering.filterAlleles`. Kept as a test-only oracle so the
+/// mid-B 4→1 REF-only collapse can be reproduced without using that predicate in
+/// production.
+#[cfg(test)]
+pub(crate) fn legacy_unique_snp_rank_filter_assembly(
+    assembly: &mut AssemblyResultSet,
+    options: crate::allele_filter_options::AlleleFilterOptions,
+) -> GatkResult<()> {
+    ensure_reference_haplotype(&mut assembly.haplotypes);
+    if assembly.haplotypes.is_empty() {
+        return Ok(());
+    }
+    let ref_idx = assembly
+        .haplotypes
+        .iter()
+        .position(|h| h.is_reference)
+        .ok_or_else(|| GatkError::algorithm("allele filter: missing reference haplotype"))?;
+    let mut keep = vec![false; assembly.haplotypes.len()];
+    keep[ref_idx] = true;
+    apply_unique_snp_rank_keep_mask(assembly, &mut keep, ref_idx, options);
+    let old = std::mem::take(&mut assembly.haplotypes);
+    assembly.haplotypes = old
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| keep[*i])
+        .map(|(_, h)| h)
+        .collect();
+    Ok(())
+}
+
+/// Unique-supporter emit-band SNP keep (`exact.len() == 1`) plus P12 CTC/indel extras.
+/// Production no longer uses this for SNP selection (Java 4.4 default HC does not).
+#[cfg(test)]
+fn apply_unique_snp_rank_keep_mask(
     assembly: &AssemblyResultSet,
     keep: &mut [bool],
     ref_idx: usize,
     options: crate::allele_filter_options::AlleleFilterOptions,
 ) {
-    let strict_java_snp_rank_only = options.strict_java_snp_rank_only;
     let events = variation_events_in_active_span(
         assembly,
         options.active_start_1based(),
@@ -224,126 +262,142 @@ fn mark_haplotypes_supporting_variation_events(
         .map(|g| g.start_1based())
         .unwrap_or(pad_start);
     let max_mnp = assembly.max_mnp_distance();
-    // R4-2: P12 SNP-rank / emit-band haplotype keep applies only on contig 2.
-    // Elsewhere keep haplotypes that support any EventMap allele (hets + indels).
-    let p12_scope = assembly.contig == "2" || assembly.contig == "chr2";
-    if strict_java_snp_rank_only && p12_scope {
-        for e in &events {
-            if e.ref_allele.len() != 1 || e.alt_allele.len() != 1 {
-                continue;
-            }
-            if !is_strict_java_production_emit_candidate(e)
-                && !is_p12_phase_e_gap_event(e)
-                && !is_cluster_anchor_snp(e)
-            {
-                continue;
-            }
-            let mut alt_supporters = Vec::new();
-            for (i, h) in assembly.haplotypes.iter().enumerate() {
-                if i == ref_idx || h.is_reference || keep[i] {
-                    continue;
-                }
-                if haplotype_supports_allele_at_with_ref(
-                    h,
-                    ref_hap,
-                    e.start_1based.get(),
-                    pad_start,
-                    &e.ref_allele,
-                    &e.alt_allele,
-                    ref_bytes,
-                    max_mnp,
-                    &e.contig,
-                ) {
-                    alt_supporters.push(i);
-                }
-            }
-            let alt_byte = e.alt_allele.as_bytes().first().copied();
-            let apply_off = e.start_1based.get().saturating_sub(apply_pad) as usize;
-            let exact: Vec<usize> = alt_supporters
-                .iter()
-                .copied()
-                .filter(|&i| {
-                    alt_byte.is_some_and(|b| {
-                        assembly.haplotypes[i].bases.get(apply_off) == Some(&b)
-                            || hap_base_at_ref_locus(
-                                &assembly.haplotypes[i],
-                                pad_start,
-                                e.start_1based.get(),
-                            ) == Some(b)
-                    })
-                })
-                .collect();
-            if exact.len() == 1 {
-                keep[exact[0]] = true;
-            } else if alt_supporters.len() == 1 {
-                keep[alt_supporters[0]] = true;
-            } else if exact.is_empty()
-                && (is_strict_java_production_emit_candidate(e)
-                    || is_p12_phase_e_gap_event(e)
-                    || is_cluster_anchor_snp(e))
-            {
-                if let Some((i, _)) = assembly.haplotypes.iter().enumerate().find(|(i, h)| {
-                    *i != ref_idx
-                        && !h.is_reference
-                        && alt_byte.is_some_and(|b| h.bases.get(apply_off) == Some(&b))
-                }) {
-                    keep[i] = true;
-                }
-            }
+    for e in &events {
+        if e.ref_allele.len() != 1 || e.alt_allele.len() != 1 {
+            continue;
         }
-        for e in &events {
-            if !is_cluster_ctc_del(e) {
-                continue;
-            }
-            if let Some((i, _)) = assembly.haplotypes.iter().enumerate().find(|(i, h)| {
-                *i != ref_idx
-                    && !h.is_reference
-                    && h.bases.len() + 1 == ref_hap.bases.len()
-                    && h.cigar.as_ref().is_some_and(|c| {
-                        c.elements
-                            .iter()
-                            .any(|e| e.operator == crate::cigar::CigarOperator::Deletion)
-                            && crate::read_event_discovery::c_has_deletion_at_ref_offset(
-                                c,
-                                crate::read_event_discovery::p12_cluster_ctc_deletion_ref_offset(
-                                    apply_pad,
-                                ),
-                            )
-                    })
-            }) {
-                keep[i] = true;
-            }
+        if !is_strict_java_production_emit_candidate(e)
+            && !is_p12_phase_e_gap_event(e)
+            && !is_cluster_anchor_snp(e)
+        {
+            continue;
         }
+        let mut alt_supporters = Vec::new();
         for (i, h) in assembly.haplotypes.iter().enumerate() {
             if i == ref_idx || h.is_reference || keep[i] {
                 continue;
             }
-            if h.cigar
-                .as_ref()
-                .is_some_and(|c| c.elements.iter().any(|e| e.operator.is_indel()))
-            {
-                for e in &events {
-                    if !e.is_indel()
-                        && haplotype_supports_allele_at_with_ref(
-                            h,
-                            ref_hap,
-                            e.start_1based.get(),
+            if haplotype_supports_allele_at_with_ref(
+                h,
+                ref_hap,
+                e.start_1based.get(),
+                pad_start,
+                &e.ref_allele,
+                &e.alt_allele,
+                ref_bytes,
+                max_mnp,
+                &e.contig,
+            ) {
+                alt_supporters.push(i);
+            }
+        }
+        let alt_byte = e.alt_allele.as_bytes().first().copied();
+        let apply_off = e.start_1based.get().saturating_sub(apply_pad) as usize;
+        let exact: Vec<usize> = alt_supporters
+            .iter()
+            .copied()
+            .filter(|&i| {
+                alt_byte.is_some_and(|b| {
+                    assembly.haplotypes[i].bases.get(apply_off) == Some(&b)
+                        || hap_base_at_ref_locus(
+                            &assembly.haplotypes[i],
                             pad_start,
-                            &e.ref_allele,
-                            &e.alt_allele,
-                            ref_bytes,
-                            max_mnp,
-                            &e.contig,
+                            e.start_1based.get(),
+                        ) == Some(b)
+                })
+            })
+            .collect();
+        if exact.len() == 1 {
+            keep[exact[0]] = true;
+        } else if alt_supporters.len() == 1 {
+            keep[alt_supporters[0]] = true;
+        } else if exact.is_empty()
+            && (is_strict_java_production_emit_candidate(e)
+                || is_p12_phase_e_gap_event(e)
+                || is_cluster_anchor_snp(e))
+        {
+            if let Some((i, _)) = assembly.haplotypes.iter().enumerate().find(|(i, h)| {
+                *i != ref_idx
+                    && !h.is_reference
+                    && alt_byte.is_some_and(|b| h.bases.get(apply_off) == Some(&b))
+            }) {
+                keep[i] = true;
+            }
+        }
+    }
+    for e in &events {
+        if !is_cluster_ctc_del(e) {
+            continue;
+        }
+        if let Some((i, _)) = assembly.haplotypes.iter().enumerate().find(|(i, h)| {
+            *i != ref_idx
+                && !h.is_reference
+                && h.bases.len() + 1 == ref_hap.bases.len()
+                && h.cigar.as_ref().is_some_and(|c| {
+                    c.elements
+                        .iter()
+                        .any(|e| e.operator == crate::cigar::CigarOperator::Deletion)
+                        && crate::read_event_discovery::c_has_deletion_at_ref_offset(
+                            c,
+                            crate::read_event_discovery::p12_cluster_ctc_deletion_ref_offset(
+                                apply_pad,
+                            ),
                         )
-                    {
-                        keep[i] = true;
-                        break;
-                    }
+                })
+        }) {
+            keep[i] = true;
+        }
+    }
+    for (i, h) in assembly.haplotypes.iter().enumerate() {
+        if i == ref_idx || h.is_reference || keep[i] {
+            continue;
+        }
+        if h.cigar
+            .as_ref()
+            .is_some_and(|c| c.elements.iter().any(|e| e.operator.is_indel()))
+        {
+            for e in &events {
+                if !e.is_indel()
+                    && haplotype_supports_allele_at_with_ref(
+                        h,
+                        ref_hap,
+                        e.start_1based.get(),
+                        pad_start,
+                        &e.ref_allele,
+                        &e.alt_allele,
+                        ref_bytes,
+                        max_mnp,
+                        &e.contig,
+                    )
+                {
+                    keep[i] = true;
+                    break;
                 }
             }
         }
+    }
+}
+
+fn mark_haplotypes_supporting_variation_events(
+    assembly: &AssemblyResultSet,
+    keep: &mut [bool],
+    ref_idx: usize,
+    options: crate::allele_filter_options::AlleleFilterOptions,
+) {
+    let events = variation_events_in_active_span(
+        assembly,
+        options.active_start_1based(),
+        options.active_end_1based(),
+    );
+    if events.is_empty() {
         return;
     }
+    let (ref_bytes, pad_start) = assembly.event_map_reference();
+    let ref_hap = &assembly.haplotypes[ref_idx];
+    let max_mnp = assembly.max_mnp_distance();
+    // Java 4.4 default HC (`filterAlleles=false`) retains haplotypes that carry assembled
+    // alleles. Shared well-supported SNPs are not dropped because several haplotypes
+    // support them. Unique-supporter (`exact.len()==1`) is test-only legacy.
     for (i, h) in assembly.haplotypes.iter().enumerate() {
         if i == ref_idx || h.is_reference || keep[i] {
             continue;
@@ -382,18 +436,15 @@ fn select_haplotype_keep_mask(
         .ok_or_else(|| GatkError::algorithm("allele filter: missing reference haplotype"))?;
     let mut keep = vec![false; assembly.haplotypes.len()];
     keep[ref_idx] = true;
-    let p12_scope = assembly.contig == "2" || assembly.contig == "chr2";
-    // R4-2: retain indel-bearing haplotypes outside contig 2 under strict SNP-rank options.
-    if !options.strict_java_snp_rank_only || !p12_scope {
-        for (i, h) in assembly.haplotypes.iter().enumerate() {
-            if i != ref_idx
-                && !h.is_reference
-                && h.cigar
-                    .as_ref()
-                    .is_some_and(|c| c.elements.iter().any(|e| e.operator.is_indel()))
-            {
-                keep[i] = true;
-            }
+    // Java 4.4 default HC retains indel-bearing haplotypes; do not gate this on contig 2.
+    for (i, h) in assembly.haplotypes.iter().enumerate() {
+        if i != ref_idx
+            && !h.is_reference
+            && h.cigar
+                .as_ref()
+                .is_some_and(|c| c.elements.iter().any(|e| e.operator.is_indel()))
+        {
+            keep[i] = true;
         }
     }
     mark_haplotypes_supporting_variation_events(assembly, &mut keep, ref_idx, options);
@@ -412,9 +463,9 @@ fn select_haplotype_keep_mask(
     if non_ref_kept >= n_non_ref {
         return Ok(keep);
     }
-    // R4-2: score-based top-N fill outside contig 2 even under strict SNP-rank options.
-    let allow_score_fill =
-        !options.strict_java_snp_rank_only || (assembly.contig != "2" && assembly.contig != "chr2");
+    // Java 4.4 default HC does not drop leftover haplotypes because they share a SNP.
+    // Fill remaining slots up to the genotyping cap on every contig (including chr2).
+    let allow_score_fill = true;
     // When every remaining non-ref fits under the GATK cap, ranking cannot change the keep
     // set — skip HC-inverse PL (dominant on dense EventMaps with few haplotypes).
     if allow_score_fill && n_non_ref <= MAX_NON_REF_HAPLOTYPES_FOR_GENOTYPING {

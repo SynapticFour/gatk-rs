@@ -138,27 +138,29 @@ pub fn calculate_biallelic_af_em(
     let mut log10_af = [flat, flat];
     let mut allele_counts = [0.0_f64, 0.0];
     let mut iterations = 0usize;
-    loop {
+    // GATK 4.4 `AlleleFrequencyCalculator.calculate` (SHA 2dbc0258): after each
+    // `effectiveAlleleCounts`, always `log10AlleleFrequencies = Dirichlet(prior+counts).log10MeanWeights()`
+    // then test the count delta. Breaking *before* that update used the previous AF for
+    // `log10PNoVariant` and produced QUAL 78.583 vs Java 78.32 on PL 90,6,0.
+    let mut allele_counts_maximum_difference = f64::INFINITY;
+    while allele_counts_maximum_difference > THRESHOLD {
         iterations += 1;
         let new_counts = effective_allele_counts_biallelic(samples_log10_likelihoods, &log10_af);
-        let max_diff = new_counts
+        allele_counts_maximum_difference = new_counts
             .iter()
             .zip(allele_counts.iter())
             .map(|(a, b)| (a - b).abs())
             .fold(0.0_f64, f64::max);
         allele_counts = new_counts;
-        if max_diff <= THRESHOLD {
-            break;
-        }
-        if iterations > 100 {
-            break;
-        }
         let posterior_pseudo = [
             config.ref_pseudocount + allele_counts[0],
             config.snp_pseudocount + allele_counts[1],
         ];
         let means = log10_dirichlet_mean_weights(&posterior_pseudo);
         log10_af = [means[0], means[1]];
+        if iterations > 100 {
+            break;
+        }
     }
 
     let mut log10_p_no_variant = 0.0_f64;
@@ -351,4 +353,125 @@ pub fn calculate_multiallelic_af_em(
 pub fn qual_from_log10_p_no_variant(log10_p_no_variant: f64) -> f64 {
     let clamped = log10_p_no_variant.min(0.0);
     (-10.0 * clamped).max(0.0)
+}
+
+#[cfg(test)]
+mod six_r40_af_calculator_tests {
+    use super::*;
+
+    /// Java `AlleleFrequencyCalculator.calculate` loop (pre-6R.40 production used a
+    /// break-before-Dirichlet order). Kept as an independent copy so the dump test can
+    /// assert production now matches this order.
+    fn calculate_biallelic_af_em_java_loop_order(
+        samples_log10_likelihoods: &[&[f64]],
+        config: &AfCalculatorConfig,
+    ) -> AfCalculationResult {
+        const THRESHOLD: f64 = 0.1;
+        let flat = -(2.0_f64).log10();
+        let mut log10_af = [flat, flat];
+        let mut allele_counts = [0.0_f64, 0.0];
+        let mut iterations = 0usize;
+        let mut allele_counts_maximum_difference = f64::INFINITY;
+        while allele_counts_maximum_difference > THRESHOLD {
+            iterations += 1;
+            let new_counts =
+                effective_allele_counts_biallelic(samples_log10_likelihoods, &log10_af);
+            allele_counts_maximum_difference = new_counts
+                .iter()
+                .zip(allele_counts.iter())
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0_f64, f64::max);
+            allele_counts = new_counts;
+            let posterior_pseudo = [
+                config.ref_pseudocount + allele_counts[0],
+                config.snp_pseudocount + allele_counts[1],
+            ];
+            let means = log10_dirichlet_mean_weights(&posterior_pseudo);
+            log10_af = [means[0], means[1]];
+            if iterations > 100 {
+                break;
+            }
+        }
+        let mut log10_p_no_variant = 0.0_f64;
+        for gl in samples_log10_likelihoods {
+            if gl.len() >= 3 {
+                let post = log10_normalized_genotype_posteriors_biallelic(gl, &log10_af);
+                log10_p_no_variant += post[0];
+            }
+        }
+        log10_p_no_variant = log10_p_no_variant.min(0.0);
+        let total_alleles = allele_counts[0] + allele_counts[1];
+        let af = if total_alleles > 0.0 {
+            allele_counts[1] / total_alleles
+        } else {
+            0.0
+        };
+        AfCalculationResult {
+            alt_allele_count: allele_counts[1].round() as i32,
+            af,
+            log10_posterior_no_variant: log10_p_no_variant,
+            log10_p_no_alt: log10_p_no_variant,
+            em_iterations: iterations,
+        }
+    }
+
+    fn gls_from_pl_90_6_0() -> [f64; 3] {
+        [-9.0, -0.6, 0.0]
+    }
+
+    #[test]
+    fn six_r40_af_em_on_canonical_pl_dumps_mle_and_qual() {
+        let gl = gls_from_pl_90_6_0();
+        let cfg = AfCalculatorConfig::default();
+        let rust = calculate_biallelic_af_em(&[&gl], &cfg).expect("af");
+        let java_loop = calculate_biallelic_af_em_java_loop_order(&[&gl], &cfg);
+        let rust_qual = -10.0 * rust.log10_posterior_no_variant;
+        let java_loop_qual = -10.0 * java_loop.log10_posterior_no_variant;
+        eprintln!(
+            "AF_EM rust: mleac={} af={:.6} log10PNoVar={:.8} QUAL={:.6} iters={}",
+            rust.alt_allele_count,
+            rust.af,
+            rust.log10_posterior_no_variant,
+            rust_qual,
+            rust.em_iterations
+        );
+        eprintln!(
+            "AF_EM java_loop_order: mleac={} af={:.6} log10PNoVar={:.8} QUAL={:.6} iters={}",
+            java_loop.alt_allele_count,
+            java_loop.af,
+            java_loop.log10_posterior_no_variant,
+            java_loop_qual,
+            java_loop.em_iterations
+        );
+        eprintln!("Java VCF QUAL=78.32 MLEAC=1; called GT index would give MLEAC=2");
+        assert_eq!(rust.alt_allele_count, 1);
+        assert!((rust_qual - 78.32).abs() < 0.02, "QUAL rust={rust_qual}");
+        assert!((java_loop_qual - 78.32).abs() < 0.02);
+        assert!((rust_qual - java_loop_qual).abs() < 1e-6);
+    }
+
+    #[test]
+    fn six_r40_mleac_from_called_gt_is_not_af_mle() {
+        // Java composeCallAttributes: MLEAC = round(EM effective alt count), not the called GT.
+        // Production annotate_hc_variant_site now uses AF MLEAC; AC remains called GT (=2).
+        let gl = gls_from_pl_90_6_0();
+        let af = calculate_biallelic_af_em(&[&gl], &AfCalculatorConfig::default()).expect("af");
+        let called_hom_alt_ac = 2i32;
+        eprintln!(
+            "MLEAC_CONTRACT called_GT_AC={} AF_round_alt={} differ={}",
+            called_hom_alt_ac,
+            af.alt_allele_count,
+            called_hom_alt_ac != af.alt_allele_count
+        );
+        assert_eq!(
+            called_hom_alt_ac, 2,
+            "1/1 diploid called AC is 2 (Java AC=2, not MLEAC)"
+        );
+        // Document: AC from called GT is 2; AF MLE alt count is 1 (Java MLEAC).
+        assert_ne!(
+            af.alt_allele_count, called_hom_alt_ac,
+            "on this PL, AF MLE alt count must not equal called hom-alt AC (Java MLEAC=1)"
+        );
+        assert_eq!(af.alt_allele_count, 1);
+    }
 }

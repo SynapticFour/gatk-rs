@@ -1,0 +1,83 @@
+{
+  "campaign": "6R.43",
+  "java": {
+    "version": "4.4.0.0",
+    "sha": "2dbc025821bc5f686c423ff332a41e6cef892a77",
+    "docker": "broadinstitute/gatk:4.4.0.0",
+    "platform": "linux/amd64"
+  },
+  "reference": "parity/realworld/assets/hs37d5.simple.fa",
+  "hc_args_note": "Default GATK 4.4 HaplotypeCaller / gatk-rs HaplotypeCaller. No extra assembler flags. --native-pair-hmm-threads 1 on Java.",
+  "regions": [
+    {
+      "id": "ctrl_mid_b",
+      "interval": "2:92317250-92317520",
+      "bam": "parity/realworld/na12878_20k_b37/NA12878_20k.b37.bam",
+      "role": "control",
+      "why": "Regression control only. Canonical mid-B ActiveFull (6R.41). Not a holdout for discovery."
+    },
+    {
+      "id": "p12_snp_cluster",
+      "interval": "2:92305500-92305850",
+      "bam": "parity/realworld/na12878_20k_b37/NA12878_20k.b37.bam",
+      "role": "holdout",
+      "why": "Nearby homozygous-alt SNPs; 9-site VCF for QD RNG draw order; QUAL 78.32 (DP=2, raw QD>35 jitter) and 116.84 (DP=3, jitter)."
+    },
+    {
+      "id": "p12_indel_mix",
+      "interval": "2:92307200-92307550",
+      "bam": "parity/realworld/na12878_20k_b37/NA12878_20k.b37.bam",
+      "role": "holdout",
+      "why": "Deletion TTC>T, insertion A>ATG, mixed SNP+indel, heterozygous 0/1, DP=1 and DP=6, QUAL both <35 and 154.64."
+    },
+    {
+      "id": "p12_mid_a",
+      "interval": "2:92316200-92316580",
+      "bam": "parity/realworld/na12878_20k_b37/NA12878_20k.b37.bam",
+      "role": "holdout",
+      "why": "Independent ActiveFull SNP cluster (mid-A), not the mid-B assembly region."
+    },
+    {
+      "id": "p12_post",
+      "interval": "2:92318150-92319220",
+      "bam": "parity/realworld/na12878_20k_b37/NA12878_20k.b37.bam",
+      "role": "holdout",
+      "why": "Post-mid-B SNPs; QUAL 35.48 (raw QD may sit near jitter threshold) and 121.84/DP=3 jitter path."
+    },
+    {
+      "id": "p12_het_tail",
+      "interval": "2:92324900-92325400",
+      "bam": "parity/realworld/na12878_20k_b37/NA12878_20k.b37.bam",
+      "role": "holdout",
+      "why": "Heterozygous SNPs (0/1); includes 92325030 which previously returned call_region None."
+    },
+    {
+      "id": "p12_desert",
+      "interval": "2:92321000-92323000",
+      "bam": "parity/realworld/na12878_20k_b37/NA12878_20k.b37.bam",
+      "role": "holdout",
+      "why": "Gap with no P12 Java fixture sites — no-callable-variation / inactive-or-empty emit."
+    },
+    {
+      "id": "chr20_tiny",
+      "interval": "20:29455000-29456500",
+      "bam": "parity/giab/runs/local-pairhmm-diff/HG001.20-29455000-29456500.bam",
+      "role": "holdout",
+      "why": "Unrelated HG001 30x chr20 1.5 kb; heterozygous SNPs + deletion AT>A; DP~40-120; QD mostly <35 (non-jitter path)."
+    },
+    {
+      "id": "chr20_w47",
+      "interval": "20:47000000-47050000",
+      "bam": "parity/giab/runs/hang-repro/w47_50k.bam",
+      "role": "holdout",
+      "why": "Unrelated HG001 chr20 ~50 kb (hang-repro slice); deeper 30x, multiple haplotypes likely."
+    },
+    {
+      "id": "chr21_w10",
+      "interval": "21:10000000-10035000",
+      "bam": "parity/giab/runs/hang-repro/w10_50k.bam",
+      "role": "holdout",
+      "why": "Unrelated HG001 chr21 ~35 kb (GIAB smoke neighborhood 21:10000000); independent contig from P12."
+    }
+  ]
+}

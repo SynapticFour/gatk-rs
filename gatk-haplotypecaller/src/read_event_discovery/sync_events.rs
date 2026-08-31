@@ -133,7 +133,8 @@ pub fn sync_assembly_events_from_haplotype_cigars_with_harvest(
             }
         }
     crate::event_map::prefer_indel_over_colocated_snps(&mut events);
-    crate::event_map::prefer_dominant_spanning_indels(&mut events);
+    // Java `regenerateVariationEvents` unions EventMaps only (6R.50). Nested-SNP
+    // suppression remains a read-event-discovery rule, not EventMap regeneration.
     events.sort_by_key(|e| e.start_1based);
     events.dedup_by(|a, b| {
         a.start_1based == b.start_1based

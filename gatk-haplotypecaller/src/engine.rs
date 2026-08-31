@@ -3,10 +3,6 @@
 use crate::active_region::{tile_closed_interval, TraversalTile, DEFAULT_TRAVERSAL_TILE_BP};
 use crate::allele_filtering::{ensure_reference_haplotype, filter_assembly_and_likelihoods};
 use crate::assembly_based_caller::{call_region_assemble, AssembleReadsArgs};
-use crate::assembly_region_finalize::{
-    clip_finalized_reads_in_place, finalize_region_reads_for_assembly,
-    gatk_min_tail_quality_for_assembly,
-};
 use crate::assembly_region_iterator::AssemblyRegion;
 use crate::assembly_region_trimmer::{
     AssemblyRegionTrimmer, AssemblyRegionTrimmerConfig, TrimVariant,
@@ -42,6 +38,15 @@ use crate::reference_context::ReferenceContext;
 use gatk_common::{GatkError, GatkResult};
 use gatk_core::reference::{IntervalSpec, ReferenceWindowCache, SequenceDictionary};
 use std::path::Path;
+
+#[cfg(test)]
+#[path = "engine_call_region_audit.rs"]
+mod call_region_audit;
+
+#[cfg(test)]
+pub use call_region_audit::{
+    take_call_region_audit, AuditEvent, AuditTrimVar, CallRegionAuditSnap,
+};
 
 /// Engine state after resolving intervals into traversal tiles.
 /// # Invariants
@@ -225,7 +230,7 @@ impl CallRegionArgs {
 }
 
 /// ASM-8: `trim_to` can clip indel CIGARs; re-attach trimmed alt haps and re-SW indel CIGARs on the trim slice.
-fn preserve_untrimmed_indel_haplotypes(
+pub(crate) fn preserve_untrimmed_indel_haplotypes(
     untrimmed: &AssemblyResultSet,
     assembly: &mut AssemblyResultSet,
     trimmed_region: &AssemblyRegion,
@@ -457,6 +462,8 @@ impl HaplotypeCallerEngine {
         reference_fasta: &Path,
         args: &CallRegionArgs,
     ) -> GatkResult<Option<CallRegionOutcome>> {
+        #[cfg(test)]
+        call_region_audit::reset(region.start.get(), region.end.get());
         let mut ref_cache = ReferenceWindowCache::new(reference_fasta.to_path_buf(), 4);
         let mut assemble_args = args.assemble.clone();
         assemble_args.given_alleles = args.given_alleles.clone();
@@ -465,6 +472,10 @@ impl HaplotypeCallerEngine {
         let Some(assembled) =
             call_region_assemble(region, dictionary, &mut ref_cache, &assemble_args)?
         else {
+            #[cfg(test)]
+            call_region_audit::note_none(
+                "engine.rs:479 call_region_assemble returned None (region inactive)",
+            );
             return Ok(None);
         };
         crate::runtime_config::rss_trace_checkpoint(
@@ -605,6 +616,16 @@ impl HaplotypeCallerEngine {
         );
 
         let trim_result = trimmer.trim(region, &trim_variants, Some(&ref_ctx));
+        #[cfg(test)]
+        call_region_audit::record_after_trim(
+            &untrimmed,
+            &trim_variants,
+            region,
+            &trim_result,
+            args,
+            &apply_bases_u,
+            apply_pad_u,
+        );
         if !trim_result.variation_present && !args.disable_optimizations {
             let cluster_reads_support = args.is_strict_java()
                 && crate::read_threading_assembler::region_overlaps_p12_cluster(
@@ -630,12 +651,18 @@ impl HaplotypeCallerEngine {
                     &region.contig,
                 );
             if !cluster_reads_support && !read_variation_in_active {
+                #[cfg(test)]
+                call_region_audit::note_none(
+                    "engine.rs:644 !trim_result.variation_present && !cluster_reads_support && !read_variation_in_active",
+                );
                 return Ok(None);
             }
         }
         let mut region_for_genotyping = AssemblyRegionTrimmer::apply_trim(region, &trim_result);
         remove_read_stubs_after_trim(&mut region_for_genotyping);
         let mut assembly = untrimmed.trim_to(&region_for_genotyping)?;
+        #[cfg(test)]
+        call_region_audit::note_hap_stage("after_trim_to", &assembly);
         if assembly.haplotypes.is_empty() {
             let pad = untrimmed.padded_reference_start_1based();
             let off = region_for_genotyping
@@ -729,6 +756,8 @@ impl HaplotypeCallerEngine {
                 },
             );
         }
+        #[cfg(test)]
+        call_region_audit::note_resync(&assembly, needs_post_trim_resync);
         crate::runtime_config::rss_trace_checkpoint(
             "prep_post_trim_events",
             &format!(
@@ -786,6 +815,10 @@ impl HaplotypeCallerEngine {
                     &region.contig,
                 );
                 if !has_read_var {
+                    #[cfg(test)]
+                    call_region_audit::note_none(
+                        "engine.rs:800 enable_read_event_supplement && !has_variation_for_calling && !has_read_var",
+                    );
                     return Ok(None);
                 }
             }
@@ -802,12 +835,22 @@ impl HaplotypeCallerEngine {
                 &region.contig,
             );
             if !has_read_var {
+                #[cfg(test)]
+                call_region_audit::note_none(
+                    "engine.rs:816 !is_strict_java && !has_variation_for_calling && !has_read_var",
+                );
                 return Ok(None);
             }
         }
 
         filter_non_passing_reads(&mut region_for_genotyping, &args.read_filter);
+        #[cfg(test)]
+        call_region_audit::record_after_read_filter(&assembly, region_for_genotyping.reads.len());
         if region_for_genotyping.reads.is_empty() && !args.disable_optimizations {
+            #[cfg(test)]
+            call_region_audit::note_none(
+                "engine.rs:822 region_for_genotyping.reads.is_empty after filter_non_passing_reads",
+            );
             return Ok(None);
         }
 
@@ -1018,6 +1061,8 @@ impl HaplotypeCallerEngine {
                     ),
                 );
             }
+            #[cfg(test)]
+            call_region_audit::note_hap_stage("after_early_allele_filter", &assembly);
             // Do **not** full-drop PairHMM TLS here: on dense NA12878, munmap of NEON/Logless
             // planes between early allele filter and realign was ~2 s/window while realign SW
             // itself was <0.5 s (`step_ms` ≪ `delta_ms` on `prep_realign`). Peak stacking is
@@ -1551,6 +1596,11 @@ impl HaplotypeCallerEngine {
             }
         }
         if !assembly.has_variation_for_calling() && !args.disable_optimizations {
+            #[cfg(test)]
+            call_region_audit::record_no_variation_for_calling(
+                &assembly,
+                "engine.rs:1565 !assembly.has_variation_for_calling() && !disable_optimizations",
+            );
             return Ok(None);
         }
 
@@ -2436,50 +2486,9 @@ fn score_pairhmm_from_records<R: std::borrow::Borrow<rust_htslib::bam::Record> +
     Ok(out)
 }
 
-fn compute_region_read_likelihoods(
-    region: &AssemblyRegion,
-    haplotypes: &[Haplotype],
-    config: &HcLikelihoodEngineConfig,
-    apply_normalize: bool,
-    pre_finalized: Option<Vec<rust_htslib::bam::Record>>,
-) -> GatkResult<Vec<RegionReadLikelihood>> {
-    if haplotypes.is_empty() {
-        return Ok(Vec::new());
-    }
-    // A2: consume assemble finalize buffer when present (clip in place — no second owned copy).
-    let finalized = if let Some(mut pre) = pre_finalized.filter(|p| !p.is_empty()) {
-        clip_finalized_reads_in_place(&mut pre, region);
-        pre
-    } else {
-        finalize_region_reads_for_assembly(
-            &region.reads,
-            region,
-            true,
-            gatk_min_tail_quality_for_assembly(10),
-            false,
-        )
-    };
-    let active_span = Some((region.start.get(), region.end.get()));
-    // Trim/hard-clip can drop sparse-BAM reads that still overlap the active locus (P12 92305634).
-    if finalized.is_empty() && !region.reads.is_empty() {
-        let out = score_pairhmm_from_records(region.reads.as_slice(), haplotypes, config)?;
-        return Ok(post_process_pairhmm_likelihoods(
-            out,
-            region.reads.as_slice(),
-            haplotypes,
-            apply_normalize,
-            active_span,
-        ));
-    }
-    let out = score_pairhmm_from_records(&finalized, haplotypes, config)?;
-    Ok(post_process_pairhmm_likelihoods(
-        out,
-        &finalized,
-        haplotypes,
-        apply_normalize,
-        active_span,
-    ))
-}
+#[path = "engine_likelihoods.rs"]
+mod engine_likelihoods;
+use engine_likelihoods::compute_region_read_likelihoods;
 
 #[cfg(test)]
 #[path = "engine_pairhmm_post_process_tests.rs"]

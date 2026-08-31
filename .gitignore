@@ -93,6 +93,8 @@ parity/realworld/na12878_giab_window_*/
 parity/realworld/na12878_20k_*/
 # Generated synthetic joint-cohort scale fixtures (scripts/parity/generate_synthetic_cohort_gvcfs.py)
 parity/combine_gvcfs/cohort_scale/
+# Local CombineGVCFs smoke cache (regenerable; contains machine-local paths)
+parity/combine_gvcfs/prod_cohort_cache/
 # GIAB multi-sample truth / runs
 parity/giab/truth/
 parity/giab/stratifications/
@@ -101,6 +103,15 @@ parity/giab/runs/
 parity/build/
 parity/reports/
 parity/fixtures/hc-full-parity/java_dumps/**/*.stderr
+
+# Small oracle fixtures used by HC EventMap / 6R regression tests
+!gatk-haplotypecaller/tests/event_map/data/
+!gatk-haplotypecaller/tests/event_map/data/**
+
+# 6R forensic investigation reports — keep locally / archive privately, not in the public tree
+/6R.*_REPORT.md
+/6R*_REPORT.md
+/docs/parity/*_REPORT.md
 
 # ---------------------------------------------------------------------------
 # Perf: keep aggregated reports; ignore raw timestamped run folders

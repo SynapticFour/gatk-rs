@@ -2,7 +2,8 @@
 
 gatk-rs is a native Rust workspace focused on a **GATK 4.4–aligned HaplotypeCaller**.
 It is an independent community project (see [`NOTICE.md`](../NOTICE.md)). Product claims
-live only in [`CLAIM_MATRIX.md`](CLAIM_MATRIX.md).
+live only in [`CLAIM_MATRIX.md`](CLAIM_MATRIX.md). Canonical mid-B HC Java 4.4
+contracts: [`PARITY.md`](PARITY.md).
 
 ## Workspace layout
 

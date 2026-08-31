@@ -1,0 +1,131 @@
+# HaplotypeCaller parity (GATK 4.4)
+
+Pinned Java: GATK **4.4.0.0**, SHA [`2dbc025821bc5f686c423ff332a41e6cef892a77`](https://github.com/broadinstitute/gatk/commit/2dbc025821bc5f686c423ff332a41e6cef892a77).  
+See also [`GATK_PINNED.env`](GATK_PINNED.env) and root `GATK_PINNED_SHA`.
+
+Product claims still live only in [`CLAIM_MATRIX.md`](CLAIM_MATRIX.md). This page is the
+**engineering** record of how HaplotypeCaller algorithm contracts are proven.
+
+## Current achievement
+
+The implementation has undergone source-backed GATK 4.4 parity investigation on the
+canonical **mid-B** ActiveFull region (`2:92317262–92317491`, interval
+`2:92317000-92319000`, NA12878 20k b37).
+
+That path is **converged** from assembly through VCF INFO/FORMAT:
+
+| Stage | Mid-B status |
+|-------|----------------|
+| Read-threading graph (k-mer selection, uniqueness on the extended-region haplotype) | Converged |
+| Dangling recovery / `best_prefix_match` mismatch-cap | Converged |
+| `path_bases` / `getBasesForPath` source expansion | Converged |
+| `removePathsNotConnectedToRef` | Converged |
+| SeqGraph zip / simplification | Converged |
+| k-best haplotypes | Converged |
+| EventMap | Converged |
+| Haplotype trimming (`maxEnd`) | Converged |
+| PairHMM / FORMAT GT, AD, DP, GQ, PL | Converged |
+| AF calculator QUAL | Converged (printed QUAL 78.32) |
+| MLEAC / MLEAF | Converged |
+| QualByDepth / QD (GATK `Random` seed `47382911`) | Converged |
+
+Oracle sites on that region:
+
+```
+2:92317399 C>A
+2:92317407 T>C
+2:92317412 G>C
+```
+
+with Java-equivalent FORMAT `GT=1/1 AD=0,2 DP=2 GQ=6 PL=90,6,0`, MLEAC=1, MLEAF=0.500,
+QUAL 78.32 (Rust 78.323 before VCF 2-decimal print), and QD 25.36 / 28.73 / 30.97.
+
+**Canonical mid-B parity: CONVERGED.**
+
+**Whole-codebase GATK 4.4 HaplotypeCaller parity: NOT YET ESTABLISHED.**
+
+This is not genome-wide equivalence, not a clinical drop-in, and not a claim that every
+interval, sample, or annotation matches Java. Signed product scopes remain P12 / L2 /
+synthetic joint gates in the claim matrix.
+
+## Independent holdouts (6R.43–6R.50)
+
+A frozen 10-region panel (`scripts/parity/6r43_holdout_panel.json`) is discovery, not a
+genome-wide score. After 6R.45–6R.50:
+
+| Class | Regions |
+|-------|---------|
+| **A** (7) | `ctrl_mid_b`, `p12_het_tail`, `p12_desert`, `p12_snp_cluster`, `p12_indel_mix`, `p12_post`, `p12_mid_a` |
+| **C** (3) | `chr20_tiny`, `chr20_w47`, `chr21_w10` |
+
+Previously green holdouts remain green. Canonical mid-B remains CONVERGED.
+
+Remaining **C** regions are predominantly Stage E haplotype-content differences (Java
+internal graph topology UNKNOWN) and Stage D/G/H cases where an allele exists in EventMap
+but is not emitted.
+
+## How parity is established
+
+Algorithmic equivalence is **not** “the Rust file looks like the Java class.” It is:
+
+1. Identify the **Java 4.4 contract** from the pinned source (and live Docker when the
+   executable can show the observable).
+2. Build an **observable test** (graph dump, EventMap, VCF field, RNG prefix).
+3. Locate the **first proven divergence** — stop stacking later symptoms.
+4. Apply the **smallest general fix** (no locus hard-codes, no widening of P12 bands).
+5. Re-run independent regression / holdout tests (`six_r*`, lib suite,
+   `p12_call_none_mid_b_test`).
+
+Rust-native modules are preferred over cloning Java type trees. Details:
+[`PARITY_MILESTONE_6R.md`](PARITY_MILESTONE_6R.md).
+
+## Classes of Java contracts found on mid-B
+
+These are **general** contracts, demonstrated on mid-B, not coordinate special cases:
+
+| Contract | Java (4.4) | What was wrong |
+|----------|------------|----------------|
+| Graph uniqueness / k-mer ladder | Uniqueness on `refHaplotype.getBases()` (extended region), not the ±500 padded assembly REF | Rust skipped k=25 on a padded window that is non-unique |
+| Dangling-head mismatch cap | `best_prefix_match` hard-aborts when the mismatch budget overflows | Rust recovered heads Java would reject |
+| `getBasesForPath` | Expand every `inDegree==0` source when `expandSource` is true | Rust dropped some sources |
+| Allele keep | Well-supported SNPs kept even if two haplotypes share them (default HC does not run the unique-supporter collapse) | Shared SNPs dropped |
+| Trimmer `maxEnd` | `max(maxEnd, vc.getEnd()+padding)` | Rust accumulated padding per event (94M vs Java 54M) |
+| AF EM loop | Dirichlet update **every** iteration, including the last, then P(no variant) | Rust broke before the last update (QUAL 78.583 vs 78.32) |
+| MLEAC / MLEAF | `round(EM expected alt count)` / `MLEAC / AN`; **not** the called GT | Rust copied 1/1 → MLEAC=2 |
+| QualByDepth | If raw QD ≥ 35: `30 + Random(47382911).nextGaussian()*3` | Rust capped at 30 with no jitter |
+| QualByDepth RNG lifetime | One JVM-static `Utils.randomGenerator`; draw iff raw QD ≥ 35; order = sequential walker emit | Thread-local RNG + jitter inside Rayon region emit reseeds per worker (716-cluster restarted at 25.36) |
+| `findBestPaths` retention | Keep if SW CIGAR ref-span equals the reference haplotype CIGAR ref-span (≥ 30, no `N`). Sequence length is not a gate. | Rust dropped alts with `len < 75%` of padded ref (`28M171D160M` / 188 bp vs 359) |
+| EventMap CIGAR alleles | `processCigarForInitialEvents` emits D/I with no allele-length cap (regular bases; skip unresolved edge I) | Rust dropped CIGAR events with `REF/ALT.len() > 40` (`171D` REF=172) |
+| EventMap vs padded REF | EventMap uses the haplotype CIGAR only; `trimTo` does not re-SW equal-length SNP haps against the untrimmed pad | Supplemental Indel SW vs pad invented a spanning D; `prefer_dominant_spanning_indels` then dropped SNPs Java still emits |
+| EventMap union | `getAllVariantContexts` keeps every per-haplotype EventMap allele; no nested-SNP drop inside another hap’s spanning indel | `collect_variation_events` / EventMap regen applied `prefer_dominant_spanning_indels` (Rust-only) |
+
+## What remains unknown / out of scope
+
+- Genome-wide, autosome, or multi-sample HC equivalence.
+- Sharing one process-global `Random` with reservoir downsampling on intervals that
+  overflow `max-reads-per-alignment-start` **before** the first high-QD site (mid-B
+  has two reads; streams coincide).
+- VCF QUAL print rounding of 78.323 → 78.32.
+- Waivers still in force: **W-H1**, **W-H3**, and other claim-matrix scoped rows.
+
+## Tests
+
+Reusable gates (not a forensic diary):
+
+```text
+cargo test -p gatk-haplotypecaller --lib -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test p12_call_none_mid_b_test
+HOLDOUT_6R43=1 cargo test -p gatk-haplotypecaller --test holdout_6r43_test
+```
+
+`six_r*` tests under `gatk-haplotypecaller` pin the contracts above without requiring
+the 6R markdown reports.
+
+Independent-region discovery (not whole-codebase parity; 6R.43 snapshot):
+[`parity/6R.43_HOLDOUT_MATRIX.md`](parity/6R.43_HOLDOUT_MATRIX.md).
+Retention contract vs `p12_snp_cluster`: [`parity/6R.45_RETENTION.md`](parity/6R.45_RETENTION.md).
+Trim vs missing 171D EventMap allele: [`parity/6R.46_TRIM.md`](parity/6R.46_TRIM.md).
+EventMap CIGAR allele-length (no 40 bp cap): [`parity/6R.47_EVENTMAP.md`](parity/6R.47_EVENTMAP.md).
+QualByDepth process-global RNG stream: [`parity/6R.48_QD_RNG.md`](parity/6R.48_QD_RNG.md).
+6R.49: skip EventMap supplemental indel SW when hap length equals the trimmed reference haplotype.
+6R.50: EventMap union does not apply `prefer_dominant_spanning_indels`.

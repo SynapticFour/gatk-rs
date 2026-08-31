@@ -23,8 +23,8 @@ use crate::reference_vcf_emit::{
     GvcfIntervalCollector,
 };
 use crate::region_vcf_emit::{
-    populate_hc_vcf_header_schema, try_emit_call_region_variants, HC_PIPELINE_ASSEMBLY_REGION_V1,
-    HC_PIPELINE_SCAFFOLD,
+    populate_hc_vcf_header_schema, try_emit_call_region_variants,
+    try_emit_call_region_variants_raw_qd, HC_PIPELINE_ASSEMBLY_REGION_V1, HC_PIPELINE_SCAFFOLD,
 };
 use crate::runtime_config::RuntimeConfig;
 use crate::walker::GATK_DEFAULT_ASSEMBLY_REGION_PADDING;
@@ -141,6 +141,10 @@ pub fn run_haplotype_caller(config: &GatkConfig) -> GatkResult<()> {
 
     // Observe-only: optional NDJSON semantic checkpoints (`GATK_RS_SEMANTIC_TRACE`).
     crate::semantic_trace::try_init_from_runtime(&RuntimeConfig::from_env());
+    // Fresh JVM: `Utils.randomGenerator` starts at `GATK_RANDOM_SEED` (QualByDepth jitter).
+    #[cfg(test)]
+    let _qd_serial = crate::annotator::plugins::qual_by_depth::hold_process_qd_rng_for_test();
+    crate::annotator::plugins::qual_by_depth::reset_gatk_qual_by_depth_rng();
     // Observe-only: production stage profiler (`GATK_RS_HC_PROFILE`).
     let rt = RuntimeConfig::from_env();
     crate::hc_profile::init_from_runtime(&rt);
@@ -818,7 +822,7 @@ fn process_one_region_vcf(
                 HaplotypeCallerEngine::call_region_mut(region, dict, reference_fasta, args)?
             {
                 let mut emitted = crate::semantic_trace::is_enabled().then(Vec::new);
-                for rec in try_emit_call_region_variants(
+                for rec in try_emit_call_region_variants_raw_qd(
                     region,
                     &outcome,
                     sample_name,
@@ -977,8 +981,27 @@ fn merge_region_emit_batches(
     for batch in batches.iter_mut() {
         // Stable within-batch order; global first-wins via BTreeSet key.
         for rec in std::mem::take(&mut batch.records) {
-            push_deduped_vcf(records, seen, rec);
+            push_deduped_vcf_with_qd_jitter(records, seen, rec);
         }
+    }
+}
+
+fn push_deduped_vcf_with_qd_jitter(
+    records: &mut Vec<VcfRecord>,
+    seen: &mut std::collections::BTreeSet<(String, u64, String, String)>,
+    rec: VcfRecord,
+) {
+    let alt = rec.alternate.first().cloned().unwrap_or_default();
+    let key = (
+        rec.chromosome.clone(),
+        rec.position,
+        rec.reference.clone(),
+        alt,
+    );
+    if seen.insert(key) {
+        let mut rec = rec;
+        crate::annotator::plugins::qual_by_depth::apply_fix_too_high_qd_to_vcf_record(&mut rec);
+        records.push(rec);
     }
 }
 
@@ -1074,5 +1097,65 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].position, 10);
         assert_eq!(records[1].position, 20);
+    }
+
+    #[test]
+    fn six_r48_merge_applies_qd_jitter_in_genomic_order_not_arrival_order() {
+        use gatk_core::io::vcf::InfoValue;
+
+        fn mk_high_qd(pos: u64) -> VcfRecord {
+            VcfRecord {
+                chromosome: "2".into(),
+                position: pos,
+                id: ".".into(),
+                reference: "A".into(),
+                alternate: vec!["C".into()],
+                quality: Some(78.32),
+                filter: vec!["PASS".into()],
+                info: vec![InfoValue::Float("QD".into(), vec![78.32 / 2.0])],
+                format: vec![],
+                samples: vec![],
+            }
+        }
+
+        let _qd = crate::annotator::plugins::qual_by_depth::hold_process_qd_rng_for_test();
+        crate::annotator::plugins::qual_by_depth::reset_gatk_qual_by_depth_rng();
+        // Later cluster arrives first (rayon completion order). Positions are
+        // arbitrary genomic order, not P12 locus pins.
+        let mut batches = vec![
+            RegionEmitBatch {
+                region_index: 1,
+                contig: "2".into(),
+                start: 200,
+                records: (0..5).map(|i| mk_high_qd(200 + i)).collect(),
+            },
+            RegionEmitBatch {
+                region_index: 0,
+                contig: "2".into(),
+                start: 100,
+                records: (0..4).map(|i| mk_high_qd(100 + i)).collect(),
+            },
+        ];
+        let mut records = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+        merge_region_emit_batches(&mut batches, &mut records, &mut seen);
+        let printed: Vec<String> = records
+            .iter()
+            .map(|r| {
+                r.info
+                    .iter()
+                    .find_map(|v| match v {
+                        InfoValue::Float(k, xs) if k == "QD" => {
+                            Some(format!("{:.2}", xs.first().copied().unwrap_or(0.0)))
+                        }
+                        _ => None,
+                    })
+                    .expect("QD")
+            })
+            .collect();
+        assert_eq!(
+            printed,
+            ["25.36", "28.73", "30.97", "27.24", "28.20", "25.00", "29.56", "30.62", "28.17"]
+        );
     }
 }

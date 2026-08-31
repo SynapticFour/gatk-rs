@@ -570,3 +570,292 @@ pub fn best_alt_haplotype_index(
         .copied()
         .unwrap_or(HaplotypeIndex::new(0))
 }
+
+/// 6R.17 investigation-only: named decision path inside [`haplotype_supports_allele_at_with_events`].
+#[cfg(test)]
+pub fn audit_haplotype_supports_path(
+    hap: &Haplotype,
+    ref_hap: &Haplotype,
+    loc_1based: u64,
+    pad_start: u64,
+    ref_allele: &str,
+    alt_allele: &str,
+    ref_bytes: &[u8],
+    max_mnp_distance: usize,
+    contig: &str,
+) -> &'static str {
+    if alt_allele == SPAN_DEL_ALLELE {
+        return if !hap.is_reference {
+            "span_del_nonref"
+        } else {
+            "span_del_ref_false"
+        };
+    }
+    if ref_allele.len() == 1 && alt_allele.len() == 1 {
+        return if hap_base_at_ref_locus(hap, pad_start, loc_1based)
+            .map(|b| b.to_ascii_uppercase() == alt_allele.as_bytes()[0].to_ascii_uppercase())
+            .unwrap_or(false)
+        {
+            "snp_hap_base_at_ref_locus"
+        } else {
+            "snp_base_mismatch"
+        };
+    }
+    if let Some(cigar) = &hap.cigar {
+        if cigar.elements.iter().any(|e| e.operator.is_indel()) {
+            let map = EventMap::from_haplotype_and_reference(
+                hap,
+                ref_hap,
+                ref_bytes,
+                pad_start,
+                max_mnp_distance,
+            );
+            let indel_hit = map
+                .variation_events(contig, pad_start)
+                .into_iter()
+                .any(|e| {
+                    e.ref_allele == ref_allele
+                        && e.alt_allele == alt_allele
+                        && e.start_1based == GenomePosition::new_1based(loc_1based)
+                });
+            if indel_hit {
+                return "indel_eventmap_exact";
+            }
+        }
+    }
+    let off = loc_1based.saturating_sub(pad_start) as usize;
+    let hap_slice = hap.bases.get(off..).unwrap_or(&[]);
+    let ref_bytes_allele = ref_allele.as_bytes();
+    let alt_bytes = alt_allele.as_bytes();
+    if hap_slice.starts_with(alt_bytes) && !hap_slice.starts_with(ref_bytes_allele) {
+        return if hap_slice.is_empty() {
+            "indel_raw_pad_slice_starts_with_alt_EMPTY"
+        } else {
+            "indel_raw_pad_slice_starts_with_alt"
+        };
+    }
+    let oracle = crate::compatibility::coupled_indel::coupled_indel_canonical_oracle_locus(
+        &VariationEvent {
+            contig: contig.to_string(),
+            start_1based: GenomePosition::new_1based(loc_1based),
+            end_1based: GenomePosition::new_1based(loc_1based),
+            ref_allele: ref_allele.to_string(),
+            alt_allele: alt_allele.to_string(),
+        },
+    );
+    let ref_ok = ref_hap
+        .bases
+        .get(off..)
+        .is_some_and(|ref_slice| ref_slice.starts_with(ref_bytes_allele));
+    let neither = !hap_slice.starts_with(ref_bytes_allele) && !hap_slice.starts_with(alt_bytes);
+    if oracle && ref_ok && neither {
+        return if hap_slice.is_empty() {
+            "indel_coupled_oracle_locus_neither_ref_nor_alt_prefix_EMPTY_SLICE"
+        } else {
+            "indel_coupled_oracle_locus_neither_ref_nor_alt_prefix"
+        };
+    }
+    "false"
+}
+
+/// 6R.17 investigation-only: per-haplotype path through [`create_allele_mapper_with_events`].
+#[cfg(test)]
+#[derive(Debug, Clone)]
+pub struct MapperHapTrace {
+    pub hap_index: usize,
+    pub hap_len: usize,
+    pub pad_used: u64,
+    pub loc: u64,
+    pub off: usize,
+    pub hap_slice_len: usize,
+    pub hap_slice_prefix: String,
+    pub ref_slice_prefix: String,
+    pub overlapping: Vec<String>,
+    pub overlapping_walk: &'static str,
+    pub eventmap_has_merged_allele: bool,
+    pub haplotype_supports: bool,
+    pub haplotype_supports_path: &'static str,
+    pub assigned_role: &'static str,
+    pub assignment_path: String,
+}
+
+#[cfg(test)]
+fn prefix_bytes(bytes: &[u8], n: usize) -> String {
+    bytes
+        .iter()
+        .take(n)
+        .map(|b| {
+            if b.is_ascii_alphabetic() {
+                (*b as char).to_string()
+            } else {
+                format!("\\x{b:02x}")
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+pub fn audit_trace_create_allele_mapper(
+    merged: &VariationEvent,
+    loc_1based: u64,
+    haplotypes: &[Haplotype],
+    pad_start_1based: u64,
+    ref_bytes: &[u8],
+    max_mnp_distance: usize,
+    emit_spanning_dels: bool,
+) -> (AlleleHaplotypeMapping, Vec<MapperHapTrace>) {
+    let mapping = create_allele_mapper(
+        merged,
+        loc_1based,
+        haplotypes,
+        pad_start_1based,
+        ref_bytes,
+        max_mnp_distance,
+        emit_spanning_dels,
+    );
+    let contig = merged.contig.as_str();
+    let ref_idx = haplotypes.iter().position(|h| h.is_reference).unwrap_or(0);
+    let ref_hap = &haplotypes[ref_idx];
+    let mut traces = Vec::new();
+    for (i, h) in haplotypes.iter().enumerate() {
+        let spanning = hap_overlapping_events_at(
+            h,
+            ref_hap,
+            loc_1based,
+            pad_start_1based,
+            ref_bytes,
+            max_mnp_distance,
+            contig,
+        );
+        let overlapping: Vec<String> = spanning
+            .iter()
+            .map(|e| {
+                format!(
+                    "{}-{} {}→{}",
+                    e.start_1based.get(),
+                    e.end_1based.get(),
+                    e.ref_allele,
+                    e.alt_allele
+                )
+            })
+            .collect();
+        let eventmap_has_merged_allele = spanning.iter().any(|e| {
+            e.start_1based == GenomePosition::new_1based(loc_1based)
+                && e.ref_allele == merged.ref_allele
+                && e.alt_allele == merged.alt_allele
+        });
+        let overlapping_walk = if spanning.is_empty() {
+            if merged.ref_allele.len() == 1 && merged.alt_allele.len() == 1 {
+                "empty_span_snp_base_or_ref_default"
+            } else {
+                "empty_span_assign_ref"
+            }
+        } else {
+            let loc = GenomePosition::new_1based(loc_1based);
+            let mut walk = "overlap_no_match_fallthrough";
+            for ev in &spanning {
+                if ev.start_1based == loc {
+                    if ev.ref_allele.len() > merged.ref_allele.len() {
+                        walk = "overlap_start_eq_skip_longer_ref";
+                        continue;
+                    }
+                    if ev.ref_allele == merged.ref_allele && ev.alt_allele == merged.alt_allele {
+                        walk = "overlap_start_eq_exact_alleles";
+                        break;
+                    } else if ev.ref_allele.len() < merged.ref_allele.len()
+                        && merged.ref_allele.starts_with(&ev.ref_allele)
+                    {
+                        let suffix = &merged.ref_allele[ev.ref_allele.len()..];
+                        let remapped = format!("{}{}", ev.alt_allele, suffix);
+                        if remapped == merged.alt_allele {
+                            walk = "overlap_start_eq_remap_shorter_ref";
+                            break;
+                        }
+                    }
+                } else if emit_spanning_dels && merged.alt_allele == SPAN_DEL_ALLELE {
+                    walk = "overlap_prior_start_span_del";
+                    break;
+                } else if merged.ref_allele.len() == 1 && merged.alt_allele.len() == 1 {
+                    walk = "overlap_prior_start_snp_base_or_ref";
+                    break;
+                } else {
+                    walk = "overlap_prior_start_indel_assign_ref_break";
+                    break;
+                }
+            }
+            walk
+        };
+        let supports_path = audit_haplotype_supports_path(
+            h,
+            ref_hap,
+            loc_1based,
+            pad_start_1based,
+            &merged.ref_allele,
+            &merged.alt_allele,
+            ref_bytes,
+            max_mnp_distance,
+            contig,
+        );
+        let haplotype_supports = haplotype_supports_allele_at_with_events(
+            h,
+            ref_hap,
+            loc_1based,
+            pad_start_1based,
+            &merged.ref_allele,
+            &merged.alt_allele,
+            ref_bytes,
+            max_mnp_distance,
+            contig,
+            None,
+        );
+        let in_alt = mapping.alt_haplotype_indices.iter().any(|x| x.get() == i);
+        let overlap_assigned_alt = overlapping_walk == "overlap_start_eq_exact_alleles"
+            || overlapping_walk == "overlap_start_eq_remap_shorter_ref"
+            || overlapping_walk == "overlap_prior_start_span_del"
+            || overlapping_walk == "empty_span_snp_base_or_ref_default"
+                && in_alt
+                && supports_path == "snp_hap_base_at_ref_locus";
+        let assignment_path = if in_alt {
+            if overlapping_walk == "overlap_start_eq_exact_alleles"
+                || overlapping_walk == "overlap_start_eq_remap_shorter_ref"
+            {
+                format!("create_allele_mapper_with_events::{overlapping_walk}")
+            } else if haplotype_supports {
+                format!(
+                    "create_allele_mapper_with_events::empty_alt_haps→haplotype_supports_allele_at_with_events::{supports_path}"
+                )
+            } else if merged.ref_allele == "CT" && merged.alt_allele == "C" {
+                "create_allele_mapper_with_events::empty_alt_haps→p12_cluster_ctc_deletion_cigar"
+                    .to_string()
+            } else {
+                "create_allele_mapper_with_events::empty_alt_haps→pad_offset_slice_alt_prefix"
+                    .to_string()
+            }
+        } else if overlap_assigned_alt {
+            format!("create_allele_mapper_with_events::{overlapping_walk}")
+        } else {
+            format!("create_allele_mapper_with_events::{overlapping_walk} (REF)")
+        };
+        let off = loc_1based.saturating_sub(pad_start_1based) as usize;
+        let hap_slice = h.bases.get(off..).unwrap_or(&[]);
+        let ref_slice = ref_hap.bases.get(off..).unwrap_or(&[]);
+        traces.push(MapperHapTrace {
+            hap_index: i,
+            hap_len: h.bases.len(),
+            pad_used: pad_start_1based,
+            loc: loc_1based,
+            off,
+            hap_slice_len: hap_slice.len(),
+            hap_slice_prefix: prefix_bytes(hap_slice, 8),
+            ref_slice_prefix: prefix_bytes(ref_slice, 8),
+            overlapping,
+            overlapping_walk,
+            eventmap_has_merged_allele,
+            haplotype_supports,
+            haplotype_supports_path: supports_path,
+            assigned_role: if in_alt { "ALT" } else { "REF" },
+            assignment_path,
+        });
+    }
+    (mapping, traces)
+}

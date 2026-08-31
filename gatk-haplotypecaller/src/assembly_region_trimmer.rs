@@ -193,7 +193,10 @@ impl AssemblyRegionTrimmer {
                 }
             }
             min_start = min_start.min(v.start.saturating_sub(padding as u64).max(1));
-            max_end = max_end.saturating_add(padding as u64);
+            // GATK 4.4 `AssemblyRegionTrimmer.trim` (SHA 2dbc0258):
+            // `maxEnd = Math.max(maxEnd, vc.getEnd() + padding)` — pad the farthest
+            // event end once, do not accumulate padding per overlapping variant.
+            max_end = max_end.max(v.end.saturating_add(padding as u64));
         }
 
         let padded_start = max(region.extended_start.get(), min_start);
@@ -509,5 +512,132 @@ mod tests {
         assert_eq!(trimmed.end.get(), 10);
         assert_eq!(trimmed.extended_start.get(), 1);
         assert_eq!(trimmed.extended_end.get(), 30);
+    }
+
+    /// GATK 4.4 `maxEnd = Math.max(maxEnd, vc.getEnd() + padding)`: three SNPs with
+    /// pad 20 yield last_end+20, not last_end+20+20+20 (6R.38 Class C / 6R.39 fix).
+    #[test]
+    fn modern_three_snps_pad_is_max_not_sum() {
+        let mut dict = SequenceDictionary::new();
+        dict.add_contig("2".into(), 243_199_373);
+        let trimmer =
+            AssemblyRegionTrimmer::new(AssemblyRegionTrimmerConfig::gatk_defaults(), &dict, "2");
+        let r = AssemblyRegion {
+            contig: "2".into(),
+            start: GenomePosition::new_1based(92_317_262),
+            end: GenomePosition::new_1based(92_317_491),
+            is_active: true,
+            extended_start: GenomePosition::new_1based(92_317_162),
+            extended_end: GenomePosition::new_1based(92_317_591),
+            extension: 100,
+            reads: Vec::new(),
+            read_qnames: Vec::new(),
+            reference: ReferenceContext::empty(),
+            features: crate::feature_context::FeatureContext::empty(),
+            pileup_loci: Vec::new(),
+        };
+        let vars = vec![
+            TrimVariant {
+                contig: "2".into(),
+                start: 92_317_399,
+                end: 92_317_399,
+                is_indel: false,
+            },
+            TrimVariant {
+                contig: "2".into(),
+                start: 92_317_407,
+                end: 92_317_407,
+                is_indel: false,
+            },
+            TrimVariant {
+                contig: "2".into(),
+                start: 92_317_412,
+                end: 92_317_412,
+                is_indel: false,
+            },
+        ];
+        let res = trimmer.trim(&r, &vars, None);
+        assert!(res.variation_present);
+        assert_eq!(res.variant_start, Some(92_317_399));
+        assert_eq!(res.variant_end, Some(92_317_412));
+        assert_eq!(res.padded_variant_start, Some(92_317_379));
+        let per_event = [92_317_399 + 20, 92_317_407 + 20, 92_317_412 + 20];
+        let java_max = *per_event.iter().max().unwrap();
+        assert_eq!(java_max, 92_317_432);
+        assert_eq!(res.padded_variant_end, Some(java_max));
+        assert_ne!(
+            res.padded_variant_end,
+            Some(92_317_412 + 20 + 20 + 20),
+            "must not accumulate SNP pad per event"
+        );
+    }
+
+    /// GATK 4.4 `AssemblyRegionTrimmer.trim`: an overlapping deletion event with
+    /// indel padding 75 pulls the padded span back across the D. SNP-only events
+    /// after the D do not (6R.45/6R.46: that window starts inside the D).
+    #[test]
+    fn modern_indel_event_extends_padded_span_across_deletion() {
+        let mut dict = SequenceDictionary::new();
+        dict.add_contig("chr1".into(), 400);
+        let trimmer =
+            AssemblyRegionTrimmer::new(AssemblyRegionTrimmerConfig::gatk_defaults(), &dict, "chr1");
+        let r = AssemblyRegion {
+            contig: "chr1".into(),
+            start: GenomePosition::new_1based(101),
+            end: GenomePosition::new_1based(259),
+            is_active: true,
+            extended_start: GenomePosition::new_1based(1),
+            extended_end: GenomePosition::new_1based(359),
+            extension: 100,
+            reads: Vec::new(),
+            read_qnames: Vec::new(),
+            reference: ReferenceContext::empty(),
+            features: crate::feature_context::FeatureContext::empty(),
+            pileup_loci: Vec::new(),
+        };
+        let snps = vec![
+            TrimVariant {
+                contig: "chr1".into(),
+                start: 211,
+                end: 211,
+                is_indel: false,
+            },
+            TrimVariant {
+                contig: "chr1".into(),
+                start: 212,
+                end: 212,
+                is_indel: false,
+            },
+            TrimVariant {
+                contig: "chr1".into(),
+                start: 230,
+                end: 230,
+                is_indel: false,
+            },
+            TrimVariant {
+                contig: "chr1".into(),
+                start: 247,
+                end: 247,
+                is_indel: false,
+            },
+        ];
+        let snp_only = trimmer.trim(&r, &snps, None);
+        assert_eq!(snp_only.padded_variant_start, Some(191));
+        assert_eq!(snp_only.padded_variant_end, Some(267));
+
+        let mut with_del = snps;
+        with_del.insert(
+            0,
+            TrimVariant {
+                contig: "chr1".into(),
+                start: 28,
+                end: 199,
+                is_indel: true,
+            },
+        );
+        let with = trimmer.trim(&r, &with_del, None);
+        assert_eq!(with.padded_variant_start, Some(1));
+        assert_eq!(with.padded_variant_end, Some(274));
+        assert_eq!(274, 28 + 171 + 75);
     }
 }

@@ -406,6 +406,52 @@ pub fn try_emit_call_region_variants_with_config(
     stand_emit_confidence: f64,
     genotyping_config: &HcGenotypingConfig,
 ) -> GatkResult<Vec<VcfRecord>> {
+    try_emit_call_region_variants_inner(
+        region,
+        outcome,
+        sample_name,
+        stand_emit_confidence,
+        genotyping_config,
+        true,
+    )
+}
+
+/// Emit variants with **raw** QUAL/depth in `QD` (no `fixTooHighQD`).
+///
+/// Production VCF merge applies the Java process-global jitter in genomic order.
+pub(crate) fn try_emit_call_region_variants_raw_qd(
+    region: &AssemblyRegion,
+    outcome: &CallRegionOutcome,
+    sample_name: &str,
+    stand_emit_confidence: f64,
+) -> GatkResult<Vec<VcfRecord>> {
+    try_emit_call_region_variants_inner(
+        region,
+        outcome,
+        sample_name,
+        stand_emit_confidence,
+        &HcGenotypingConfig::default(),
+        false,
+    )
+}
+
+fn finish_emitted_qd(mut records: Vec<VcfRecord>, apply_qd_jitter: bool) -> Vec<VcfRecord> {
+    if apply_qd_jitter {
+        crate::annotator::plugins::qual_by_depth::apply_fix_too_high_qd_to_vcf_records(
+            &mut records,
+        );
+    }
+    records
+}
+
+fn try_emit_call_region_variants_inner(
+    region: &AssemblyRegion,
+    outcome: &CallRegionOutcome,
+    sample_name: &str,
+    stand_emit_confidence: f64,
+    genotyping_config: &HcGenotypingConfig,
+    apply_qd_jitter: bool,
+) -> GatkResult<Vec<VcfRecord>> {
     let _prof = crate::hc_profile::begin(crate::hc_profile::Stage::VcfEmission);
     if !outcome.genotyped_calls.is_empty() {
         let assembly_events = outcome.assembly.variation_events();
@@ -748,10 +794,9 @@ pub fn try_emit_call_region_variants_with_config(
             records.push(rec);
         }
         // L7-A2: coalesce same-POS biallelics outside contig 2 (Java multi-allelic rows).
-        return crate::multiallelic_emit::merge_emitted_multiallelic_records(
-            &region.contig,
-            records,
-        );
+        let merged =
+            crate::multiallelic_emit::merge_emitted_multiallelic_records(&region.contig, records)?;
+        return Ok(finish_emitted_qd(merged, apply_qd_jitter));
     }
 
     // No EventMap genotyped sites: ref/alt haplotype diff (p11 when EventMap walk is empty).
@@ -762,7 +807,7 @@ pub fn try_emit_call_region_variants_with_config(
         stand_emit_confidence,
         genotyping_config,
     )
-    .map(|r| r.into_iter().collect())
+    .map(|r| finish_emitted_qd(r.into_iter().collect(), apply_qd_jitter))
 }
 
 /// Try to emit a variant from one active `call_region` outcome.
