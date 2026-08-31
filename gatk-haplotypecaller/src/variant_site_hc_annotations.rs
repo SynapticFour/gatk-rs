@@ -113,7 +113,9 @@ pub fn annotate_hc_variant_site(
     let fs = fisher_strand::fisher_strand_statistic(ref_fw, ref_rv, alt_fw, alt_rv);
     let sor = strand_odds_ratio::strand_odds_ratio(ref_fw, ref_rv, alt_fw, alt_rv);
     let rp = read_pos_rank_sum::read_pos_rank_sum(&ref_positions, &alt_positions);
-    let qd = qual_by_depth::qual_by_depth(qual, qd_depth);
+    // Raw QUAL/depth only. `fixTooHighQD` consumes the process-global Java RNG and
+    // must run later in genomic emit order (see `apply_fix_too_high_qd_to_vcf_records`).
+    let qd = qual_by_depth::raw_qual_by_depth(qual, qd_depth);
     let mq = if mq_n > 0 {
         mq_sum as f64 / mq_n as f64
     } else {
@@ -273,6 +275,7 @@ mod tests {
         assert!((qual - 78.32).abs() < 0.02, "qual={qual}");
         let mleaf = (af.alt_allele_count as f64 / 2.0).min(1.0);
         assert!((mleaf - 0.5).abs() < 1e-9);
+        let _qd = crate::annotator::plugins::qual_by_depth::hold_process_qd_rng_for_test();
         crate::annotator::plugins::qual_by_depth::reset_gatk_qual_by_depth_rng();
         let qd = crate::annotator::plugins::qual_by_depth::qual_by_depth(qual, 2);
         assert!(

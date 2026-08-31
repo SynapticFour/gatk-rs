@@ -571,4 +571,73 @@ mod tests {
             "must not accumulate SNP pad per event"
         );
     }
+
+    /// GATK 4.4 `AssemblyRegionTrimmer.trim`: an overlapping deletion event with
+    /// indel padding 75 pulls the padded span back across the D. SNP-only events
+    /// after the D do not (6R.45/6R.46: that window starts inside the D).
+    #[test]
+    fn modern_indel_event_extends_padded_span_across_deletion() {
+        let mut dict = SequenceDictionary::new();
+        dict.add_contig("chr1".into(), 400);
+        let trimmer =
+            AssemblyRegionTrimmer::new(AssemblyRegionTrimmerConfig::gatk_defaults(), &dict, "chr1");
+        let r = AssemblyRegion {
+            contig: "chr1".into(),
+            start: GenomePosition::new_1based(101),
+            end: GenomePosition::new_1based(259),
+            is_active: true,
+            extended_start: GenomePosition::new_1based(1),
+            extended_end: GenomePosition::new_1based(359),
+            extension: 100,
+            reads: Vec::new(),
+            read_qnames: Vec::new(),
+            reference: ReferenceContext::empty(),
+            features: crate::feature_context::FeatureContext::empty(),
+            pileup_loci: Vec::new(),
+        };
+        let snps = vec![
+            TrimVariant {
+                contig: "chr1".into(),
+                start: 211,
+                end: 211,
+                is_indel: false,
+            },
+            TrimVariant {
+                contig: "chr1".into(),
+                start: 212,
+                end: 212,
+                is_indel: false,
+            },
+            TrimVariant {
+                contig: "chr1".into(),
+                start: 230,
+                end: 230,
+                is_indel: false,
+            },
+            TrimVariant {
+                contig: "chr1".into(),
+                start: 247,
+                end: 247,
+                is_indel: false,
+            },
+        ];
+        let snp_only = trimmer.trim(&r, &snps, None);
+        assert_eq!(snp_only.padded_variant_start, Some(191));
+        assert_eq!(snp_only.padded_variant_end, Some(267));
+
+        let mut with_del = snps;
+        with_del.insert(
+            0,
+            TrimVariant {
+                contig: "chr1".into(),
+                start: 28,
+                end: 199,
+                is_indel: true,
+            },
+        );
+        let with = trimmer.trim(&r, &with_del, None);
+        assert_eq!(with.padded_variant_start, Some(1));
+        assert_eq!(with.padded_variant_end, Some(274));
+        assert_eq!(274, 28 + 171 + 75);
+    }
 }

@@ -111,6 +111,7 @@ parity/fixtures/hc-full-parity/java_dumps/**/*.stderr
 # 6R forensic investigation reports — keep locally / archive privately, not in the public tree
 /6R.*_REPORT.md
 /6R*_REPORT.md
+/docs/parity/*_REPORT.md
 
 # ---------------------------------------------------------------------------
 # Perf: keep aggregated reports; ignore raw timestamped run folders

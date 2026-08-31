@@ -48,6 +48,22 @@ This is not genome-wide equivalence, not a clinical drop-in, and not a claim tha
 interval, sample, or annotation matches Java. Signed product scopes remain P12 / L2 /
 synthetic joint gates in the claim matrix.
 
+## Independent holdouts (6R.43–6R.50)
+
+A frozen 10-region panel (`scripts/parity/6r43_holdout_panel.json`) is discovery, not a
+genome-wide score. After 6R.45–6R.50:
+
+| Class | Regions |
+|-------|---------|
+| **A** (7) | `ctrl_mid_b`, `p12_het_tail`, `p12_desert`, `p12_snp_cluster`, `p12_indel_mix`, `p12_post`, `p12_mid_a` |
+| **C** (3) | `chr20_tiny`, `chr20_w47`, `chr21_w10` |
+
+Previously green holdouts remain green. Canonical mid-B remains CONVERGED.
+
+Remaining **C** regions are predominantly Stage E haplotype-content differences (Java
+internal graph topology UNKNOWN) and Stage D/G/H cases where an allele exists in EventMap
+but is not emitted.
+
 ## How parity is established
 
 Algorithmic equivalence is **not** “the Rust file looks like the Java class.” It is:
@@ -77,6 +93,11 @@ These are **general** contracts, demonstrated on mid-B, not coordinate special c
 | AF EM loop | Dirichlet update **every** iteration, including the last, then P(no variant) | Rust broke before the last update (QUAL 78.583 vs 78.32) |
 | MLEAC / MLEAF | `round(EM expected alt count)` / `MLEAC / AN`; **not** the called GT | Rust copied 1/1 → MLEAC=2 |
 | QualByDepth | If raw QD ≥ 35: `30 + Random(47382911).nextGaussian()*3` | Rust capped at 30 with no jitter |
+| QualByDepth RNG lifetime | One JVM-static `Utils.randomGenerator`; draw iff raw QD ≥ 35; order = sequential walker emit | Thread-local RNG + jitter inside Rayon region emit reseeds per worker (716-cluster restarted at 25.36) |
+| `findBestPaths` retention | Keep if SW CIGAR ref-span equals the reference haplotype CIGAR ref-span (≥ 30, no `N`). Sequence length is not a gate. | Rust dropped alts with `len < 75%` of padded ref (`28M171D160M` / 188 bp vs 359) |
+| EventMap CIGAR alleles | `processCigarForInitialEvents` emits D/I with no allele-length cap (regular bases; skip unresolved edge I) | Rust dropped CIGAR events with `REF/ALT.len() > 40` (`171D` REF=172) |
+| EventMap vs padded REF | EventMap uses the haplotype CIGAR only; `trimTo` does not re-SW equal-length SNP haps against the untrimmed pad | Supplemental Indel SW vs pad invented a spanning D; `prefer_dominant_spanning_indels` then dropped SNPs Java still emits |
+| EventMap union | `getAllVariantContexts` keeps every per-haplotype EventMap allele; no nested-SNP drop inside another hap’s spanning indel | `collect_variation_events` / EventMap regen applied `prefer_dominant_spanning_indels` (Rust-only) |
 
 ## What remains unknown / out of scope
 
@@ -94,7 +115,17 @@ Reusable gates (not a forensic diary):
 ```text
 cargo test -p gatk-haplotypecaller --lib -- --test-threads=1
 cargo test -p gatk-haplotypecaller --test p12_call_none_mid_b_test
+HOLDOUT_6R43=1 cargo test -p gatk-haplotypecaller --test holdout_6r43_test
 ```
 
 `six_r*` tests under `gatk-haplotypecaller` pin the contracts above without requiring
 the 6R markdown reports.
+
+Independent-region discovery (not whole-codebase parity; 6R.43 snapshot):
+[`parity/6R.43_HOLDOUT_MATRIX.md`](parity/6R.43_HOLDOUT_MATRIX.md).
+Retention contract vs `p12_snp_cluster`: [`parity/6R.45_RETENTION.md`](parity/6R.45_RETENTION.md).
+Trim vs missing 171D EventMap allele: [`parity/6R.46_TRIM.md`](parity/6R.46_TRIM.md).
+EventMap CIGAR allele-length (no 40 bp cap): [`parity/6R.47_EVENTMAP.md`](parity/6R.47_EVENTMAP.md).
+QualByDepth process-global RNG stream: [`parity/6R.48_QD_RNG.md`](parity/6R.48_QD_RNG.md).
+6R.49: skip EventMap supplemental indel SW when hap length equals the trimmed reference haplotype.
+6R.50: EventMap union does not apply `prefer_dominant_spanning_indels`.

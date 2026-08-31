@@ -626,9 +626,12 @@ impl EventMap {
     }
 }
 
-/// Drop implausible mega-alleles from bad SW alignments.
-/// R4-2: raised from 4 → 40 so dense GIAB indels (Java max allele len often >4) are not
-/// discarded before genotyping. P12 cluster events remain short and still pass.
+/// Search bound for **read-event discovery** (pileup / motif scans), not EventMap.
+///
+/// GATK 4.4.0.0 `EventMap.processCigarForInitialEvents` (SHA `2dbc0258`) has no
+/// allele-length cap. A previous Rust-only filter (`len <= 40`) dropped CIGAR
+/// deletions such as `171D` (REF length 172) and is not applied to CIGAR-derived
+/// events (6R.47).
 pub const MAX_VARIATION_EVENT_ALLELE_LENGTH: usize = 40;
 
 fn cigar_has_indel(cigar: &Cigar) -> bool {
@@ -653,8 +656,15 @@ fn supplemental_indel_variation_events(
     if cigar_has_indel(cigar) {
         return Vec::new();
     }
-    // Equal-length alts are SNP/MNP — Indel-strategy SW cannot add I/D events and was the
-    // dominant cost inside every `collect_variation_events` on dense NA12878.
+    // Java `EventMap` uses the haplotype CIGAR only (`processCigarForInitialEvents`).
+    // After trim the alt is often the same length as the *trimmed* reference haplotype
+    // while `ref_bytes` is still the untrimmed padded window. Re-SW vs that window
+    // invents a spanning deletion (6R.47 then keeps it — no 40 bp cap) which
+    // `prefer_dominant_spanning_indels` uses to drop SNPs Java still emits.
+    if haplotype.bases.len() == ref_hap.bases.len() {
+        return Vec::new();
+    }
+    // Equal-length vs the padded window: SNP/MNP — Indel-strategy SW cannot add I/D.
     if haplotype.bases.len() == ref_bytes.len() {
         return Vec::new();
     }
@@ -682,12 +692,6 @@ fn supplemental_indel_variation_events(
         max_mnp_distance,
     );
     map.variation_events(contig, ref_loc_start_1based)
-        .into_iter()
-        .filter(|v| {
-            v.ref_allele.len() <= MAX_VARIATION_EVENT_ALLELE_LENGTH
-                && v.alt_allele.len() <= MAX_VARIATION_EVENT_ALLELE_LENGTH
-        })
-        .collect()
 }
 
 /// When an indel and SNP share the same start, keep the indel (Java VCF alleles at P12 cluster).
@@ -758,14 +762,7 @@ pub fn variation_events_for_haplotype(
             max_mnp_distance,
         )
     };
-    let mut events: Vec<VariationEvent> = map
-        .variation_events(contig, ref_loc_start_1based)
-        .into_iter()
-        .filter(|v| {
-            v.ref_allele.len() <= MAX_VARIATION_EVENT_ALLELE_LENGTH
-                && v.alt_allele.len() <= MAX_VARIATION_EVENT_ALLELE_LENGTH
-        })
-        .collect();
+    let mut events: Vec<VariationEvent> = map.variation_events(contig, ref_loc_start_1based);
     events.extend(supplemental_indel_variation_events(
         haplotype,
         ref_hap,
@@ -809,7 +806,9 @@ pub fn collect_variation_events(
     }
     let mut out: Vec<VariationEvent> = set.into_iter().collect();
     prefer_indel_over_colocated_snps(&mut out);
-    prefer_dominant_spanning_indels(&mut out);
+    // Java `getAllVariantContexts` is a TreeSet union of per-haplotype EventMaps
+    // (`AssemblyResultSet.regenerateVariationEvents`). It does not drop SNPs nested
+    // inside another haplotype's spanning indel (6R.50).
     out
 }
 
@@ -1268,6 +1267,223 @@ mod tests {
         let map = EventMap::from_haplotype_and_reference(&alt, &ref_hap, ref_bytes, 100, 0);
         assert!(map.events.is_empty());
     }
+
+    /// Pre-6R.47 Rust-only EventMap gate (must not be used on CIGAR events).
+    fn legacy_allele_length_40_keeps(allele_len: usize) -> bool {
+        allele_len <= MAX_VARIATION_EVENT_ALLELE_LENGTH
+    }
+
+    #[test]
+    fn eventmap_short_deletion_is_emitted() {
+        let ref_bytes = b"ACGTAAAA";
+        let ref_hap = Haplotype::new(ref_bytes, true);
+        let alt = hap_with_cigar(
+            b"ACAAAA",
+            &[
+                (2, CigarOperator::Match),
+                (2, CigarOperator::Deletion),
+                (4, CigarOperator::Match),
+            ],
+        );
+        let events = variation_events_for_haplotype(&alt, &ref_hap, ref_bytes, 100, 0, "chr");
+        let del = events
+            .iter()
+            .find(|e| e.is_indel())
+            .expect("Java EventMap emits a simple deletion");
+        assert_eq!(del.ref_allele, "CGT");
+        assert_eq!(del.alt_allele, "C");
+        assert_eq!(del.start_1based.get(), 101);
+        assert_eq!(del.end_1based.get(), 103);
+    }
+
+    #[test]
+    fn eventmap_deletion_longer_than_forty_is_kept() {
+        const D: usize = 50;
+        let mut ref_bytes = vec![b'A'; 10];
+        ref_bytes.extend(std::iter::repeat_n(b'C', D));
+        ref_bytes.extend(std::iter::repeat_n(b'T', 10));
+        let ref_hap = Haplotype::new(ref_bytes.clone(), true);
+        let mut alt_bases = vec![b'A'; 10];
+        alt_bases.extend(std::iter::repeat_n(b'T', 10));
+        let alt = hap_with_cigar(
+            &alt_bases,
+            &[
+                (10, CigarOperator::Match),
+                (D, CigarOperator::Deletion),
+                (10, CigarOperator::Match),
+            ],
+        );
+        let events = variation_events_for_haplotype(&alt, &ref_hap, &ref_bytes, 1, 0, "chr");
+        let del = events
+            .iter()
+            .find(|e| e.is_indel())
+            .expect("Java EventMap has no 40 bp allele cap");
+        assert_eq!(del.ref_allele.len(), D + 1);
+        assert_eq!(del.alt_allele.len(), 1);
+        assert!(
+            !legacy_allele_length_40_keeps(del.ref_allele.len()),
+            "old 40-base cap would have dropped this CIGAR deletion"
+        );
+    }
+
+    /// Structure of `28M171D160M`: long D plus SNPs on the downstream match.
+    #[test]
+    fn eventmap_long_deletion_then_snps_emits_both() {
+        const M1: usize = 28;
+        const D: usize = 171;
+        const M2: usize = 160;
+        let mut ref_bytes = vec![b'A'; M1 + D + M2];
+        let m2 = M1 + D;
+        ref_bytes[m2 + 12] = b'A';
+        ref_bytes[m2 + 30] = b'G';
+        ref_bytes[m2 + 47] = b'T';
+        let mut alt_bases = vec![b'A'; M1];
+        let mut tail = vec![b'A'; M2];
+        tail[12] = b'G';
+        tail[30] = b'C';
+        tail[47] = b'A';
+        alt_bases.extend_from_slice(&tail);
+        let alt = hap_with_cigar(
+            &alt_bases,
+            &[
+                (M1, CigarOperator::Match),
+                (D, CigarOperator::Deletion),
+                (M2, CigarOperator::Match),
+            ],
+        );
+        let ref_hap = Haplotype::new(ref_bytes.clone(), true);
+        let events = variation_events_for_haplotype(&alt, &ref_hap, &ref_bytes, 1, 0, "chr");
+        let del = events
+            .iter()
+            .find(|e| e.ref_allele.len() == D + 1)
+            .expect("171D REF length 172 must be present");
+        assert_eq!(del.alt_allele.len(), 1);
+        assert!(!legacy_allele_length_40_keeps(del.ref_allele.len()));
+        let snps: Vec<_> = events
+            .iter()
+            .filter(|e| e.is_snp())
+            .map(|e| (e.ref_allele.as_str(), e.alt_allele.as_str()))
+            .collect();
+        assert!(snps.contains(&("A", "G")));
+        assert!(snps.contains(&("G", "C")));
+        assert!(snps.contains(&("T", "A")));
+    }
+
+    /// 6R.49: Java EventMap does not re-SW a trimmed SNP haplotype against the untrimmed
+    /// padded reference. A Match-only CIGAR whose bases match the *reference haplotype*
+    /// length must emit the SNP and must not invent a spanning deletion.
+    #[test]
+    fn eventmap_trimmed_snp_hap_does_not_invent_indel_against_padded_ref() {
+        let mut padded = vec![b'N'; 10];
+        padded.extend_from_slice(b"ACGTACGT");
+        padded.extend(std::iter::repeat_n(b'N', 22));
+        let mut ref_hap = hap_with_cigar(b"ACGTACGT", &[(8, CigarOperator::Match)]);
+        ref_hap.is_reference = true;
+        ref_hap.genome_loc = Some(GenomeLoc::new(110, 117));
+        ref_hap.alignment_start_hap_wrt_ref = 10;
+        let mut alt = hap_with_cigar(b"ACCTACGT", &[(8, CigarOperator::Match)]);
+        alt.genome_loc = Some(GenomeLoc::new(110, 117));
+        alt.alignment_start_hap_wrt_ref = 10;
+        let events = collect_variation_events(&[ref_hap, alt], &padded, 100, "chr", 0);
+        let snp = events
+            .iter()
+            .find(|e| e.is_snp())
+            .unwrap_or_else(|| panic!("expected SNP from 8M CIGAR, got {events:?}"));
+        assert_eq!(snp.start_1based.get(), 112);
+        assert_eq!(snp.ref_allele, "G");
+        assert_eq!(snp.alt_allele, "C");
+        assert!(
+            events
+                .iter()
+                .all(|e| e.ref_allele.len() <= 8 && e.alt_allele.len() <= 8),
+            "must not invent a spanning deletion vs padding: {events:?}"
+        );
+    }
+
+    /// Java `getAllVariantContexts` keeps a SNP from a Match haplotype even when another
+    /// haplotype carries a spanning deletion over the same bases.
+    #[test]
+    fn eventmap_union_keeps_snp_nested_in_another_haplotype_deletion() {
+        let ref_bytes = b"ACGTACGTACGTACGTACGT";
+        let mut ref_hap = hap_with_cigar(ref_bytes, &[(20, CigarOperator::Match)]);
+        ref_hap.is_reference = true;
+        let del = hap_with_cigar(
+            b"ACGTACGTACGT",
+            &[
+                (6, CigarOperator::Match),
+                (8, CigarOperator::Deletion),
+                (6, CigarOperator::Match),
+            ],
+        );
+        let mut snp_bases = ref_bytes.to_vec();
+        snp_bases[10] = b'T'; // genomic start 100+10 = 110, REF G ALT T
+        let snp_hap = hap_with_cigar(&snp_bases, &[(20, CigarOperator::Match)]);
+        let events = collect_variation_events(&[ref_hap, del, snp_hap], ref_bytes, 100, "chr", 0);
+        let snp = events
+            .iter()
+            .find(|e| e.is_snp() && e.start_1based.get() == 110);
+        assert!(
+            snp.is_some(),
+            "Java EventMap union keeps the SNP; got {events:?}"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| e.is_indel() && e.ref_allele.len() > 1),
+            "deletion from the other haplotype must remain: {events:?}"
+        );
+    }
+
+    /// Length-changing Match-only CIGARs still take Indel-strategy SW (P12 A>ATG class).
+    #[test]
+    fn eventmap_length_changing_match_cigar_still_gets_supplemental_indel() {
+        let ref_bytes = b"ACGTACGT";
+        let mut ref_hap = hap_with_cigar(ref_bytes, &[(8, CigarOperator::Match)]);
+        ref_hap.is_reference = true;
+        let alt = hap_with_cigar(b"ACGTTACGT", &[(9, CigarOperator::Match)]);
+        let events = variation_events_for_haplotype(&alt, &ref_hap, ref_bytes, 100, 0, "chr");
+        assert!(
+            events.iter().any(|e| e.is_indel()),
+            "M-only CIGAR with extra bases must still recover an indel: {events:?}"
+        );
+    }
+
+    #[test]
+    fn eventmap_internal_insertion_is_emitted() {
+        let ref_bytes = b"ACGTACGT";
+        let ref_hap = Haplotype::new(ref_bytes, true);
+        let alt = hap_with_cigar(
+            b"ACGTTTACGT",
+            &[
+                (4, CigarOperator::Match),
+                (2, CigarOperator::Insertion),
+                (4, CigarOperator::Match),
+            ],
+        );
+        let events = variation_events_for_haplotype(&alt, &ref_hap, ref_bytes, 100, 0, "chr");
+        let ins = events
+            .iter()
+            .find(|e| e.is_indel())
+            .expect("Java keeps resolved internal I");
+        assert_eq!(ins.ref_allele, "T");
+        assert_eq!(ins.alt_allele, "TTT");
+        assert_eq!(ins.start_1based.get(), ins.end_1based.get());
+    }
+
+    #[test]
+    fn eventmap_leading_insertion_is_skipped() {
+        let ref_bytes = b"ACGTACGT";
+        let ref_hap = Haplotype::new(ref_bytes, true);
+        let alt = hap_with_cigar(
+            b"TTACGTACGT",
+            &[(2, CigarOperator::Insertion), (8, CigarOperator::Match)],
+        );
+        let events = variation_events_for_haplotype(&alt, &ref_hap, ref_bytes, 100, 0, "chr");
+        assert!(
+            events.iter().all(|e| !e.is_indel()),
+            "Java skips I at cigarIndex==0; got {events:?}"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1381,3 +1597,7 @@ mod p12_6r40_af_qual_mleac_tests;
 #[cfg(test)]
 #[path = "../tests/event_map/event_map_p12_6r41_test.rs"]
 mod p12_6r41_qual_by_depth_jitter_tests;
+
+#[cfg(test)]
+#[path = "../tests/event_map/event_map_p12_6r48_test.rs"]
+mod p12_6r48_qual_by_depth_rng_stream_tests;

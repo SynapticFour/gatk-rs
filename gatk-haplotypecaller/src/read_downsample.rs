@@ -525,6 +525,25 @@ mod tests {
     }
 
     #[test]
+    fn six_r48_next_gaussian_first_nine_match_java_qd_vcf_precision() {
+        let mut rng = GatkJavaRng::reset_gatk_default();
+        let gaussians: Vec<f64> = (0..9).map(|_| rng.next_gaussian()).collect();
+        let printed: Vec<String> = gaussians
+            .iter()
+            .map(|g| format!("{:.2}", 30.0 + 3.0 * g))
+            .collect();
+        assert_eq!(
+            printed,
+            ["25.36", "28.73", "30.97", "27.24", "28.20", "25.00", "29.56", "30.62", "28.17"]
+        );
+        assert!(gaussians[0] < 0.0, "first Box–Muller draw is negative");
+        assert!(
+            (30.0 + 3.0 * gaussians[0] - 25.36).abs() < 0.005,
+            "raw gaussian 0 must round to Java QD 25.36"
+        );
+    }
+
+    #[test]
     fn reservoir_mode_keeps_cap_per_start() {
         let hv = test_header();
         let mut recs = vec![

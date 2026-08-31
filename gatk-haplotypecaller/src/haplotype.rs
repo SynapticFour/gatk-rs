@@ -249,18 +249,54 @@ pub fn sort_haplotypes_assembly_result_order(haplotypes: &mut Vec<Haplotype>) {
     });
 }
 
-/// Drop non-reference k-best fragments (GATK `findBestPaths` / full-length alt paths only).
+/// GATK 4.4 `ReadThreadingAssembler.findBestPaths` expected CIGAR reference span
+/// (`refHaplotype.getCigar().getReferenceLength()`).
+fn find_best_paths_ref_span(ref_hap: &Haplotype) -> usize {
+    ref_hap
+        .cigar
+        .as_ref()
+        .map(|c| c.reference_length())
+        .unwrap_or(ref_hap.bases.len())
+}
+
+/// Whether a non-reference haplotype would be retained by GATK 4.4.0.0
+/// `ReadThreadingAssembler.findBestPaths` (SHA `2dbc0258`, ~367–395).
+///
+/// Java keeps the path when the SW CIGAR:
+/// - has no `N` (`pathIsTooDivergentFromReference`);
+/// - has `getReferenceLength() >= MIN_HAPLOTYPE_REFERENCE_LENGTH` (30);
+/// - has `getReferenceLength() == refHaplotype.getCigar().getReferenceLength()`.
+///
+/// Sequence length is not a criterion. A deletion haplotype such as `28M171D160M`
+/// (188 bases, CIGAR ref-span 359) is retained against a 359M reference.
+pub fn find_best_paths_retains_non_reference(
+    haplotype: &Haplotype,
+    ref_hap: &Haplotype,
+    min_cigar_ref_length: usize,
+) -> bool {
+    if haplotype.is_reference {
+        return true;
+    }
+    let Some(cigar) = haplotype.cigar.as_ref() else {
+        return false;
+    };
+    // Java `pathIsTooDivergentFromReference`: any `N`. This CIGAR subset has no `N`.
+    let cig_ref = cigar.reference_length();
+    cig_ref >= min_cigar_ref_length && cig_ref == find_best_paths_ref_span(ref_hap)
+}
+
+/// Drop non-reference haplotypes that fail GATK 4.4 `findBestPaths` CIGAR retention.
+///
+/// This is **not** a sequence-length ≥ 75% of padded-reference filter. That Rust-only
+/// gate deleted valid deletion haplotypes Java keeps (`28M171D160M` vs 359M).
 pub fn prune_fragment_non_reference_haplotypes(
     haplotypes: &mut Vec<Haplotype>,
     ref_hap: &Haplotype,
-    min_bases: usize,
+    min_cigar_ref_length: usize,
 ) {
-    let ref_len = ref_hap.bases.len();
-    if ref_len == 0 {
-        return;
-    }
-    let min_alt_len = ref_len.saturating_mul(3).saturating_div(4).max(min_bases);
-    haplotypes.retain(|h| h.is_reference || h.bases.len() >= min_alt_len);
+    haplotypes.retain(|h| {
+        h.is_reference || find_best_paths_retains_non_reference(h, ref_hap, min_cigar_ref_length)
+    });
 }
 
 fn hash_hap_bases(bases: &[u8]) -> u64 {
@@ -349,20 +385,76 @@ mod tests {
             .any(|h| h.bases.as_slice() == typo_alt && !h.is_reference));
     }
 
+    fn cigar(ops: &[(usize, CigarOperator)]) -> Cigar {
+        let mut c = Cigar::new();
+        for &(len, op) in ops {
+            c.push(len, op);
+        }
+        c
+    }
+
+    fn hap_with_cigar(bases: Vec<u8>, is_ref: bool, ops: &[(usize, CigarOperator)]) -> Haplotype {
+        let mut h = Haplotype::new(bases, is_ref);
+        h.cigar = Some(cigar(ops));
+        h
+    }
+
+    /// Pre-6R.45 Rust-only gate (must not be used for retention).
+    fn legacy_sequence_length_75pct_keeps(
+        seq_len: usize,
+        ref_len: usize,
+        min_bases: usize,
+    ) -> bool {
+        seq_len >= ref_len.saturating_mul(3).saturating_div(4).max(min_bases)
+    }
+
     #[test]
-    fn prune_drops_short_non_reference_fragments() {
-        let ref_bases = vec![b'A'; 68];
-        // CLONE: needed because haplotype constructor takes owned bases.
-        let ref_hap = Haplotype::new(ref_bases.clone(), true);
-        let mut haps = vec![
-            Haplotype::new(b"GATACGATTCG".to_vec(), false),
-            // CLONE: needed because haplotype constructor takes owned bases.
-            Haplotype::new(ref_bases.clone(), true),
-            Haplotype::new(vec![b'C'; 68], false),
-        ];
+    fn prune_keeps_deletion_haplotype_java_find_best_paths_span() {
+        // 6R.44: 188 bp sequence, SW `28M171D160M`, padded ref 359M.
+        const REF_LEN: usize = 359;
+        const SEQ_LEN: usize = 188; // 28 + 160
+        let ref_hap = hap_with_cigar(
+            vec![b'A'; REF_LEN],
+            true,
+            &[(REF_LEN, CigarOperator::Match)],
+        );
+        let alt = hap_with_cigar(
+            vec![b'T'; SEQ_LEN],
+            false,
+            &[
+                (28, CigarOperator::Match),
+                (171, CigarOperator::Deletion),
+                (160, CigarOperator::Match),
+            ],
+        );
+        assert_eq!(alt.cigar.as_ref().unwrap().reference_length(), REF_LEN);
+        assert!(
+            !legacy_sequence_length_75pct_keeps(SEQ_LEN, REF_LEN, 30),
+            "old 75% sequence gate must reject 188 vs 359"
+        );
+        assert!(find_best_paths_retains_non_reference(&alt, &ref_hap, 30));
+        let mut haps = vec![ref_hap.clone(), alt];
+        prune_fragment_non_reference_haplotypes(&mut haps, &ref_hap, 30);
+        assert_eq!(haps.len(), 2);
+        assert!(haps
+            .iter()
+            .any(|h| !h.is_reference && h.bases.len() == SEQ_LEN));
+    }
+
+    #[test]
+    fn prune_drops_cigar_that_does_not_span_reference() {
+        let ref_hap = hap_with_cigar(vec![b'A'; 68], true, &[(68, CigarOperator::Match)]);
+        let fragment = hap_with_cigar(
+            b"GATACGATTCG".to_vec(),
+            false,
+            &[(11, CigarOperator::Match)],
+        );
+        let full_alt = hap_with_cigar(vec![b'C'; 68], false, &[(68, CigarOperator::Match)]);
+        let mut haps = vec![fragment, ref_hap.clone(), full_alt];
         prune_fragment_non_reference_haplotypes(&mut haps, &ref_hap, 30);
         assert_eq!(haps.len(), 2);
         assert!(haps.iter().any(|h| h.is_reference));
+        assert!(haps.iter().any(|h| !h.is_reference && h.bases.len() == 68));
     }
 
     #[test]
@@ -390,5 +482,37 @@ mod tests {
         let t = h.trim(&sub, false).expect("trim");
         assert_eq!(t.bases, b"GTA");
         assert_eq!(t.genome_loc, Some(sub));
+    }
+
+    /// GATK 4.4 `Haplotype.trim` + `AlignmentUtils.trimCigarByReference`.
+    /// A deletion haplotype is kept when the padded span covers the D; it is dropped
+    /// when the span starts inside the D (`getBasesCoveringRefInterval` returns null).
+    #[test]
+    fn trim_keeps_deletion_cigar_when_span_covers_ref() {
+        const REF_LEN: u64 = 359;
+        let mut alt = hap_with_cigar(
+            vec![b'T'; 188],
+            false,
+            &[
+                (28, CigarOperator::Match),
+                (171, CigarOperator::Deletion),
+                (160, CigarOperator::Match),
+            ],
+        );
+        alt.genome_loc = Some(GenomeLoc::new(1, REF_LEN));
+        // 28M + 171D + 75M = 274 ref bases (Java bamout CIGAR after trim).
+        let spanning = GenomeLoc::new(1, 28 + 171 + 75);
+        let kept = alt
+            .trim(&spanning, false)
+            .expect("span covering D keeps hap");
+        assert_eq!(kept.cigar.as_ref().unwrap().to_gatk_string(), "28M171D75M");
+        assert_eq!(kept.bases.len(), 103);
+
+        // 77 bp window whose start lies in the 171D (ref 29–199).
+        let inside_del = GenomeLoc::new(191, 267);
+        assert!(
+            alt.trim(&inside_del, false).is_none(),
+            "Java drops a hap whose trim interval starts in a deletion"
+        );
     }
 }

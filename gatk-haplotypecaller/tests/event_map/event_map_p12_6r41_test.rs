@@ -3,8 +3,8 @@
 #[cfg(test)]
 mod traces {
     use crate::annotator::plugins::qual_by_depth::{
-        fix_too_high_qd_with_rng, qual_by_depth, qual_by_depth_with_rng,
-        reset_gatk_qual_by_depth_rng, MAX_QD_BEFORE_FIXING,
+        fix_too_high_qd_with_rng, hold_process_qd_rng_for_test, qual_by_depth,
+        qual_by_depth_with_rng, reset_gatk_qual_by_depth_rng, MAX_QD_BEFORE_FIXING,
     };
     use crate::engine::{CallRegionArgs, HaplotypeCallerEngine};
     use crate::hc_genotyping_engine::HcGenotypingConfig;
@@ -78,6 +78,7 @@ mod traces {
 
     #[test]
     fn six_r41_qd_thread_local_reset_is_deterministic() {
+        let _qd = hold_process_qd_rng_for_test();
         reset_gatk_qual_by_depth_rng();
         let first = qual_by_depth(78.32, 2);
         reset_gatk_qual_by_depth_rng();
@@ -116,6 +117,7 @@ mod traces {
             .expect("call")
             .expect("Some");
         let gt_cfg = HcGenotypingConfig::strict_java();
+        let _qd = hold_process_qd_rng_for_test();
         reset_gatk_qual_by_depth_rng();
         let vcf = try_emit_call_region_variants_with_config(
             &region,

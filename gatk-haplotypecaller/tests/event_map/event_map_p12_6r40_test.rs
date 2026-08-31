@@ -60,6 +60,7 @@ mod traces {
     #[test]
     fn six_r40_qd_java_jitter_first_draw_from_gatk_seed() {
         // 6R.41: QualByDepth uses Utils.getRandomGenerator().nextGaussian().
+        let _qd = crate::annotator::plugins::qual_by_depth::hold_process_qd_rng_for_test();
         crate::annotator::plugins::qual_by_depth::reset_gatk_qual_by_depth_rng();
         let qd = crate::annotator::plugins::qual_by_depth::qual_by_depth(78.32, 2);
         assert!(78.32 / 2.0 > 35.0);
@@ -96,6 +97,7 @@ mod traces {
             .expect("call")
             .expect("Some");
         let gt_cfg = HcGenotypingConfig::strict_java();
+        let _qd = crate::annotator::plugins::qual_by_depth::hold_process_qd_rng_for_test();
         crate::annotator::plugins::qual_by_depth::reset_gatk_qual_by_depth_rng();
         let vcf = try_emit_call_region_variants_with_config(
             &region,
