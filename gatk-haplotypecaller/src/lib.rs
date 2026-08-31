@@ -442,8 +442,9 @@ pub use read_projection::{
 };
 pub use read_threading_assembler::{
     assemble_from_ref_and_reads, audit_threading_dangling_recovery,
-    AssemblyResult as ThreadingAssemblyResult, AssemblyStatus, ReadThreadingAssemblerArgs,
-    ThreadingDanglingAudit, DEFAULT_NUM_BEST_HAPLOTYPES_PER_GRAPH,
+    diagnostic_rt_first_skip_seq_graph_kmer, AssemblyResult as ThreadingAssemblyResult,
+    AssemblyStatus, ReadThreadingAssemblerArgs, ThreadingDanglingAudit,
+    DEFAULT_NUM_BEST_HAPLOTYPES_PER_GRAPH,
 };
 pub use read_threading_assembler::{
     audit_kbest_extract, path_is_too_divergent_from_reference, KbestExtractAuditRow,

@@ -175,6 +175,7 @@ fn calculate_haplotype_cigar_sw(
     }
     // Equal-length SNP/MNP: EventMap reads mismatches from Match ops — skip padded SW.
     // Length-changing alts still need SoftClip/Indel SW below.
+    // Java `CigarUtils.calculateCigar` does **not** have this shortcut (only `Arrays.equals`).
     if ref_seq.len() == alt_seq.len() {
         let mut c = Cigar::new();
         c.push(ref_seq.len(), CigarOperator::Match);
@@ -183,6 +184,44 @@ fn calculate_haplotype_cigar_sw(
             alignment_start_hap_wrt_ref: 0,
         });
     }
+    padded_sw_haplotype_cigar(ref_seq, alt_seq, parameters, strategy)
+}
+
+/// Observe-only: GATK 4.4 `CigarUtils.calculateCigar` SoftClip/Indel padded SW.
+///
+/// Java skips SW only when `Arrays.equals(refSeq, altSeq)`. Production
+/// [`calculate_haplotype_cigar_sw`] still uses the equal-length `{len}M` shortcut.
+pub fn calculate_haplotype_cigar_java_padded_sw(
+    ref_seq: &[u8],
+    alt_seq: &[u8],
+    parameters: &SwParameters,
+    strategy: SwOverhangStrategy,
+) -> Option<HaplotypeAssemblyCigar> {
+    if alt_seq.is_empty() {
+        let mut c = Cigar::new();
+        c.push(ref_seq.len(), CigarOperator::Deletion);
+        return Some(HaplotypeAssemblyCigar {
+            cigar: c,
+            alignment_start_hap_wrt_ref: 0,
+        });
+    }
+    if ref_seq == alt_seq {
+        let mut c = Cigar::new();
+        c.push(ref_seq.len(), CigarOperator::Match);
+        return Some(HaplotypeAssemblyCigar {
+            cigar: c,
+            alignment_start_hap_wrt_ref: 0,
+        });
+    }
+    padded_sw_haplotype_cigar(ref_seq, alt_seq, parameters, strategy)
+}
+
+fn padded_sw_haplotype_cigar(
+    ref_seq: &[u8],
+    alt_seq: &[u8],
+    parameters: &SwParameters,
+    strategy: SwOverhangStrategy,
+) -> Option<HaplotypeAssemblyCigar> {
     let alignment = HAP_SW_PAD_SCRATCH.with(|cell| {
         let (padded_ref, padded_alt) = &mut *cell.borrow_mut();
         padded_ref.clear();
@@ -238,6 +277,133 @@ fn calculate_haplotype_cigar_sw(
         ),
         cigar,
     })
+}
+
+/// Observe-only reconstruction of GATK 4.4.0.0 `ReadThreadingAssembler.findBestPaths`
+/// (SHA `2dbc0258`, ~354–395) plus the Rust production extract predicate.
+///
+/// Does **not** change production SW or extract.
+#[derive(Debug, Clone)]
+pub struct FindBestPathsGateTrace {
+    pub seq_len: usize,
+    pub ref_hap_len: usize,
+    pub rust_prod_cigar: Option<String>,
+    pub rust_prod_ref_len: Option<usize>,
+    pub java_softclip_cigar: Option<String>,
+    pub java_softclip_ref_len: Option<usize>,
+    pub java_indel_cigar: Option<String>,
+    pub java_indel_ref_len: Option<usize>,
+    /// Rust [`CigarOperator`] has no `N`; always false on production CIGARs.
+    pub cigar_contains_n: bool,
+    pub rust_prod_spans_required: bool,
+    pub java_softclip_spans_required: bool,
+    pub duplicate: bool,
+    pub rust_extract_keep: bool,
+    pub java_would_retain: bool,
+    pub first_rust_reject: Option<&'static str>,
+    pub first_java_reject: Option<&'static str>,
+}
+
+/// Classify one k-best candidate against Java `findBestPaths` and Rust SeqGraph extract.
+///
+/// `already_seen` is bases+is_reference pairs already accepted (Java `LinkedHashSet` /
+/// Rust `HapSeqSet`). Production extract is not called.
+pub fn trace_find_best_paths_gates(
+    ref_seq: &[u8],
+    alt_seq: &[u8],
+    is_reference: bool,
+    ref_cigar_length: usize,
+    parameters: &SwParameters,
+    already_seen: &[(Vec<u8>, bool)],
+) -> FindBestPathsGateTrace {
+    const MIN_REF: usize = 30;
+    let duplicate = already_seen
+        .iter()
+        .any(|(b, r)| b.as_slice() == alt_seq && *r == is_reference);
+
+    let rust_prod = calculate_haplotype_cigar_for_assembly_with_offset(
+        ref_seq,
+        alt_seq,
+        ref_cigar_length,
+        parameters,
+    );
+    let rust_prod_cigar = rust_prod.as_ref().map(|a| a.cigar.to_gatk_string());
+    let rust_prod_ref_len = rust_prod.as_ref().map(|a| a.cigar.reference_length());
+    let rust_prod_spans_required = rust_prod_ref_len == Some(ref_cigar_length);
+
+    let java_soft = calculate_haplotype_cigar_java_padded_sw(
+        ref_seq,
+        alt_seq,
+        parameters,
+        SwOverhangStrategy::SoftClip,
+    );
+    let java_softclip_cigar = java_soft.as_ref().map(|a| a.cigar.to_gatk_string());
+    let java_softclip_ref_len = java_soft.as_ref().map(|a| a.cigar.reference_length());
+    let java_softclip_spans_required = java_softclip_ref_len == Some(ref_cigar_length);
+
+    let java_indel = calculate_haplotype_cigar_java_padded_sw(
+        ref_seq,
+        alt_seq,
+        parameters,
+        SwOverhangStrategy::Indel,
+    );
+    let java_indel_cigar = java_indel.as_ref().map(|a| a.cigar.to_gatk_string());
+    let java_indel_ref_len = java_indel.as_ref().map(|a| a.cigar.reference_length());
+
+    let (first_rust_reject, rust_extract_keep) = if duplicate {
+        (Some("duplicate_bases_label"), false)
+    } else if rust_prod.is_none() {
+        (Some("sw_failed_or_none"), false)
+    } else if ref_cigar_length >= MIN_REF
+        && rust_prod
+            .as_ref()
+            .is_some_and(|a| a.cigar.reference_length() < MIN_REF)
+    {
+        (Some("ref_length_too_short"), false)
+    } else {
+        (None, true)
+    };
+
+    // Java order: duplicate → SoftClip null → empty (throw) → N or <30 → span mismatch.
+    let (first_java_reject, java_would_retain) = if duplicate {
+        (Some("duplicate_linked_hash_set"), false)
+    } else if java_soft.is_none() {
+        (Some("softclip_cigar_null"), false)
+    } else if java_soft
+        .as_ref()
+        .is_some_and(|a| a.cigar.elements.is_empty())
+    {
+        (Some("softclip_cigar_empty_throw"), false)
+    } else if java_softclip_ref_len.is_some_and(|n| n < MIN_REF) {
+        (Some("min_haplotype_reference_length_30"), false)
+    } else if !java_softclip_spans_required {
+        if java_indel_ref_len == Some(ref_cigar_length) {
+            (Some("softclip_span_mismatch_indel_matches_reject"), false)
+        } else {
+            (Some("softclip_and_indel_span_mismatch_throw"), false)
+        }
+    } else {
+        (None, true)
+    };
+
+    FindBestPathsGateTrace {
+        seq_len: alt_seq.len(),
+        ref_hap_len: ref_seq.len(),
+        rust_prod_cigar,
+        rust_prod_ref_len,
+        java_softclip_cigar,
+        java_softclip_ref_len,
+        java_indel_cigar,
+        java_indel_ref_len,
+        cigar_contains_n: false,
+        rust_prod_spans_required,
+        java_softclip_spans_required,
+        duplicate,
+        rust_extract_keep,
+        java_would_retain,
+        first_rust_reject,
+        first_java_reject,
+    }
 }
 
 pub fn trim_cigar_by_reference(
@@ -839,5 +1005,57 @@ mod tests {
         assert!(c.is_some());
         let c = calculate_haplotype_cigar(b"TTTTAAAA", b"TTTTAAA", &p);
         assert!(c.is_some());
+    }
+
+    /// 6R.54 characterization (coordinate-free).
+    ///
+    /// Java 4.4 `findBestPaths` (SHA `2dbc0258` ~359–395): SoftClip SW unless
+    /// `Arrays.equals`; reject null / empty / any `N` / ref-span `< 30` / SoftClip
+    /// span mismatch whose Indel retry *matches* the expected span.
+    ///
+    /// Equal-length SNP: Java SoftClip typically `{len}M`; Rust production extract
+    /// uses the equal-length `{len}M` shortcut. Current Rust **retains** this class.
+    /// Expected Java: also retain. Do not change production to make a different
+    /// assertion pass.
+    #[test]
+    fn equal_length_snp_passes_java_find_best_paths_and_rust_extract() {
+        let p = SwParameters::gatk_haplotype_to_reference();
+        let ref_seq: Vec<u8> = b"ACGT".iter().copied().cycle().take(80).collect();
+        let mut alt = ref_seq.clone();
+        alt[40] = b'T'; // ref at 40 is A (ACGT cycle)
+        assert_ne!(ref_seq, alt);
+        assert_eq!(ref_seq.len(), alt.len());
+        let t = trace_find_best_paths_gates(&ref_seq, &alt, false, 80, &p, &[]);
+        assert_eq!(t.rust_prod_cigar.as_deref(), Some("80M"));
+        assert_eq!(t.java_softclip_cigar.as_deref(), Some("80M"));
+        assert!(
+            t.rust_extract_keep,
+            "current Rust extract keeps equal-length SNP"
+        );
+        assert!(
+            t.java_would_retain,
+            "Java findBestPaths would retain equal-length SNP; first_java_reject={:?}",
+            t.first_java_reject
+        );
+        assert!(t.first_rust_reject.is_none());
+        assert!(t.first_java_reject.is_none());
+        assert!(t.rust_prod_spans_required);
+        assert!(t.java_softclip_spans_required);
+        assert!(!t.cigar_contains_n);
+    }
+
+    /// Duplicate bases+is_reference: Java `LinkedHashSet.contains` skip; Rust HapSeqSet skip.
+    #[test]
+    fn find_best_paths_duplicate_bases_rejected_by_both() {
+        let p = SwParameters::gatk_haplotype_to_reference();
+        let ref_seq: Vec<u8> = b"ACGT".iter().copied().cycle().take(80).collect();
+        let mut alt = ref_seq.clone();
+        alt[40] = b'T';
+        let seen = vec![(alt.clone(), false)];
+        let t = trace_find_best_paths_gates(&ref_seq, &alt, false, 80, &p, &seen);
+        assert!(!t.rust_extract_keep);
+        assert!(!t.java_would_retain);
+        assert_eq!(t.first_rust_reject, Some("duplicate_bases_label"));
+        assert_eq!(t.first_java_reject, Some("duplicate_linked_hash_set"));
     }
 }

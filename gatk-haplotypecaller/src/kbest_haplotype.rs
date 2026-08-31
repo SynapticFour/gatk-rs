@@ -102,17 +102,37 @@ pub(crate) fn log_penalty(edge_multiplicity: u32, total_outgoing_multiplicity: u
     (edge_multiplicity.max(1) as f64).log10() - (total_outgoing_multiplicity.max(1) as f64).log10()
 }
 
+/// GATK `GraphBasedKBestHaplotypeFinder` `PriorityQueue` score order.
+///
+/// Java polls the **highest** `KBestHaplotype.score` first
+/// (`Comparator.comparingDouble(score).reversed()`). Rust [`BinaryHeap`] pops the
+/// **greatest** [`Ord`], so this returns [`Ordering::Greater`] when `lhs` should be
+/// polled before `rhs` on score alone.
+///
+/// Production scores are accumulated `log10(mult/out)` (finite, ≤ 0). Ordering
+/// `f64::to_bits()` as `u64` **reverses** that relation for negatives and is not
+/// this contract.
+///
+/// NaN is ranked below every finite so it cannot occupy the heap head. `±0.0`
+/// follows [`f64::total_cmp`] (`-0.0 < 0.0`, matching `Double.compare`).
+pub(crate) fn cmp_graph_kbest_score(lhs: f64, rhs: f64) -> Ordering {
+    match (lhs.is_nan(), rhs.is_nan()) {
+        (true, true) => Ordering::Equal,
+        (true, false) => Ordering::Less,
+        (false, true) => Ordering::Greater,
+        (false, false) => lhs.total_cmp(&rhs),
+    }
+}
+
 struct HeapItem {
-    score_bits: u64,
+    score: f64,
     tie: usize,
     path: PathState,
 }
 
 impl Ord for HeapItem {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.score_bits
-            .cmp(&other.score_bits)
-            .then_with(|| other.tie.cmp(&self.tie))
+        cmp_graph_kbest_score(self.score, other.score).then_with(|| other.tie.cmp(&self.tie))
     }
 }
 
@@ -124,7 +144,7 @@ impl PartialOrd for HeapItem {
 
 impl PartialEq for HeapItem {
     fn eq(&self, other: &Self) -> bool {
-        self.score_bits == other.score_bits && self.tie == other.tie
+        cmp_graph_kbest_score(self.score, other.score).is_eq() && self.tie == other.tie
     }
 }
 
@@ -344,7 +364,7 @@ fn find_best_haplotypes_inner(
     for &s in &sources {
         let path = PathState::new(graph, s);
         heap.push(HeapItem {
-            score_bits: path.score.to_bits(),
+            score: path.score,
             tie: path.bases_len,
             path,
         });
@@ -409,7 +429,7 @@ fn find_best_haplotypes_inner(
                     }
                     let extended = path.extend(graph, to, support, total);
                     heap.push(HeapItem {
-                        score_bits: extended.score.to_bits(),
+                        score: extended.score,
                         tie: extended.bases_len,
                         path: extended,
                     });
@@ -465,6 +485,57 @@ mod tests {
         assert!(!paths.is_empty());
         let seqs: HashSet<_> = paths.iter().map(|p| p.bases(&graph)).collect();
         assert!(seqs.contains(&b"ACGTT".to_vec()));
+    }
+
+    #[test]
+    fn cmp_graph_kbest_score_highest_finite_first() {
+        assert_eq!(cmp_graph_kbest_score(-0.05, -0.9), Ordering::Greater);
+        assert_eq!(cmp_graph_kbest_score(0.0, -1.0), Ordering::Greater);
+        assert_eq!(cmp_graph_kbest_score(-0.3, -0.3), Ordering::Equal);
+        // Unsigned IEEE bits reverse negative f64 order; that must not be this contract.
+        let lo = -0.9_f64;
+        let hi = -0.05_f64;
+        assert!(
+            lo.to_bits() > hi.to_bits(),
+            "sanity: u64 bit order inverts negative scores"
+        );
+        assert_eq!(cmp_graph_kbest_score(hi, lo), Ordering::Greater);
+        assert_eq!(cmp_graph_kbest_score(f64::NAN, 0.0), Ordering::Less);
+        assert_eq!(cmp_graph_kbest_score(0.0, f64::NAN), Ordering::Greater);
+        assert_eq!(cmp_graph_kbest_score(f64::NAN, f64::NAN), Ordering::Equal);
+    }
+
+    #[test]
+    fn rt_kbest_k1_returns_high_multiplicity_branch() {
+        let mut g = AssemblyGraph::new(3).unwrap();
+        let src = g.ensure_node(b"AAA");
+        let ref_mid = g.ensure_node(b"AAC");
+        let alt_mid = g.ensure_node(b"AAG");
+        let snk = g.ensure_node(b"ACT");
+        g.add_edge_support(src, ref_mid, 40);
+        g.add_edge_support(src, alt_mid, 5);
+        g.add_edge_support(ref_mid, snk, 40);
+        g.add_edge_support(alt_mid, snk, 5);
+        g.ref_edges.insert((src, ref_mid));
+        g.ref_edges.insert((ref_mid, snk));
+        g.ref_nodes.insert(src);
+        g.ref_nodes.insert(ref_mid);
+        g.ref_nodes.insert(snk);
+        g.ref_source_kmer = Some(std::sync::Arc::from(b"AAA".as_slice()));
+
+        let paths = find_best_haplotypes(&g, 1).expect("kbest");
+        assert_eq!(paths.len(), 1);
+        let bases = paths[0].bases(&g);
+        assert!(
+            bases.windows(3).any(|w| w == b"AAC"),
+            "RT k=1 must return the 40-support branch first; got {:?}",
+            String::from_utf8_lossy(&bases)
+        );
+        assert!(
+            !bases.windows(3).any(|w| w == b"AAG"),
+            "RT k=1 must not return the 5-support branch first; got {:?}",
+            String::from_utf8_lossy(&bases)
+        );
     }
 
     #[test]

@@ -743,6 +743,40 @@ pub fn assemble_for_java_gate_dump(
     }))
 }
 
+/// Observe-only: k-mer at which the retired Peak-RSS helper
+/// [`crate::rt_first_configured::try_rt_configured_alts_before_seq_graph`] **would have**
+/// returned alt haplotypes. Production assemble no longer uses that result to skip SeqGraph.
+pub fn diagnostic_rt_first_skip_seq_graph_kmer(
+    reference: &AssemblyRead,
+    reads: &[AssemblyRead],
+    args: &ReadThreadingAssemblerArgs,
+) -> GatkResult<Option<usize>> {
+    Ok(
+        crate::rt_first_configured::try_rt_configured_alts_before_seq_graph(
+            reference, reads, args,
+        )?
+        .map(|r| r.kmer_size),
+    )
+}
+
+/// Test-only: how many times [`assemble_from_ref_and_reads_seq_graph`] ran on this thread.
+#[cfg(test)]
+pub(crate) mod seq_graph_assemble_probe {
+    use std::cell::Cell;
+    thread_local! {
+        static COUNT: Cell<usize> = const { Cell::new(0) };
+    }
+    pub fn reset() {
+        COUNT.with(|c| c.set(0));
+    }
+    pub fn get() -> usize {
+        COUNT.with(|c| c.get())
+    }
+    pub(super) fn bump() {
+        COUNT.with(|c| c.set(c.get() + 1));
+    }
+}
+
 /// Assemble from reference + reads (GATK `runLocalAssembly`: SeqGraph + `GraphBasedKBestHaplotypeFinder` by default).
 pub fn assemble_from_ref_and_reads(
     reference: &AssemblyRead,
@@ -761,17 +795,9 @@ fn assemble_from_ref_and_reads_inner(
     args: &ReadThreadingAssemblerArgs,
 ) -> GatkResult<AssemblyResult> {
     if args.use_seq_graph {
-        // Observable contract: non-P12 production regions that today burn a SeqGraph
-        // configured walk (often JustAssembledReference / skip-expanded) then rebuild the
-        // same k-mers in RT-supplement to discover before_remove alts. Prefer that RT
-        // extract first; on hit skip SeqGraph + the duplicate supplement rebuild (~1 graph
-        // build per region on dense chr20). P12 / L-gate and L2 tiny k-mer fixtures keep
-        // the SeqGraph-first path (see `rt_first_configured`).
-        if let Some(rt_first) = crate::rt_first_configured::try_rt_configured_alts_before_seq_graph(
-            reference, reads, args,
-        )? {
-            return Ok(rt_first);
-        }
+        // Java 4.4 default HC: `generateSeqGraph = true` → `assembleKmerGraphsAndHaplotypeCall`
+        // → SeqGraph → `findBestPaths`. Do not substitute RT configured-alt extract for that
+        // path (retired Peak-RSS early return; 6R.55–6R.56).
         let result = assemble_from_ref_and_reads_seq_graph(reference, reads, args)?;
         // SeqGraph zip can collapse to a ref-length spine while RT k-best still has variation (P12 ASM-1).
         if matches!(result.status, AssemblyStatus::AssembledSomeVariation)
@@ -1020,6 +1046,8 @@ fn assemble_from_ref_and_reads_seq_graph(
     reads: &[AssemblyRead],
     args: &ReadThreadingAssemblerArgs,
 ) -> GatkResult<AssemblyResult> {
+    #[cfg(test)]
+    seq_graph_assemble_probe::bump();
     let mut kmer_sizes = args.kmer_sizes.clone();
     kmer_sizes.sort_unstable();
     kmer_sizes.dedup();
