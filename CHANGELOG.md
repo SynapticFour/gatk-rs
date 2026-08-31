@@ -40,6 +40,8 @@ once a first numbered release is cut. Until then, versions remain `0.1.x` / Alph
 
 ### Fixed
 
+- rustdoc: qualify the `AdDecodeCache` intra-doc link in `ad_result_memo` so
+  `cargo doc` with `-D rustdoc::broken_intra_doc_links` succeeds on main.
 - Active-region reference confidence: empty genotyping evidence returns
   zero-evidence loci (GQ=0/dp=0) without touching the reference FASTA.
 - Unit tests no longer pass uninitialized `bam::Record::new()` into pileup paths.

@@ -1,6 +1,6 @@
 //! Memoize pileup AD / softclip scan *results* within a genotyping region.
 //!
-//! [`AdDecodeCache`] only avoids re-decoding CIGAR/seq. Production `try_genotype`
+//! [`super::ad_decode_cache::AdDecodeCache`] only avoids re-decoding CIGAR/seq. Production `try_genotype`
 //! still rescans the same `(reads, locus, pad, alleles)` many times. This cache
 //! returns identical `(ref,alt)` or softclip counts so observable AD is unchanged.
 
