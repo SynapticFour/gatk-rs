@@ -207,6 +207,9 @@ public final class HcFullParityGateDump {
             case "assembly-region-kbest-paths":
                 assemblyRegionKbestPaths(rest);
                 break;
+            case "assembly-region-seqgraph-edges":
+                assemblyRegionSeqgraphEdges(rest);
+                break;
             case "assembly-region-pairhmm-likelihoods":
                 assemblyRegionPairhmmLikelihoods(rest);
                 break;
@@ -455,7 +458,7 @@ public final class HcFullParityGateDump {
                         + "assembly-region-reads|assembly-region-reference|assembly-region-features|"
                         + "assembly-region-trim|assembly-region-pileup-track|assembly-region-haplotypes|"
                         + "assembly-region-kmer-probe|assembly-region-assembly-stages|assembly-region-assembly-stages-finalize|"
-                        + "assembly-region-finalize-reads|assembly-region-kbest-paths|"
+                        + "assembly-region-finalize-reads|assembly-region-kbest-paths|assembly-region-seqgraph-edges|"
                         + "assembly-region-pairhmm-likelihoods|pairhmm-bq-cap|pairhmm-haplotype-filter|"
                         + "locus-pileup|apply-summary|walker-traversal-summary|"
                         + "raw-activity|raw-activity-force|smoothed-activity|active-locus|genotype-likelihoods|"
@@ -5295,6 +5298,365 @@ public final class HcFullParityGateDump {
                 }
             }
         }
+    }
+
+    /**
+     * 6R.79 forensic: production k=25 SeqGraph vertices/edges/multiplicities after
+     * {@code cleanupSeqGraph}, plus k-best scores. Graph reference is padding-0
+     * extended span ({@code getAssemblyRegionReference(reader, 0)}).
+     *
+     * <p>Args: ref bam interval [coverLocus] [padding]
+     */
+    private static void assemblyRegionSeqgraphEdges(final String[] args) throws Exception {
+        if (args.length < 3) {
+            usage();
+        }
+        final String refPath = args[0];
+        final String bamPath = args[1];
+        final String intervalCli = args[2];
+        final int coverLocus = args.length > 3 ? Integer.parseInt(args[3]) : -1;
+        final int padding = args.length > 4 ? parsePadding(args[4]) : DEFAULT_PADDING;
+        final String j0 =
+                "CATGGAGCCTGACCTTATTTGAAGTAGGGCATTTGCAGATGTATTTAAGATATTTGAGGCTGGGCACAGTGGCTCACGTCTGTAATCCCAGCACTTTGAAAGGCCGAGGCAGGTGGATTCACCTGAGGTCAGGAGTTTGAGACCAGCCTGTCCCACATGGTGAAAAGCCCGTATCTACCAAAAATACAAACGTTAGCTGTGTGTGGTGGTGGCGGCACCTGTAATCCCAGCTACTCGAGAGCCAGAG";
+        final String j1 =
+                "CATGGAGCCTGACTTTATTTGAAGTAGGGCATTTGCAGATGTATTTAAGATATTTGAGGCCGGGCACAGTGGCTCATGTCTGTAATCCCAGCACTTTAAAAGGCTGAGGCAGGTGTATTCACCTGAGGTCAGGAGTTCGAGACCAGCCTGGCCAACATGGTGAAAAGCCCGTATCTACCAAAAATACAAAAGTTAGCTGGGTGTGGTGGCGGCACCTGTAATCCCAGCTACTCGAGAGCCAGAG";
+        final String r0 =
+                "CATGGAGCCTGACCTTATTTGAAGTAGGGCATTTGCAGATGTATTTAAGATATTTGAGGCTGGGCACAGTGGCTCACGTCTGTAATCCCAGCACTTTGAAAGGCCGAGGCAGGTGGATTCACCTGAGGTCAGGAGTTTGAGACCAGCCTGTCCCACATGGTGAAAAGCCCGTATCTACCAAAAATACAAACGTTAGCTGTGTGTGGTGGTGGCGGCACCTGTAATCGCAGCTACTCGAGAGCCAGAG";
+        final String k25c = "ACCTGTAATCCCAGCTACTCGAGAG";
+        final String k25g = "ACCTGTAATCGCAGCTACTCGAGAG";
+        try (HcContext ctx = new HcContext(refPath, bamPath, padding);
+                CachingIndexedFastaSequenceFile refReader =
+                        new CachingIndexedFastaSequenceFile(Paths.get(refPath))) {
+            final FinalizedActiveRegion finalized =
+                    loadCoveringActiveRegionWithFinalize(
+                            ctx, refReader, intervalCli, padding, coverLocus);
+            final ReadThreadingAssembler assembler = productionAssemblerFromContext(ctx);
+            final int minQual = assembler.getMinBaseQualityToUseInAssembly();
+            final int minPrune = assemblerPruneFactor(assembler);
+            final int minDangling = assemblerMinDanglingBranchLength(assembler);
+            final boolean recoverHeads = assembler.isRecoverDanglingBranches();
+            final byte[] graphRef =
+                    sliceGraphReference(refReader, finalized.contig, finalized.paddedStart, finalized.paddedEnd);
+            final byte[] graphQuals = new byte[graphRef.length];
+            Arrays.fill(graphQuals, (byte) 30);
+            final RegionAssemblyMaterial graphMaterial =
+                    new RegionAssemblyMaterial(
+                            finalized.contig,
+                            finalized.start,
+                            finalized.end,
+                            graphRef,
+                            graphQuals,
+                            finalized.material.readBases,
+                            finalized.material.readQuals);
+            System.out.println("metric\tvalue");
+            System.out.println("region_contig\t" + finalized.contig);
+            System.out.println("region_start\t" + finalized.start);
+            System.out.println("region_end\t" + finalized.end);
+            System.out.println("extended_start\t" + finalized.paddedStart);
+            System.out.println("extended_end\t" + finalized.paddedEnd);
+            System.out.println("graph_ref_len\t" + graphRef.length);
+            System.out.println("finalized_reads\t" + finalized.material.readBases.size());
+            final int kmer = 25;
+            if (referenceHasNonUniqueKmers(graphRef, kmer)) {
+                System.out.println("k25_non_unique_ref\ttrue");
+            } else {
+                System.out.println("k25_non_unique_ref\tfalse");
+            }
+            final ReadThreadingGraph rt =
+                    prepareReadThreadingGraphForHaplotypeDumpFromRegion(
+                            graphMaterial, kmer, minQual, minPrune, minDangling, recoverHeads);
+            if (rt == null) {
+                System.out.println("rt_status\tnull");
+                return;
+            }
+            System.out.println("rt_nodes\t" + rt.vertexSet().size());
+            System.out.println("rt_edges\t" + rt.edgeSet().size());
+            MultiDeBruijnVertex cV = null;
+            MultiDeBruijnVertex gV = null;
+            for (final MultiDeBruijnVertex v : rt.vertexSet()) {
+                final String seq = v.getSequenceString();
+                if (k25c.equals(seq)) {
+                    cV = v;
+                } else if (k25g.equals(seq)) {
+                    gV = v;
+                }
+            }
+            System.out.println("rt_c25\t" + (cV != null));
+            System.out.println("rt_g25\t" + (gV != null));
+            dumpRtStar("C25", rt, cV);
+            dumpRtStar("G25", rt, gV);
+            final SeqGraph seqGraph = rt.toSequenceGraph();
+            seqGraph.cleanNonRefPaths();
+            dumpJavaSeqMotif("seq_after_to_sequence_graph", seqGraph);
+            final String status = cleanupSeqGraphRustParity(seqGraph);
+            System.out.println("cleanup_status\t" + status);
+            dumpJavaSeqMotif("seq_after_cleanup", seqGraph);
+            System.out.println(
+                    "seq_nodes\t" + seqGraph.vertexSet().size());
+            System.out.println("seq_edges\t" + seqGraph.edgeSet().size());
+            System.out.println(
+                    "seq_edge\tfrom_seq\tto_seq\tmultiplicity\tis_ref\tout_mult");
+            for (final SeqVertex v : seqGraph.vertexSet()) {
+                int outMult = 0;
+                for (final BaseEdge e : seqGraph.outgoingEdgesOf(v)) {
+                    outMult += e.getMultiplicity();
+                }
+                for (final BaseEdge e : seqGraph.outgoingEdgesOf(v)) {
+                    final SeqVertex t = seqGraph.getEdgeTarget(e);
+                    if (seqGraph.outDegreeOf(v) < 2) {
+                        continue;
+                    }
+                    System.out.printf(
+                            "seq_edge\t%s\t%s\t%d\t%s\t%d%n",
+                            v.getSequenceString(),
+                            t.getSequenceString(),
+                            e.getMultiplicity(),
+                            e.isRef(),
+                            outMult);
+                }
+            }
+            final SeqVertex source = seqGraph.getReferenceSourceVertex();
+            final SeqVertex sink = seqGraph.getReferenceSinkVertex();
+            if (source == null || sink == null) {
+                System.out.println("kbest\tno_source_or_sink");
+                return;
+            }
+            final List<KBestHaplotype<SeqVertex, BaseEdge>> paths =
+                    new ArrayList<>(
+                            new GraphBasedKBestHaplotypeFinder<>(seqGraph, source, sink)
+                                    .findBestHaplotypes(128));
+            System.out.println(
+                    "kbest\trank\tscore\tis_ref\tlen\thas_j0\thas_j1\thas_r0");
+            int rank = 0;
+            Integer j0Rank = null;
+            Integer j1Rank = null;
+            Integer r0Rank = null;
+            Double cutoff = null;
+            for (final KBestHaplotype<SeqVertex, BaseEdge> path : paths) {
+                final String bases = new String(path.getBases(), StandardCharsets.US_ASCII);
+                final boolean hasJ0 = bases.contains(j0);
+                final boolean hasJ1 = bases.contains(j1);
+                final boolean hasR0 = bases.contains(r0);
+                if (hasJ0 && j0Rank == null) {
+                    j0Rank = rank;
+                }
+                if (hasJ1 && j1Rank == null) {
+                    j1Rank = rank;
+                }
+                if (hasR0 && r0Rank == null) {
+                    r0Rank = rank;
+                }
+                if (rank == 127) {
+                    cutoff = path.score();
+                }
+                System.out.printf(
+                        "kbest\t%d\t%s\t%s\t%d\t%s\t%s\t%s%n",
+                        rank,
+                        formatScore(path.score()),
+                        path.isReference(),
+                        bases.length(),
+                        hasJ0,
+                        hasJ1,
+                        hasR0);
+                rank++;
+            }
+            System.out.println("java_j0_rank\t" + j0Rank);
+            System.out.println("java_j1_rank\t" + j1Rank);
+            System.out.println("java_r0_rank\t" + r0Rank);
+            System.out.println("java_k128_cutoff\t" + cutoff);
+        }
+    }
+
+    private static byte[] sliceGraphReference(
+            final CachingIndexedFastaSequenceFile refReader,
+            final String contig,
+            final int start1,
+            final int end1) {
+        return refReader.getSubsequenceAt(contig, start1, end1).getBases();
+    }
+
+    private static void dumpRtStar(
+            final String tag, final ReadThreadingGraph rt, final MultiDeBruijnVertex v) {
+        if (v == null) {
+            System.out.println("rt_star\t" + tag + "\tmissing");
+            return;
+        }
+        int outMult = 0;
+        for (final MultiSampleEdge e : rt.outgoingEdgesOf(v)) {
+            outMult += e.getMultiplicity();
+        }
+        for (final MultiSampleEdge e : rt.outgoingEdgesOf(v)) {
+            final MultiDeBruijnVertex t = rt.getEdgeTarget(e);
+            System.out.printf(
+                    "rt_star\t%s\t%s\t%s\tmult=%d\tprune=%d\tref=%s\toutMult=%d%n",
+                    tag,
+                    v.getSequenceString(),
+                    t.getSequenceString(),
+                    e.getMultiplicity(),
+                    e.getPruningMultiplicity(),
+                    e.isRef(),
+                    outMult);
+        }
+    }
+
+    private static void dumpJavaSeqMotif(final String stage, final SeqGraph g) {
+        System.out.println("motif_stage\t" + stage);
+        for (final SeqVertex v : g.vertexSet()) {
+            if (g.outDegreeOf(v) < 2) {
+                continue;
+            }
+            boolean hasC = false;
+            boolean hasG = false;
+            boolean hasA = false;
+            boolean hasT = false;
+            for (final SeqVertex t : g.outgoingVerticesOf(v)) {
+                final String s = t.getSequenceString();
+                if (s.startsWith("C")) {
+                    hasC = true;
+                }
+                if (s.startsWith("G")) {
+                    hasG = true;
+                }
+                if (s.startsWith("A")) {
+                    hasA = true;
+                }
+                if (s.startsWith("T")) {
+                    hasT = true;
+                }
+            }
+            final String seq = v.getSequenceString();
+            final boolean snp = hasC && hasG;
+            final boolean at = seq.contains("CCAGCTACTCGAGAG") && hasA && hasT;
+            if (!snp && !at) {
+                continue;
+            }
+            int outMult = 0;
+            for (final BaseEdge e : g.outgoingEdgesOf(v)) {
+                outMult += e.getMultiplicity();
+            }
+            System.out.printf(
+                    "motif\t%s\t%s\tseq=%s\tout=%d\toutMult=%d%n",
+                    stage, snp ? "CG_BUBBLE" : "AT_FORK", seq, g.outDegreeOf(v), outMult);
+            for (final BaseEdge e : g.outgoingEdgesOf(v)) {
+                final SeqVertex t = g.getEdgeTarget(e);
+                System.out.printf(
+                        "motif_edge\t%s\t%s\t%d\tref=%s\toutMult=%d%n",
+                        seq,
+                        t.getSequenceString(),
+                        e.getMultiplicity(),
+                        e.isRef(),
+                        outMult);
+            }
+        }
+    }
+
+    private static FinalizedActiveRegion loadCoveringActiveRegionWithFinalize(
+            final HcContext ctx,
+            final CachingIndexedFastaSequenceFile refReader,
+            final String intervalCli,
+            final int padding,
+            final int coverLocus)
+            throws Exception {
+        final HaplotypeCallerArgumentCollection hcArgs = hcArgsFromContext(ctx);
+        final SampleList samplesList = sampleListFromHeader(ctx.header);
+        final List<SimpleInterval> intervals =
+                parseIntervals(ctx.header.getSequenceDictionary(), intervalCli);
+        for (final List<Locatable> contigIntervals : groupByContig(intervals)) {
+            final List<SimpleInterval> contigSimple =
+                    contigIntervals.stream()
+                            .map(SimpleInterval::new)
+                            .collect(Collectors.toList());
+            final MultiIntervalLocalReadShard shard =
+                    new MultiIntervalLocalReadShard(contigSimple, padding, ctx.readsSource);
+            configureHcProductionReadShard(shard, ctx);
+            final AssemblyRegionIterator iter =
+                    new AssemblyRegionIterator(
+                            shard,
+                            ctx.header,
+                            ctx.reference,
+                            null,
+                            ctx.engine,
+                            ctx.asmArgs,
+                            false);
+            FinalizedActiveRegion chosen = null;
+            while (iter.hasNext()) {
+                final AssemblyRegion r = iter.next();
+                if (!r.isActive()) {
+                    continue;
+                }
+                if (coverLocus > 0
+                        && (r.getStart() > coverLocus || r.getEnd() < coverLocus)) {
+                    continue;
+                }
+                if (chosen != null && coverLocus <= 0 && r.getStart() >= chosen.start) {
+                    continue;
+                }
+                chosen = finalizeActiveRegionSnapshot(hcArgs, samplesList, ctx, refReader, r);
+                if (coverLocus > 0) {
+                    return chosen;
+                }
+            }
+            if (chosen != null) {
+                return chosen;
+            }
+        }
+        throw new IllegalArgumentException("no covering active assembly region in interval");
+    }
+
+    private static FinalizedActiveRegion finalizeActiveRegionSnapshot(
+            final HaplotypeCallerArgumentCollection hcArgs,
+            final SampleList samplesList,
+            final HcContext ctx,
+            final CachingIndexedFastaSequenceFile refReader,
+            final AssemblyRegion r)
+            throws Exception {
+        final List<GATKRead> rawReads = new ArrayList<>();
+        for (final GATKRead read : r.getReads()) {
+            rawReads.add(read.copy());
+        }
+        AssemblyBasedCallerUtils.finalizeRegion(
+                r,
+                hcArgs.assemblerArgs.errorCorrectReads,
+                hcArgs.dontUseSoftClippedBases,
+                (byte) (hcArgs.minBaseQualityScore - 1),
+                ctx.header,
+                samplesList,
+                !hcArgs.doNotCorrectOverlappingBaseQualities,
+                hcArgs.softClipLowQualityEnds,
+                hcArgs.overrideSoftclipFragmentCheck,
+                hcArgs.fbargs,
+                true);
+        final byte[] refBases =
+                r.getAssemblyRegionReference(
+                        refReader, AssemblyBasedCallerUtils.REFERENCE_PADDING_FOR_ASSEMBLY);
+        final byte[] refQuals = new byte[refBases.length];
+        Arrays.fill(refQuals, (byte) 30);
+        final List<byte[]> readBases = new ArrayList<>();
+        final List<byte[]> readQuals = new ArrayList<>();
+        final List<GATKRead> finalizedReads = new ArrayList<>();
+        for (final GATKRead read : r.getReads()) {
+            finalizedReads.add(read);
+            readBases.add(Arrays.copyOf(read.getBases(), read.getLength()));
+            readQuals.add(Arrays.copyOf(read.getBaseQualities(), read.getLength()));
+        }
+        final RegionAssemblyMaterial material =
+                new RegionAssemblyMaterial(
+                        r.getContig(),
+                        r.getStart(),
+                        r.getEnd(),
+                        refBases,
+                        refQuals,
+                        readBases,
+                        readQuals);
+        return new FinalizedActiveRegion(
+                r.getContig(),
+                r.getStart(),
+                r.getEnd(),
+                r.getPaddedSpan().getStart(),
+                r.getPaddedSpan().getEnd(),
+                rawReads,
+                finalizedReads,
+                material);
     }
 
     private static void assemblyRegionAssemblyStages(final String[] args) throws Exception {

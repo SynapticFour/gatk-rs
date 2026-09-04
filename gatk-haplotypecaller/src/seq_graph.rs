@@ -132,6 +132,16 @@ impl SeqGraph {
         self.edges.len()
     }
 
+    /// Forensic / test inspection of SeqGraph vertices after conversion or cleanup.
+    pub fn vertices(&self) -> &[SeqVertex] {
+        &self.vertices
+    }
+
+    /// Forensic / test inspection of SeqGraph edges (support = Java `BaseEdge` multiplicity).
+    pub fn edges(&self) -> &[SeqEdge] {
+        &self.edges
+    }
+
     /// Max out-degree over vertices (Peak bushiness gate).
     pub(crate) fn max_out_degree(&self) -> usize {
         self.outgoing.values().map(|s| s.len()).max().unwrap_or(0)
@@ -656,9 +666,9 @@ impl SeqGraph {
         self.vertices.iter().map(|v| v.id).collect()
     }
 
-    /// Test-only: same order as [`Self::cleanup_seq_graph`], with a snapshot after each stage.
-    #[cfg(test)]
-    pub(crate) fn traced_cleanup_seq_graph(
+    /// Same order as [`Self::cleanup_seq_graph`], with a snapshot after each stage.
+    /// Forensic only — production still calls [`Self::cleanup_seq_graph`].
+    pub fn traced_cleanup_seq_graph(
         &mut self,
         mut snap: impl FnMut(&str, &SeqGraph),
     ) -> SeqGraphCleanupStatus {

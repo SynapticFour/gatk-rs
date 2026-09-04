@@ -52,9 +52,8 @@ fn simplify_graph_once(graph: &mut SeqGraph) -> bool {
     did
 }
 
-/// Test-only substages of [`simplify_graph_once`] / [`simplify_graph_full`].
-/// Production `simplify_graph_full` is unchanged.
-#[cfg(test)]
+/// Substages of [`simplify_graph_once`] / [`simplify_graph_full`] (forensic snapshots).
+/// Production [`simplify_graph_full`] is unchanged.
 pub(crate) fn traced_simplify_graph_full(
     graph: &mut SeqGraph,
     mut snap: impl FnMut(&str, &SeqGraph),
@@ -81,7 +80,6 @@ pub(crate) fn traced_simplify_graph_full(
     snap("simplify_done", graph);
 }
 
-#[cfg(test)]
 fn traced_simplify_graph_once(
     graph: &mut SeqGraph,
     snap: &mut impl FnMut(&str, &SeqGraph),

@@ -51,6 +51,7 @@ ordered-float = "5.3"
 criterion.workspace = true
 proptest.workspace = true
 tempfile.workspace = true
+rust-htslib.workspace = true
 
 [[bench]]
 name = "activity_profile"

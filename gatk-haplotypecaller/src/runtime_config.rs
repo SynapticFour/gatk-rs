@@ -156,6 +156,14 @@ pub fn hc_rss_trace_enabled() -> bool {
     RuntimeConfig::from_env().debug.rss_trace
 }
 
+/// `GATK_RS_PAIRHMM_INPUT_DUMP=<path>` — observe-only kernel-input dump (no genotype effect).
+/// Re-reads env each call so dump helpers can open the file lazily.
+pub fn pairhmm_input_dump_path() -> Option<String> {
+    std::env::var("GATK_RS_PAIRHMM_INPUT_DUMP")
+        .ok()
+        .filter(|p| !p.is_empty() && p != "0")
+}
+
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, Once, OnceLock};
 

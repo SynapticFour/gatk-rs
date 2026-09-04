@@ -11,7 +11,10 @@ use crate::compatibility::is_coupled_indel_for_genotyping;
 use crate::engine::CallRegionOutcome;
 use crate::event_map::VariationEvent;
 use crate::genome_loc::GenomePosition;
-use crate::genotyping::{biallelic_genotype_index_from_pl, canonicalize_format_keys};
+use crate::genotyping::{
+    best_pl_index, biallelic_genotype_index_from_pl, canonicalize_format_keys,
+    diploid_genotype_alleles_from_pl_index,
+};
 use crate::haplotype::Haplotype;
 use crate::hc_emit_policy::{
     passes_cluster_anchor_read_support, passes_emit_for_genotyped_call,
@@ -483,16 +486,43 @@ fn try_emit_call_region_variants_inner(
                 .copied()
                 .map(|d| d.as_i32())
                 .unwrap_or(0);
+            if !call.extra_alt_alleles.is_empty() || call.post_merge_unused_alt_subset {
+                let n_alleles = 2 + call.extra_alt_alleles.len();
+                let best = best_pl_index(&call.genotype.format.pl);
+                if best == 0 {
+                    continue;
+                }
+                let gt = Genotype {
+                    alleles: diploid_genotype_alleles_from_pl_index(n_alleles, best),
+                    phased: false,
+                };
+                let ann = annotate_hc_variant_site(
+                    Some(region),
+                    call.event.start_1based.get(),
+                    &call.event.ref_allele,
+                    &call.event.alt_allele,
+                    &call.genotype,
+                    genotyping_config,
+                )?;
+                seen.insert(key);
+                let mut rec = build_record_inner(
+                    &region.contig,
+                    call.event.start_1based.get(),
+                    &call.event.ref_allele,
+                    &call.event.alt_allele,
+                    &gt,
+                    &call.genotype.format,
+                    sample_name,
+                    &ann,
+                    false,
+                )?;
+                rec.alternate.extend(call.extra_alt_alleles.iter().cloned());
+                records.push(rec);
+                continue;
+            }
             if genotyping_config.enable_java_strict() {
                 if strict_java_asm8_only_enabled()
-                    && !strict_asm8_emit_call_eligible(
-                        &GenotypedSiteCall {
-                            event: call.event.clone(),
-                            genotype: call.genotype.clone(),
-                        },
-                        &region.reads,
-                        &outcome.assembly,
-                    )
+                    && !strict_asm8_emit_call_eligible(call, &region.reads, &outcome.assembly)
                 {
                     crate::runtime_config::rss_trace_checkpoint(
                         "emit_skip_asm8",
@@ -793,7 +823,8 @@ fn try_emit_call_region_variants_inner(
             seen.insert(key);
             records.push(rec);
         }
-        // L7-A2: coalesce same-POS biallelics outside contig 2 (Java multi-allelic rows).
+        // L7-A2: remap shorter REF onto longest REF, then coalesce same-POS biallelics
+        // outside contig 2 (Java createAlleleMapping + multi-allelic rows).
         let merged =
             crate::multiallelic_emit::merge_emitted_multiallelic_records(&region.contig, records)?;
         return Ok(finish_emitted_qd(merged, apply_qd_jitter));

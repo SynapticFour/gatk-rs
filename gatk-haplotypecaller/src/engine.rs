@@ -19,7 +19,7 @@ use crate::hc_genotyping_engine::{
     assign_genotype_likelihoods_for_region, filter_genotyped_calls_for_strict_java_emit,
     read_overlaps_variant, GenotypedSiteCall, HcGenotypingConfig, RegionGenotypeResult,
 };
-use crate::likelihood_engine::{score_read_against_haplotypes, HcLikelihoodEngineConfig};
+use crate::likelihood_engine::HcLikelihoodEngineConfig;
 use crate::pileup_detection::PileupDetectionConfig;
 use crate::read_assembly_filter::{filter_non_passing_reads, AssemblyReadFilterConfig};
 use crate::read_event_discovery::{
@@ -2404,86 +2404,6 @@ fn post_process_pairhmm_likelihoods<R: std::borrow::Borrow<rust_htslib::bam::Rec
     let eligible = pairhmm_eligible_haplotype_indices(haplotypes);
     normalize_region_read_likelihoods(&mut ll, &eligible);
     filter_normalized_region_read_likelihoods(&ll, reads, active_span)
-}
-
-/// Score PairHMM from BAM records without `AssemblyRead` / UTF-8 `String` rematerialization.
-///
-/// # Observable contract
-/// Same finalizeRegion evidence and PairHMM inputs as the prior `records_to_assembly_reads` path
-/// (BAM seq/qual bytes are ASCII ACGTN — identical to `String::from_utf8_lossy` for valid records).
-fn score_pairhmm_from_records<R: std::borrow::Borrow<rust_htslib::bam::Record> + Sync>(
-    reads: &[R],
-    haplotypes: &[Haplotype],
-    config: &HcLikelihoodEngineConfig,
-) -> GatkResult<Vec<RegionReadLikelihood>> {
-    let _prof = crate::hc_profile::begin(crate::hc_profile::Stage::PairHmm);
-    let wall0 = std::time::Instant::now();
-    let eligible = pairhmm_eligible_haplotype_indices(haplotypes);
-    // L12-A3: zero-copy hap membership for PairHMM (no post-prune `Vec<u8>` rematerialize).
-    let hap_refs: Vec<&[u8]> = eligible
-        .iter()
-        .map(|&hi| haplotypes[hi].bases.as_slice())
-        .collect();
-    // Parallel across reads when the rayon pool has >1 worker (Java `--native-pair-hmm-threads`).
-    // `GATK_RS_HC_SEQUENTIAL` only serializes *regions* for Peak-RSS — PairHMM within a region
-    // stays threaded so we can undercut Java wall without stacking mid-size regions.
-    // Hap scoring inside each read stays sequential when nested (one parallel axis).
-    let parallel = rayon::current_num_threads() > 1 && reads.len() >= 8;
-    let out = if !parallel {
-        let mut out = Vec::with_capacity(reads.len() * eligible.len());
-        for (ri, rec) in reads.iter().enumerate() {
-            let rec = rec.borrow();
-            let bases = rec.seq().as_bytes();
-            let scores =
-                score_read_against_haplotypes(config, &bases, rec.qual(), rec.mapq(), &hap_refs)?;
-            for (score_i, &hi) in eligible.iter().enumerate() {
-                out.push(RegionReadLikelihood {
-                    read_index: crate::bio_ids::ReadIndex::new(ri),
-                    haplotype_index: crate::bio_ids::HaplotypeIndex::new(hi),
-                    log10_likelihood: scores[score_i],
-                });
-            }
-        }
-        out
-    } else {
-        // Parallel across reads (Java native PairHMM threads). Each rayon worker has its own
-        // PairHMM TLS; collect then flatten in read-index order for stable LL rows.
-        use rayon::prelude::*;
-        let per_read: Vec<GatkResult<Vec<RegionReadLikelihood>>> = reads
-            .par_iter()
-            .enumerate()
-            .map(|(ri, rec)| {
-                let rec = rec.borrow();
-                let bases = rec.seq().as_bytes();
-                let scores = score_read_against_haplotypes(
-                    config,
-                    &bases,
-                    rec.qual(),
-                    rec.mapq(),
-                    &hap_refs,
-                )?;
-                let mut rows = Vec::with_capacity(eligible.len());
-                for (score_i, &hi) in eligible.iter().enumerate() {
-                    rows.push(RegionReadLikelihood {
-                        read_index: crate::bio_ids::ReadIndex::new(ri),
-                        haplotype_index: crate::bio_ids::HaplotypeIndex::new(hi),
-                        log10_likelihood: scores[score_i],
-                    });
-                }
-                Ok(rows)
-            })
-            .collect();
-        let mut out = Vec::with_capacity(reads.len() * eligible.len());
-        for chunk in per_read {
-            out.extend(chunk?);
-        }
-        out
-    };
-
-    if crate::hc_profile::enabled() {
-        crate::hc_profile::note_pairhmm_region(reads, &hap_refs, wall0.elapsed());
-    }
-    Ok(out)
 }
 
 #[path = "engine_likelihoods.rs"]

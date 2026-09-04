@@ -307,6 +307,31 @@ fn hap_overlapping_events_at(
     .collect()
 }
 
+/// P12 coupled-indel oracle (shifted EventMap coords). Not the empty-EventMap pad-slice.
+fn coupled_indel_oracle_sequence_support(
+    hap: &Haplotype,
+    ref_hap: &Haplotype,
+    loc_1based: u64,
+    pad_start: u64,
+    ref_allele: &str,
+    alt_allele: &str,
+    contig: &str,
+) -> bool {
+    let off = loc_1based.saturating_sub(pad_start) as usize;
+    let hap_slice = hap.bases.get(off..).unwrap_or(&[]);
+    crate::compatibility::coupled_indel::coupled_indel_canonical_oracle_locus(&VariationEvent {
+        contig: contig.to_string(),
+        start_1based: GenomePosition::new_1based(loc_1based),
+        end_1based: GenomePosition::new_1based(loc_1based),
+        ref_allele: ref_allele.to_string(),
+        alt_allele: alt_allele.to_string(),
+    }) && ref_hap.bases.get(off..).is_some_and(|ref_slice| {
+        ref_slice.starts_with(ref_allele.as_bytes())
+            && !hap_slice.starts_with(ref_allele.as_bytes())
+            && !hap_slice.starts_with(alt_allele.as_bytes())
+    })
+}
+
 /// GATK `AssemblyBasedCallerUtils.createAlleleMapper` (biallelic merged site).
 pub fn create_allele_mapper(
     merged: &VariationEvent,
@@ -360,6 +385,7 @@ pub fn create_allele_mapper_with_events(
 
     let mut ref_haps = Vec::new();
     let mut alt_haps = Vec::new();
+    let mut spanning_empty = vec![false; haplotypes.len()];
     // Owned spanning list only when cache miss (avoids clone-per-hap on cache hit).
     #[allow(unused_assignments)]
     let mut spanning_owned: Vec<VariationEvent> = Vec::new();
@@ -378,6 +404,7 @@ pub fn create_allele_mapper_with_events(
             );
             spanning_owned.iter().collect()
         };
+        spanning_empty[i] = spanning_refs.is_empty();
         if spanning_refs.is_empty() {
             // Java: no EventMap at locus — SNP pools by base at `loc` (biallelic merged site).
             if merged.ref_allele.len() == 1 && merged.alt_allele.len() == 1 {
@@ -470,7 +497,11 @@ pub fn create_allele_mapper_with_events(
         ref_haps.push(ref_idx);
     }
     // EventMap may miss merged allele on materialized hap (P12 SNPs + cluster indels).
+    // 6R.66: Java `createAlleleMapper` has no pad-slice indel fallback when overlapping
+    // EventMap events at `loc` are empty. Keep SNP-by-base, coupled-indel oracle, P12
+    // CT/C CIGAR, and pad-slice only for haps that *did* overlap at loc.
     if alt_haps.is_empty() {
+        let merged_is_snp = merged.ref_allele.len() == 1 && merged.alt_allele.len() == 1;
         for (i, h) in haplotypes.iter().enumerate() {
             let pre = hap_events.map(|c| c.events_for(i));
             if haplotype_supports_allele_at_with_events(
@@ -485,6 +516,25 @@ pub fn create_allele_mapper_with_events(
                 contig,
                 pre,
             ) {
+                // 6R.66: skip generic indel pad-slice when overlapping EventMap is empty.
+                // Keep P12 coupled TTC/T and A/ATG (allele pattern + shifted-coord oracle).
+                if !merged_is_snp && spanning_empty[i] {
+                    let coupled_pattern =
+                        crate::compatibility::coupled_indel::CoupledIndelAllele::classify(merged)
+                            .is_some();
+                    let coupled_oracle = coupled_indel_oracle_sequence_support(
+                        h,
+                        ref_hap,
+                        loc_1based,
+                        pad_start_1based,
+                        &merged.ref_allele,
+                        &merged.alt_allele,
+                        contig,
+                    );
+                    if !coupled_pattern && !coupled_oracle {
+                        continue;
+                    }
+                }
                 alt_haps.push(i);
             }
         }
@@ -523,7 +573,10 @@ pub fn create_allele_mapper_with_events(
                     } else if hap_slice.first().map(|b| b.to_ascii_uppercase()) == Some(rb) {
                         ref_haps.push(i);
                     }
-                } else if hap_slice.starts_with(alt_bytes_allele)
+                } else if (!spanning_empty[i]
+                    || crate::compatibility::coupled_indel::CoupledIndelAllele::classify(merged)
+                        .is_some())
+                    && hap_slice.starts_with(alt_bytes_allele)
                     && !hap_slice.starts_with(ref_bytes_allele)
                 {
                     alt_haps.push(i);

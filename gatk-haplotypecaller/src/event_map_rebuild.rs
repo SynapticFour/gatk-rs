@@ -60,7 +60,7 @@ pub fn rebuild_variation_events(
             }
         }
     }
-    crate::event_map::prefer_indel_over_colocated_snps(&mut events);
+    // 6R.57: do not drop SNPs colocated with another haplotype's indel after union.
     events.sort_by_key(|e| e.start_1based);
     events.dedup_by(|a, b| {
         a.start_1based == b.start_1based

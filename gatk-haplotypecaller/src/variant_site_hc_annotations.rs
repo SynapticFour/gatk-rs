@@ -267,6 +267,54 @@ mod tests {
     }
 
     #[test]
+    fn six_r64_java_emitted_pl_does_not_reproduce_java_qual() {
+        // Java VCF PL=542,0,1353 QUAL=510.06. Rust AFCalculator on those PLs is ~534.64,
+        // so Java QUAL is not AF(emitted biallelic PL). GenotypingEngine computes QUAL
+        // from AF on the pre-subset merged VC (6 GLs), then copies it through subset+trim.
+        let gl = [-54.2, 0.0, -135.3];
+        let qual = qual_from_af_calculation(&gl).expect("qual");
+        assert!(
+            (qual - 534.64).abs() < 0.15,
+            "Rust AF on Java emitted PL: got {qual}"
+        );
+        assert!(
+            (qual - 510.06).abs() > 10.0,
+            "must not confuse AF(emitted PL) with Java site QUAL 510.06, got {qual}"
+        );
+    }
+
+    #[test]
+    fn six_r64_rust_pl_298_0_1103_qual_matches_emitted() {
+        // Rust 6R.63 VCF: PL=298,0,1103 QUAL=290.64.
+        let gl = [-29.8, 0.0, -110.3];
+        let qual = qual_from_af_calculation(&gl).expect("qual");
+        assert!(
+            (qual - 290.64).abs() < 0.15,
+            "Rust PL→QUAL: got {qual}, expected ~290.64"
+        );
+    }
+
+    #[test]
+    fn six_r64_rust_merged_6gl_qual_is_not_java_510() {
+        // AF on merged 6-state GLs (Java QUAL source stage). If this were ~510, QUAL
+        // would be a post-subset AF-order issue. It is not — 6-state inputs already differ.
+        let gl6 = [-29.8, -33.7, -162.0, 0.0, -105.8, -110.3];
+        let af = crate::af_calc::calculate_multiallelic_af_em(
+            &[&gl6],
+            3,
+            &AfCalculatorConfig::default(),
+        )
+        .expect("af6");
+        let qual = (-10.0 * af.log10_posterior_no_variant) + 0.0;
+        // Measured: same as AF on the subsetted 3-GLs (290.64). Java lifecycle F
+        // (AF before unused-ALT subset) would not produce 510.06 from these 6-GLs.
+        assert!(
+            (qual - 290.64).abs() < 0.15,
+            "Rust 6-GL AF QUAL must match subsetted QUAL ~290.64, not Java 510.06; got {qual}"
+        );
+    }
+
+    #[test]
     fn six_r40_pl_90_6_0_qual_mleac_match_java_af() {
         let gl = [-9.0, -0.6, 0.0];
         let af = calculate_biallelic_af_em(&[&gl], &AfCalculatorConfig::default()).expect("af");

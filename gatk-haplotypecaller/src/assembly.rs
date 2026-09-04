@@ -133,6 +133,9 @@ pub struct AssemblyGraph {
     /// First reference kmer (`AbstractReadThreadingGraph.refSource`).
     #[allow(dead_code)] // carried from threading graph for future parity dumps
     pub(crate) ref_source_kmer: Option<std::sync::Arc<[u8]>>,
+    /// GATK `MultiSampleEdge.getPruningMultiplicity()` at graph conversion.
+    /// Empty means pruning weight equals [`Self::edges`] (`getMultiplicity()`).
+    pruning_edges: HashMap<(usize, usize), u32>,
 }
 
 impl AssemblyGraph {
@@ -145,11 +148,16 @@ impl AssemblyGraph {
     }
 
     /// Construct from read-threading build output ([`crate::read_threading_graph`]).
+    ///
+    /// `edges` is Java `BaseEdge.getMultiplicity()` (total). `pruning_edges` is
+    /// `MultiSampleEdge.getPruningMultiplicity()`. SeqGraph / k-best use `edges`;
+    /// [`crate::assembly_pruning`] uses pruning weights.
     pub(crate) fn from_threading_build(
         kmer_size: usize,
         nodes: Vec<KmerNode>,
         kmer_to_id: HashMap<std::sync::Arc<[u8]>, usize>,
         edges: HashMap<(usize, usize), u32>,
+        pruning_edges: HashMap<(usize, usize), u32>,
         outgoing: HashMap<usize, BTreeSet<usize>>,
         incoming: HashMap<usize, BTreeSet<usize>>,
         ref_edges: HashSet<(usize, usize)>,
@@ -167,6 +175,7 @@ impl AssemblyGraph {
             ref_edges,
             ref_nodes,
             ref_source_kmer,
+            pruning_edges,
         }
     }
 
@@ -195,6 +204,10 @@ impl AssemblyGraph {
     pub(crate) fn add_edge_support(&mut self, from: usize, to: usize, support: u32) {
         let e = self.edges.entry((from, to)).or_insert(0);
         *e = e.saturating_add(support);
+        if !self.pruning_edges.is_empty() {
+            let p = self.pruning_edges.entry((from, to)).or_insert(0);
+            *p = p.saturating_add(support);
+        }
         self.outgoing.entry(from).or_default().insert(to);
         self.incoming.entry(to).or_default().insert(from);
     }
@@ -381,6 +394,16 @@ impl AssemblyGraph {
         self.edges.get(&(from, to)).copied()
     }
 
+    /// GATK `MultiSampleEdge.getPruningMultiplicity()` for chain pruning.
+    /// Falls back to total multiplicity when the graph was not built from read-threading.
+    pub(crate) fn edge_pruning_support(&self, from: usize, to: usize) -> Option<u32> {
+        if self.pruning_edges.is_empty() {
+            self.edges.get(&(from, to)).copied()
+        } else {
+            self.pruning_edges.get(&(from, to)).copied()
+        }
+    }
+
     pub(crate) fn is_source(&self, node: usize) -> bool {
         self.incoming_count(node) == 0
     }
@@ -394,6 +417,7 @@ impl AssemblyGraph {
 
     pub(crate) fn remove_edge(&mut self, from: usize, to: usize) {
         self.edges.remove(&(from, to));
+        self.pruning_edges.remove(&(from, to));
         if let Some(out) = self.outgoing.get_mut(&from) {
             out.remove(&to);
         }
@@ -565,6 +589,7 @@ impl AssemblyGraph {
         }
         let old_nodes = std::mem::take(&mut self.nodes);
         let old_edges = std::mem::take(&mut self.edges);
+        let old_pruning_edges = std::mem::take(&mut self.pruning_edges);
         let old_ref_edges = std::mem::take(&mut self.ref_edges);
         let mut new_nodes = Vec::with_capacity(old_nodes.len().saturating_sub(remove.len()));
         let mut remap = HashMap::with_capacity(new_nodes.capacity());
@@ -584,13 +609,20 @@ impl AssemblyGraph {
             }
         }
         self.edges.clear();
+        self.pruning_edges.clear();
         self.ref_edges.clear();
         self.outgoing.clear();
         self.incoming.clear();
         self.edges.reserve(old_edges.len());
+        if !old_pruning_edges.is_empty() {
+            self.pruning_edges.reserve(old_pruning_edges.len());
+        }
         for ((from, to), support) in old_edges {
             if let (Some(&nf), Some(&nt)) = (remap.get(&from), remap.get(&to)) {
                 self.edges.insert((nf, nt), support);
+                if let Some(&p) = old_pruning_edges.get(&(from, to)) {
+                    self.pruning_edges.insert((nf, nt), p);
+                }
                 if old_ref_edges.contains(&(from, to)) {
                     self.ref_edges.insert((nf, nt));
                 }

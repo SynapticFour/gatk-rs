@@ -15,7 +15,7 @@ use crate::haplotype_cigar::calculate_haplotype_cigar_with_strategy;
 use crate::java_hc_site_semantics::is_cluster_anchor_snp;
 use crate::smith_waterman::SwOverhangStrategy;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
@@ -804,11 +804,12 @@ pub fn collect_variation_events(
             set.insert(v);
         }
     }
-    let mut out: Vec<VariationEvent> = set.into_iter().collect();
-    prefer_indel_over_colocated_snps(&mut out);
+    let out: Vec<VariationEvent> = set.into_iter().collect();
     // Java `getAllVariantContexts` is a TreeSet union of per-haplotype EventMaps
     // (`AssemblyResultSet.regenerateVariationEvents`). It does not drop SNPs nested
-    // inside another haplotype's spanning indel (6R.50).
+    // inside another haplotype's spanning indel (6R.50), and it does not drop a SNP
+    // when a *different* haplotype has an indel at the same start (6R.57).
+    // `prefer_indel_over_colocated_snps` remains on per-haplotype EventMap construction.
     out
 }
 
@@ -1006,6 +1007,13 @@ impl AllelePair {
         if short_ref.is_empty() || !long_ref.starts_with(short_ref) {
             return None;
         }
+        // GATK `createAlleleMapping`: SPAN_DEL is not extendable (`Allele.extend` skipped).
+        if short_alt == "*" {
+            return Some(Self::new(
+                AlleleBytes::from_str(long_ref),
+                AlleleBytes::from_str("*"),
+            ));
+        }
         let mut out = String::with_capacity(short_alt.len() + long_ref.len() - short_ref.len());
         out.push_str(short_alt);
         out.push_str(&long_ref[short_ref.len()..]);
@@ -1027,6 +1035,75 @@ pub fn remap_alt_onto_longer_ref(
     AllelePair::new(short_ref, short_alt)
         .remap_onto_longer_ref(long_ref)
         .map(|p| p.alt_allele().to_string())
+}
+
+/// GATK `makeMergedVariantContext` allele list at `loc` (6R.61).
+///
+/// Longest REF, then native longest-REF alts in encounter order, then remapped
+/// shorter-REF alts (`createAlleleMapping`). Returns `None` unless a shorter REF
+/// was remapped (same-REF multi-alts stay on the biallelic walk).
+pub fn merged_alleles_for_genotyping(
+    events: &[VariationEvent],
+    loc_1based: u64,
+) -> Option<(String, Vec<String>)> {
+    let loc = GenomePosition::new_1based(loc_1based);
+    let at_loc: Vec<&VariationEvent> = events.iter().filter(|e| e.start_1based == loc).collect();
+    if at_loc.len() < 2 {
+        return None;
+    }
+    let long_ref = at_loc
+        .iter()
+        .map(|e| e.ref_allele.as_str())
+        .max_by_key(|r| r.len())
+        .unwrap_or("")
+        .to_string();
+    if long_ref.is_empty() {
+        return None;
+    }
+    if !at_loc.iter().any(|e| e.ref_allele.len() < long_ref.len()) {
+        return None;
+    }
+    let mut alts = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for e in &at_loc {
+        if e.alt_allele == "*" {
+            continue;
+        }
+        if e.ref_allele == long_ref && e.alt_allele != long_ref && seen.insert(e.alt_allele.clone())
+        {
+            alts.push(e.alt_allele.clone());
+        }
+    }
+    for e in &at_loc {
+        if e.ref_allele == long_ref || e.alt_allele == "*" {
+            continue;
+        }
+        if let Some(remapped) = remap_alt_onto_longer_ref(&e.ref_allele, &e.alt_allele, &long_ref) {
+            if remapped != long_ref && remapped != "*" && seen.insert(remapped.clone()) {
+                alts.push(remapped);
+            }
+        }
+    }
+    // Java `simpleMerge` / `createAlleleMapping`: SPAN_DEL is not extendable and remains
+    // an explicit genotyping allele after `replaceSpanDels` (6R.85). Unused-ALT subset
+    // may drop it before VCF emission; it is not remapped onto the longest REF.
+    if at_loc.iter().any(|e| e.alt_allele == "*") && seen.insert("*".to_string()) {
+        alts.push("*".to_string());
+    }
+    if alts.len() < 2 {
+        return None;
+    }
+    Some((long_ref, alts))
+}
+
+/// Colocated SNP + indel after longest-REF remap (not L10 nested-STR dels, not same-REF multi-alts).
+pub fn is_colocated_snp_indel_merged_site(long_ref: &str, alts: &[String]) -> bool {
+    if alts.len() < 2 {
+        return false;
+    }
+    let snp_like = alts.iter().any(|a| a.len() == long_ref.len());
+    let indel = alts.iter().any(|a| a.len() != long_ref.len());
+    snp_like && indel
 }
 
 /// GATK `makeMergedVariantContext` lite: one biallelic site per unique ALT at `loc`.
@@ -1400,6 +1477,148 @@ mod tests {
         );
     }
 
+    /// 6R.59: Java `createAlleleMapping` / `simpleMerge` analogue (coordinate-free).
+    #[test]
+    fn colocated_snp_tc_and_deletion_tgt_remap_keeps_both_on_longest_ref() {
+        let snp = VariationEvent::from_alleles("20", 1000, "T", "C");
+        let del = VariationEvent::from_alleles("20", 1000, "TG", "T");
+        assert_eq!(
+            remap_alt_onto_longer_ref("T", "C", "TG").as_deref(),
+            Some("CG")
+        );
+        let merged = merged_biallelic_sites_at_position(&[snp, del], 1000);
+        let keys: Vec<(&str, &str)> = merged
+            .iter()
+            .map(|e| (e.ref_allele.as_str(), e.alt_allele.as_str()))
+            .collect();
+        assert!(keys.contains(&("TG", "CG")));
+        assert!(keys.contains(&("TG", "T")));
+    }
+
+    #[test]
+    fn merge_colocated_snp_indel_genotype_input_is_longest_ref_then_alts() {
+        let snp = VariationEvent::from_alleles("20", 1000, "T", "C");
+        let del = VariationEvent::from_alleles("20", 1000, "TG", "T");
+        let (long_ref, alts) =
+            merged_alleles_for_genotyping(&[snp, del], 1000).expect("merged site");
+        assert_eq!(long_ref, "TG");
+        assert_eq!(alts, vec!["T".to_string(), "CG".to_string()]);
+        assert!(is_colocated_snp_indel_merged_site(&long_ref, &alts));
+    }
+
+    /// 6R.67: Java `buildEventMapsForHaplotypes(haps, fullRef, paddedRefLoc)`.
+    /// Alignment start is an offset into that padded array. Rebuilding EventMaps
+    /// against the trimmed apply window drops the colocated SNP+indel from the
+    /// `getVariantContextsFromActiveHaplotypes` analogue, so pre-genotype merge
+    /// never sees `[TG, T, CG]`.
+    #[test]
+    fn colocated_snp_indel_eventmaps_require_full_padded_ref_not_apply_window() {
+        let mut full_ref = vec![b'A'; 10];
+        full_ref.extend_from_slice(b"TG");
+        full_ref.extend(std::iter::repeat_n(b'A', 12));
+        let full_pad = 100u64;
+        let loc = 110u64;
+        let apply_off = 5usize;
+        let apply_pad = full_pad + apply_off as u64;
+        let apply_bases = &full_ref[apply_off..];
+
+        let mut ref_hap = hap_with_cigar(&full_ref, &[(full_ref.len(), CigarOperator::Match)]);
+        ref_hap.is_reference = true;
+
+        let mut snp_bases = full_ref.clone();
+        snp_bases[10] = b'C';
+        let snp = hap_with_cigar(&snp_bases, &[(snp_bases.len(), CigarOperator::Match)]);
+
+        let mut del_bases = full_ref.clone();
+        del_bases.remove(11);
+        let del = hap_with_cigar(
+            &del_bases,
+            &[
+                (11, CigarOperator::Match),
+                (1, CigarOperator::Deletion),
+                (12, CigarOperator::Match),
+            ],
+        );
+
+        let haps = [ref_hap, snp, del];
+        let full_events = collect_variation_events(&haps, &full_ref, full_pad, "20", 0);
+        let apply_events = collect_variation_events(&haps, apply_bases, apply_pad, "20", 0);
+
+        let has_snp = |evs: &[VariationEvent]| {
+            evs.iter()
+                .any(|e| e.start_1based.get() == loc && e.ref_allele == "T" && e.alt_allele == "C")
+        };
+        let has_del = |evs: &[VariationEvent]| {
+            evs.iter()
+                .any(|e| e.start_1based.get() == loc && e.ref_allele == "TG" && e.alt_allele == "T")
+        };
+        assert!(
+            has_snp(&full_events) && has_del(&full_events),
+            "full padded ref EventMaps must carry T/C and TG/T at loc: {full_events:?}"
+        );
+
+        let (long_ref, alts) =
+            merged_alleles_for_genotyping(&full_events, loc).expect("pre-genotype merge");
+        assert_eq!(long_ref, "TG");
+        assert_eq!(alts, vec!["T".to_string(), "CG".to_string()]);
+        assert!(is_colocated_snp_indel_merged_site(&long_ref, &alts));
+
+        assert!(
+            !(has_snp(&apply_events) && has_del(&apply_events)),
+            "trim/apply EventMap must not be Java's merge input: {apply_events:?}"
+        );
+        assert!(
+            merged_alleles_for_genotyping(&apply_events, loc).is_none(),
+            "apply-window union must not form the colocated merge: {apply_events:?}"
+        );
+    }
+
+    #[test]
+    fn merge_colocated_is_not_hardcoded_to_t_g() {
+        let snp = VariationEvent::from_alleles("20", 2000, "A", "C");
+        let del = VariationEvent::from_alleles("20", 2000, "AC", "A");
+        let (long_ref, alts) =
+            merged_alleles_for_genotyping(&[snp, del], 2000).expect("merged site");
+        assert_eq!(long_ref, "AC");
+        assert_eq!(alts, vec!["A".to_string(), "CC".to_string()]);
+        assert!(is_colocated_snp_indel_merged_site(&long_ref, &alts));
+    }
+
+    #[test]
+    fn nested_str_dels_are_not_snp_indel_joint_sites() {
+        let short = VariationEvent::from_alleles("20", 100, "ATGTGTGTG", "A");
+        let long = VariationEvent::from_alleles("20", 100, "ATGTGTGTGTGTGTGTGTG", "A");
+        let (long_ref, alts) = merged_alleles_for_genotyping(&[short, long], 100).expect("remap");
+        assert!(!is_colocated_snp_indel_merged_site(&long_ref, &alts));
+    }
+
+    #[test]
+    fn same_ref_multi_alt_is_not_pre_genotype_merge() {
+        let a = VariationEvent::from_alleles("20", 50, "G", "GTT");
+        let b = VariationEvent::from_alleles("20", 50, "G", "GTTT");
+        assert!(merged_alleles_for_genotyping(&[a, b], 50).is_none());
+    }
+
+    #[test]
+    fn span_del_star_is_not_extended_and_is_genotyping_alt() {
+        let snp = VariationEvent::from_alleles("20", 1000, "T", "C");
+        let del = VariationEvent::from_alleles("20", 1000, "TG", "T");
+        let star = VariationEvent::from_alleles("20", 1000, "T", "*");
+        assert_eq!(
+            remap_alt_onto_longer_ref("T", "*", "TG").as_deref(),
+            Some("*"),
+            "SPAN_DEL is not padded onto the longest REF"
+        );
+        let (long_ref, alts) =
+            merged_alleles_for_genotyping(&[snp, del, star], 1000).expect("merged site");
+        assert_eq!(long_ref, "TG");
+        assert_eq!(
+            alts,
+            vec!["T".to_string(), "CG".to_string(), "*".to_string()],
+            "Java simpleMerge keeps * as a genotyping allele after replaceSpanDels"
+        );
+    }
+
     /// Java `getAllVariantContexts` keeps a SNP from a Match haplotype even when another
     /// haplotype carries a spanning deletion over the same bases.
     #[test]
@@ -1431,6 +1650,41 @@ mod tests {
                 .iter()
                 .any(|e| e.is_indel() && e.ref_allele.len() > 1),
             "deletion from the other haplotype must remain: {events:?}"
+        );
+    }
+
+    /// Java `getAllVariantContexts` keeps a SNP from a Match haplotype even when another
+    /// haplotype carries an insertion that starts at the same VCF coordinate.
+    #[test]
+    fn eventmap_union_keeps_snp_when_another_haplotype_has_insertion_at_same_start() {
+        let ref_bytes = b"ACGTACGT";
+        let mut ref_hap = hap_with_cigar(ref_bytes, &[(8, CigarOperator::Match)]);
+        ref_hap.is_reference = true;
+        let mut snp_bases = ref_bytes.to_vec();
+        snp_bases[2] = b'A'; // genomic 102, REF G ALT A
+        let snp_hap = hap_with_cigar(&snp_bases, &[(8, CigarOperator::Match)]);
+        let ins_hap = hap_with_cigar(
+            b"ACGTTTACGT",
+            &[
+                (3, CigarOperator::Match),
+                (2, CigarOperator::Insertion),
+                (5, CigarOperator::Match),
+            ],
+        );
+        let events =
+            collect_variation_events(&[ref_hap, snp_hap, ins_hap], ref_bytes, 100, "chr", 0);
+        let snp = events
+            .iter()
+            .find(|e| e.is_snp() && e.start_1based.get() == 102);
+        assert!(
+            snp.is_some(),
+            "Java EventMap union keeps the SNP beside a same-start insertion; got {events:?}"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| e.is_indel() && e.start_1based.get() == 102),
+            "insertion from the other haplotype must remain: {events:?}"
         );
     }
 
