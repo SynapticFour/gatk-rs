@@ -26,7 +26,7 @@ fn find_all_chains(graph: &AssemblyGraph) -> Vec<LinearChain> {
 
     while let Some(start) = chain_starts.pop_front() {
         for to in graph.outgoing_nodes(start) {
-            if let Some(edge) = graph.edge_support(start, to) {
+            if let Some(edge) = graph.edge_pruning_support(start, to) {
                 let chain = extend_chain(
                     graph,
                     ChainEdge {
@@ -59,7 +59,7 @@ fn extend_chain(graph: &AssemblyGraph, start: ChainEdge) -> LinearChain {
         if graph.incoming_count(last) > 1 || next_to == first {
             break;
         }
-        let Some(support) = graph.edge_support(last, next_to) else {
+        let Some(support) = graph.edge_pruning_support(last, next_to) else {
             break;
         };
         edges.push(ChainEdge {
@@ -142,13 +142,13 @@ fn chain_log_odds(chain: &LinearChain, graph: &AssemblyGraph, error_rate: f64) -
     let left_total: usize = graph
         .outgoing_nodes(chain.first)
         .iter()
-        .filter_map(|&t| graph.edge_support(chain.first, t))
+        .filter_map(|&t| graph.edge_pruning_support(chain.first, t))
         .map(|s| s as usize)
         .sum();
     let right_total: usize = graph
         .incoming_nodes(chain.last)
         .iter()
-        .filter_map(|&f| graph.edge_support(f, chain.last))
+        .filter_map(|&f| graph.edge_pruning_support(f, chain.last))
         .map(|s| s as usize)
         .sum();
     let left_mult = chain.edges[0].support as usize;

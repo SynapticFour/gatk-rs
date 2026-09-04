@@ -1179,7 +1179,7 @@ fn try_genotype_variation_event(
                 softclip_two_read_format,
                 region_events,
             )? {
-                return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+                return Ok(Some(GenotypedSiteCall::new(event, gt)));
             }
         }
         // L13-B: score owned by [`SiteScore`] (behavior-neutral extract).
@@ -1408,7 +1408,7 @@ fn try_genotype_variation_event(
             softclip_two_read_format,
             region_events,
         )? {
-            return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         // L9: PairHMM genotype failed Java emit, but pileup still supports the allele.
         // Dense SNPs next to indels often keep an "alt" hap that is REF at the SNP locus, so
@@ -1484,7 +1484,7 @@ fn try_genotype_variation_event(
         && read_alt_ad >= read_ref_ad
     {
         let gt = sparse_snp_genotype_from_read_depths(read_ref_ad, read_alt_ad, config)?;
-        return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+        return Ok(Some(GenotypedSiteCall::new(event, gt)));
     }
     if mapping.alt_haplotype_indices.is_empty() {
         if config.enable_sparse_read_genotype
@@ -1494,14 +1494,14 @@ fn try_genotype_variation_event(
             && passes_cluster_anchor_read_support(read_alt_ad, read_ref_ad)
         {
             let gt = sparse_snp_genotype_from_read_depths(read_ref_ad, read_alt_ad, config)?;
-            return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         if config.genotype_stored_events_only
             && is_cluster_anchor_snp(&event)
             && passes_cluster_anchor_read_support(read_alt_ad, read_ref_ad)
         {
             let gt = sparse_snp_genotype_from_read_depths(read_ref_ad, read_alt_ad, config)?;
-            return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         if config.enable_java_strict()
             && is_coupled_indel_for_genotyping(&event, region_events)
@@ -1514,7 +1514,7 @@ fn try_genotype_variation_event(
         {
             if let Some((gls, rr, ra)) = java_cluster_shaped_genotype(&event, region_events) {
                 let gt = genotype_from_java_shaped_gls(gls, rr, ra, config)?;
-                return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+                return Ok(Some(GenotypedSiteCall::new(event, gt)));
             }
         }
         // R4-2 / L8: genome-wide sites with pileup support when no alt haplotype was retained.
@@ -1558,14 +1558,14 @@ fn try_genotype_variation_event(
             && passes_cluster_anchor_read_support(read_alt_ad, read_ref_ad)
         {
             let gt = sparse_snp_genotype_from_read_depths(read_ref_ad, read_alt_ad, config)?;
-            return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         if config.genotype_stored_events_only
             && is_cluster_anchor_snp(&event)
             && passes_cluster_anchor_read_support(read_alt_ad, read_ref_ad)
         {
             let gt = sparse_snp_genotype_from_read_depths(read_ref_ad, read_alt_ad, config)?;
-            return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         if config.genotype_stored_events_only
             && !mapping.alt_haplotype_indices.is_empty()
@@ -1575,7 +1575,7 @@ fn try_genotype_variation_event(
             && read_alt_ad >= read_ref_ad
         {
             let gt = sparse_snp_genotype_from_read_depths(read_ref_ad, read_alt_ad, config)?;
-            return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         // R4-2 / L8: genome-wide site with alt hap but empty PairHMM subset → pileup genotype.
         if config.enable_java_strict()
@@ -1653,7 +1653,7 @@ fn try_genotype_variation_event(
                     )
                 });
                 if alt_supports {
-                    return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+                    return Ok(Some(GenotypedSiteCall::new(event, gt)));
                 }
             }
         }
@@ -1667,27 +1667,27 @@ fn try_genotype_variation_event(
             pad_start_1based,
             max_mnp_distance,
         ) {
-            return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         if config.genotype_stored_events_only
             && is_cluster_anchor_snp(&event)
             && passes_cluster_anchor_read_support(read_alt_ad, read_ref_ad)
         {
-            return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         if config.genotype_stored_events_only
             && is_ctc_del_for_genotyping(&event, region_events)
             && !mapping.alt_haplotype_indices.is_empty()
         {
-            return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         if !mapping.alt_haplotype_indices.is_empty()
             && read_alt_ad >= 1 && read_alt_ad >= read_ref_ad {
-                return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+                return Ok(Some(GenotypedSiteCall::new(event, gt)));
             }
         if config.genotype_stored_events_only && is_cluster_anchor_snp(&event) {
             let gt = sparse_snp_genotype_from_read_depths(read_ref_ad, read_alt_ad, config)?;
-            return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         // L11-B3: genome-wide pileup rescue under `enable_java_strict` lived only in the
         // strict arm (above). Fallthrough never sees enable_java_strict == true.
@@ -1697,16 +1697,16 @@ fn try_genotype_variation_event(
     if (gt.format.gq.as_i32() as f64) < config.stand_emit_confidence && !sparse_emit
     {
         if config.genotype_stored_events_only && is_ctc_del_for_genotyping(&event, region_events) {
-            return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         if config.genotype_stored_events_only
             && is_cluster_anchor_snp(&event)
             && passes_cluster_anchor_read_support(read_alt_ad, read_ref_ad)
         {
-            return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         return Ok(None);
     }
-    Ok(Some(GenotypedSiteCall { event, genotype: gt }))
+    Ok(Some(GenotypedSiteCall::new(event, gt)))
 }
 

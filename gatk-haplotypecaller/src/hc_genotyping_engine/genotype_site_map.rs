@@ -8,8 +8,9 @@ impl SiteMap {
     /// When the trim-pad EventMap/linear slice misses indel alt haps (empty mapper),
     /// retries against the full padded reference (L9 SparsePlShape avoidance).
     ///
-    /// `hap_events` must be built against `pad_start_1based` (trim pad); full-pad retry
-    /// rebuilds EventMaps (coordinates differ).
+    /// `hap_events` is built against the Java padded ref/refLoc (full pad). The
+    /// mapper still walks `pad_start_1based` (trim/apply) for hap-base slices; if
+    /// that misses an indel, retry against the full padded reference (L9).
     pub(crate) fn build_mapping(
         event: &VariationEvent,
         haplotypes: &[Haplotype],

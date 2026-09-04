@@ -26,7 +26,7 @@ impl SiteEarlyTemplate {
         if is_p12_phase_e_gap_het_event(&event) {
             let (gls, rr, ra) = java_gap_tail_het_shaped_genotype();
             let gt = genotype_from_java_shaped_gls(gls, rr, ra, config)?;
-            return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         if is_cluster_downstream_snp(&event) {
             let (gls, rr, ra) = java_cluster_downstream_shaped_genotype();
@@ -427,7 +427,7 @@ impl SiteEarlyTemplate {
                         gap_softclip_two_read_format,
                         region_events,
                     )? {
-                        return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+                        return Ok(Some(GenotypedSiteCall::new(event, gt)));
                     }
                 }
             }
@@ -448,34 +448,34 @@ impl SiteEarlyTemplate {
         if is_p12_phase_e_gap_het_event(&event) {
             let (gls, rr, ra) = java_gap_tail_het_shaped_genotype();
             let gt = genotype_from_java_shaped_gls(gls, rr, ra, config)?;
-            return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         if event_weak_sparse_het_pl(&event)
             && (read_alt_ad >= 1 || pre_gap_ra >= 1 || trim_pileup_alt >= 1)
         {
             let gt = genotype_from_java_shaped_gls(vec![-5.5, 0.0, -2.1], 1, 2, config)?;
-            return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         if is_cluster_tc_snp(&event) && read_ref_ad >= 1 && read_alt_ad >= 1 {
             let (gls, rr, ra) = java_cluster_tc_het_shaped_genotype(read_ref_ad, read_alt_ad);
             let gt = genotype_from_java_shaped_gls(gls, rr, ra, config)?;
-            return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         if is_cluster_ac_snp(&event) && read_ref_ad >= 1 && read_alt_ad >= 1 {
             let (gls, rr, ra) = java_cluster_tc_het_shaped_genotype(read_ref_ad, read_alt_ad);
             let gt = genotype_from_java_shaped_gls(gls, rr, ra, config)?;
-            return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         if is_ctc_del_for_genotyping(&event, region_events) {
             if let Some((gls, rr, ra)) = java_cluster_shaped_genotype(&event, region_events) {
                 let gt = genotype_from_java_shaped_gls(gls, rr, ra, config)?;
-                return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+                return Ok(Some(GenotypedSiteCall::new(event, gt)));
             }
         }
         if is_cluster_downstream_snp(&event) {
             let (gls, rr, ra) = java_cluster_downstream_shaped_genotype();
             let gt = genotype_from_java_shaped_gls(gls, rr, ra, config)?;
-            return Ok(Some(GenotypedSiteCall { event, genotype: gt }));
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         let _gap_het_pileup = is_p12_phase_e_gap_het_event(&event);
         Ok(None)

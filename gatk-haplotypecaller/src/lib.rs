@@ -130,6 +130,7 @@ pub(crate) mod read_pre_mate;
 pub(crate) mod read_pre_mq;
 pub mod read_unclip;
 pub(crate) mod region_pileup;
+pub(crate) mod reverse_trim;
 pub(crate) mod seq_graph_simplify;
 
 // --------------------------------------------------------------------------
@@ -323,6 +324,7 @@ pub use allele_filter_options::{ActiveRegionSpan, AlleleFilterOptions};
 pub use allele_filtering::{
     filter_assembly_and_likelihoods, MAX_NON_REF_HAPLOTYPES_FOR_GENOTYPING,
 };
+pub use allele_subsetting_pl::{subset_unused_alts_after_merged_genotyping, UnusedAltSubsetResult};
 pub use annotator::{
     annotate_parity_v1_site, AnnotatedSite, VariantAnnotationContext, PARITY_V1_FORMAT_KEYS,
     PARITY_V1_INFO_KEYS,
@@ -370,13 +372,13 @@ pub use gvcf_writer::{
 };
 pub use haplotype::Haplotype;
 pub use hc_genotyping_engine::{
-    biallelic_genotype_log10_likelihoods_gatk, diagnose_genotype_variation_event,
-    genotype_active_region, java_emit_af_decision, java_vcf_shaped_rescue_gl,
-    marginalize_rows_to_biallelic_alleles, region_likelihoods_to_rows,
-    subset_biallelic_haplotype_indices, with_region_likelihood_rows, GenotypeRejectReason,
-    GenotypingSemantics, HcGenotypingConfig, InformativeAd, JavaEmitAfDecision,
-    RegionGenotypeResult, SparsePlShape, DEFAULT_INFORMATIVE_READ_OVERLAP_MARGIN,
-    DEFAULT_STAND_EMIT_CONFIDENCE,
+    audit_colocated_snp_indel_merge_numerics, biallelic_genotype_log10_likelihoods_gatk,
+    diagnose_genotype_variation_event, genotype_active_region, java_emit_af_decision,
+    java_vcf_shaped_rescue_gl, marginalize_rows_to_biallelic_alleles, region_likelihoods_to_rows,
+    subset_biallelic_haplotype_indices, take_colocated_merge_numerics, with_region_likelihood_rows,
+    ColocatedMergeNumerics, GenotypeRejectReason, GenotypingSemantics, HcGenotypingConfig,
+    InformativeAd, JavaEmitAfDecision, RegionGenotypeResult, SparsePlShape,
+    DEFAULT_INFORMATIVE_READ_OVERLAP_MARGIN, DEFAULT_STAND_EMIT_CONFIDENCE,
 };
 #[cfg(feature = "dev-dumps")]
 pub use hc_genotyping_engine::{format_locus_genotype_pl_dump, pairhmm_locus_trace_dump};
@@ -391,6 +393,7 @@ pub use kbest_haplotype::{
     find_best_haplotypes_preserving_cycles, KBestPath,
 };
 pub use likelihood_engine::{
+    fill_indel_gop_from_optional_tag, indel_gop_from_optional_tag,
     prepare_read_quals_for_pairhmm_inplace, score_read_against_haplotypes,
     HcLikelihoodEngineConfig, HcLikelihoodImplementation,
 };
@@ -473,6 +476,7 @@ pub use region_vcf_emit::{
     try_emit_call_region_variant, try_emit_call_region_variants, HC_PIPELINE_ASSEMBLY_REGION_V1,
     HC_PIPELINE_LEGACY_PROVISIONAL, HC_PIPELINE_SCAFFOLD,
 };
+pub use reverse_trim::reverse_trim_alleles;
 pub use run::run_haplotype_caller;
 pub use shared_bam::{
     empty_shared_record, empty_shared_record_ref, into_unique_records, is_empty_shared_record,

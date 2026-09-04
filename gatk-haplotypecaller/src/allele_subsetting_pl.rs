@@ -59,6 +59,72 @@ fn subset_ad(original_ad: &[i32], keep_allele_indices: &[usize]) -> Vec<i32> {
         .collect()
 }
 
+/// GATK `calculateOutputAlleleSubset` keep-set for a single-sample diploid call.
+///
+/// Java keeps ALT `a` when `AFCalculationResult.passesThreshold(a, stand-call-conf)`
+/// (`GenotypingEngine.calculateOutputAlleleSubset`, 4.4.0.0). Default HC
+/// `forceKeepAllele` is false (not GVCF). When one genotype posterior dominates
+/// (USE_PLS_TO_ASSIGN), an ALT absent from that genotype has log10 P(absent) ≈ 0
+/// and fails the threshold — equivalent to keeping REF plus ALTs present in GT,
+/// in original allele order.
+pub fn output_allele_keep_indices_from_assigned_gt(
+    n_alleles: usize,
+    gt_allele_indices: &[i32],
+) -> Vec<usize> {
+    let mut keep = Vec::with_capacity(n_alleles);
+    keep.push(0);
+    for i in 1..n_alleles {
+        if gt_allele_indices
+            .iter()
+            .any(|&g| g >= 0 && (g as usize) == i)
+        {
+            keep.push(i);
+        }
+    }
+    keep
+}
+
+/// Diploid unused-ALT subset after merged genotyping (6R.62).
+///
+/// PLs are remapped with [`subset_log10_genotype_likelihoods`] (`AlleleSubsettingUtils.subsettedPLIndices`
+/// + `scaleLogSpaceArrayForNumericalStability`). AD is sliced by keep indices.
+/// GLs are **not** recalculated from reads.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnusedAltSubsetResult {
+    pub alt_alleles: Vec<String>,
+    pub log10_gls: Vec<f64>,
+    pub ad: Vec<i32>,
+}
+
+pub fn subset_unused_alts_after_merged_genotyping(
+    alt_alleles: &[String],
+    gt_allele_indices: &[i32],
+    log10_gls: &[f64],
+    ad: &[i32],
+) -> GatkResult<UnusedAltSubsetResult> {
+    let n_alleles = 1 + alt_alleles.len();
+    let keep = output_allele_keep_indices_from_assigned_gt(n_alleles, gt_allele_indices);
+    if keep.len() == n_alleles {
+        return Ok(UnusedAltSubsetResult {
+            alt_alleles: alt_alleles.to_vec(),
+            log10_gls: log10_gls.to_vec(),
+            ad: ad.to_vec(),
+        });
+    }
+    let new_gl = subset_log10_genotype_likelihoods(log10_gls, n_alleles, &keep)?;
+    let new_ad = subset_ad(ad, &keep);
+    let new_alts: Vec<String> = keep
+        .iter()
+        .skip(1)
+        .map(|&i| alt_alleles[i - 1].clone())
+        .collect();
+    Ok(UnusedAltSubsetResult {
+        alt_alleles: new_alts,
+        log10_gls: new_gl,
+        ad: new_ad,
+    })
+}
+
 /// Subset log10 genotype likelihoods from `original_allele_count` to `keep_allele_indices`.
 pub fn subset_log10_genotype_likelihoods(
     original_gl: &[f64],
@@ -212,5 +278,60 @@ mod tests {
         assert_eq!(r.ad, vec![14, 7]);
         assert_eq!(r.gq, Some(200));
         assert_eq!(r.sac, Some(vec![10, 9, 10, 9]));
+    }
+
+    #[test]
+    fn unused_alt_subset_remaps_genotype_after_merged_genotyping() {
+        // [TG, T, CG] GT=0/2 → drop unused deletion T, remap 0/2 → 0/1 on [TG, CG].
+        let alts = vec!["T".to_string(), "CG".to_string()];
+        let gls = vec![-29.8, -33.7, -162.0, 0.0, -105.8, -110.3];
+        let ad = vec![28, 2, 10];
+        let r = subset_unused_alts_after_merged_genotyping(&alts, &[0, 2], &gls, &ad).unwrap();
+        assert_eq!(r.alt_alleles, vec!["CG".to_string()]);
+        assert_eq!(r.ad, vec![28, 10]);
+        assert_eq!(r.log10_gls.len(), 3);
+        let pl = log10_gl_to_int_pl(&r.log10_gls);
+        assert_eq!(pl, vec![298, 0, 1103]);
+        assert_ne!(pl, vec![90, 30, 60, 30, 0, 60]);
+        let best = pl
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, p)| *p)
+            .map(|(i, _)| i)
+            .unwrap();
+        assert_eq!(best, 1, "USE_PLS_TO_ASSIGN on subsetted PLs is 0/1");
+    }
+
+    #[test]
+    fn unused_alt_subset_keeps_second_alt_when_gt_uses_first() {
+        let alts = vec!["T".to_string(), "CG".to_string()];
+        let gls = vec![0.0, -1.0, -20.0, -30.0, -40.0, -60.0];
+        let ad = vec![10, 8, 1];
+        // GT=0/1 uses deletion T; CG is unused.
+        let r = subset_unused_alts_after_merged_genotyping(&alts, &[0, 1], &gls, &ad).unwrap();
+        assert_eq!(r.alt_alleles, vec!["T".to_string()]);
+        assert_eq!(r.ad, vec![10, 8]);
+        assert_eq!(r.log10_gls.len(), 3);
+    }
+
+    #[test]
+    fn unused_alt_subset_keeps_both_when_gt_is_1_2() {
+        let alts = vec!["T".to_string(), "CG".to_string()];
+        let gls = vec![-9.0, -3.0, -6.0, -3.0, 0.0, -6.0];
+        let ad = vec![5, 10, 12];
+        let r = subset_unused_alts_after_merged_genotyping(&alts, &[1, 2], &gls, &ad).unwrap();
+        assert_eq!(r.alt_alleles, vec!["T".to_string(), "CG".to_string()]);
+        assert_eq!(r.ad, vec![5, 10, 12]);
+        assert_eq!(r.log10_gls, gls);
+    }
+
+    #[test]
+    fn unused_alt_subset_is_not_locus_specific() {
+        let alts = vec!["A".to_string(), "CC".to_string()];
+        let gls = vec![-20.0, -30.0, -40.0, 0.0, -10.0, -15.0];
+        let ad = vec![12, 1, 9];
+        let r = subset_unused_alts_after_merged_genotyping(&alts, &[0, 2], &gls, &ad).unwrap();
+        assert_eq!(r.alt_alleles, vec!["CC".to_string()]);
+        assert_eq!(r.ad, vec![12, 9]);
     }
 }

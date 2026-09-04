@@ -5,7 +5,11 @@
 #![warn(clippy::unwrap_used, clippy::expect_used)]
 
 use rust_htslib::bam;
-use rust_htslib::bam::record::{Cigar, CigarString};
+use rust_htslib::bam::record::{Aux, Cigar, CigarString};
+
+/// GATK `ReadUtils.BQSR_BASE_INSERTION_QUALITIES` / `BQSR_BASE_DELETION_QUALITIES`.
+const BQSR_INSERTION_QUAL_TAG: &[u8] = b"BI";
+const BQSR_DELETION_QUAL_TAG: &[u8] = b"BD";
 
 /// HC default: `dontUseSoftClippedBases=false`, `overrideSoftclipFragmentCheck=false`.
 /// # Invariants
@@ -171,7 +175,68 @@ fn replace_record_body(
     out.set_flags(template.flags());
     out.set_mpos(template.mpos());
     out.set_insert_size(template.insert_size());
+    // `Record::new` has empty aux. Java `GATKRead.copy()` keeps BI/BD; PairHMM
+    // `StandardPairHMMInputScoreImputator` reads those tags from the processed read.
+    copy_bqsr_indel_quality_tags(template, &mut out);
     out
+}
+
+fn copy_bqsr_indel_quality_tags(src: &bam::Record, dst: &mut bam::Record) {
+    copy_aux_z_tag(src, dst, BQSR_INSERTION_QUAL_TAG);
+    copy_aux_z_tag(src, dst, BQSR_DELETION_QUAL_TAG);
+}
+
+fn copy_aux_z_tag(src: &bam::Record, dst: &mut bam::Record, tag: &[u8]) {
+    let Ok(Aux::String(s)) = src.aux(tag) else {
+        return;
+    };
+    let owned = s.to_owned();
+    let _ = dst.push_aux(tag, Aux::String(&owned));
+}
+
+/// GATK `ClippingOp.applyHardClipBases`: `System.arraycopy` of BI/BD into the kept window.
+fn slice_bqsr_indel_quality_tags(
+    rec: &mut bam::Record,
+    copy_start: usize,
+    new_length: usize,
+    old_length: usize,
+) {
+    slice_aux_z_tag(
+        rec,
+        BQSR_INSERTION_QUAL_TAG,
+        copy_start,
+        new_length,
+        old_length,
+    );
+    slice_aux_z_tag(
+        rec,
+        BQSR_DELETION_QUAL_TAG,
+        copy_start,
+        new_length,
+        old_length,
+    );
+}
+
+fn slice_aux_z_tag(
+    rec: &mut bam::Record,
+    tag: &[u8],
+    copy_start: usize,
+    new_length: usize,
+    old_length: usize,
+) {
+    let Ok(Aux::String(s)) = rec.aux(tag) else {
+        return;
+    };
+    if s.len() != old_length {
+        return;
+    }
+    let end = copy_start.saturating_add(new_length);
+    if end > s.len() {
+        return;
+    }
+    let owned = s[copy_start..end].to_owned();
+    let _ = rec.remove_aux(tag);
+    let _ = rec.push_aux(tag, Aux::String(&owned));
 }
 
 /// `CigarUtils.clipCigar` (hard or soft clip operator).
@@ -299,6 +364,7 @@ fn apply_hard_clip_bases(rec: &bam::Record, start: usize, stop: usize) -> bam::R
         CigarString::from(normalize_cigar(elems))
     };
     let mut out = replace_record_body(rec, &cigar, new_seq, new_qual);
+    slice_bqsr_indel_quality_tags(&mut out, copy_start, new_length, read_len);
     if start == 0 && out.flags() & UNMAPPED == 0 {
         let shift = alignment_start_shift(&old_cigar, stop + 1);
         out.set_pos(rec.pos() + i64::from(shift));
@@ -681,7 +747,7 @@ pub(crate) fn read_has_positive_cigar_length(rec: &bam::Record) -> bool {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod read_unclip_tests {
     use super::*;
-    use rust_htslib::bam::record::Cigar;
+    use rust_htslib::bam::record::{Aux, Cigar};
 
     #[test]
     fn normalize_merges_consecutive_hard_clips() {
@@ -703,5 +769,67 @@ mod read_unclip_tests {
         let via_seq = hard_clip_soft_clipped_bases_seq(&rec);
         assert_eq!(via_seq, via_record);
         assert_eq!(via_seq, b"CGTACGT");
+    }
+
+    fn phred_to_fastq(q: &[u8]) -> String {
+        q.iter()
+            .map(|&b| char::from(b.saturating_add(33)))
+            .collect()
+    }
+
+    fn aux_z(rec: &bam::Record, tag: &[u8]) -> Option<String> {
+        match rec.aux(tag) {
+            Ok(Aux::String(s)) => Some(s.to_string()),
+            _ => None,
+        }
+    }
+
+    /// 6R.74: Java `ClippingOp.applyHardClipBases` keeps and slices BI/BD.
+    #[test]
+    fn hard_clip_preserves_sliced_bi_bd() {
+        let mut rec = bam::Record::new();
+        let cigar = CigarString::from(vec![Cigar::Match(4)]);
+        rec.set(b"q1", Some(&cigar), b"ACGT", &[31, 31, 31, 2]);
+        rec.set_mapq(60);
+        rec.set_pos(100);
+        rec.push_aux(b"BI", Aux::String(&phred_to_fastq(&[30, 31, 32, 33])))
+            .unwrap();
+        rec.push_aux(b"BD", Aux::String(&phred_to_fastq(&[25, 26, 27, 28])))
+            .unwrap();
+        let clipped = hard_clip_low_qual_ends(&rec, 9);
+        assert_eq!(clipped.seq().as_bytes(), b"ACG");
+        assert_eq!(
+            aux_z(&clipped, b"BI").as_deref(),
+            Some(phred_to_fastq(&[30, 31, 32]).as_str())
+        );
+        assert_eq!(
+            aux_z(&clipped, b"BD").as_deref(),
+            Some(phred_to_fastq(&[25, 26, 27]).as_str())
+        );
+    }
+
+    #[test]
+    fn revert_softclips_keeps_full_bi_bd() {
+        let mut rec = bam::Record::new();
+        let cigar = CigarString::from(vec![Cigar::SoftClip(1), Cigar::Match(3)]);
+        rec.set(b"q1", Some(&cigar), b"ACGT", &[31, 31, 31, 31]);
+        rec.set_mapq(60);
+        rec.set_pos(100);
+        rec.set_flags(0x1 | 0x20);
+        rec.set_insert_size(200);
+        rec.push_aux(b"BI", Aux::String(&phred_to_fastq(&[30, 30, 30, 30])))
+            .unwrap();
+        rec.push_aux(b"BD", Aux::String(&phred_to_fastq(&[25, 25, 25, 25])))
+            .unwrap();
+        let reverted = revert_soft_clipped_bases(&rec);
+        assert_eq!(reverted.seq().as_bytes(), b"ACGT");
+        assert_eq!(
+            aux_z(&reverted, b"BI").as_deref(),
+            Some(phred_to_fastq(&[30, 30, 30, 30]).as_str())
+        );
+        assert_eq!(
+            aux_z(&reverted, b"BD").as_deref(),
+            Some(phred_to_fastq(&[25, 25, 25, 25]).as_str())
+        );
     }
 }

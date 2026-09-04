@@ -196,7 +196,7 @@ fn finish_strict_java_shaped_site_call(
         false,
         &[],
     )? {
-        Ok(Some(GenotypedSiteCall { event, genotype }))
+        Ok(Some(GenotypedSiteCall::new(event, genotype)))
     } else {
         Ok(None)
     }
@@ -647,6 +647,11 @@ fn event_already_called(calls: &[GenotypedSiteCall], event: &VariationEvent) -> 
         if c.event.ref_allele == event.ref_allele && c.event.alt_allele == event.alt_allele {
             return true;
         }
+        if c.event.ref_allele == event.ref_allele
+            && c.extra_alt_alleles.iter().any(|a| a == &event.alt_allele)
+        {
+            return true;
+        }
         // L10: shorter-REF nested STR allele already represented via longest-REF merge.
         if c.event.ref_allele.len() > event.ref_allele.len() {
             if let Some(remapped) = crate::event_map::remap_alt_onto_longer_ref(
@@ -655,10 +660,12 @@ fn event_already_called(calls: &[GenotypedSiteCall], event: &VariationEvent) -> 
                 &c.event.ref_allele,
             ) {
                 return remapped == c.event.alt_allele
+                    || c.extra_alt_alleles.iter().any(|a| a == &remapped)
                     || calls.iter().any(|c2| {
                         c2.event.start_1based == event.start_1based
                             && c2.event.ref_allele == c.event.ref_allele
-                            && c2.event.alt_allele == remapped
+                            && (c2.event.alt_allele == remapped
+                                || c2.extra_alt_alleles.iter().any(|a| a == &remapped))
                     });
             }
         }
@@ -1281,17 +1288,30 @@ pub fn filter_genotyped_calls_for_strict_java_emit(
     config: &HcGenotypingConfig,
 ) -> GatkResult<()> {
     calls.retain(|c| {
-        if crate::read_event_discovery::strict_java_asm8_only_enabled()
+        if !c.post_merge_unused_alt_subset
+            && crate::read_event_discovery::strict_java_asm8_only_enabled()
             && !strict_asm8_emit_call_eligible(c, region_reads, assembly)
         {
             return false;
+        }
+        if crate::read_event_discovery::p12_baseline_emit_oracle_blocks(&c.event) {
+            return false;
+        }
+        if !c.extra_alt_alleles.is_empty() || c.post_merge_unused_alt_subset {
+            // Merged-site GLs (6R.61) and post-subset merged GLs (6R.62) are not ASM-8
+            // pileup-string input. Emit if not hom-ref.
+            // Do not use `biallelic_genotype_index_from_pl`: DiploidGenotypeIndex rejects
+            // indices > 2 (e.g. 1/2 at PL index 4) and would drop a true non-ref call.
+            return crate::genotyping::best_pl_index(&c.genotype.format.pl) != 0;
         }
         java_emit_would_pass(
             &c.event,
             &c.genotype.genotype_log10_likelihoods,
             &c.genotype.format,
-            config.stand_emit_confidence, &[]).unwrap_or(false)
-            && !crate::read_event_discovery::p12_baseline_emit_oracle_blocks(&c.event)
+            config.stand_emit_confidence,
+            &[],
+        )
+        .unwrap_or(false)
     });
     drop_clustered_short_indel_fragments(calls);
     Ok(())
