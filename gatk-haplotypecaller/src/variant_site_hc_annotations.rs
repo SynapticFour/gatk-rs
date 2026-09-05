@@ -1,7 +1,9 @@
 //! GATK HC variant-site INFO / QUAL for assembly-region VCF emission (J-D01).
 
 use crate::activity_scoring::genotype_log10_likelihoods_after_java_genotype_pl_roundtrip;
-use crate::af_calc::{calculate_biallelic_af_em, AfCalculatorConfig};
+use crate::af_calc::{
+    calculate_biallelic_af_em, diploid_af_log10_prob_only_ref_allele_exists, AfCalculatorConfig,
+};
 use crate::annotator::plugins::{
     excess_het, fisher_strand, qual_by_depth, read_pos_rank_sum, strand_odds_ratio,
 };
@@ -56,6 +58,20 @@ pub fn qual_from_af_calculation(genotype_log10_likelihoods: &[f64]) -> GatkResul
     Ok((-10.0 * log10_conf) + 0.0)
 }
 
+/// Site QUAL from GATK `AlleleFrequencyCalculator.calculate` on a diploid merged VC.
+/// `alleles` is REF first. When `*` is present, P(no variant) includes REF/SPAN_DEL genotypes.
+pub fn qual_from_merged_diploid_af_calculate(
+    log10_likelihoods: &[f64],
+    alleles: &[&str],
+) -> GatkResult<f64> {
+    let log10_pe = diploid_af_log10_prob_only_ref_allele_exists(
+        log10_likelihoods,
+        alleles,
+        &AfCalculatorConfig::default(),
+    )?;
+    Ok((-10.0 * log10_pe.min(0.0)) + 0.0)
+}
+
 /// GATK `QualByDepth.getDepth` for a single variant genotype.
 pub fn qd_depth_for_variant(gt: &Genotype, fields: &GenotypeFormatFields) -> i32 {
     if !is_het_or_hom_var(gt) {
@@ -86,12 +102,16 @@ pub fn annotate_hc_variant_site(
     alt_allele: &str,
     genotype: &RegionGenotypeResult,
     _config: &HcGenotypingConfig,
+    qual_log10_p_error: Option<f64>,
 ) -> GatkResult<HcVariantSiteAnnotations> {
     let gl_for_qual = genotype_log10_likelihoods_after_java_genotype_pl_roundtrip(
         &genotype.genotype_log10_likelihoods,
     );
     let af_result = calculate_biallelic_af_em(&[&gl_for_qual], &AfCalculatorConfig::default())?;
-    let qual = (-10.0 * af_result.log10_posterior_no_variant) + 0.0;
+    let qual = match qual_log10_p_error {
+        Some(log10_pe) => (-10.0 * log10_pe.min(0.0)) + 0.0,
+        None => (-10.0 * af_result.log10_posterior_no_variant) + 0.0,
+    };
     let best_idx =
         crate::genotyping::biallelic_genotype_index_from_pl(&genotype.format.pl).as_usize();
     let gt = genotype_from_index(best_idx);

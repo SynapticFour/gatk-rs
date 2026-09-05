@@ -310,6 +310,7 @@ pub fn build_biallelic_variant_record(
         alt_allele,
         genotype,
         genotyping_config,
+        None,
     )?;
     build_record_inner(
         contig,
@@ -503,6 +504,7 @@ fn try_emit_call_region_variants_inner(
                     &call.event.alt_allele,
                     &call.genotype,
                     genotyping_config,
+                    call.qual_log10_p_error,
                 )?;
                 seen.insert(key);
                 let mut rec = build_record_inner(
@@ -642,6 +644,7 @@ fn try_emit_call_region_variants_inner(
                     &call.event.alt_allele,
                     emit_genotype,
                     genotyping_config,
+                    call.qual_log10_p_error,
                 )?;
                 seen.insert(key);
                 let mut rec = build_record_inner(
@@ -808,6 +811,7 @@ fn try_emit_call_region_variants_inner(
                 &call.event.alt_allele,
                 &call.genotype,
                 genotyping_config,
+                call.qual_log10_p_error,
             )?;
             let rec = build_record_inner(
                 &region.contig,

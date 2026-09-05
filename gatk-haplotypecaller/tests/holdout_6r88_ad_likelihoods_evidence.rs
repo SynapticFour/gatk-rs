@@ -121,7 +121,7 @@ fn holdout_6r88_ad_likelihoods_evidence_29456344() {
 
     assert_eq!(snap.long_ref, "TG");
     assert_eq!(snap.n_pairhmm_reads, 136);
-    assert_eq!(snap.n_overlap_before_qname_dedupe, 62);
+    assert_eq!(snap.n_overlap_before_qname_dedupe, 60);
     assert_eq!(
         snap.n_reads, snap.n_overlap_before_qname_dedupe,
         "Rust AD input C equals shared retainEvidence B"
@@ -132,12 +132,12 @@ fn holdout_6r88_ad_likelihoods_evidence_29456344() {
     );
     assert_eq!(
         vcf.samples[0].ad.clone().unwrap_or_default(),
-        vec![26u32, 9]
+        vec![36u32, 19]
     );
-    assert_ne!(
+    assert_eq!(
         snap.subset_ad_remarginalized,
         vec![36, 19],
-        "Java AD is not remarg of this C object"
+        "6R.100: remarg of C matches Java live annotation AD"
     );
     assert!(!vcf.alternate.iter().any(|a| a == "*"));
 }

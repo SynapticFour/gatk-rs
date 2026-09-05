@@ -89,7 +89,11 @@ fn holdout_6r68_read_allele_likelihood_29456344() {
         })
         .expect("lifecycle T/C");
     let pl = vcf.samples[0].pl.clone().expect("PL");
-    assert_eq!(pl, vec![266, 0, 1018], "6R.84 SPAN_DEL not dumped into REF");
+    assert_eq!(
+        pl,
+        vec![542, 0, 1353],
+        "6R.100 scored-evidence bind matches Java PL"
+    );
 
     let live = take_colocated_merge_numerics();
     let numerics = live

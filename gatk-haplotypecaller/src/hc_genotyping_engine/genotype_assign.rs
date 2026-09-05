@@ -741,6 +741,22 @@ fn try_genotype_colocated_snp_indel_merge(
         n_alleles,
         best_pl_index(&merged_format.pl),
     );
+    // GATK `GenotypingEngine.calculateGenotypes`: QUAL from AFCalculator on the
+    // pre-subset merged VC (including SPAN_DEL). `builder.log10PError` is copied
+    // through unused-ALT subset and reverse-trim; it is not recomputed from emitted PL.
+    let qual_log10_p_error = if alts.iter().any(|a| a == SPAN_DEL_ALLELE) {
+        let merged_alleles: Vec<&str> = std::iter::once(long_ref.as_str())
+            .chain(alts.iter().map(String::as_str))
+            .collect();
+        let gl_rt = genotype_log10_likelihoods_after_java_genotype_pl_roundtrip(&gls);
+        Some(diploid_af_log10_prob_only_ref_allele_exists(
+            &gl_rt,
+            &merged_alleles,
+            &AfCalculatorConfig::default(),
+        )?)
+    } else {
+        None
+    };
     // GATK `calculateOutputAlleleSubset` + `AlleleSubsettingUtils.subsetAlleles` after
     // merged GLs. Reverse-trim only after this subset, and only when allele count
     // changed (`makeAnnotatedCall`). Do not recalculate GLs from reads.
@@ -753,6 +769,13 @@ fn try_genotype_colocated_snp_indel_merge(
     if unused.alt_alleles.is_empty() {
         return Ok(ColocatedMergeGenotype::MergedNoEmit);
     }
+    // GATK `AlleleSubsettingUtils.subsetAlleles` does not write AD (`genotype.hasAD()` is
+    // false after `calculateGLsForThisEvent`). The first AD write is
+    // `DepthPerAlleleBySample.annotateWithLikelihoods`: identity remarg of remaining
+    // `vc.getAlleles()`, then `bestAllelesBreakingTies` + `isInformative` (`> 0.2`).
+    // Slicing 4-way informative counts is not that operation.
+    let keep_idx = remaining_keep_indices(&alts, &unused.alt_alleles);
+    let remarg_ad = remarg_informative_ad(&marg, &keep_idx);
     if let Ok(mut snap) = colocated_merge_numerics_snapshot(
         loc,
         long_ref.clone(),
@@ -764,6 +787,7 @@ fn try_genotype_colocated_snp_indel_merge(
         merged_format.pl_as_i32(),
         assigned_gt.clone(),
         &unused,
+        likelihood_reads,
     ) {
         fill_read_set_audit(
             &mut snap,
@@ -778,7 +802,7 @@ fn try_genotype_colocated_snp_indel_merge(
         );
         COLOCATED_MERGE_NUMERICS.with(|slot| slot.borrow_mut().push(snap));
     }
-    let format = emit_genotype_format_fields(&unused.log10_gls, &unused.ad)?;
+    let format = emit_genotype_format_fields(&unused.log10_gls, &remarg_ad)?;
     let aggregation = aggregate_haplotype_log10_likelihoods(&hap_rows)?;
     let best = best_haplotype_index(&aggregation)
         .unwrap_or(crate::bio_ids::HaplotypeIndex::new(0))
@@ -824,6 +848,7 @@ fn try_genotype_colocated_snp_indel_merge(
         },
         extra_alt_alleles: extra,
         post_merge_unused_alt_subset: unused.alt_alleles.len() < alts.len(),
+        qual_log10_p_error,
     }))
 }
 
@@ -861,6 +886,13 @@ pub struct ColocatedMergeNumerics {
     pub subset_ad_remarginalized_no_qname: Vec<i32>,
     /// Unused-ALT permute of 4-way AD on overlap-retained reads (no QNAME collapse).
     pub subset_ad_permuted_no_qname: Vec<i32>,
+    /// Keep indices into the merged allele matrix for remaining call alleles (REF + kept ALTs).
+    pub remaining_keep_indices: Vec<usize>,
+    /// Production merged-allele matrix rows used for AD (6R.101). Match by (QNAME, flags).
+    pub ad_row_read_index: Vec<usize>,
+    pub ad_row_qname: Vec<String>,
+    pub ad_row_flags: Vec<u16>,
+    pub ad_row_lls: Vec<Vec<f64>>,
     pub n_haps: usize,
     pub n_haps_with_multiple_events_at_loc: usize,
     /// Distinct EventMap alleles at `loc` (`ref>alt` → hap count).
@@ -890,25 +922,18 @@ pub fn take_colocated_merge_numerics() -> Vec<ColocatedMergeNumerics> {
     COLOCATED_MERGE_NUMERICS.with(|slot| std::mem::take(&mut *slot.borrow_mut()))
 }
 
-fn colocated_merge_numerics_snapshot(
-    loc: u64,
-    long_ref: String,
-    alts: &[String],
-    pools: &[Vec<HaplotypeIndex>],
-    marg: &[ReadLikelihoodRow],
-    gls: Vec<f64>,
-    depths: Vec<i32>,
-    merged_pl: Vec<i32>,
-    assigned_gt: Vec<i32>,
-    unused: &crate::allele_subsetting_pl::UnusedAltSubsetResult,
-) -> GatkResult<ColocatedMergeNumerics> {
-    let subset_format = emit_genotype_format_fields(&unused.log10_gls, &unused.ad)?;
-    let mut keep_idx = vec![0usize];
-    for kept in &unused.alt_alleles {
+fn remaining_keep_indices(alts: &[String], kept_alts: &[String]) -> Vec<usize> {
+    let mut keep = vec![0usize];
+    for kept in kept_alts {
         if let Some(i) = alts.iter().position(|a| a == kept) {
-            keep_idx.push(i + 1);
+            keep.push(i + 1);
         }
     }
+    keep
+}
+
+/// GATK `DepthPerAlleleBySample` identity remarg: vote over remaining allele columns only.
+fn remarg_informative_ad(marg: &[ReadLikelihoodRow], keep_idx: &[usize]) -> Vec<i32> {
     let remarg: Vec<ReadLikelihoodRow> = marg
         .iter()
         .map(|row| ReadLikelihoodRow {
@@ -920,8 +945,40 @@ fn colocated_merge_numerics_snapshot(
                 .collect(),
         })
         .collect();
-    let remarg_ad = informative_ad_n_alleles(&remarg, keep_idx.len());
+    informative_ad_n_alleles(&remarg, keep_idx.len())
+}
+
+fn colocated_merge_numerics_snapshot(
+    loc: u64,
+    long_ref: String,
+    alts: &[String],
+    pools: &[Vec<HaplotypeIndex>],
+    marg: &[ReadLikelihoodRow],
+    gls: Vec<f64>,
+    depths: Vec<i32>,
+    merged_pl: Vec<i32>,
+    assigned_gt: Vec<i32>,
+    unused: &crate::allele_subsetting_pl::UnusedAltSubsetResult,
+    likelihood_reads: &[SharedBamRecord],
+) -> GatkResult<ColocatedMergeNumerics> {
+    let subset_format = emit_genotype_format_fields(&unused.log10_gls, &unused.ad)?;
+    let keep_idx = remaining_keep_indices(alts, &unused.alt_alleles);
+    let remarg_ad = remarg_informative_ad(marg, &keep_idx);
     let n_informative: i32 = depths.iter().sum();
+    let mut ad_row_read_index = Vec::with_capacity(marg.len());
+    let mut ad_row_qname = Vec::with_capacity(marg.len());
+    let mut ad_row_flags = Vec::with_capacity(marg.len());
+    let mut ad_row_lls = Vec::with_capacity(marg.len());
+    for row in marg {
+        ad_row_read_index.push(row.read_index);
+        let rec = likelihood_reads.get(row.read_index);
+        ad_row_qname.push(
+            rec.map(|r| String::from_utf8_lossy(r.qname()).into_owned())
+                .unwrap_or_default(),
+        );
+        ad_row_flags.push(rec.map(|r| r.flags()).unwrap_or(0));
+        ad_row_lls.push(row.haplotype_log10_likelihoods.clone());
+    }
     Ok(ColocatedMergeNumerics {
         loc,
         long_ref,
@@ -945,6 +1002,11 @@ fn colocated_merge_numerics_snapshot(
         merged_ad_no_qname_dedupe: Vec::new(),
         subset_ad_remarginalized_no_qname: Vec::new(),
         subset_ad_permuted_no_qname: Vec::new(),
+        remaining_keep_indices: keep_idx,
+        ad_row_read_index,
+        ad_row_qname,
+        ad_row_flags,
+        ad_row_lls,
         n_haps: 0,
         n_haps_with_multiple_events_at_loc: 0,
         hap_event_signatures_at_loc: Vec::new(),
@@ -1026,24 +1088,8 @@ fn colocated_pls_from_likelihood_subset_floor(
         alts, &assigned_gt, &gls, &depths,
     )?;
     let subset_format = emit_genotype_format_fields(&unused.log10_gls, &unused.ad)?;
-    let mut keep_idx = vec![0usize];
-    for kept in &unused.alt_alleles {
-        if let Some(i) = alts.iter().position(|a| a == kept) {
-            keep_idx.push(i + 1);
-        }
-    }
-    let remarg: Vec<ReadLikelihoodRow> = marg
-        .iter()
-        .map(|row| ReadLikelihoodRow {
-            read_index: row.read_index,
-            read_id: row.read_id.clone(),
-            haplotype_log10_likelihoods: keep_idx
-                .iter()
-                .filter_map(|&i| row.haplotype_log10_likelihoods.get(i).copied())
-                .collect(),
-        })
-        .collect();
-    let remarg_ad = informative_ad_n_alleles(&remarg, keep_idx.len());
+    let keep_idx = remaining_keep_indices(alts, &unused.alt_alleles);
+    let remarg_ad = remarg_informative_ad(&marg, &keep_idx);
     Ok((
         merged_format.pl_as_i32(),
         subset_format.pl_as_i32(),
@@ -1403,6 +1449,7 @@ pub fn audit_colocated_snp_indel_merge_numerics(
         merged_format.pl_as_i32(),
         assigned_gt,
         &unused,
+        likelihood_reads,
     )?;
     fill_read_set_audit(
         &mut snap,

@@ -108,6 +108,10 @@ impl HaplotypeCallerActivityScoringParams {
     pub(crate) fn snp_pseudocount(&self) -> f64 {
         self.snp_heterozygosity * self.ref_pseudocount()
     }
+
+    pub(crate) fn indel_pseudocount(&self) -> f64 {
+        self.indel_heterozygosity * self.ref_pseudocount()
+    }
 }
 
 /// One read’s evidence at a locus after resolving deletion quality (GATK `ReadPileup` element).

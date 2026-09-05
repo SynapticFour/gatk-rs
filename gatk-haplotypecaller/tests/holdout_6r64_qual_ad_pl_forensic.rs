@@ -226,11 +226,11 @@ fn holdout_6r64_qual_ad_pl_forensic_29456344() {
     assert!(vcf.alternate.iter().any(|a| a == "C"));
     assert_eq!(
         vcf_pl,
-        vec![266u32, 0, 1018],
-        "6R.84 SPAN_DEL not dumped into REF"
+        vec![542u32, 0, 1353],
+        "6R.100 scored-evidence bind matches Java PL"
     );
-    assert_eq!(vcf_ad, vec![26u32, 9], "6R.84 SPAN_DEL not dumped into REF");
-    assert_eq!(numerics.subset_pl, vec![266, 0, 1018]);
-    assert_eq!(numerics.subset_ad_permuted, vec![26, 9]);
+    assert_eq!(vcf_ad, vec![36u32, 19], "6R.101 remaining remarg FORMAT AD");
+    assert_eq!(numerics.subset_pl, vec![542, 0, 1353]);
+    assert_eq!(numerics.subset_ad_permuted, vec![34, 17]);
     // Remarginalized AD is diagnostic; equality vs permute is a finding, not a failure.
 }

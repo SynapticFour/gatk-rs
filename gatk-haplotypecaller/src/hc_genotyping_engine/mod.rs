@@ -23,8 +23,12 @@ pub use config::{
 pub use semantics::GenotypingSemantics;
 pub use sparse_pl_shape::SparsePlShape;
 
-use crate::activity_scoring::log10_sum_log10;
-use crate::af_calc::{calculate_biallelic_af_em, AfCalculatorConfig};
+use crate::activity_scoring::{
+    genotype_log10_likelihoods_after_java_genotype_pl_roundtrip, log10_sum_log10,
+};
+use crate::af_calc::{
+    calculate_biallelic_af_em, diploid_af_log10_prob_only_ref_allele_exists, AfCalculatorConfig,
+};
 use crate::bio_ids::{HaplotypeIndex, PhredLikelihood, ReadDepth};
 use crate::compatibility::{is_coupled_indel_for_genotyping, is_ctc_del_for_genotyping};
 pub use crate::emit_gates::{
@@ -128,6 +132,9 @@ pub struct GenotypedSiteCall {
     /// rewrite alleles (`TG/CG` → `T/C`); keep this flag so ASM-8 pileup AD cannot replace
     /// the merged-site FORMAT AD/PL.
     pub post_merge_unused_alt_subset: bool,
+    /// Java `VariantContext.log10PError` from `AlleleFrequencyCalculator.calculate` on the
+    /// pre-subset merged VC. `None` → QUAL from emitted biallelic GLs.
+    pub qual_log10_p_error: Option<f64>,
 }
 
 impl GenotypedSiteCall {
@@ -137,6 +144,7 @@ impl GenotypedSiteCall {
             genotype,
             extra_alt_alleles: Vec::new(),
             post_merge_unused_alt_subset: false,
+            qual_log10_p_error: None,
         }
     }
 }

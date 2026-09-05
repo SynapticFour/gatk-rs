@@ -48,6 +48,21 @@ pub use call_region_audit::{
     take_call_region_audit, AuditEvent, AuditTrimVar, CallRegionAuditSnap,
 };
 
+#[path = "engine_observe.rs"]
+mod engine_observe;
+pub use engine_observe::{
+    begin_likelihood_pipeline_observe, begin_poorly_modeled_observe,
+    observe_poorly_modeled_haplotypes, take_likelihood_pipeline_cells,
+    take_likelihood_pipeline_snaps, take_poorly_modeled_cells, take_poorly_modeled_haplotypes,
+    take_poorly_modeled_observe, LikelihoodPipelineCell, LikelihoodPipelineSnap,
+    PoorlyModeledHapColumn, PoorlyModeledObserveCell, PoorlyModeledObserveRow,
+};
+use engine_observe::{
+    capture_likelihood_pipeline_stage, capture_scored_likelihood_pipeline,
+    record_poorly_modeled_filter_read, record_poorly_modeled_hap_columns,
+    start_poorly_modeled_filter_pass,
+};
+
 /// Engine state after resolving intervals into traversal tiles.
 /// # Invariants
 /// `tiles` cover `interval_specs` as non-overlapping fixed-width closed intervals.
@@ -934,13 +949,20 @@ impl HaplotypeCallerEngine {
             );
             let ll_normalize = !args.is_strict_java();
             let pairhmm_t0 = std::time::Instant::now();
-            read_likelihoods = compute_region_read_likelihoods(
+            let (ll, scored) = compute_region_read_likelihoods(
                 &region_for_genotyping,
                 &assembly.haplotypes,
                 &args.likelihood,
                 ll_normalize,
                 Some(assemble_finalized),
             )?;
+            read_likelihoods = ll;
+            // Java: `new AlleleLikelihoods(..., perSampleReadList)` then filter/realign that
+            // same evidence. PairHMM scored `assemble_finalized` after clip+sort — bind it
+            // as the genotyping evidence list so `read_index` matches QNAME at filter.
+            if !scored.is_empty() {
+                region_for_genotyping.reads = scored;
+            }
             let pairhmm_ms = pairhmm_t0.elapsed().as_millis();
             // Always under abort/TRACE diagnostics (not TRACE-only) so CI wall-time
             // attribution does not lose the PairHMM gap when only ABORT_MIB is set.
@@ -974,15 +996,20 @@ impl HaplotypeCallerEngine {
                     region.end.get(),
                 );
                 // Different read subset than assemble finalize — re-finalize.
-                read_likelihoods = compute_region_read_likelihoods(
+                let (ll, scored) = compute_region_read_likelihoods(
                     &ll_region,
                     &assembly.haplotypes,
                     &args.likelihood,
                     ll_normalize,
                     None,
                 )?;
-                if !read_likelihoods.is_empty() {
-                    region_for_genotyping.reads = ll_region.reads;
+                if !ll.is_empty() {
+                    read_likelihoods = ll;
+                    region_for_genotyping.reads = if !scored.is_empty() {
+                        scored
+                    } else {
+                        ll_region.reads
+                    };
                 }
             }
             // Java: EventMap on haplotypes → filterAlleles → realign → changeEvidence (no second HMM).
@@ -1034,6 +1061,11 @@ impl HaplotypeCallerEngine {
                     ),
                 )?;
                 read_likelihoods = filtered;
+                capture_likelihood_pipeline_stage(
+                    "compaction",
+                    &read_likelihoods,
+                    &assembly.haplotypes,
+                );
                 let did_post_sync = assembly.haplotypes.len() != hap_count_before;
                 // Only regenerate EventMap when the hap set actually changed.
                 if did_post_sync {
@@ -1457,7 +1489,7 @@ impl HaplotypeCallerEngine {
                     region.end.get(),
                 );
                 if !ll_region.reads.is_empty() {
-                    let recomputed = compute_region_read_likelihoods(
+                    let (recomputed, scored) = compute_region_read_likelihoods(
                         &ll_region,
                         &assembly.haplotypes,
                         &args.likelihood,
@@ -1466,8 +1498,13 @@ impl HaplotypeCallerEngine {
                     )?;
                     if !recomputed.is_empty() {
                         read_likelihoods = recomputed;
+                        let mut scored_reads = if !scored.is_empty() {
+                            scored
+                        } else {
+                            ll_region.reads
+                        };
                         let (_, best_hap_per_read) = realign_reads_to_best_haplotype(
-                            ll_region.reads.as_mut_slice(),
+                            scored_reads.as_mut_slice(),
                             &assembly.haplotypes,
                             &read_likelihoods,
                             assembly.padded_reference_start_1based(),
@@ -1478,7 +1515,7 @@ impl HaplotypeCallerEngine {
                                 read_likelihoods,
                                 &best_hap_per_read,
                             );
-                        region_for_genotyping.reads = ll_region.reads;
+                        region_for_genotyping.reads = scored_reads;
                     }
                 }
                 crate::runtime_config::rss_trace_checkpoint(
@@ -1666,6 +1703,11 @@ impl HaplotypeCallerEngine {
                 )?;
                 if !filtered.is_empty() {
                     read_likelihoods = filtered;
+                    capture_likelihood_pipeline_stage(
+                        "compaction",
+                        &read_likelihoods,
+                        &assembly.haplotypes,
+                    );
                     // P12: Raw LL on filtered haps, then Java normalize using active-span pools.
                     let (ll, reads) = refresh_region_read_likelihoods(
                         &region_for_genotyping,
@@ -1700,6 +1742,8 @@ impl HaplotypeCallerEngine {
                 &args.genotyping,
             );
             normalize_region_read_likelihoods(&mut read_likelihoods, &norm_haps);
+            capture_likelihood_pipeline_stage("normalize", &read_likelihoods, &assembly.haplotypes);
+            observe_poorly_modeled_haplotypes(&assembly.haplotypes);
             let filtered = filter_normalized_region_read_likelihoods(
                 &read_likelihoods,
                 &region_for_genotyping.reads,
@@ -2114,19 +2158,25 @@ fn refresh_region_read_likelihoods(
         return Ok((Vec::new(), Vec::new()));
     }
     // Refresh uses a different overlapping subset — re-finalize (no assemble buffer).
-    let ll = compute_region_read_likelihoods(&work, haplotypes, config, apply_normalize, None)?;
+    let (ll, scored) =
+        compute_region_read_likelihoods(&work, haplotypes, config, apply_normalize, None)?;
     if ll.is_empty() {
         return Ok((ll, work.reads));
     }
+    let mut scored_reads = if !scored.is_empty() {
+        scored
+    } else {
+        work.reads
+    };
     let (_realigned, best_hap_per_read) = realign_reads_to_best_haplotype(
-        work.reads.as_mut_slice(),
+        scored_reads.as_mut_slice(),
         haplotypes,
         &ll,
         padded_reference_start_1based,
         sw,
     )?;
     let ll = crate::read_realignment::change_evidence_to_best_haplotype(ll, &best_hap_per_read);
-    Ok((ll, work.reads))
+    Ok((ll, scored_reads))
 }
 
 /// GATK `--phred-scaled-global-read-mismapping-rate` default 45 → log10 error prob.
@@ -2309,30 +2359,44 @@ fn filter_poorly_modeled_region_read_likelihoods<
     if ll.is_empty() {
         return Vec::new();
     }
+    let observe_pass = start_poorly_modeled_filter_pass();
+    record_poorly_modeled_hap_columns(observe_pass);
     let best = best_ll_per_read(ll);
     let mut keep = vec![false; best.len()];
     for (read_idx, &best_ll) in best.iter().enumerate() {
         let Some(rec) = reads.get(read_idx) else {
             continue;
         };
-        if !best_ll.is_finite() {
-            continue;
-        }
         let rec = rec.borrow();
         let qual_len = rec.qual().len().max(1);
-        let mut retain = best_ll >= log10_min_true_likelihood_for_read(qual_len)
-            || retain_marginal_p12_cluster_upstream_read(best_ll, qual_len, rec);
+        let threshold = log10_min_true_likelihood_for_read(qual_len);
+        let java_equiv_keep = best_ll.is_finite() && best_ll >= threshold;
+        let mut retain = java_equiv_keep
+            || (best_ll.is_finite()
+                && retain_marginal_p12_cluster_upstream_read(best_ll, qual_len, rec));
         if !retain {
             if let Some((active_start, active_end)) = active_span {
-                retain = retain_marginal_sparse_softclip_read(
-                    best_ll,
-                    qual_len,
-                    rec,
-                    active_start,
-                    active_end,
-                );
+                if best_ll.is_finite() {
+                    retain = retain_marginal_sparse_softclip_read(
+                        best_ll,
+                        qual_len,
+                        rec,
+                        active_start,
+                        active_end,
+                    );
+                }
             }
         }
+        record_poorly_modeled_filter_read(
+            observe_pass,
+            ll,
+            rec,
+            read_idx,
+            best_ll,
+            threshold,
+            java_equiv_keep,
+            retain,
+        );
         if retain {
             keep[read_idx] = true;
         }
@@ -2403,6 +2467,7 @@ fn post_process_pairhmm_likelihoods<R: std::borrow::Borrow<rust_htslib::bam::Rec
     }
     let eligible = pairhmm_eligible_haplotype_indices(haplotypes);
     normalize_region_read_likelihoods(&mut ll, &eligible);
+    observe_poorly_modeled_haplotypes(haplotypes);
     filter_normalized_region_read_likelihoods(&ll, reads, active_span)
 }
 

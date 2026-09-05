@@ -113,10 +113,10 @@ fn holdout_6r87_variant_overlap_29456344() {
 
     assert_eq!(snap.long_ref, "TG");
     assert_eq!(snap.n_pairhmm_reads, 136);
-    assert_eq!(snap.n_overlap_before_qname_dedupe, 62);
+    assert_eq!(snap.n_overlap_before_qname_dedupe, 60);
     assert_eq!(
         vcf.samples[0].ad.clone().unwrap_or_default(),
-        vec![26u32, 9]
+        vec![36u32, 19]
     );
     assert!(!vcf.alternate.iter().any(|a| a == "*"));
 }

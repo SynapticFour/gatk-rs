@@ -27,6 +27,7 @@ import org.broadinstitute.hellbender.engine.filters.WellformedReadFilter;
 import org.broadinstitute.hellbender.engine.spark.AssemblyRegionArgumentCollection;
 import org.broadinstitute.hellbender.tools.walkers.annotator.VariantAnnotatorEngine;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.HaplotypeCallerArgumentCollection;
+import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.PairHMMNativeArgumentCollection;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.AssemblyRegionTrimmer;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.AssemblyBasedCallerUtils;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.AssemblyResultSet;
@@ -42,6 +43,7 @@ import org.broadinstitute.hellbender.tools.walkers.genotyper.MinimalGenotypingEn
 import org.broadinstitute.hellbender.utils.MathUtils;
 import java.lang.reflect.Field;
 import htsjdk.variant.variantcontext.Allele;
+import htsjdk.variant.variantcontext.Genotype;
 import htsjdk.variant.variantcontext.VariantContextBuilder;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.PileupReadErrorCorrector;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.ReadThreadingAssemblerArgumentCollection;
@@ -307,6 +309,15 @@ public final class HcFullParityGateDump {
             case "call-region-vcf":
                 callRegionVcf(rest);
                 break;
+            case "ad-annotation-call":
+                adAnnotationCall(rest);
+                break;
+            case "filter-poorly-modeled-call":
+                filterPoorlyModeledCall(rest);
+                break;
+            case "filter-poorly-modeled-call-double":
+                filterPoorlyModeledCallDouble(rest);
+                break;
             case "call-region-format":
                 System.err.println(
                         "call-region-format: use call-region-vcf + variant-format-from-gl-ad for parity");
@@ -470,7 +481,7 @@ public final class HcFullParityGateDump {
                         + "assembly-seqgraph-summary|assembly-assemble|pairhmm-likelihoods|pairhmm-native-likelihoods|"
                         + "pairhmm-bq-cap|pairhmm-haplotype-filter|"
                         + "genotyping-aggregate|genotype-format|annotate-core|annotation-manifest|"
-                        + "call-region-vcf|call-region-format|variant-vcf-from-gl-ad|variant-format-from-gl-ad|"
+                        + "call-region-vcf|call-region-format|ad-annotation-call|filter-poorly-modeled-call|filter-poorly-modeled-call-double|variant-vcf-from-gl-ad|variant-format-from-gl-ad|"
                         + "af-em|subset-alleles-pl|subset-alleles-vc|subset-alleles-integration|"
                         + "gvcf-header|gvcf-writer-blocks|"
                         + "assembly-region-genotype|assembly-region-genotype-subset|"
@@ -1574,7 +1585,7 @@ public final class HcFullParityGateDump {
         final FeatureInput<VariantContext> forceAllelesInput;
 
         HcContext(final String refPath, final String bamPath, final int padding) throws Exception {
-            this(refPath, bamPath, padding, null);
+            this(refPath, bamPath, padding, null, false);
         }
 
         HcContext(
@@ -1582,6 +1593,16 @@ public final class HcFullParityGateDump {
                 final String bamPath,
                 final int padding,
                 final String forceAllelesVcfOrNull)
+                throws Exception {
+            this(refPath, bamPath, padding, forceAllelesVcfOrNull, false);
+        }
+
+        HcContext(
+                final String refPath,
+                final String bamPath,
+                final int padding,
+                final String forceAllelesVcfOrNull,
+                final boolean nativePairHmmUseDoublePrecision)
                 throws Exception {
             refPathForFeatures = refPath;
             Utils.resetRandomGenerator();
@@ -1601,6 +1622,13 @@ public final class HcFullParityGateDump {
                 hcArgs.alleles = forceIn;
             }
             forceAllelesInput = forceIn;
+            if (nativePairHmmUseDoublePrecision) {
+                final Field useDbl =
+                        PairHMMNativeArgumentCollection.class.getDeclaredField(
+                                "useDoublePrecision");
+                useDbl.setAccessible(true);
+                useDbl.setBoolean(hcArgs.likelihoodArgs.pairHMMNativeArgs, true);
+            }
             final VariantAnnotatorEngine annotationEngine =
                     new VariantAnnotatorEngine(
                             Collections.emptyList(),
@@ -2220,6 +2248,265 @@ public final class HcFullParityGateDump {
             }
         }
         HcParityRegionVcf.dumpVariantVcf(false, "", 0, "", "", "", "", "");
+    }
+
+    /**
+     * Live GATK 4.4 {@code HaplotypeCallerEngine.callRegion} with TEST-ONLY dump of
+     * {@code DepthPerAlleleBySample.annotate} inputs (6R.91). Args: ref bam interval [padding].
+     */
+    private static void adAnnotationCall(final String[] args) throws Exception {
+        if (args.length < 3) {
+            usage();
+        }
+        final String refPath = args[0];
+        final String bamPath = args[1];
+        final String intervalCli = args[2];
+        final int padding = parsePaddingAndTargetIndex(args, 3, new boolean[] {false});
+        try (HcContext ctx = new HcContext(refPath, bamPath, padding)) {
+            HcParityAdAnnotationDump.installOn(ctx.engine);
+            final List<SimpleInterval> intervals =
+                    parseIntervals(ctx.header.getSequenceDictionary(), intervalCli);
+            final List<List<Locatable>> byContig = groupByContig(intervals);
+            for (final List<Locatable> contigIntervals : byContig) {
+                final List<SimpleInterval> contigSimple =
+                        contigIntervals.stream()
+                                .map(SimpleInterval::new)
+                                .collect(Collectors.toList());
+                final MultiIntervalLocalReadShard shard =
+                        new MultiIntervalLocalReadShard(
+                                contigSimple, padding, ctx.readsSource);
+                configureHcProductionReadShard(shard, ctx);
+                final AssemblyRegionIterator iter =
+                        new AssemblyRegionIterator(
+                                shard,
+                                ctx.header,
+                                ctx.reference,
+                                null,
+                                ctx.engine,
+                                ctx.asmArgs,
+                                false);
+                while (iter.hasNext()) {
+                    final AssemblyRegion r = iter.next();
+                    if (!r.isActive()) {
+                        continue;
+                    }
+                    System.out.println(
+                            "6R91\t0\tregion\t"
+                                    + r.getContig()
+                                    + ":"
+                                    + r.getStart()
+                                    + "-"
+                                    + r.getEnd()
+                                    + "\treads="
+                                    + r.getReads().size());
+                    final FeatureContext features = new FeatureContext();
+                    final ReferenceContext refCtx =
+                            new ReferenceContext(
+                                    ctx.reference, r.getSpan(), padding, padding);
+                    final List<VariantContext> calls =
+                            ctx.engine.callRegion(r, features, refCtx);
+                    System.out.println("6R91\t0\tcall_region_n\t" + calls.size());
+                    for (int i = 0; i < calls.size(); i++) {
+                        final VariantContext vc = calls.get(i);
+                        final Genotype gt =
+                                vc.getGenotypes().isEmpty() ? null : vc.getGenotype(0);
+                        System.out.println(
+                                "6R91\t0\tcall_region_vc_"
+                                        + i
+                                        + "\t"
+                                        + vc.getContig()
+                                        + ":"
+                                        + vc.getStart()
+                                        + "-"
+                                        + vc.getEnd()
+                                        + "\talleles="
+                                        + HcParityAdAnnotationDump.alleleList(vc.getAlleles())
+                                        + "\tad="
+                                        + (gt != null && gt.hasAD()
+                                                ? HcParityAdAnnotationDump.ints(gt.getAD())
+                                                : "ABSENT")
+                                        + "\tgt="
+                                        + (gt == null ? "." : gt.getGenotypeString()));
+                    }
+                }
+            }
+        }
+        System.out.println("6R91\t0\tno_active_region\ttrue");
+    }
+
+    /**
+     * Live GATK 4.4 {@code HaplotypeCallerEngine.callRegion} with TEST-ONLY dump of
+     * {@code filterPoorlyModeledEvidence} inputs (6R.93). Args: ref bam interval [padding].
+     */
+    private static void filterPoorlyModeledCall(final String[] args) throws Exception {
+        if (args.length < 3) {
+            usage();
+        }
+        final String refPath = args[0];
+        final String bamPath = args[1];
+        final String intervalCli = args[2];
+        final int padding = parsePaddingAndTargetIndex(args, 3, new boolean[] {false});
+        try (HcContext ctx = new HcContext(refPath, bamPath, padding)) {
+            HcParityFilterPoorlyModeledDump.installOn(ctx.engine);
+            final List<SimpleInterval> intervals =
+                    parseIntervals(ctx.header.getSequenceDictionary(), intervalCli);
+            final List<List<Locatable>> byContig = groupByContig(intervals);
+            for (final List<Locatable> contigIntervals : byContig) {
+                final List<SimpleInterval> contigSimple =
+                        contigIntervals.stream()
+                                .map(SimpleInterval::new)
+                                .collect(Collectors.toList());
+                final MultiIntervalLocalReadShard shard =
+                        new MultiIntervalLocalReadShard(
+                                contigSimple, padding, ctx.readsSource);
+                configureHcProductionReadShard(shard, ctx);
+                final AssemblyRegionIterator iter =
+                        new AssemblyRegionIterator(
+                                shard,
+                                ctx.header,
+                                ctx.reference,
+                                null,
+                                ctx.engine,
+                                ctx.asmArgs,
+                                false);
+                while (iter.hasNext()) {
+                    final AssemblyRegion r = iter.next();
+                    if (!r.isActive()) {
+                        continue;
+                    }
+                    System.out.println(
+                            "6R93\t0\tregion\t"
+                                    + r.getContig()
+                                    + ":"
+                                    + r.getStart()
+                                    + "-"
+                                    + r.getEnd()
+                                    + "\treads="
+                                    + r.getReads().size());
+                    final FeatureContext features = new FeatureContext();
+                    final ReferenceContext refCtx =
+                            new ReferenceContext(
+                                    ctx.reference, r.getSpan(), padding, padding);
+                    final List<VariantContext> calls =
+                            ctx.engine.callRegion(r, features, refCtx);
+                    System.out.println("6R93\t0\tcall_region_n\t" + calls.size());
+                    for (int i = 0; i < calls.size(); i++) {
+                        final VariantContext vc = calls.get(i);
+                        final Genotype gt =
+                                vc.getGenotypes().isEmpty() ? null : vc.getGenotype(0);
+                        System.out.println(
+                                "6R93\t0\tcall_region_vc_"
+                                        + i
+                                        + "\t"
+                                        + vc.getContig()
+                                        + ":"
+                                        + vc.getStart()
+                                        + "-"
+                                        + vc.getEnd()
+                                        + "\talleles="
+                                        + HcParityAdAnnotationDump.alleleList(vc.getAlleles())
+                                        + "\tad="
+                                        + (gt != null && gt.hasAD()
+                                                ? HcParityAdAnnotationDump.ints(gt.getAD())
+                                                : "ABSENT")
+                                        + "\tgt="
+                                        + (gt == null ? "." : gt.getGenotypeString())
+                                        + "\tqual="
+                                        + vc.getPhredScaledQual());
+                    }
+                }
+            }
+        }
+        System.out.println("6R93\t0\tno_active_region\ttrue");
+    }
+
+    /**
+     * Same live dump as {@link #filterPoorlyModeledCall} with GATK
+     * {@code --native-pair-hmm-use-double-precision} equivalent set before engine
+     * construction. TEST-ONLY 6R.98 oracle; does not change default dump path.
+     */
+    private static void filterPoorlyModeledCallDouble(final String[] args) throws Exception {
+        if (args.length < 3) {
+            usage();
+        }
+        final String refPath = args[0];
+        final String bamPath = args[1];
+        final String intervalCli = args[2];
+        final int padding = parsePaddingAndTargetIndex(args, 3, new boolean[] {false});
+        HcParityFilterPoorlyModeledDump.DUMP_PREFIX = "6R98";
+        HcParityFilterPoorlyModeledDump.USE_DOUBLE_PRECISION = true;
+        try (HcContext ctx = new HcContext(refPath, bamPath, padding, null, true)) {
+            HcParityFilterPoorlyModeledDump.installOn(ctx.engine);
+            final List<SimpleInterval> intervals =
+                    parseIntervals(ctx.header.getSequenceDictionary(), intervalCli);
+            final List<List<Locatable>> byContig = groupByContig(intervals);
+            for (final List<Locatable> contigIntervals : byContig) {
+                final List<SimpleInterval> contigSimple =
+                        contigIntervals.stream()
+                                .map(SimpleInterval::new)
+                                .collect(Collectors.toList());
+                final MultiIntervalLocalReadShard shard =
+                        new MultiIntervalLocalReadShard(
+                                contigSimple, padding, ctx.readsSource);
+                configureHcProductionReadShard(shard, ctx);
+                final AssemblyRegionIterator iter =
+                        new AssemblyRegionIterator(
+                                shard,
+                                ctx.header,
+                                ctx.reference,
+                                null,
+                                ctx.engine,
+                                ctx.asmArgs,
+                                false);
+                while (iter.hasNext()) {
+                    final AssemblyRegion r = iter.next();
+                    if (!r.isActive()) {
+                        continue;
+                    }
+                    System.out.println(
+                            "6R93\t0\tregion\t"
+                                    + r.getContig()
+                                    + ":"
+                                    + r.getStart()
+                                    + "-"
+                                    + r.getEnd()
+                                    + "\treads="
+                                    + r.getReads().size());
+                    final FeatureContext features = new FeatureContext();
+                    final ReferenceContext refCtx =
+                            new ReferenceContext(
+                                    ctx.reference, r.getSpan(), padding, padding);
+                    final List<VariantContext> calls =
+                            ctx.engine.callRegion(r, features, refCtx);
+                    System.out.println("6R93\t0\tcall_region_n\t" + calls.size());
+                    for (int i = 0; i < calls.size(); i++) {
+                        final VariantContext vc = calls.get(i);
+                        final Genotype gt =
+                                vc.getGenotypes().isEmpty() ? null : vc.getGenotype(0);
+                        System.out.println(
+                                "6R93\t0\tcall_region_vc_"
+                                        + i
+                                        + "\t"
+                                        + vc.getContig()
+                                        + ":"
+                                        + vc.getStart()
+                                        + "-"
+                                        + vc.getEnd()
+                                        + "\talleles="
+                                        + HcParityAdAnnotationDump.alleleList(vc.getAlleles())
+                                        + "\tad="
+                                        + (gt != null && gt.hasAD()
+                                                ? HcParityAdAnnotationDump.ints(gt.getAD())
+                                                : "ABSENT")
+                                        + "\tgt="
+                                        + (gt == null ? "." : gt.getGenotypeString())
+                                        + "\tqual="
+                                        + vc.getPhredScaledQual());
+                    }
+                }
+            }
+        }
+        System.out.println("6R93\t0\tno_active_region\ttrue");
     }
 
     private static void pairhmmLikelihoods(final String[] args) throws Exception {
