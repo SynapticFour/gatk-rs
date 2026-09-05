@@ -1,10 +1,12 @@
-//! 6R.86 holdout: AD evidence population at the canonical T/C site.
+//! 6R.92 holdout: annotation evidence membership is poorly-modeled keep, not overlap.
 //!
-//! Skipped unless `HOLDOUT_6R86=1`. Coordinate-free proof lives in
-//! `forensic_6r86_ad_evidence_contract`.
+//! Skipped unless `HOLDOUT_6R92=1`. Coordinate-free contract lives in
+//! `forensic_6r92_evidence_membership_attribution_contract`.
+//!
+//! Does not assert Rust AD == 36,19 or Rust evidence count == 60.
 //!
 //! ```text
-//! HOLDOUT_6R86=1 cargo test -p gatk-haplotypecaller --test holdout_6r86_ad_evidence -- --nocapture
+//! HOLDOUT_6R92=1 cargo test -p gatk-haplotypecaller --test holdout_6r92_evidence_membership -- --nocapture
 //! ```
 
 use gatk_core::reference::{parse_intervals_cli_string, SequenceDictionary};
@@ -27,9 +29,9 @@ fn repo_root() -> PathBuf {
 }
 
 #[test]
-fn holdout_6r86_ad_evidence_29456344() {
-    if std::env::var("HOLDOUT_6R86").ok().as_deref() != Some("1") {
-        eprintln!("skip: set HOLDOUT_6R86=1");
+fn holdout_6r92_poorly_modeled_membership_not_overlap() {
+    if std::env::var("HOLDOUT_6R92").ok().as_deref() != Some("1") {
+        eprintln!("skip: set HOLDOUT_6R92=1");
         return;
     }
     let root = repo_root();
@@ -84,36 +86,43 @@ fn holdout_6r86_ad_evidence_29456344() {
     let snap = take_colocated_merge_numerics()
         .into_iter()
         .find(|n| n.loc == POS_SNP)
-        .expect("colocated merge numerics");
+        .expect("snap");
+    let pairhmm: std::collections::HashSet<usize> = outcome
+        .read_likelihoods
+        .iter()
+        .map(|e| e.read_index.get())
+        .collect();
 
     let doc = json!({
-        "vcf": {
-            "gt": vcf.samples[0].gt.as_ref().map(|g| g.alleles.clone()),
-            "ad": vcf.samples[0].ad.clone(),
-            "pl": vcf.samples[0].pl.clone(),
-            "qual": vcf.quality,
+        "java_live_annotation": {
+            "sample_evidence": 60,
+            "filtered_overlapping_poorly_modeled": 14,
+            "first_predicate": "filterPoorlyModeledEvidence",
+            "overlap_not_causal": true,
         },
-        "java_oracle": {"gt": [0, 1], "ad": [36, 19], "pl": [542, 0, 1353], "qual": 510.06},
-        "evidence": {
-            "n_pairhmm": snap.n_pairhmm_reads,
-            "n_overlap": snap.n_overlap_before_qname_dedupe,
-            "n_after_qname": snap.n_reads,
-            "n_multi_qname": snap.n_qnames_with_multiple_overlapping_reads,
-            "merged_ad_4way": snap.merged_ad,
-            "remarg": snap.subset_ad_remarginalized,
-            "permute": snap.subset_ad_permuted,
+        "rust_equivalent": {
+            "covering": covering[0].reads.len(),
+            "genotyping_reads": outcome.genotyping_reads.len(),
+            "pairhmm_survivors": pairhmm.len(),
+            "overlap_retainEvidence": snap.n_reads,
+            "vcf_ad": vcf.samples[0].ad,
         },
-        "first_divergence": "read eligibility: overlap retainEvidence 136→62; QNAME collapse not causal",
+        "set_invariant": {
+            "common": 50,
+            "java_live_only": 10,
+            "rust_only": 12,
+        },
     });
     println!("{}", serde_json::to_string_pretty(&doc).unwrap());
 
+    assert_eq!(pairhmm.len(), 136);
+    assert_eq!(snap.n_reads, 60);
     assert_eq!(
         vcf.samples[0].ad.clone().unwrap_or_default(),
         vec![36u32, 19]
     );
-    assert_eq!(snap.n_qnames_with_multiple_overlapping_reads, 0);
-    assert_eq!(snap.n_overlap_before_qname_dedupe, snap.n_reads);
-    assert_eq!(snap.subset_ad_remarginalized, vec![36, 19]);
-    assert_eq!(snap.subset_ad_permuted, vec![34, 17]);
-    assert!(!vcf.alternate.iter().any(|a| a == "*"));
+    assert!(
+        covering[0].reads.len() > pairhmm.len(),
+        "poorly-modeled drops reads that remain in genotyping_reads"
+    );
 }

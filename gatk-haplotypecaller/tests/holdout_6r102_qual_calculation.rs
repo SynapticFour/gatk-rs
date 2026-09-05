@@ -1,10 +1,16 @@
-//! 6R.86 holdout: AD evidence population at the canonical T/C site.
+//! 6R.102 holdout: first QUAL divergence at the canonical T/C site.
 //!
-//! Skipped unless `HOLDOUT_6R86=1`. Coordinate-free proof lives in
-//! `forensic_6r86_ad_evidence_contract`.
+//! Skipped unless `HOLDOUT_6R102=1`. Coordinate-free contract lives in
+//! `forensic_6r102_qual_calculation_contract`.
+//!
+//! Java `GenotypingEngine.calculateGenotypes` writes QUAL from
+//! `AlleleFrequencyCalculator.calculate` on the pre-subset merged VC
+//! (`TG,T,CG,*`). When `*` is present, `log10PNoVariant` is the log10-sum of
+//! REF+SPAN_DEL genotype posteriors, not HOM_REF alone. Emitted PL/GT/AD are
+//! unchanged.
 //!
 //! ```text
-//! HOLDOUT_6R86=1 cargo test -p gatk-haplotypecaller --test holdout_6r86_ad_evidence -- --nocapture
+//! HOLDOUT_6R102=1 cargo test -p gatk-haplotypecaller --test holdout_6r102_qual_calculation -- --nocapture
 //! ```
 
 use gatk_core::reference::{parse_intervals_cli_string, SequenceDictionary};
@@ -27,9 +33,9 @@ fn repo_root() -> PathBuf {
 }
 
 #[test]
-fn holdout_6r86_ad_evidence_29456344() {
-    if std::env::var("HOLDOUT_6R86").ok().as_deref() != Some("1") {
-        eprintln!("skip: set HOLDOUT_6R86=1");
+fn holdout_6r102_qual_from_merged_span_del_af() {
+    if std::env::var("HOLDOUT_6R102").ok().as_deref() != Some("1") {
+        eprintln!("skip: set HOLDOUT_6R102=1");
         return;
     }
     let root = repo_root();
@@ -60,60 +66,63 @@ fn holdout_6r86_ad_evidence_29456344() {
         })
         .collect();
     assert_eq!(covering.len(), 1);
+    let region = covering[0];
     let outcome = HaplotypeCallerEngine::call_region(
-        covering[0],
+        region,
         &dict,
         &ref_fasta,
         &CallRegionArgs::strict_java(),
     )
     .expect("call")
     .expect("Some");
-    let emitted = try_emit_call_region_variants(
-        covering[0],
-        &outcome,
-        "SAMPLE",
-        DEFAULT_STAND_EMIT_CONFIDENCE,
-    )
-    .unwrap_or_default();
+    let emitted =
+        try_emit_call_region_variants(region, &outcome, "SAMPLE", DEFAULT_STAND_EMIT_CONFIDENCE)
+            .unwrap_or_default();
     let vcf = emitted
         .iter()
         .find(|r| {
             r.position == POS_SNP && r.reference == "T" && r.alternate.iter().any(|a| a == "C")
         })
         .expect("T/C");
-    let snap = take_colocated_merge_numerics()
-        .into_iter()
+    let live = take_colocated_merge_numerics();
+    let snap = live
+        .iter()
         .find(|n| n.loc == POS_SNP)
         .expect("colocated merge numerics");
 
+    let vcf_gt = vcf.samples[0].gt.as_ref().map(|g| g.alleles.clone());
+    let vcf_ad = vcf.samples[0].ad.clone().unwrap_or_default();
+    let vcf_pl = vcf.samples[0].pl.clone().unwrap_or_default();
+    let vcf_qual = vcf.quality.expect("QUAL");
+
     let doc = json!({
+        "locus": "20:29456344 T/C",
+        "merged_alleles": std::iter::once(snap.long_ref.clone()).chain(snap.alts.iter().cloned()).collect::<Vec<_>>(),
+        "merged_pl": snap.merged_pl,
+        "subset_pl": snap.subset_pl,
         "vcf": {
-            "gt": vcf.samples[0].gt.as_ref().map(|g| g.alleles.clone()),
-            "ad": vcf.samples[0].ad.clone(),
-            "pl": vcf.samples[0].pl.clone(),
-            "qual": vcf.quality,
+            "gt": vcf_gt,
+            "ad": vcf_ad,
+            "pl": vcf_pl,
+            "qual": vcf_qual,
         },
         "java_oracle": {"gt": [0, 1], "ad": [36, 19], "pl": [542, 0, 1353], "qual": 510.06},
-        "evidence": {
-            "n_pairhmm": snap.n_pairhmm_reads,
-            "n_overlap": snap.n_overlap_before_qname_dedupe,
-            "n_after_qname": snap.n_reads,
-            "n_multi_qname": snap.n_qnames_with_multiple_overlapping_reads,
-            "merged_ad_4way": snap.merged_ad,
-            "remarg": snap.subset_ad_remarginalized,
-            "permute": snap.subset_ad_permuted,
-        },
-        "first_divergence": "read eligibility: overlap retainEvidence 136→62; QNAME collapse not causal",
+        "first_divergent_operation": "QUAL_FORMULA",
+        "note": "Java log10PNoVariant sums REF+SPAN_DEL posteriors on the pre-subset merged VC",
     });
     println!("{}", serde_json::to_string_pretty(&doc).unwrap());
 
-    assert_eq!(
-        vcf.samples[0].ad.clone().unwrap_or_default(),
-        vec![36u32, 19]
+    assert!(
+        snap.alts.iter().any(|a| a == "*"),
+        "merged alleles include SPAN_DEL: {:?}",
+        snap.alts
     );
-    assert_eq!(snap.n_qnames_with_multiple_overlapping_reads, 0);
-    assert_eq!(snap.n_overlap_before_qname_dedupe, snap.n_reads);
-    assert_eq!(snap.subset_ad_remarginalized, vec![36, 19]);
-    assert_eq!(snap.subset_ad_permuted, vec![34, 17]);
-    assert!(!vcf.alternate.iter().any(|a| a == "*"));
+    assert_eq!(snap.merged_gls.len(), 10);
+    assert_eq!(vcf_pl, vec![542u32, 0, 1353]);
+    assert_eq!(vcf_ad, vec![36u32, 19]);
+    assert_eq!(vcf_gt.as_deref(), Some(&[0, 1][..]));
+    assert!(
+        (vcf_qual - 510.06).abs() < 0.02,
+        "Java QUAL 510.06 from SPAN_DEL AF, got {vcf_qual}"
+    );
 }

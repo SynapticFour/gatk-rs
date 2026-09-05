@@ -359,7 +359,14 @@ pub use bio_ids::{
     ReferenceCoordinate, SampleIndex,
 };
 pub use combine_gvcfs::{run_combine_gvcfs, CombineGvcfsArgs};
-pub use engine::{CallRegionArgs, CallRegionMode, CallRegionOutcome, HaplotypeCallerEngine};
+pub use engine::{
+    begin_likelihood_pipeline_observe, begin_poorly_modeled_observe,
+    observe_poorly_modeled_haplotypes, take_likelihood_pipeline_cells,
+    take_likelihood_pipeline_snaps, take_poorly_modeled_cells, take_poorly_modeled_haplotypes,
+    take_poorly_modeled_observe, CallRegionArgs, CallRegionMode, CallRegionOutcome,
+    HaplotypeCallerEngine, LikelihoodPipelineCell, LikelihoodPipelineSnap, PoorlyModeledHapColumn,
+    PoorlyModeledObserveCell, PoorlyModeledObserveRow,
+};
 pub use event_map::{AlleleBytes, Event, EventMap, IndelSpan};
 pub use feature_context::{FeatureContext, FeatureDataSources, FeatureLocatable};
 pub use gatk_well_rng::{Well19937c, GATK_WELL19937C_SEED};

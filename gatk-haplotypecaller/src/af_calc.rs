@@ -50,6 +50,8 @@ pub struct AfCalculatorConfig {
     pub heterozygosity_standard_deviation: f64,
     pub ref_pseudocount: f64,
     pub snp_pseudocount: f64,
+    /// Dirichlet weight for an alt whose length differs from the REF (`indelHeterozygosity`).
+    pub indel_pseudocount: f64,
 }
 
 impl Default for AfCalculatorConfig {
@@ -60,6 +62,7 @@ impl Default for AfCalculatorConfig {
             heterozygosity_standard_deviation: DEFAULT_HETEROZYGOSITY_STANDARD_DEVIATION,
             ref_pseudocount: params.ref_pseudocount(),
             snp_pseudocount: params.snp_pseudocount(),
+            indel_pseudocount: params.indel_pseudocount(),
         }
     }
 }
@@ -349,6 +352,101 @@ pub fn calculate_multiallelic_af_em(
     })
 }
 
+fn diploid_genotype_index(a: usize, b: usize) -> usize {
+    let (i, j) = if a <= b { (a, b) } else { (b, a) };
+    j * (j + 1) / 2 + i
+}
+
+fn ref_and_span_del_genotype_indices(span_del: usize) -> [usize; 3] {
+    [
+        diploid_genotype_index(0, 0),
+        diploid_genotype_index(0, span_del),
+        diploid_genotype_index(span_del, span_del),
+    ]
+}
+
+fn prior_pseudocounts_for_alleles(alleles: &[&str], config: &AfCalculatorConfig) -> Vec<f64> {
+    let ref_len = alleles.first().map(|a| a.len()).unwrap_or(1);
+    alleles
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            if i == 0 {
+                config.ref_pseudocount
+            } else if a.len() == ref_len {
+                config.snp_pseudocount
+            } else {
+                config.indel_pseudocount
+            }
+        })
+        .collect()
+}
+
+/// GATK 4.4 `AlleleFrequencyCalculator.calculate` → `log10ProbOnlyRefAlleleExists`.
+///
+/// Diploid, one sample. When `*` (`Allele.SPAN_DEL`) is present, P(no variant) is the
+/// log10-sum of posteriors of genotypes that contain only REF and SPAN_DEL — not HOM_REF
+/// alone (`GenotypingEngine.calculateGenotypes` QUAL, SHA `2dbc0258`).
+pub fn diploid_af_log10_prob_only_ref_allele_exists(
+    log10_likelihoods: &[f64],
+    alleles: &[&str],
+    config: &AfCalculatorConfig,
+) -> GatkResult<f64> {
+    let n_alleles = alleles.len();
+    if n_alleles < 2 {
+        return Err(gatk_common::GatkError::argument(
+            "AF calculate requires REF + at least one ALT",
+        ));
+    }
+    let span_del = alleles.iter().position(|a| *a == "*");
+    if n_alleles == 2 && span_del.is_none() {
+        let af = calculate_biallelic_af_em(&[log10_likelihoods], config)?;
+        return Ok(af.log10_posterior_no_variant);
+    }
+    let pairs = diploid_genotype_pairs(n_alleles);
+    if log10_likelihoods.len() < pairs.len() {
+        return Err(gatk_common::GatkError::argument(
+            "GL length does not match diploid genotypes for allele count",
+        ));
+    }
+    let priors = prior_pseudocounts_for_alleles(alleles, config);
+    let flat = -(n_alleles as f64).log10();
+    let mut log10_af = vec![flat; n_alleles];
+    let mut allele_counts = vec![0.0_f64; n_alleles];
+    let mut iterations = 0usize;
+    const THRESHOLD: f64 = 0.1;
+    let mut delta = f64::INFINITY;
+    while delta > THRESHOLD {
+        iterations += 1;
+        let new_counts = effective_allele_counts_multi(&[log10_likelihoods], &log10_af, &pairs);
+        delta = new_counts
+            .iter()
+            .zip(allele_counts.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f64, f64::max);
+        allele_counts = new_counts;
+        let posterior: Vec<f64> = priors
+            .iter()
+            .zip(allele_counts.iter())
+            .map(|(p, c)| p + c)
+            .collect();
+        log10_af = log10_dirichlet_mean_weights(&posterior);
+        if iterations > 100 {
+            break;
+        }
+    }
+    let post = log10_normalized_genotype_posteriors_multi(log10_likelihoods, &log10_af, &pairs);
+    let log10_p = match span_del {
+        None => post.first().copied().unwrap_or(0.0),
+        Some(span) => {
+            let idxs = ref_and_span_del_genotype_indices(span);
+            let vals = [post[idxs[0]], post[idxs[1]], post[idxs[2]]];
+            log10_sum_log10(&vals)
+        }
+    };
+    Ok(log10_p.min(0.0))
+}
+
 /// Site QUAL (phred) from multi-sample AF posterior P(no variant).
 pub fn qual_from_log10_p_no_variant(log10_p_no_variant: f64) -> f64 {
     let clamped = log10_p_no_variant.min(0.0);
@@ -473,5 +571,58 @@ mod six_r40_af_calculator_tests {
             "on this PL, AF MLE alt count must not equal called hom-alt AC (Java MLEAC=1)"
         );
         assert_eq!(af.alt_allele_count, 1);
+    }
+}
+
+#[cfg(test)]
+mod six_r102_qual_af_diagnostics {
+    use super::*;
+    use crate::activity_scoring::genotype_log10_likelihoods_after_java_genotype_pl_roundtrip;
+
+    fn qual(log10_p: f64) -> f64 {
+        (-10.0 * log10_p.min(0.0)) + 0.0
+    }
+
+    #[test]
+    fn six_r102_emitted_pl_af_is_not_java_site_qual() {
+        let subset = [-54.2, 0.0, -135.3];
+        let bi = calculate_biallelic_af_em(&[&subset], &AfCalculatorConfig::default()).expect("bi");
+        let q = qual(bi.log10_posterior_no_variant);
+        assert!((q - 534.64).abs() < 0.02);
+        assert!((q - 510.06).abs() > 10.0);
+    }
+
+    #[test]
+    fn six_r102_span_del_mixed_priors_on_pl_roundtrip_gls() {
+        let raw = [
+            -284.8942846907528,
+            -279.0941538186009,
+            -427.04601133529854,
+            -230.68726230126296,
+            -354.0850391057798,
+            -365.9467364376245,
+            -278.8263735393524,
+            -410.75832207163387,
+            -357.08350753169776,
+            -418.71293889506376,
+        ];
+        let gl = genotype_log10_likelihoods_after_java_genotype_pl_roundtrip(&raw);
+        let alleles = ["TG", "T", "CG", "*"];
+        let cfg = AfCalculatorConfig::default();
+        let with_star =
+            diploid_af_log10_prob_only_ref_allele_exists(&gl, &alleles, &cfg).expect("af");
+        let no_star_alleles = ["TG", "T", "CG", "X"];
+        let hom_ref_only =
+            diploid_af_log10_prob_only_ref_allele_exists(&gl, &no_star_alleles, &cfg).expect("hom");
+        let q_star = qual(with_star);
+        let q_hom = qual(hom_ref_only);
+        assert!(
+            (q_hom - 534.64).abs() < 0.15,
+            "HOM_REF-only on 4-allele object still ~534.64, got {q_hom}"
+        );
+        assert!(
+            (q_star - 510.06).abs() < 0.02,
+            "SPAN_DEL P(no variant) + mixed priors → Java QUAL, got {q_star}"
+        );
     }
 }

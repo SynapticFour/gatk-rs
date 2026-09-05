@@ -1,0 +1,8 @@
+6R97	6	kernel_buffer_type	double[] mLogLikelihoodArray
+6R97	6	kernel_buffer_n	10710
+6R97	6	kernel_buffer_f32_wide	10710
+6R97	6	matrix_n	10710
+6R97	6	matrix_f32_wide	10710
+6R97	6	buffer_matrix_sorted_bits_equal	true
+6R97	6	likelihood_set	SampleMatrix.set assignment
+6R97	6	use_double_precision_default	false

@@ -6,15 +6,24 @@ use crate::assembly_region_finalize::{
 };
 use crate::likelihood_engine::score_read_against_haplotypes;
 
+/// Score PairHMM and return the exact evidence list that owns `read_index`.
+///
+/// Java 4.4 `AlleleLikelihoods` is constructed from `perSampleReadList` and that same
+/// evidence vector is what `filterPoorlyModeledEvidence` indexes (`sampleEvidence.get(i)`
+/// ↔ `valuesBySampleIndex[a][i]`). Callers must keep the returned reads as the filter /
+/// realign / genotyping evidence list.
 pub(super) fn compute_region_read_likelihoods(
     region: &AssemblyRegion,
     haplotypes: &[Haplotype],
     config: &HcLikelihoodEngineConfig,
     apply_normalize: bool,
     pre_finalized: Option<Vec<rust_htslib::bam::Record>>,
-) -> GatkResult<Vec<RegionReadLikelihood>> {
+) -> GatkResult<(
+    Vec<RegionReadLikelihood>,
+    Vec<crate::shared_bam::SharedBamRecord>,
+)> {
     if haplotypes.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     }
     // A2: consume assemble finalize buffer when present (clip in place — no second owned copy).
     let mut finalized = if let Some(mut pre) = pre_finalized.filter(|p| !p.is_empty()) {
@@ -35,22 +44,25 @@ pub(super) fn compute_region_read_likelihoods(
     // Trim/hard-clip can drop sparse-BAM reads that still overlap the active locus.
     if finalized.is_empty() && !region.reads.is_empty() {
         let out = score_pairhmm_from_records(region.reads.as_slice(), haplotypes, config)?;
-        return Ok(post_process_pairhmm_likelihoods(
+        capture_scored_likelihood_pipeline(&out, region.reads.as_slice(), haplotypes);
+        let ll = post_process_pairhmm_likelihoods(
             out,
             region.reads.as_slice(),
             haplotypes,
             apply_normalize,
             active_span,
-        ));
+        );
+        return Ok((ll, region.reads.clone()));
     }
     let out = score_pairhmm_from_records(&finalized, haplotypes, config)?;
-    Ok(post_process_pairhmm_likelihoods(
-        out,
-        &finalized,
-        haplotypes,
-        apply_normalize,
-        active_span,
-    ))
+    capture_scored_likelihood_pipeline(&out, &finalized, haplotypes);
+    let ll =
+        post_process_pairhmm_likelihoods(out, &finalized, haplotypes, apply_normalize, active_span);
+    let scored = finalized
+        .into_iter()
+        .map(crate::shared_bam::share_record)
+        .collect();
+    Ok((ll, scored))
 }
 
 /// GATK 4.4 `ReadUtils` BI/BD FastQ-33 string → Phred. Absent or non-string → None (Q45).

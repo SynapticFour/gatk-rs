@@ -919,14 +919,14 @@ fn holdout_6r58_chr20_tiny_29456344_tc_vs_tgt() {
     );
     assert_eq!(
         pl,
-        vec![266, 0, 1018],
-        "6R.84 SPAN_DEL haplotypes no longer dumped into REF; unused-ALT subset + reverse-trim still emit T/C, got {pl:?}"
+        vec![542, 0, 1353],
+        "6R.100 scored-evidence bind: unused-ALT subset + reverse-trim emit Java PL, got {pl:?}"
     );
     let ad = gt_merged_ad.expect("merged-then-trimmed site AD");
     assert_eq!(
         ad,
-        vec![26, 9],
-        "reverse-trim must not recalculate AD, got {ad:?}"
+        vec![36, 19],
+        "6R.101 remaining remarg FORMAT AD, got {ad:?}"
     );
     let vcf = vcf_tc.expect("VCF T/C row");
     assert_eq!(
@@ -936,13 +936,13 @@ fn holdout_6r58_chr20_tiny_29456344_tc_vs_tgt() {
     );
     assert_eq!(
         vcf["pl"],
-        json!([266, 0, 1018]),
-        "VCF PL must still be the unused-ALT subset vector"
+        json!([542, 0, 1353]),
+        "6R.100: VCF PL matches Java 542,0,1353"
     );
     assert_eq!(
         vcf["ad"],
-        json!([26, 9]),
-        "VCF AD must still be the unused-ALT subset vector unless Java reverse-trim itself changes it"
+        json!([36, 19]),
+        "6R.101 remaining remarg FORMAT AD"
     );
 }
 
