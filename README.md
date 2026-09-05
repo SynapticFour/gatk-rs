@@ -12,7 +12,8 @@ branding will be revisited if requested. Parity tests **call** a pinned
 GATK 4.4 jar as an oracle; they do not ship Broad source (see [`NOTICE.md`](NOTICE.md)).
 
 > **Maturity: Alpha** — validated on limited genomic regions and fixtures, not as a
-> genome-wide clinical drop-in. Authoritative claims and non-claims:
+> genome-wide clinical drop-in. Independent research reimplementation; not Broad;
+> not required for the Ferrum join. Authoritative claims and non-claims:
 > [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Trademark and third-party data notes:
 > [`NOTICE.md`](NOTICE.md).
 
@@ -33,39 +34,18 @@ Historical L6–L14 narratives live on `pre-cleanup-archive` only — not unqual
 
 ## Why does this exist?
 
-Nobody asked for this. Here it is anyway: a Rust port of the GATK4
-HaplotypeCaller.
+A Rust reimplementation of the GATK4 HaplotypeCaller germline spine
+(HC → CombineGVCFs → GenotypeGVCFs → hard-filter VariantFiltration).
 
-I run a company built on the claim that AI tools can be used to real
-customer benefit — not just for demos, but for genuinely hard, unglamorous
-engineering work. At some point that claim needed a stress test. So I went
-looking for a project ambitious enough to actually find the limits: where AI
-tooling holds up, where it breaks, and how it behaves once a task stops
-being a toy problem. Bioinformatics software — a mature, gnarly, decades-old
-Java codebase with real scientific stakes — seemed like a fair fight. "Someone
-should really port GATK4 to Rust" is a sentence I apparently said out loud
-once, and this project is what happened next.
+On the **signed scopes** in [`CLAIM_MATRIX`](docs/CLAIM_MATRIX.md) there is
+reproducible gate evidence — and that file lists what this tree does **not**
+claim (including unsigned GIAB `ci-subset` / full-autosome runs). That is not
+genome-wide equivalence and not a clinical drop-in.
 
-Every line of code in this repository was written by AI. I didn't write any
-of it myself. What I *did* do, for months, was something closer to herding
-than engineering — reviewing output, redirecting agents that were confidently
-heading the wrong way, and reining things in when they got creative in ways
-nobody asked for. If this project taught me one thing about my own job, it's
-that my actual title should probably be **Agent Wrangler**. Most days, that's
-exactly what it felt like.
+Authorship notes (including AI-assisted engineering) live in [`NOTICE.md`](NOTICE.md).
+Validity is the claim matrix and the tests, not who typed the source.
 
-So — is this now a scientifically proven, drop-in equivalent to GATK4? I
-can't claim that with any authority, and I'd be suspicious of anyone who
-could after a project like this. What I *can* say: on the **signed scopes**
-in [`CLAIM_MATRIX`](docs/CLAIM_MATRIX.md) we have reproducible gate evidence —
-and just as importantly, that file lists what we do **not** claim (including
-unsigned GIAB `ci-subset` / full-autosome runs). That's not proof of
-genome-wide equivalence. It is the most honest proof I can offer that
-AI-assisted engineering can produce something real, not just something that
-looks real until someone with domain expertise looks closely.
-
-If you know genomics and something here is wrong, that's not a
-disappointment — that's the actual experiment working. Open an issue.
+If you know genomics and something here is wrong, open an issue.
 
 ### Live equivalence dashboard
 

@@ -67,3 +67,10 @@ genome-wide clinical drop-in unless [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.m
 explicitly asserts that scope (it currently does not).
 
 See also the disclaimer at the top of [`README.md`](README.md) and CLI `--help`.
+
+## AI-assisted authorship
+
+This tree was produced with AI coding agents under human review. Authorship
+does not make a claim true or false. Judge signed scopes in
+[`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md) and the tests, not the
+authoring process.
