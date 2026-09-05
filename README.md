@@ -12,7 +12,8 @@ branding will be revisited if requested. Parity tests **call** a pinned
 GATK 4.4 jar as an oracle; they do not ship Broad source (see [`NOTICE.md`](NOTICE.md)).
 
 > **Maturity: Alpha** — validated on limited genomic regions and fixtures, not as a
-> genome-wide clinical drop-in. Authoritative claims and non-claims:
+> genome-wide clinical drop-in. Independent research reimplementation; not Broad;
+> not required for the Ferrum join. Authoritative claims and non-claims:
 > [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Trademark and third-party data notes:
 > [`NOTICE.md`](NOTICE.md).
 
