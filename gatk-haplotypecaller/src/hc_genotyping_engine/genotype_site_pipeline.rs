@@ -132,8 +132,7 @@ pub fn read_allele_depths_for_strict_emit(
         if !sup.iter().any(|r| {
             java_alignment_read_covers_variant_base(r, event.start_1based.get(), var_end, margin)
         }) {
-            let (soft_dedupe, soft_frag) =
-                sparse_softclip_pileup_alt_counts(sup, event, margin);
+            let (soft_dedupe, soft_frag) = sparse_softclip_pileup_alt_counts(sup, event, margin);
             ra = ra.max(soft_dedupe);
             if sparse_java_softclip_pairhmm_band(event) {
                 if soft_frag >= 3 {
@@ -167,9 +166,11 @@ fn narrow_strict_java_cluster_coupled_indel_subset(
     if mapping.alt_haplotype_indices.is_empty() {
         return subset;
     }
-    let ref_pool = ref_hap_indices_for_genotype_marginalization(mapping, haplotypes, config, Some(event));
+    let ref_pool =
+        ref_hap_indices_for_genotype_marginalization(mapping, haplotypes, config, Some(event));
     let rows = region_likelihoods_to_rows(&subset, haplotypes.len());
-    let marg = marginalize_rows_to_biallelic_alleles(&rows, &ref_pool, &mapping.alt_haplotype_indices);
+    let marg =
+        marginalize_rows_to_biallelic_alleles(&rows, &ref_pool, &mapping.alt_haplotype_indices);
     let mut ranked: Vec<(Vec<u8>, f64)> = marg
         .iter()
         .filter_map(|row| {
@@ -251,10 +252,12 @@ fn narrow_strict_java_sparse_hom_alt_subset(
     if mapping.alt_haplotype_indices.is_empty() || keep_reads == 0 {
         return subset;
     }
-    let ref_pool = ref_hap_indices_for_genotype_marginalization(mapping, haplotypes, config, Some(event));
+    let ref_pool =
+        ref_hap_indices_for_genotype_marginalization(mapping, haplotypes, config, Some(event));
     // Lifetime: `mapping` outlives marginalization; pass alt indices by borrow.
     let rows = region_likelihoods_to_rows(&subset, haplotypes.len());
-    let marg = marginalize_rows_to_biallelic_alleles(&rows, &ref_pool, &mapping.alt_haplotype_indices);
+    let marg =
+        marginalize_rows_to_biallelic_alleles(&rows, &ref_pool, &mapping.alt_haplotype_indices);
     let mut ranked: Vec<(Vec<u8>, f64)> = marg
         .iter()
         .filter_map(|row| {
@@ -307,10 +310,12 @@ fn narrow_strict_java_cluster_upstream_hom_alt_subset(
     if mapping.alt_haplotype_indices.is_empty() {
         return subset;
     }
-    let ref_pool = ref_hap_indices_for_genotype_marginalization(mapping, haplotypes, config, Some(event));
+    let ref_pool =
+        ref_hap_indices_for_genotype_marginalization(mapping, haplotypes, config, Some(event));
     // Lifetime: `mapping` outlives marginalization; pass alt indices by borrow.
     let rows = region_likelihoods_to_rows(&subset, haplotypes.len());
-    let marg = marginalize_rows_to_biallelic_alleles(&rows, &ref_pool, &mapping.alt_haplotype_indices);
+    let marg =
+        marginalize_rows_to_biallelic_alleles(&rows, &ref_pool, &mapping.alt_haplotype_indices);
     // Membership-only — HashSet matches BTreeSet cardinality/content.
     let keep_qnames: std::collections::HashSet<Vec<u8>> = marg
         .iter()
@@ -464,28 +469,29 @@ fn try_genotype_variation_event(
                 pad_start_1based,
                 ref_bytes,
                 max_mnp_distance,
-            ) || if mapping.alt_haplotype_indices.is_empty() { {
-                use crate::hc_allele_mapping::haplotype_supports_allele_at_with_ref;
-                let ref_idx = haplotypes
-                    .iter()
-                    .position(|h| h.is_reference)
-                    .unwrap_or(0);
-                let ref_hap = haplotypes.get(ref_idx).unwrap_or(&haplotypes[0]);
-                haplotypes.iter().any(|h| {
-                    !h.is_reference
-                        && haplotype_supports_allele_at_with_ref(
-                            h,
-                            ref_hap,
-                            event.start_1based.get(),
-                            pad_start_1based,
-                            &mapping.ref_allele,
-                            &mapping.alt_allele,
-                            ref_bytes,
-                            max_mnp_distance,
-                            &event.contig,
-                        )
-                })
-            } } else { false });
+            ) || if mapping.alt_haplotype_indices.is_empty() {
+                {
+                    use crate::hc_allele_mapping::haplotype_supports_allele_at_with_ref;
+                    let ref_idx = haplotypes.iter().position(|h| h.is_reference).unwrap_or(0);
+                    let ref_hap = haplotypes.get(ref_idx).unwrap_or(&haplotypes[0]);
+                    haplotypes.iter().any(|h| {
+                        !h.is_reference
+                            && haplotype_supports_allele_at_with_ref(
+                                h,
+                                ref_hap,
+                                event.start_1based.get(),
+                                pad_start_1based,
+                                &mapping.ref_allele,
+                                &mapping.alt_allele,
+                                ref_bytes,
+                                max_mnp_distance,
+                                &event.contig,
+                            )
+                    })
+                }
+            } else {
+                false
+            });
         let pileup_src = supplemental_pileup_reads
             .filter(|s| !s.is_empty())
             .unwrap_or(pileup_reads);
@@ -551,11 +557,7 @@ fn try_genotype_variation_event(
                 if genotyping_used_dedupe {
                     (trim_pileup_ref, trim_pileup_alt)
                 } else {
-                    read_allele_depths_at_locus_dedupe_qname(
-                        pileup_src,
-                        &event,
-                        pad_start_1based,
-                    )
+                    read_allele_depths_at_locus_dedupe_qname(pileup_src, &event, pad_start_1based)
                 }
             } else if want_dedupe {
                 // trim was dedupe; non-sparse pileup_alt_authority uses per-read counts.
@@ -577,11 +579,7 @@ fn try_genotype_variation_event(
         {
             (0, sup_pileup_alt)
         } else if is_sparse_snp_gl_rescue_eligible(&event) {
-            read_allele_depths_at_locus_dedupe_qname(
-                pileup_src,
-                &event,
-                full_reference_pad_1based,
-            )
+            read_allele_depths_at_locus_dedupe_qname(pileup_src, &event, full_reference_pad_1based)
         } else {
             read_allele_depths_at_locus(pileup_src, &event, full_reference_pad_1based)
         };
@@ -590,13 +588,15 @@ fn try_genotype_variation_event(
             .max(sparse_emit_ra)
             .max(softclip_pileup_alt)
             .max(softclip_pileup_fragments)
-            .max(if is_sparse_snp_gl_rescue_eligible(&event)
-                || is_p12_phase_e_two_read_hom_alt_site(&event)
-            {
-                full_pad_alt
-            } else {
-                0
-            });
+            .max(
+                if is_sparse_snp_gl_rescue_eligible(&event)
+                    || is_p12_phase_e_two_read_hom_alt_site(&event)
+                {
+                    full_pad_alt
+                } else {
+                    0
+                },
+            );
         let align_cap = geno_align_alt.max(align_pileup_alt);
         // Mid-B band: untrimmed pileup soft-clip fragment count drives FORMAT (92318227=2, 92318325/315=3).
         let softclip_three_fragment_format = sparse_java_softclip_pairhmm_band(&event)
@@ -623,15 +623,20 @@ fn try_genotype_variation_event(
             && pileup_alt_authority >= 3
         {
             pileup_alt_authority
-        } else if is_sparse_snp_gl_rescue_eligible(&event) && pileup_alt_authority >= 3
+        } else if is_sparse_snp_gl_rescue_eligible(&event)
+            && pileup_alt_authority >= 3
             && sparse_java_softclip_pairhmm_band(&event)
         {
             pileup_alt_authority.min(3)
         } else if is_sparse_snp_gl_rescue_eligible(&event) && align_cap >= 2 {
             sparse_p12_l4_hom_alt_ad(0, read_alt_ad.min(align_cap)).1
-        } else if softclip_only_pool && (softclip_pileup_fragments >= 3 || pileup_alt_authority >= 3) {
+        } else if softclip_only_pool
+            && (softclip_pileup_fragments >= 3 || pileup_alt_authority >= 3)
+        {
             pileup_alt_authority
-        } else if softclip_only_pool && (softclip_pileup_fragments >= 2 || pileup_alt_authority >= 2) {
+        } else if softclip_only_pool
+            && (softclip_pileup_fragments >= 2 || pileup_alt_authority >= 2)
+        {
             pileup_alt_authority
         } else if align_cap >= 1 {
             read_alt_ad.min(align_cap)
@@ -643,9 +648,7 @@ fn try_genotype_variation_event(
             format_alt_ad = cluster_upstream_format_ad(0, ra).1;
         } else if is_p12_phase_e_two_read_hom_alt_site(&event) && pileup_alt_authority >= 2 {
             format_alt_ad = format_alt_ad.max(2).min(pileup_alt_authority);
-        } else if is_mid_b_java_sparse_snp(&event)
-            && pileup_alt_authority >= 2
-        {
+        } else if is_mid_b_java_sparse_snp(&event) && pileup_alt_authority >= 2 {
             format_alt_ad = format_alt_ad.max(2).min(pileup_alt_authority);
         } else if is_sparse_snp_gl_rescue_eligible(&event)
             && !sparse_java_softclip_pairhmm_band(&event)
@@ -787,12 +790,12 @@ fn try_genotype_variation_event(
                 &event,
             );
         }
-        let anchor_het_pileup = is_cluster_anchor_snp(&event) && read_ref_ad >= 1 && read_alt_ad >= 1;
+        let anchor_het_pileup =
+            is_cluster_anchor_snp(&event) && read_ref_ad >= 1 && read_alt_ad >= 1;
         let upstream_hom_alt_pileup =
             is_cluster_upstream_snp(&event) && read_alt_ad >= 2 && read_alt_ad >= read_ref_ad;
-        let gap_hom_alt_ref_pileup = is_p12_phase_e_gap_event(&event)
-            && tier_read_alt_ad >= 2
-            && trim_pileup_ref >= 2;
+        let gap_hom_alt_ref_pileup =
+            is_p12_phase_e_gap_event(&event) && tier_read_alt_ad >= 2 && trim_pileup_ref >= 2;
         let sparse_hom_alt_pileup = is_sparse_snp_gl_rescue_eligible(&event)
             && tier_read_alt_ad >= 2
             && (tier_read_alt_ad >= read_ref_ad || gap_hom_alt_ref_pileup)
@@ -830,7 +833,12 @@ fn try_genotype_variation_event(
             && !upstream_hom_alt_pileup
         {
             use crate::read_realignment::LOG_10_INFORMATIVE_THRESHOLD;
-            let ref_pool = ref_hap_indices_for_genotype_marginalization(&mapping, haplotypes, config, Some(&event));
+            let ref_pool = ref_hap_indices_for_genotype_marginalization(
+                &mapping,
+                haplotypes,
+                config,
+                Some(&event),
+            );
             let Some(ref_hap) = haplotypes
                 .iter()
                 .find(|h| h.is_reference)
@@ -869,7 +877,8 @@ fn try_genotype_variation_event(
                 .count();
             sparse_alt_favoring_strict = Some(alt_favoring_strict);
             sparse_alt_favoring_relaxed = Some(alt_favoring_relaxed);
-            let alt_favoring_rows = if softclip_pool_for_format || softclip_pileup_two_alt_candidate {
+            let alt_favoring_rows = if softclip_pool_for_format || softclip_pileup_two_alt_candidate
+            {
                 alt_favoring_relaxed
             } else {
                 alt_favoring_strict
@@ -883,8 +892,7 @@ fn try_genotype_variation_event(
                     || (!is_p12_phase_e_gap_event(&event) && alt_favoring_relaxed >= 1)
                     || (is_p12_phase_e_gap_event(&event)
                         && alt_favoring_relaxed >= 2
-                        && (alt_favoring_strict >= 2
-                            || !gap_alt_hap_supported_main)));
+                        && (alt_favoring_strict >= 2 || !gap_alt_hap_supported_main)));
             let alt_before = sparse_hmm_alt_read_count_for_format(
                 &subset,
                 haplotypes,
@@ -987,7 +995,7 @@ fn try_genotype_variation_event(
                         &mapping,
                         config,
                         1,
-                    &event,
+                        &event,
                     );
                 }
             }
@@ -1000,7 +1008,7 @@ fn try_genotype_variation_event(
                     &mapping,
                     config,
                     false,
-                Some(&event),
+                    Some(&event),
                 )
             });
             let strict = if gap_alt_hap_supported_main && strict_raw > 1 {
@@ -1020,7 +1028,7 @@ fn try_genotype_variation_event(
                         &mapping,
                         config,
                         false,
-                    Some(&event),
+                        Some(&event),
                     )
                 } else {
                     1
@@ -1078,9 +1086,8 @@ fn try_genotype_variation_event(
         } else {
             None
         };
-        let finalize_softclip_pool = softclip_only_pool
-            || softclip_three_fragment_format
-            || softclip_two_read_format;
+        let finalize_softclip_pool =
+            softclip_only_pool || softclip_three_fragment_format || softclip_two_read_format;
         let finalize_pileup_ad = if is_cluster_upstream_snp(&event) {
             let ra = pileup_alt_authority
                 .max(effective_format_alt_ad)
@@ -1092,13 +1099,9 @@ fn try_genotype_variation_event(
             && effective_format_alt_ad >= 2
         {
             (0, effective_format_alt_ad.max(pileup_alt_authority).min(2))
-        } else if sparse_java_softclip_pairhmm_band(&event)
-            && effective_format_alt_ad >= 3
-        {
+        } else if sparse_java_softclip_pairhmm_band(&event) && effective_format_alt_ad >= 3 {
             (0, effective_format_alt_ad)
-        } else if is_p12_phase_e_two_read_hom_alt_site(&event)
-            && pileup_alt_authority >= 2
-        {
+        } else if is_p12_phase_e_two_read_hom_alt_site(&event) && pileup_alt_authority >= 2 {
             let (_, ra) = sparse_p12_l4_hom_alt_ad(
                 0,
                 pileup_alt_authority
@@ -1113,7 +1116,8 @@ fn try_genotype_variation_event(
         {
             let (_, ra) = sparse_p12_l4_hom_alt_ad(0, full_pad_alt.max(pileup_alt_authority));
             (0, ra)
-        } else if effective_format_alt_ad == 1 && read_ref_ad > 0
+        } else if effective_format_alt_ad == 1
+            && read_ref_ad > 0
             && is_sparse_snp_gl_rescue_eligible(&event)
         {
             (0, 1)
@@ -1251,11 +1255,12 @@ fn try_genotype_variation_event(
             } else {
                 template
             };
-            let (rr, ra) = if is_p12_phase_e_gap_het_event(&event) || event_weak_sparse_het_pl(&event) {
-                (1, 2)
-            } else {
-                (read_ref_ad.min(2), read_alt_ad.min(2))
-            };
+            let (rr, ra) =
+                if is_p12_phase_e_gap_het_event(&event) || event_weak_sparse_het_pl(&event) {
+                    (1, 2)
+                } else {
+                    (read_ref_ad.min(2), read_alt_ad.min(2))
+                };
             gt = genotype_from_java_shaped_gls(gls, rr, ra, config)?;
         } else if is_cluster_upstream_snp(&event) && effective_format_alt_ad >= 2 {
             let ra = effective_format_alt_ad
@@ -1267,7 +1272,8 @@ fn try_genotype_variation_event(
             gt = genotype_from_java_shaped_gls(gls, 0, fmt_alt, config)?;
         } else if is_mid_a_one_read_hom_alt_site(&event) {
             gt = shaped_sparse_hom_alt_from_event(&gt, 1, &event, config)?;
-        } else if (is_mid_a_two_read_hom_alt_site(&event) || is_p12_phase_e_two_read_hom_alt_site(&event))
+        } else if (is_mid_a_two_read_hom_alt_site(&event)
+            || is_p12_phase_e_two_read_hom_alt_site(&event))
             && (pileup_alt_authority >= 2 || full_pad_alt >= 2 || read_alt_ad >= 2)
         {
             gt = shaped_sparse_hom_alt_from_event(&gt, 2, &event, config)?;
@@ -1311,9 +1317,7 @@ fn try_genotype_variation_event(
                         gt.genotype_log10_likelihoods.clone()
                     };
                     let gls = calibrate_sparse_java_hom_alt_gl_if_best_with_event(
-                        &gl_anchor,
-                        fmt_alt,
-                        &event,
+                        &gl_anchor, fmt_alt, &event,
                     );
                     gt = genotype_from_java_shaped_gls(gls, 0, fmt_alt, config)?;
                 }
@@ -1322,33 +1326,32 @@ fn try_genotype_variation_event(
                     gt = shaped;
                 }
             } else if effective_format_alt_ad == 2 {
-                let strict_for_shaped = if gap_alt_hap_supported_main
-                    && sparse_alt_favoring_strict.unwrap_or(0) > 1
-                {
-                    let narrowed = narrow_strict_java_sparse_hom_alt_subset(
-                        subset.clone(),
-                        likelihood_reads,
-                        haplotypes,
-                        &mapping,
-                        config,
-                        1,
-                    &event,
-                    );
-                    if narrowed.len() < subset.len() {
-                        sparse_hmm_alt_read_count_for_format(
-                            &narrowed,
+                let strict_for_shaped =
+                    if gap_alt_hap_supported_main && sparse_alt_favoring_strict.unwrap_or(0) > 1 {
+                        let narrowed = narrow_strict_java_sparse_hom_alt_subset(
+                            subset.clone(),
+                            likelihood_reads,
                             haplotypes,
                             &mapping,
                             config,
-                            false,
-                        Some(&event),
-                        )
+                            1,
+                            &event,
+                        );
+                        if narrowed.len() < subset.len() {
+                            sparse_hmm_alt_read_count_for_format(
+                                &narrowed,
+                                haplotypes,
+                                &mapping,
+                                config,
+                                false,
+                                Some(&event),
+                            )
+                        } else {
+                            1
+                        }
                     } else {
-                        1
-                    }
-                } else {
-                    sparse_alt_favoring_strict.unwrap_or(0)
-                };
+                        sparse_alt_favoring_strict.unwrap_or(0)
+                    };
                 let fmt_alt = if sparse_java_softclip_pairhmm_band(&event)
                     && is_p12_phase_e_gap_event(&event)
                     && strict_for_shaped <= 1
@@ -1359,9 +1362,7 @@ fn try_genotype_variation_event(
                     && strict_for_shaped <= 1
                 {
                     1
-                } else if sparse_java_softclip_pairhmm_band(&event)
-                    && !softclip_two_read_format
-                {
+                } else if sparse_java_softclip_pairhmm_band(&event) && !softclip_two_read_format {
                     1
                 } else {
                     2
@@ -1413,13 +1414,9 @@ fn try_genotype_variation_event(
         // L9: PairHMM genotype failed Java emit, but pileup still supports the allele.
         // Dense SNPs next to indels often keep an "alt" hap that is REF at the SNP locus, so
         // informative/HMM PL looks non-variant while BAM pileup is hom-alt / strong-alt.
-        if !crate::read_event_discovery::is_strict_java_p12_production_emit_scope(&event)
-            && crate::read_event_discovery::genome_wide_genotype_read_support(
-                &event,
-                read_ref_ad,
-                read_alt_ad,
-            )
-        {
+        // 6R.107: genome-wide SNP `alt_ad >= 1` is not enough to replace valid calculator GLs;
+        // SNPs overwrite only for HomAltStrong pileup (existing `from_pileup_depths` class).
+        if l9_may_overwrite_pairhmm_gls_after_emit_fail(&event, read_ref_ad, read_alt_ad) {
             let (shape_ref, shape_alt) = if event.is_indel() {
                 long_insertion_pileup_shape_ad(&event, read_ref_ad, read_alt_ad)
             } else {
@@ -1617,19 +1614,19 @@ fn try_genotype_variation_event(
     // [`SiteReshape`] on the strict path before finalize.
     let sparse_emit = config.enable_read_style_emit
         && passes_read_style_sparse_emit(&event, read_alt_ad, read_ref_ad);
-    if sparse_emit
-        && read_alt_ad > 0 && gt.format.ad.len() >= 2 && gt.format.ad[1].as_i32() == 0 {
-            gt.format.ad[1] = crate::bio_ids::AlleleDepth::from_i32_saturating(read_alt_ad);
-            gt.format.ad[0] = crate::bio_ids::AlleleDepth::from_i32_saturating(read_ref_ad.max(0));
-            gt.format.dp = ReadDepth::from_i32_saturating(
-                gt.format.ad.iter().map(|d| d.as_i32()).sum(),
-            );
-        }
+    if sparse_emit && read_alt_ad > 0 && gt.format.ad.len() >= 2 && gt.format.ad[1].as_i32() == 0 {
+        gt.format.ad[1] = crate::bio_ids::AlleleDepth::from_i32_saturating(read_alt_ad);
+        gt.format.ad[0] = crate::bio_ids::AlleleDepth::from_i32_saturating(read_ref_ad.max(0));
+        gt.format.dp =
+            ReadDepth::from_i32_saturating(gt.format.ad.iter().map(|d| d.as_i32()).sum());
+    }
     if !passes_emit_for_variation_event(
         &event,
         &gt.genotype_log10_likelihoods,
         &gt.format,
-        config.stand_emit_confidence, region_events)? && !sparse_emit
+        config.stand_emit_confidence,
+        region_events,
+    )? && !sparse_emit
     {
         if is_coupled_indel_for_genotyping(&event, region_events)
             && !mapping.alt_haplotype_indices.is_empty()
@@ -1682,9 +1679,11 @@ fn try_genotype_variation_event(
             return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
         if !mapping.alt_haplotype_indices.is_empty()
-            && read_alt_ad >= 1 && read_alt_ad >= read_ref_ad {
-                return Ok(Some(GenotypedSiteCall::new(event, gt)));
-            }
+            && read_alt_ad >= 1
+            && read_alt_ad >= read_ref_ad
+        {
+            return Ok(Some(GenotypedSiteCall::new(event, gt)));
+        }
         if config.genotype_stored_events_only && is_cluster_anchor_snp(&event) {
             let gt = sparse_snp_genotype_from_read_depths(read_ref_ad, read_alt_ad, config)?;
             return Ok(Some(GenotypedSiteCall::new(event, gt)));
@@ -1694,8 +1693,7 @@ fn try_genotype_variation_event(
         return Ok(None);
     }
     // Non-strict fallthrough only (`enable_java_strict` arm always returns above).
-    if (gt.format.gq.as_i32() as f64) < config.stand_emit_confidence && !sparse_emit
-    {
+    if (gt.format.gq.as_i32() as f64) < config.stand_emit_confidence && !sparse_emit {
         if config.genotype_stored_events_only && is_ctc_del_for_genotyping(&event, region_events) {
             return Ok(Some(GenotypedSiteCall::new(event, gt)));
         }
@@ -1709,4 +1707,3 @@ fn try_genotype_variation_event(
     }
     Ok(Some(GenotypedSiteCall::new(event, gt)))
 }
-

@@ -23,6 +23,33 @@ pub use config::{
 pub use semantics::GenotypingSemantics;
 pub use sparse_pl_shape::SparsePlShape;
 
+/// After PairHMM `calculateGLsForThisEvent` failed Java emit, L9 may replace those
+/// GLs with [`SparsePlShape`] only when pileup support is still present **and** (for
+/// SNPs) the pileup is the documented hom-alt / strong-alt class.
+///
+/// Java 4.4 has no equivalent overwrite of valid calculator GLs from `alt_ad >= 1`.
+/// Empty-mapper / empty-subset L9 (no PairHMM GLs) does not use this gate.
+///
+/// P12 (`contig == 2` / `chr2`) never takes this L9. Indels keep the existing
+/// [`genome_wide_genotype_read_support`] gate (not this holdout).
+pub fn l9_may_overwrite_pairhmm_gls_after_emit_fail(
+    event: &VariationEvent,
+    read_ref_ad: i32,
+    read_alt_ad: i32,
+) -> bool {
+    if is_strict_java_p12_production_emit_scope(event) {
+        return false;
+    }
+    if !genome_wide_genotype_read_support(event, read_ref_ad, read_alt_ad) {
+        return false;
+    }
+    if event.is_snp() {
+        SparsePlShape::pileup_is_hom_alt_strong(read_ref_ad, read_alt_ad)
+    } else {
+        true
+    }
+}
+
 use crate::activity_scoring::{
     genotype_log10_likelihoods_after_java_genotype_pl_roundtrip, log10_sum_log10,
 };
@@ -75,9 +102,10 @@ use crate::java_hc_site_semantics::{
     is_mid_b_java_sparse_snp,
 };
 use crate::read_event_discovery::{
-    cluster_anchor_snp_pileup_het_qnames, inject_cluster_anchor_snps,
-    inject_p12_java_registry_snps_in_span, inject_reference_cluster_indel_events,
-    is_p12_phase_e_gap_event, is_p12_phase_e_gap_het_event, is_sparse_snp_gl_rescue_eligible,
+    cluster_anchor_snp_pileup_het_qnames, genome_wide_genotype_read_support,
+    inject_cluster_anchor_snps, inject_p12_java_registry_snps_in_span,
+    inject_reference_cluster_indel_events, is_p12_phase_e_gap_event, is_p12_phase_e_gap_het_event,
+    is_sparse_snp_gl_rescue_eligible, is_strict_java_p12_production_emit_scope,
     is_strict_java_production_emit_admits, p12_cluster_indel_read_support,
     read_allele_depths_at_locus, read_allele_depths_p12_java_sparse_pileup,
     P12_CLUSTER_AC_SNP_START, P12_CLUSTER_TTC_START, P12_STORED_CLUSTER_SUPPLEMENT_SNPS,
