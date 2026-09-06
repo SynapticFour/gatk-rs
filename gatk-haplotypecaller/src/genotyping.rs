@@ -1246,6 +1246,33 @@ pub fn biallelic_genotype_index_from_pl(
         .unwrap_or(crate::bio_ids::DiploidGenotypeIndex::HOM_REF)
 }
 
+/// Minimum-PL genotype index for any allele count (not capped at biallelic `{0,1,2}`).
+///
+/// [`biallelic_genotype_index_from_pl`] uses [`crate::bio_ids::DiploidGenotypeIndex`], which
+/// rejects indices `> 2` and falls back to hom-ref. Merged SNP+indel sites have 6 PLs; the
+/// best state can be `1/2` (index 4).
+pub fn best_pl_index(pl: &[crate::bio_ids::PhredLikelihood]) -> usize {
+    pl.iter()
+        .enumerate()
+        .min_by_key(|(_, p)| p.get())
+        .map(|(i, _)| i)
+        .unwrap_or(0)
+}
+
+/// Diploid GT allele indices for PL index `best` with `n_alleles` (VCF PL ordering).
+pub fn diploid_genotype_alleles_from_pl_index(n_alleles: usize, best: usize) -> Vec<i32> {
+    let mut k = 0usize;
+    for j in 0..n_alleles {
+        for i in 0..=j {
+            if k == best {
+                return vec![i as i32, j as i32];
+            }
+            k += 1;
+        }
+    }
+    vec![0, 0]
+}
+
 /// Wire-integer overload for tests / dump helpers that still hold raw PL vectors.
 pub fn biallelic_genotype_index_from_pl_i32(pl: &[i32]) -> crate::bio_ids::DiploidGenotypeIndex {
     let owned: Vec<_> = pl

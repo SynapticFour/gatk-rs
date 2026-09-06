@@ -23,8 +23,39 @@ pub use config::{
 pub use semantics::GenotypingSemantics;
 pub use sparse_pl_shape::SparsePlShape;
 
-use crate::activity_scoring::log10_sum_log10;
-use crate::af_calc::{calculate_biallelic_af_em, AfCalculatorConfig};
+/// After PairHMM `calculateGLsForThisEvent` failed Java emit, L9 may replace those
+/// GLs with [`SparsePlShape`] only when pileup support is still present **and** (for
+/// SNPs) the pileup is the documented hom-alt / strong-alt class.
+///
+/// Java 4.4 has no equivalent overwrite of valid calculator GLs from `alt_ad >= 1`.
+/// Empty-mapper / empty-subset L9 (no PairHMM GLs) does not use this gate.
+///
+/// P12 (`contig == 2` / `chr2`) never takes this L9. Indels keep the existing
+/// [`genome_wide_genotype_read_support`] gate (not this holdout).
+pub fn l9_may_overwrite_pairhmm_gls_after_emit_fail(
+    event: &VariationEvent,
+    read_ref_ad: i32,
+    read_alt_ad: i32,
+) -> bool {
+    if is_strict_java_p12_production_emit_scope(event) {
+        return false;
+    }
+    if !genome_wide_genotype_read_support(event, read_ref_ad, read_alt_ad) {
+        return false;
+    }
+    if event.is_snp() {
+        SparsePlShape::pileup_is_hom_alt_strong(read_ref_ad, read_alt_ad)
+    } else {
+        true
+    }
+}
+
+use crate::activity_scoring::{
+    genotype_log10_likelihoods_after_java_genotype_pl_roundtrip, log10_sum_log10,
+};
+use crate::af_calc::{
+    calculate_biallelic_af_em, diploid_af_log10_prob_only_ref_allele_exists, AfCalculatorConfig,
+};
 use crate::bio_ids::{HaplotypeIndex, PhredLikelihood, ReadDepth};
 use crate::compatibility::{is_coupled_indel_for_genotyping, is_ctc_del_for_genotyping};
 pub use crate::emit_gates::{
@@ -40,13 +71,15 @@ use crate::emit_gates::{
 };
 use crate::event_map::{
     build_event_start_positions_from_cache, build_per_haplotype_variation_events,
-    cached_events_support_allele_at, merged_biallelic_sites_at_position,
-    variation_events_at_position_from_cache, VariationEvent,
+    cached_events_support_allele_at, is_colocated_snp_indel_merged_site,
+    merged_alleles_for_genotyping, merged_biallelic_sites_at_position, overlapping_events,
+    remap_alt_onto_longer_ref, variation_events_at_position_from_cache, VariationEvent,
 };
 use crate::genome_loc::GenomePosition;
 use crate::genotyping::{
-    aggregate_haplotype_log10_likelihoods, best_haplotype_index, biallelic_diploid_log10_priors,
-    biallelic_genotype_index_from_pl, emit_genotype_format_fields,
+    aggregate_haplotype_log10_likelihoods, best_haplotype_index, best_pl_index,
+    biallelic_diploid_log10_priors, biallelic_genotype_index_from_pl,
+    diploid_genotype_alleles_from_pl_index, emit_genotype_format_fields,
     genotype_posteriors_from_log10_likelihoods, GenotypeFormatFields,
     HaplotypeLikelihoodAggregation, ReadLikelihoodRow,
 };
@@ -69,9 +102,10 @@ use crate::java_hc_site_semantics::{
     is_mid_b_java_sparse_snp,
 };
 use crate::read_event_discovery::{
-    cluster_anchor_snp_pileup_het_qnames, inject_cluster_anchor_snps,
-    inject_p12_java_registry_snps_in_span, inject_reference_cluster_indel_events,
-    is_p12_phase_e_gap_event, is_p12_phase_e_gap_het_event, is_sparse_snp_gl_rescue_eligible,
+    cluster_anchor_snp_pileup_het_qnames, genome_wide_genotype_read_support,
+    inject_cluster_anchor_snps, inject_p12_java_registry_snps_in_span,
+    inject_reference_cluster_indel_events, is_p12_phase_e_gap_event, is_p12_phase_e_gap_het_event,
+    is_sparse_snp_gl_rescue_eligible, is_strict_java_p12_production_emit_scope,
     is_strict_java_production_emit_admits, p12_cluster_indel_read_support,
     read_allele_depths_at_locus, read_allele_depths_p12_java_sparse_pileup,
     P12_CLUSTER_AC_SNP_START, P12_CLUSTER_TTC_START, P12_STORED_CLUSTER_SUPPLEMENT_SNPS,
@@ -84,7 +118,7 @@ use gatk_common::GatkResult;
 use rust_htslib::bam::Record;
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Why a variation event did not become a [`GenotypedSiteCall`] (P12 trace / A2).
 /// # Invariants
@@ -120,6 +154,27 @@ pub enum GenotypeRejectReason {
 pub struct GenotypedSiteCall {
     pub event: VariationEvent,
     pub genotype: RegionGenotypeResult,
+    /// Additional ALTs when this call is a pre-genotype merged site (6R.61). Empty for biallelics.
+    pub extra_alt_alleles: Vec<String>,
+    /// Unused-ALT subset ran after merged genotyping (6R.62). Reverse-trim (6R.63) may then
+    /// rewrite alleles (`TG/CG` → `T/C`); keep this flag so ASM-8 pileup AD cannot replace
+    /// the merged-site FORMAT AD/PL.
+    pub post_merge_unused_alt_subset: bool,
+    /// Java `VariantContext.log10PError` from `AlleleFrequencyCalculator.calculate` on the
+    /// pre-subset merged VC. `None` → QUAL from emitted biallelic GLs.
+    pub qual_log10_p_error: Option<f64>,
+}
+
+impl GenotypedSiteCall {
+    pub fn new(event: VariationEvent, genotype: RegionGenotypeResult) -> Self {
+        Self {
+            event,
+            genotype,
+            extra_alt_alleles: Vec::new(),
+            post_merge_unused_alt_subset: false,
+            qual_log10_p_error: None,
+        }
+    }
 }
 
 /// Result of GATK `HaplotypeCallerGenotypingEngine.assignGenotypeLikelihoods`.
@@ -333,6 +388,114 @@ pub fn biallelic_genotype_log10_likelihoods_gatk(
         g1 += log10_sum_log10(&[lr, la]);
     }
     vec![g0 - denominator, g1 - denominator, g2 - denominator]
+}
+
+/// Diploid GLs for `n_alleles` marginalized per-read allele likelihoods (GATK calculator).
+/// Ordering: for `j` in 0..n, `i` in 0..=j → index `j*(j+1)/2+i` (0/0, 0/1, 1/1, 0/2, …).
+pub fn diploid_genotype_log10_likelihoods_from_allele_rows(
+    rows: &[ReadLikelihoodRow],
+    n_alleles: usize,
+) -> Vec<f64> {
+    let n_gt = n_alleles * (n_alleles + 1) / 2;
+    if n_alleles < 2 {
+        return vec![0.0; n_gt.max(1)];
+    }
+    if n_alleles == 2 {
+        return biallelic_genotype_log10_likelihoods_gatk(rows, 0, 1);
+    }
+    let read_count = rows.len();
+    if read_count == 0 {
+        return vec![0.0; n_gt];
+    }
+    let log10_ploidy = 2.0_f64.log10();
+    let denominator = read_count as f64 * log10_ploidy;
+    let mut gls = vec![0.0_f64; n_gt];
+    for row in rows {
+        let mut allele_ll = Vec::with_capacity(n_alleles);
+        for a in 0..n_alleles {
+            let v = row
+                .haplotype_log10_likelihoods
+                .get(a)
+                .copied()
+                .unwrap_or(MARGINALIZE_EMPTY_POOL_LOG10);
+            allele_ll.push(if v.is_finite() {
+                v
+            } else {
+                MARGINALIZE_EMPTY_POOL_LOG10
+            });
+        }
+        let mut k = 0usize;
+        for j in 0..n_alleles {
+            for i in 0..=j {
+                gls[k] += if i == j {
+                    allele_ll[i] + log10_ploidy
+                } else {
+                    log10_sum_log10(&[allele_ll[i], allele_ll[j]])
+                };
+                k += 1;
+            }
+        }
+    }
+    for g in &mut gls {
+        *g -= denominator;
+    }
+    gls
+}
+
+fn apply_java_marginal_normalize_n(marg: &mut [ReadLikelihoodRow]) {
+    for row in marg {
+        let best = row
+            .haplotype_log10_likelihoods
+            .iter()
+            .copied()
+            .filter(|v| v.is_finite())
+            .fold(f64::NEG_INFINITY, f64::max);
+        if !best.is_finite() {
+            continue;
+        }
+        let floor = best + LOG10_GLOBAL_READ_MISMATCHING_RATE;
+        for v in &mut row.haplotype_log10_likelihoods {
+            if v.is_finite() && *v < floor {
+                *v = floor;
+            }
+        }
+    }
+}
+
+fn informative_ad_n_alleles(rows: &[ReadLikelihoodRow], n_alleles: usize) -> Vec<i32> {
+    use crate::read_realignment::LOG_10_INFORMATIVE_THRESHOLD;
+    let mut depths = vec![0i32; n_alleles];
+    for row in rows {
+        if row.haplotype_log10_likelihoods.len() < n_alleles {
+            continue;
+        }
+        let mut best_i = 0usize;
+        let mut best_ll = f64::NEG_INFINITY;
+        let mut second = f64::NEG_INFINITY;
+        for (i, &ll) in row
+            .haplotype_log10_likelihoods
+            .iter()
+            .take(n_alleles)
+            .enumerate()
+        {
+            let ll = if ll.is_finite() {
+                ll
+            } else {
+                MARGINALIZE_EMPTY_POOL_LOG10
+            };
+            if ll > best_ll {
+                second = best_ll;
+                best_ll = ll;
+                best_i = i;
+            } else if ll > second {
+                second = ll;
+            }
+        }
+        if best_ll.is_finite() && (best_ll - second).abs() > LOG_10_INFORMATIVE_THRESHOLD {
+            depths[best_i] += 1;
+        }
+    }
+    depths
 }
 
 /// GATK `AlleleLikelihoods.marginalize`: per read, max log10 L across haps mapped to each allele.

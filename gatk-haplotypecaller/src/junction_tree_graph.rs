@@ -18,6 +18,7 @@ struct SequenceForKmers {
 
 #[derive(Debug)]
 struct ThreadingEdge {
+    total: u32,
     current_sample: u32,
     flushed_samples: BinaryHeap<std::cmp::Reverse<u32>>,
     num_pruning_samples: usize,
@@ -29,6 +30,7 @@ impl ThreadingEdge {
         let mut flushed_samples = BinaryHeap::new();
         flushed_samples.push(std::cmp::Reverse(initial));
         Self {
+            total: initial,
             current_sample: initial,
             flushed_samples,
             num_pruning_samples,
@@ -37,7 +39,12 @@ impl ThreadingEdge {
     }
 
     fn inc(&mut self, delta: u32) {
+        self.total = self.total.saturating_add(delta);
         self.current_sample = self.current_sample.saturating_add(delta);
+    }
+
+    fn total(&self) -> u32 {
+        self.total
     }
 
     fn flush_sample(&mut self) {
@@ -638,11 +645,12 @@ impl JunctionTreeGraphBuilder {
             .ref_source_kmer
             .as_ref()
             .map(|k| std::sync::Arc::from(k.as_slice()));
-        let edges: HashMap<_, _> = self
-            .edges
-            .iter()
-            .map(|(&(from, to), e)| ((from, to), e.pruning_multiplicity()))
-            .collect();
+        let mut edges = HashMap::with_capacity(self.edges.len());
+        let mut pruning_edges = HashMap::with_capacity(self.edges.len());
+        for (&(from, to), e) in &self.edges {
+            edges.insert((from, to), e.total());
+            pruning_edges.insert((from, to), e.pruning_multiplicity());
+        }
         let outgoing: HashMap<_, _> = self
             .outgoing
             .iter()
@@ -658,6 +666,7 @@ impl JunctionTreeGraphBuilder {
             nodes,
             kmer_to_id,
             edges,
+            pruning_edges,
             outgoing,
             incoming,
             self.edge_is_ref.clone(),

@@ -2,9 +2,7 @@
 //! Free functions + [`HcLikelihoodImplementation`] enum. PairHMM kernel selection is
 //! [`crate::pairhmm_simd::PairHmmImpl`] (`FastestAvailable` → host SIMD when present).
 
-use crate::pairhmm_log10::{
-    GATK_PARITY_DEFAULT_DEL_QUAL, GATK_PARITY_DEFAULT_GCP, GATK_PARITY_DEFAULT_INS_QUAL,
-};
+use crate::pairhmm_log10::{GATK_PARITY_DEFAULT_GCP, GATK_PARITY_DEFAULT_INS_QUAL};
 use crate::pairhmm_qual::cap_read_base_qualities;
 use crate::pairhmm_simd::{
     resolve_pair_hmm_impl, score_read_haps_logless, PairHmmBackend, PairHmmImpl,
@@ -45,6 +43,52 @@ impl PairHmmReadScratch {
 thread_local! {
     static PAIRHMM_READ_SCRATCH: RefCell<PairHmmReadScratch> =
         RefCell::new(PairHmmReadScratch::empty());
+}
+
+/// Diagnostic dump of kernel-boundary arrays. Scoring is unchanged.
+/// Set `GATK_RS_PAIRHMM_INPUT_DUMP` to a writable path (Java `--pair-hmm-results-file` layout
+/// without the likelihood column).
+fn dump_pairhmm_kernel_inputs_if_enabled(
+    read_bases: &[u8],
+    read_quals: &[u8],
+    haplotype_bases: &[&[u8]],
+    ins: &[u8],
+    del: &[u8],
+    gcp: &[u8],
+) {
+    use std::io::Write;
+    use std::sync::{Mutex, OnceLock};
+    static FILE: OnceLock<Option<Mutex<std::fs::File>>> = OnceLock::new();
+    let Some(slot) = FILE.get_or_init(|| {
+        let path = crate::runtime_config::pairhmm_input_dump_path()?;
+        let mut f = std::fs::File::create(&path).ok()?;
+        let _ = writeln!(
+            f,
+            "# hap-bases read-bases read-qual read-ins-qual read-del-qual gcp"
+        );
+        Some(Mutex::new(f))
+    }) else {
+        return;
+    };
+    let Ok(mut f) = slot.lock() else {
+        return;
+    };
+    fn fastq(q: &[u8]) -> String {
+        q.iter()
+            .map(|&b| char::from(b.saturating_add(33)))
+            .collect()
+    }
+    let read = std::str::from_utf8(read_bases).unwrap_or("");
+    let bq = fastq(read_quals);
+    let iq = fastq(ins);
+    let dq = fastq(del);
+    let gcp_s = fastq(gcp);
+    let mut block = String::new();
+    for hap in haplotype_bases {
+        let hap_s = std::str::from_utf8(hap).unwrap_or("");
+        block.push_str(&format!("{hap_s} {read} {bq} {iq} {dq} {gcp_s}\n"));
+    }
+    let _ = f.write_all(block.as_bytes());
 }
 
 /// GATK `PairHMMLikelihoodCalculationEngine` default (`--base-quality-score-threshold`).
@@ -186,6 +230,36 @@ impl HcLikelihoodEngineConfig {
     }
 }
 
+/// GATK 4.4 `ReadUtils.getBaseInsertionQualities` / `getBaseDeletionQualities`.
+///
+/// `tag` is already FastQ-33→Phred. Missing tag → fill
+/// [`GATK_PARITY_DEFAULT_INS_QUAL`] (Q45). Length mismatch is a Java
+/// `createQualityModifiedRead` failure (no silent fill).
+pub fn fill_indel_gop_from_optional_tag(dst: &mut [u8], tag: Option<&[u8]>) -> GatkResult<()> {
+    match tag {
+        None => {
+            dst.fill(GATK_PARITY_DEFAULT_INS_QUAL);
+            Ok(())
+        }
+        Some(q) if q.len() == dst.len() => {
+            dst.copy_from_slice(q);
+            Ok(())
+        }
+        Some(q) => Err(gatk_common::GatkError::algorithm(format!(
+            "indel GOP tag length {} != read length {}",
+            q.len(),
+            dst.len()
+        ))),
+    }
+}
+
+/// Convenience wrapper around [`fill_indel_gop_from_optional_tag`].
+pub fn indel_gop_from_optional_tag(tag: Option<&[u8]>, read_len: usize) -> GatkResult<Vec<u8>> {
+    let mut v = vec![0u8; read_len];
+    fill_indel_gop_from_optional_tag(&mut v, tag)?;
+    Ok(v)
+}
+
 /// Score one read×haplotype with production `Log10PairHMM` (BQ cap + PCR + default indel/GCP).
 pub fn log10_read_haplotype_likelihood(
     config: &HcLikelihoodEngineConfig,
@@ -200,6 +274,8 @@ pub fn log10_read_haplotype_likelihood(
         read_quals,
         read_mapq,
         &[haplotype_bases],
+        None,
+        None,
     )?;
     Ok(scores[0])
 }
@@ -218,6 +294,8 @@ pub fn score_read_against_haplotypes(
     read_quals: &[u8],
     read_mapq: u8,
     haplotype_bases: &[&[u8]],
+    insertion_gop: Option<&[u8]>,
+    deletion_gop: Option<&[u8]>,
 ) -> GatkResult<Vec<f64>> {
     if config.implementation == HcLikelihoodImplementation::FlowBased {
         return Err(gatk_common::GatkError::algorithm(
@@ -238,8 +316,8 @@ pub fn score_read_against_haplotypes(
         scratch.ensure(n);
         scratch.capped[..n].copy_from_slice(read_quals);
         prepare_read_quals_for_pairhmm_inplace(&mut scratch.capped[..n], read_mapq, config);
-        scratch.ins[..n].fill(GATK_PARITY_DEFAULT_INS_QUAL);
-        scratch.del[..n].fill(GATK_PARITY_DEFAULT_DEL_QUAL);
+        fill_indel_gop_from_optional_tag(&mut scratch.ins[..n], insertion_gop)?;
+        fill_indel_gop_from_optional_tag(&mut scratch.del[..n], deletion_gop)?;
         scratch.gcp[..n].fill(GATK_PARITY_DEFAULT_GCP);
         if !config.uses_dragstr_pair_hmm() {
             let PairHmmReadScratch {
@@ -259,6 +337,7 @@ pub fn score_read_against_haplotypes(
         let ins = &scratch.ins[..n];
         let del = &scratch.del[..n];
         let gcp = &scratch.gcp[..n];
+        dump_pairhmm_kernel_inputs_if_enabled(read_bases, capped, haplotype_bases, ins, del, gcp);
         match backend {
             PairHmmBackend::Log10Scalar => haplotype_bases
                 .iter()
@@ -295,5 +374,20 @@ mod tests {
         assert_eq!(capped[0], crate::pairhmm_qual::MIN_USABLE_Q_SCORE);
         cap_read_base_qualities(&mut quals, 60, cfg.base_quality_score_threshold, true);
         assert_eq!(capped, quals);
+    }
+
+    #[test]
+    fn missing_indel_tag_fills_q45_and_present_tag_is_copied() {
+        let mut dst = vec![0u8; 4];
+        fill_indel_gop_from_optional_tag(&mut dst, None).unwrap();
+        assert_eq!(dst, vec![45, 45, 45, 45]);
+        fill_indel_gop_from_optional_tag(&mut dst, Some(&[30, 31, 32, 33])).unwrap();
+        assert_eq!(dst, vec![30, 31, 32, 33]);
+    }
+
+    #[test]
+    fn mismatched_indel_tag_length_is_an_error() {
+        let mut dst = vec![0u8; 4];
+        assert!(fill_indel_gop_from_optional_tag(&mut dst, Some(&[30, 31])).is_err());
     }
 }
