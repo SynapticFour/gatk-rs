@@ -1,7 +1,8 @@
 //! GATK `ReadThreadingGraph` / `AbstractReadThreadingGraph` parity builder.
 //! Replaces naive de Bruijn per-read edge counting with read threading: unique-kmer starts,
 //! backward multiplicity on incoming matches, forward extension by suffix, and per-sample
-//! pruning multiplicity (`MultiSampleEdge` with `numPruningSamples = 1`).
+//! pruning multiplicity (`MultiSampleEdge` with `numPruningSamples = 1`). SeqGraph / k-best
+//! copy Java `getMultiplicity()` (total); chain pruning uses `getPruningMultiplicity()`.
 //!
 //! # K-mer representation
 //! Hot maps use [`crate::kmer_key::KmerKey`] (packed ACGT integers when `k ≤ 64`,
@@ -36,6 +37,9 @@ struct SequenceForKmers {
 
 #[derive(Debug)]
 struct ThreadingEdge {
+    /// GATK `BaseEdge.multiplicity`: sum of every `incMultiplicity` across samples.
+    /// `SeqGraph` / k-best copy this via `MultiSampleEdge.copy()` → `getMultiplicity()`.
+    total: u32,
     current_sample: u32,
     /// Min-heap of flushed per-sample totals (GATK `PriorityQueue`); peek = pruning multiplicity.
     flushed_samples: BinaryHeap<std::cmp::Reverse<u32>>,
@@ -48,6 +52,7 @@ impl ThreadingEdge {
         let mut flushed_samples = BinaryHeap::new();
         flushed_samples.push(std::cmp::Reverse(initial));
         Self {
+            total: initial,
             current_sample: initial,
             flushed_samples,
             num_pruning_samples,
@@ -56,7 +61,13 @@ impl ThreadingEdge {
     }
 
     fn inc(&mut self, delta: u32) {
+        // GATK `MultiSampleEdge.incMultiplicity`: total and current single-sample both increase.
+        self.total = self.total.saturating_add(delta);
         self.current_sample = self.current_sample.saturating_add(delta);
+    }
+
+    fn total(&self) -> u32 {
+        self.total
     }
 
     fn flush_sample(&mut self) {
@@ -440,16 +451,18 @@ impl ReadThreadingGraphBuilder {
         for &id in self.unique_kmers.values() {
             kmer_to_id.insert(Arc::clone(&nodes[id].kmer), id);
         }
-        let edges: HashMap<_, _> = self
-            .edges
-            .into_iter()
-            .map(|((from, to), e)| ((from, to), e.pruning_multiplicity()))
-            .collect();
+        let mut edges = HashMap::with_capacity(self.edges.len());
+        let mut pruning_edges = HashMap::with_capacity(self.edges.len());
+        for ((from, to), e) in self.edges {
+            edges.insert((from, to), e.total());
+            pruning_edges.insert((from, to), e.pruning_multiplicity());
+        }
         AssemblyGraph::from_threading_build(
             self.kmer_size,
             nodes,
             kmer_to_id,
             edges,
+            pruning_edges,
             self.outgoing,
             self.incoming,
             self.edge_is_ref,
@@ -679,6 +692,116 @@ mod tests {
         assert!(!g.nodes().is_empty() || g.edges_sorted().is_empty() || true);
         // Must not panic; N windows use Bytes keys.
         let _ = g.edges_sorted();
+    }
+
+    #[test]
+    fn two_sample_ref_plus_reads_seqgraph_uses_total_not_pruning() {
+        // Unique k=4 reference (Java addSequence("ref") / ANONYMOUS_SAMPLE) plus one
+        // read sample. Continuation ACGTA is on the reference; ACGTC is alt-only.
+        let reference = read("ACGTACGGTTAA", 30);
+        let mut reads = vec![read("ACGTACGGTTAA", 30); 3];
+        reads.extend(vec![read("ACGTGCGGTTAA", 30); 2]);
+        let params = params_for(4);
+        let g = assembly_graph_from_ref_and_reads_threading(&reference, &reads, &params).unwrap();
+
+        let id = |k: &[u8]| {
+            g.nodes()
+                .iter()
+                .find(|n| n.kmer.as_ref() == k)
+                .map(|n| n.id)
+                .unwrap()
+        };
+        let acgt = id(b"ACGT");
+        let cgta = id(b"CGTA");
+        let cgtg = id(b"CGTG");
+        assert_eq!(
+            g.edge_support(acgt, cgta),
+            Some(4),
+            "Java getMultiplicity = ref 1 + 3 reads"
+        );
+        assert_eq!(
+            g.edge_pruning_support(acgt, cgta),
+            Some(3),
+            "numPruningSamples=1 keeps max sample (reads), drops ref's 1"
+        );
+        assert_eq!(g.edge_support(acgt, cgtg), Some(2));
+        assert_eq!(g.edge_pruning_support(acgt, cgtg), Some(2));
+
+        let ref_only =
+            assembly_graph_from_ref_and_reads_threading(&reference, &[], &params).unwrap();
+        let r_acgt = ref_only
+            .nodes()
+            .iter()
+            .find(|n| n.kmer.as_ref() == b"ACGT")
+            .unwrap()
+            .id;
+        let r_cgta = ref_only
+            .nodes()
+            .iter()
+            .find(|n| n.kmer.as_ref() == b"CGTA")
+            .unwrap()
+            .id;
+        assert_eq!(ref_only.edge_support(r_acgt, r_cgta), Some(1));
+
+        let reads_only = assembly_graph_from_reads_threading(
+            &[
+                read("ACGTACGGTTAA", 30),
+                read("ACGTACGGTTAA", 30),
+                read("ACGTACGGTTAA", 30),
+            ],
+            &params,
+        )
+        .unwrap();
+        let q_acgt = reads_only
+            .nodes()
+            .iter()
+            .find(|n| n.kmer.as_ref() == b"ACGT")
+            .unwrap()
+            .id;
+        let q_cgta = reads_only
+            .nodes()
+            .iter()
+            .find(|n| n.kmer.as_ref() == b"CGTA")
+            .unwrap()
+            .id;
+        assert_eq!(reads_only.edge_support(q_acgt, q_cgta), Some(3));
+    }
+
+    #[test]
+    fn one_sequence_for_kmers_increments_a_unique_continuation_once() {
+        let params = params_for(4);
+        let g = assembly_graph_from_reads_threading(&[read("ACGTACGGTTAA", 30)], &params).unwrap();
+        let acgt = g
+            .nodes()
+            .iter()
+            .find(|n| n.kmer.as_ref() == b"ACGT")
+            .unwrap()
+            .id;
+        let cgta = g
+            .nodes()
+            .iter()
+            .find(|n| n.kmer.as_ref() == b"CGTA")
+            .unwrap()
+            .id;
+        assert_eq!(g.edge_support(acgt, cgta), Some(1));
+        let g2 = assembly_graph_from_reads_threading(
+            &[read("ACGTACGGTTAA", 30), read("ACGTACGGTTAA", 30)],
+            &params,
+        )
+        .unwrap();
+        let a2 = g2
+            .nodes()
+            .iter()
+            .find(|n| n.kmer.as_ref() == b"ACGT")
+            .unwrap()
+            .id;
+        let c2 = g2
+            .nodes()
+            .iter()
+            .find(|n| n.kmer.as_ref() == b"CGTA")
+            .unwrap()
+            .id;
+        assert_eq!(g2.edge_support(a2, c2), Some(2));
     }
 
     fn params_for(kmer_size: usize) -> AssemblyGraphParams {

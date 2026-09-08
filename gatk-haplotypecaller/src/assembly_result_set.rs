@@ -202,22 +202,33 @@ impl AssemblyResultSet {
             trimmed_region.extended_start.get(),
             trimmed_region.extended_end.get(),
         );
-        // GATK `trimDownHaplotypes`: dedupe by (bases, is_reference), not sequence alone.
+        // GATK `trimDownHaplotypes` (SHA 2dbc0258): `h.trim(span, true)` then a
+        // HashMap keyed by `Haplotype.equals`. `ignoreRefState=true` forces every
+        // trimmed haplotype non-ref and uniqueness stays 0, so the map is
+        // sequence-only. A reference haplotype and an alt that trim to the same
+        // bases collapse; the survivor is marked reference if either original was.
         let mut trimmed_list: Vec<Haplotype> = Vec::new();
-        let mut index_by_hap_key: HashMap<(Vec<u8>, bool), usize> = HashMap::new();
+        let mut orig_was_ref: Vec<bool> = Vec::new();
+        let mut index_by_bases: HashMap<Vec<u8>, usize> = HashMap::new();
         for h in &self.haplotypes {
-            let Some(t) = h.trim(&span, false) else {
+            let Some(t) = h.trim(&span, true) else {
                 continue;
             };
-            // CLONE: needed because owned composite key for dedup/lookup.
-            let key = (t.bases.clone(), t.is_reference);
-            if let Some(&idx) = index_by_hap_key.get(&key) {
+            if let Some(&idx) = index_by_bases.get(&t.bases) {
                 if h.is_reference {
                     trimmed_list[idx] = t;
+                    orig_was_ref[idx] = true;
                 }
             } else {
-                index_by_hap_key.insert(key, trimmed_list.len());
+                // CLONE: HashMap key must outlive the moved haplotype.
+                index_by_bases.insert(t.bases.clone(), trimmed_list.len());
+                orig_was_ref.push(h.is_reference);
                 trimmed_list.push(t);
+            }
+        }
+        for (t, was_ref) in trimmed_list.iter_mut().zip(orig_was_ref.iter().copied()) {
+            if was_ref {
+                t.is_reference = true;
             }
         }
         if trimmed_list.is_empty() {
@@ -234,7 +245,8 @@ impl AssemblyResultSet {
                 ref_hap.genome_loc = Some(span);
                 trimmed_list.push(ref_hap);
             } else if let Some(ref_h) = self.haplotypes.iter().find(|h| h.is_reference) {
-                if let Some(t) = ref_h.trim(&span, false) {
+                if let Some(mut t) = ref_h.trim(&span, true) {
+                    t.is_reference = true;
                     trimmed_list.push(t);
                 }
             }
@@ -266,7 +278,9 @@ impl AssemblyResultSet {
                 }
             }
         }
-        crate::event_map::prefer_indel_over_colocated_snps(&mut variation_events);
+        // Do not re-apply `prefer_indel_over_colocated_snps` on the trimmed union
+        // (6R.57: Java `getAllVariantContexts` keeps a SNP from one hap when another
+        // hap has an indel at the same start).
         variation_events.sort();
         variation_events.dedup();
         let variation_present = variation_present && !variation_events.is_empty();

@@ -82,6 +82,14 @@ impl SparsePlShape {
             Self::HomRefTrap
         }
     }
+
+    /// L9 post-emit-fail overwrite class: pileup is hom-alt / strong-alt.
+    ///
+    /// This is [`Self::from_pileup_depths`] → [`Self::HomAltStrong`], not a new cutoff.
+    /// REF-majority or weak-alt pileup (`Het`, including 44/4) is not this class.
+    pub fn pileup_is_hom_alt_strong(read_ref_ad: i32, read_alt_ad: i32) -> bool {
+        Self::from_pileup_depths(read_ref_ad, read_alt_ad) == Self::HomAltStrong
+    }
 }
 
 #[cfg(test)]
@@ -109,5 +117,14 @@ mod tests {
         assert_eq!(SparsePlShape::Het.pl(), [81, 0, 36]);
         assert_eq!(SparsePlShape::Het.gl(), [-8.1, 0.0, -3.6]);
         assert_eq!(SparsePlShape::HetBalanced.pl(), [39, 0, 39]);
+    }
+
+    #[test]
+    fn pileup_hom_alt_strong_is_existing_from_pileup_depths_class() {
+        assert!(SparsePlShape::pileup_is_hom_alt_strong(0, 4));
+        assert!(SparsePlShape::pileup_is_hom_alt_strong(1, 8));
+        assert!(!SparsePlShape::pileup_is_hom_alt_strong(44, 4));
+        assert!(!SparsePlShape::pileup_is_hom_alt_strong(0, 1));
+        assert_eq!(SparsePlShape::from_pileup_depths(44, 4), SparsePlShape::Het);
     }
 }

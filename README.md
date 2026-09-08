@@ -32,6 +32,12 @@ Authority: [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Canonical mid-B is on
 ActiveFull region ([`docs/PARITY.md`](docs/PARITY.md)), not a genome-wide product claim.
 Historical L6–L14 narratives live on `pre-cleanup-archive` only — not unqualified **Yes** rows here.
 
+## This is an AI-implementation stress test
+
+The point of this repository is not “a GATK product in Rust.” It is a **deliberate experiment**: can agent-written code survive a mature, scientifically loaded Java codebase if a human owns the claim boundary?
+
+**Agents produced the implementation.** **A human specified the experiment, redirected agents, rejected extras, and signed every claim and non-claim.** The evidence of that discipline is [`CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md) — including what we do **not** claim. That combination (AI speed + human-owned gates) is the skill under test. It is not a substitute for a clinical drop-in, and it is not “the AI did it, so trust it.”
+
 ## Why does this exist?
 
 A Rust reimplementation of the GATK4 HaplotypeCaller germline spine
@@ -42,8 +48,16 @@ reproducible gate evidence — and that file lists what this tree does **not**
 claim (including unsigned GIAB `ci-subset` / full-autosome runs). That is not
 genome-wide equivalence and not a clinical drop-in.
 
-Authorship notes (including AI-assisted engineering) live in [`NOTICE.md`](NOTICE.md).
-Validity is the claim matrix and the tests, not who typed the source.
+This is also an **AI-implementation stress test**: every line of implementation
+in this repository was written by AI. I did not type the Rust. What I *did*
+do, for months, was specify, review, redirect agents that were confidently
+heading the wrong way, and rein things in when they got creative in ways
+nobody asked for. The scarce skill is **owning the claim boundary while
+agents write code** — not pretending the agents were not there, and not
+pretending they do not need a human who can tell when they are wrong.
+
+Authorship notes live in [`NOTICE.md`](NOTICE.md). Validity is the claim
+matrix and the tests, not who typed the source.
 
 If you know genomics and something here is wrong, open an issue.
 

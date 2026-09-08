@@ -267,3 +267,51 @@ fn hap_base_reconciles_trim_pad_with_full_pad_alignment_start() {
         m.alt_haplotype_indices
     );
 }
+
+/// 6R.66: Java `createAlleleMapper` with no overlapping EventMap events at `loc`
+/// assigns the hap to REF. Rust must not pad-slice an apparent indel (`TG/T`).
+fn six_r65_empty_overlap_indel_fixture() -> (VariationEvent, Vec<Haplotype>, Vec<u8>, u64, u64) {
+    let pad = 100u64;
+    let loc = 110u64;
+    let mut ref_bytes = vec![b'A'; 40];
+    ref_bytes[(loc - pad) as usize] = b'T';
+    ref_bytes[(loc - pad + 1) as usize] = b'G';
+    let mut ref_hap = Haplotype::new(ref_bytes.clone(), true);
+    let mut ref_cigar = Cigar::new();
+    ref_cigar.push(ref_bytes.len(), CigarOperator::Match);
+    ref_hap.cigar = Some(ref_cigar);
+
+    // All-M hap: match at `loc` (T), SNP G>A at loc+1. EventMap overlaps loc+1, not loc.
+    // Pad slice at loc is `TA…`, which matches merged ALT `T` vs REF `TG`.
+    let mut alt = Haplotype::new(ref_bytes.clone(), false);
+    alt.bases[(loc - pad + 1) as usize] = b'A';
+    let mut alt_cigar = Cigar::new();
+    alt_cigar.push(ref_bytes.len(), CigarOperator::Match);
+    alt.cigar = Some(alt_cigar);
+
+    let merged = VariationEvent {
+        contig: "20".into(),
+        start_1based: GenomePosition::new_1based(loc),
+        end_1based: GenomePosition::new_1based(loc + 1),
+        ref_allele: "TG".into(),
+        alt_allele: "T".into(),
+    };
+    (merged, vec![ref_hap, alt], ref_bytes, pad, loc)
+}
+
+#[test]
+fn empty_overlapping_eventmap_does_not_assign_indel_via_pad_slice() {
+    let (merged, haps, ref_bytes, pad, loc) = six_r65_empty_overlap_indel_fixture();
+    let m = create_allele_mapper(&merged, loc, &haps, pad, &ref_bytes, 0, true);
+    assert!(
+        m.ref_haplotype_indices.contains(&HaplotypeIndex::new(1)),
+        "Java createAlleleMapper: empty overlapping EventMap → REF; ref={:?} alt={:?}",
+        m.ref_haplotype_indices,
+        m.alt_haplotype_indices
+    );
+    assert!(
+        !m.alt_haplotype_indices.contains(&HaplotypeIndex::new(1)),
+        "6R.66: no pad-slice indel fallback for TG/T; alt={:?}",
+        m.alt_haplotype_indices
+    );
+}

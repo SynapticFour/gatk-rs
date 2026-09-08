@@ -204,6 +204,11 @@ pub fn clip_finalized_reads_in_place(reads: &mut Vec<bam::Record>, region: &Asse
             .then_with(|| a.pos().cmp(&b.pos()))
             .then_with(|| a.qname().cmp(b.qname()))
     });
+    // Java `HaplotypeCallerEngine.callRegion`: remove read stubs after trim
+    // (`unclippedReadLength < MINIMUM_READ_LENGTH_AFTER_TRIMMING`) before PairHMM.
+    reads.retain(|r| {
+        unclipped_read_length(r) >= crate::read_pre_len::GATK_READ_LENGTH_FILTER_THRESHOLD
+    });
 }
 
 fn read_overlaps_padded_span(rec: &bam::Record, ref_start: u64, ref_stop: u64) -> bool {

@@ -1154,3 +1154,55 @@ fn softclip_tier3_evidence_requires_thresholds_inside_band() {
         MIN_SOFTCLIP_DEDUPED_ALT_FOR_TIER3,
     );
 }
+
+/// Pinned Java default HC (`composeReadQualifiesForGenotypingPredicate`, not BQD/FRD):
+/// `target.overlaps(read)` independently. `AlleleLikelihoods.retainEvidence` does not
+/// collapse paired-end mates by QNAME. Rust `dedupe_likelihood_subset_by_qname` does.
+#[test]
+fn java_retain_evidence_keeps_overlapping_paired_mates() {
+    use rust_htslib::bam::{self, record::Cigar, record::CigarString};
+    fn mate(qname: &[u8], pos0: i64) -> crate::shared_bam::SharedBamRecord {
+        let mut rec = bam::Record::new();
+        rec.set(
+            qname,
+            Some(&CigarString(vec![Cigar::Match(10)])),
+            b"ACGTACGTAC",
+            b"##########",
+        );
+        rec.set_pos(pos0);
+        crate::share_record(rec)
+    }
+    let r0 = mate(b"frag1", 99);
+    let r1 = mate(b"frag1", 100);
+    assert!(java_alignment_read_overlaps_interval(&r0, 105, 105, 2));
+    assert!(java_alignment_read_overlaps_interval(&r1, 105, 105, 2));
+    let ll = vec![
+        RegionReadLikelihood {
+            read_index: crate::bio_ids::ReadIndex::new(0),
+            haplotype_index: HaplotypeIndex::new(0),
+            log10_likelihood: -1.0,
+        },
+        RegionReadLikelihood {
+            read_index: crate::bio_ids::ReadIndex::new(1),
+            haplotype_index: HaplotypeIndex::new(0),
+            log10_likelihood: -3.0,
+        },
+    ];
+    let reads = vec![r0, r1];
+    let kept_java: Vec<_> = ll
+        .iter()
+        .filter(|e| java_alignment_read_overlaps_interval(&reads[e.read_index.get()], 105, 105, 2))
+        .cloned()
+        .collect();
+    assert_eq!(
+        unique_likelihood_read_indices(&kept_java).len(),
+        2,
+        "Java retainEvidence keeps both overlapping mates"
+    );
+    let rust = dedupe_likelihood_subset_by_qname(kept_java, &reads);
+    assert_eq!(
+        unique_likelihood_read_indices(&rust).len(),
+        1,
+        "Rust QNAME collapse is extra vs default HC retainEvidence"
+    );
+}
