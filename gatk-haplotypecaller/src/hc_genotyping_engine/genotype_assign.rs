@@ -675,7 +675,7 @@ fn try_genotype_colocated_snp_indel_merge(
     let Some((long_ref, alts)) = merged_alleles_for_genotyping(events_at_loc, loc) else {
         return Ok(ColocatedMergeGenotype::NotApplicable);
     };
-    if !is_colocated_snp_indel_merged_site(&long_ref, &alts) {
+    if !merged_site_uses_joint_gls(events_at_loc, loc, &long_ref, &alts) {
         return Ok(ColocatedMergeGenotype::NotApplicable);
     }
     let contig = events_at_loc
@@ -1364,7 +1364,7 @@ pub fn audit_colocated_snp_indel_merge_numerics(
     let Some((long_ref, alts)) = merged_alleles_for_genotyping(events_at_loc, loc) else {
         return Ok(None);
     };
-    if !is_colocated_snp_indel_merged_site(&long_ref, &alts) {
+    if !merged_site_uses_joint_gls(events_at_loc, loc, &long_ref, &alts) {
         return Ok(None);
     }
     let contig = events_at_loc

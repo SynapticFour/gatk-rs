@@ -334,14 +334,15 @@ mod traces {
             before.bases, after.bases,
             "canonical bases must survive fix_p12"
         );
+        // 6R.114: fix_p12 rewrites lead Match through the TTC deletion anchor.
         assert_eq!(
-            before.cigar, after.cigar,
-            "canonical CIGAR must survive fix_p12"
+            after.cigar, "697M2D1M2I673M",
+            "EventMap-compatible coupled CIGAR (ttc_off+1)"
         );
         assert_eq!(before.align, after.align);
         assert!((before.score - after.score).abs() < 1e-12);
         assert!(!after.is_ref);
-        assert_eq!(after.cigar, "696M2D1M2I674M");
+        assert_eq!(after.cigar, "697M2D1M2I673M");
         assert!(
             after.bases.windows(ALT_WIN.len()).any(|w| w == ALT_WIN),
             "ALT_WIN must remain after fix_p12"

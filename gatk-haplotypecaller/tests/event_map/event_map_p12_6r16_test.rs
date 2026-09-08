@@ -805,10 +805,11 @@ mod traces {
         // 6R.39: trim_modern uses Math.max(end+padding). Pre-fix this haplotype was
         // 256 bp (`79M2D1M2I174M`) because padding accumulated until clipped to the
         // extended-region end. Java-contract span is 159 bp.
+        // 6R.114: leading Match includes the TTC deletion anchor (`80M` not `79M`).
         assert_eq!(canon.bases.len(), 159);
         assert_eq!(
             canon.cigar.as_ref().map(|c| c.to_gatk_string()).as_deref(),
-            Some("79M2D1M2I77M")
+            Some("80M2D1M2I76M")
         );
         assert_eq!(canon.alignment_start_hap_wrt_ref, 0);
         assert_eq!(canon.kmer_size, 85);
@@ -819,18 +820,18 @@ mod traces {
         assert_eq!(n_before_alt, 2);
         assert_eq!(assembly.haplotypes.len(), 4);
         assert!(
-            !assembly
+            assembly
                 .variation_events()
                 .iter()
                 .any(|e| e.ref_allele == "TTC" && e.alt_allele == "T"),
-            "document: ensure_alt clobbers injected TTC→T via apply_read_events_to_assembly"
+            "6R.114: TTC/T remains after ensure_alt (EventMap harvest + inject)"
         );
         assert!(
-            !assembly
+            assembly
                 .variation_events()
                 .iter()
                 .any(|e| e.ref_allele == "A" && e.alt_allele == "ATG"),
-            "document: ensure_alt clobbers injected A→ATG via apply_read_events_to_assembly"
+            "6R.114: A/ATG remains after ensure_alt (EventMap harvest + inject)"
         );
         let any_ttc_hap = assembly.haplotypes.iter().any(|h| {
             hap_has_ttc(&variation_events_for_haplotype(
@@ -853,8 +854,8 @@ mod traces {
             ))
         });
         assert!(
-            !any_ttc_hap && !any_atg_hap,
-            "ensure_alt must not create TTC→T or A→ATG synthetic haplotypes (indel span < 5)"
+            any_ttc_hap && any_atg_hap,
+            "6R.114: coupled hap EventMap reconstructs TTC/T and A/ATG"
         );
     }
 
@@ -1069,12 +1070,12 @@ mod traces {
             "ensure_p12 injects TTC→T before ensure_alt"
         );
         assert!(
-            !ttc_in_list && !atg_in_list,
-            "document: variation_events not closed under injected TTC/ATG after ensure_alt"
+            ttc_in_list && atg_in_list,
+            "6R.114: variation_events remain closed under TTC/T and A/ATG after ensure_alt"
         );
         assert!(
-            !ttc_on_hap && !atg_on_hap,
-            "document: no hap EventMap carries TTC→T or A→ATG (CIGAR EventMap is TTT/TAT/A→G)"
+            ttc_on_hap && atg_on_hap,
+            "6R.114: hap EventMap reconstructs TTC/T and A/ATG (80M2D1M2I, not leftover A/G)"
         );
         assert!(
             dup_bases.is_empty(),

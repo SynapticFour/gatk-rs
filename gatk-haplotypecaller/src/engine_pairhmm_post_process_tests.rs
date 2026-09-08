@@ -82,3 +82,42 @@ fn filter_drops_all_reads_when_none_pass_threshold() {
         "Java does not retain full matrix when no read passes filterPoorlyModeledEvidence"
     );
 }
+
+/// Java `searchBestAllele` walks every likelihood-object haplotype column. A subset
+/// mask (EventMap supporters) must not be used as `max_P` (6R.127/6R.128).
+#[test]
+fn normalize_max_p_uses_every_likelihood_column() {
+    const CAP: f64 = -4.5;
+    let mut subset = vec![
+        RegionReadLikelihood {
+            read_index: crate::bio_ids::ReadIndex::new(0),
+            haplotype_index: crate::bio_ids::HaplotypeIndex::new(0),
+            log10_likelihood: -10.0,
+        },
+        RegionReadLikelihood {
+            read_index: crate::bio_ids::ReadIndex::new(0),
+            haplotype_index: crate::bio_ids::HaplotypeIndex::new(1),
+            log10_likelihood: -2.0,
+        },
+        RegionReadLikelihood {
+            read_index: crate::bio_ids::ReadIndex::new(0),
+            haplotype_index: crate::bio_ids::HaplotypeIndex::new(2),
+            log10_likelihood: -20.0,
+        },
+    ];
+    let mut all_cols = subset.clone();
+    normalize_region_read_likelihoods(&mut subset, &[0]);
+    normalize_region_read_likelihoods(&mut all_cols, &[0, 1, 2]);
+    assert!(
+        (subset[2].log10_likelihood - (-10.0 + CAP)).abs() < 1e-12,
+        "subset mask floors against hap 0 only"
+    );
+    assert!(
+        (all_cols[2].log10_likelihood - (-2.0 + CAP)).abs() < 1e-12,
+        "full likelihood-object range floors against the true max column"
+    );
+    assert!(
+        all_cols[1].log10_likelihood > subset[2].log10_likelihood,
+        "including every column raises the floor vs an EventMap-style subset"
+    );
+}

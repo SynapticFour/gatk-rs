@@ -1708,7 +1708,7 @@ impl HaplotypeCallerEngine {
                         &read_likelihoods,
                         &assembly.haplotypes,
                     );
-                    // P12: Raw LL on filtered haps, then Java normalize using active-span pools.
+                    // P12: Raw LL on filtered haps, then Java normalize over all remaining columns.
                     let (ll, reads) = refresh_region_read_likelihoods(
                         &region_for_genotyping,
                         &region.reads,
@@ -1728,19 +1728,11 @@ impl HaplotypeCallerEngine {
             } else {
                 crate::read_event_discovery::prune_spillover_supplement_haplotypes(&mut assembly);
             }
-            // Java order after filterAlleles: normalize + drop poorly modeled evidence.
-            // Genome-wide reuses the early-filter matrix (no second HC-inverse rank pass).
-            let norm_haps = crate::hc_genotyping_engine::strict_java_pairhmm_normalize_hap_indices(
-                &assembly,
-                &assembly.haplotypes,
-                region.start.get(),
-                region.end.get(),
-                apply_pad,
-                &apply_bases,
-                assembly.max_mnp_distance(),
-                &region.contig,
-                &args.genotyping,
-            );
+            // Java `AlleleLikelihoods.normalizeLikelihoods` / `searchBestAllele`: max over
+            // every haplotype column in the likelihood object (`alleles.numberOfAlleles()`).
+            // After `filter_assembly_and_likelihoods`, those columns are `assembly.haplotypes`
+            // (indices remapped onto `read_likelihoods`). Not EventMap supporter subsets.
+            let norm_haps: Vec<usize> = (0..assembly.haplotypes.len()).collect();
             normalize_region_read_likelihoods(&mut read_likelihoods, &norm_haps);
             capture_likelihood_pipeline_stage("normalize", &read_likelihoods, &assembly.haplotypes);
             observe_poorly_modeled_haplotypes(&assembly.haplotypes);

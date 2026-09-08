@@ -2136,7 +2136,13 @@ pub fn ensure_phase_e_gap_read_backed_alt_haplotypes(
     apply_anchor_snp_haplotypes(assembly, &apply_bases, apply_pad, contig, &needs, sw)
 }
 
-/// Materialize read-backed `92307333 T/G` alt hap when EventMap has no G-bearing hap.
+/// Materialize a cluster T/G alt hap on the **trimmed apply-window** reference.
+///
+/// Java 4.4 has no equivalent helper. Applying the SNP to the full padded
+/// reference after `trim_to` created a score-1000 haplotype whose length
+/// equalled the padded ref while `genome_loc` was the apply window (6R.118).
+/// Other SNP-anchor paths already use the apply window only (see
+/// `ensure_read_backed_snp_alt_haplotypes`).
 pub fn ensure_p12_tg_anchor_alt_haplotype(
     assembly: &mut AssemblyResultSet,
     sw: &SwParameters,
@@ -2151,10 +2157,7 @@ pub fn ensure_p12_tg_anchor_alt_haplotype(
         return Ok(());
     }
     let contig = assembly.contig.clone();
-    let full_ref = assembly.reference_bases_shared();
-    let full_pad = assembly.padded_reference_start_1based();
     let (apply_bases, apply_pad, _) = reference_hap_apply_window(assembly);
-    apply_anchor_snp_haplotypes(assembly, &full_ref, full_pad, &contig, &tg, sw)?;
     apply_anchor_snp_haplotypes(assembly, &apply_bases, apply_pad, &contig, &tg, sw)
 }
 
@@ -2377,6 +2380,10 @@ include!("apply_read_events.rs");
 
 #[cfg(test)]
 mod l9_dense_pileup_probe;
+
+#[cfg(test)]
+#[path = "forensic_6r119_post_trim_full_pad_snp_contract.rs"]
+mod forensic_6r119_post_trim_full_pad_snp_contract;
 
 #[cfg(test)]
 #[path = "../../tests/discovery/event_discovery_unit.rs"]

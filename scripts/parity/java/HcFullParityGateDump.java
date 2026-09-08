@@ -58,6 +58,7 @@ import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.graphs.Juncti
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.graphs.KBestHaplotype;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.graphs.LowWeightChainPruner;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.graphs.MultiSampleEdge;
+import org.broadinstitute.hellbender.utils.haplotype.EventMap;
 import org.broadinstitute.hellbender.utils.haplotype.Haplotype;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.readthreading.MultiDeBruijnVertex;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.readthreading.AbstractReadThreadingGraph;
@@ -2398,6 +2399,9 @@ public final class HcFullParityGateDump {
                     if (!r.isActive()) {
                         continue;
                     }
+                    if (loc < r.getStart() || loc > r.getEnd()) {
+                        continue;
+                    }
                     final AssemblyResultSet ars =
                             AssemblyBasedCallerUtils.assembleReads(
                                     r,
@@ -2450,6 +2454,51 @@ public final class HcFullParityGateDump {
                         }
                     }
                     System.out.println("union_has_start_at_loc\t" + unionHas);
+                    int hapIdx = 0;
+                    int nHapAtLoc = 0;
+                    for (final Haplotype h : haps) {
+                        final EventMap em = h.getEventMap();
+                        final String cigar =
+                                h.getCigar() == null ? "." : h.getCigar().toString();
+                        final List overlapping =
+                                em == null
+                                        ? java.util.Collections.emptyList()
+                                        : em.getOverlappingEvents(loc);
+                        boolean hapHasAt = false;
+                        final StringBuilder evs = new StringBuilder();
+                        for (final Object o : overlapping) {
+                            final VariantContext vc = (VariantContext) o;
+                            if (evs.length() > 0) {
+                                evs.append(";");
+                            }
+                            evs.append(vc.getStart())
+                                    .append(":")
+                                    .append(vc.getReference())
+                                    .append("/")
+                                    .append(vc.getAlternateAlleles());
+                            if (vc.getStart() == loc) {
+                                hapHasAt = true;
+                            }
+                        }
+                        if (hapHasAt) {
+                            nHapAtLoc++;
+                        }
+                        System.out.println(
+                                "hap\t"
+                                        + hapIdx
+                                        + "\tref="
+                                        + h.isReference()
+                                        + "\tlen="
+                                        + h.getBases().length
+                                        + "\tcigar="
+                                        + cigar
+                                        + "\tat_loc="
+                                        + hapHasAt
+                                        + "\toverlapping="
+                                        + (evs.length() == 0 ? "." : evs.toString()));
+                        hapIdx++;
+                    }
+                    System.out.println("n_hap_event_start_at_loc\t" + nHapAtLoc);
                     final List<VariantContext> atLoc =
                             AssemblyBasedCallerUtils.getVariantContextsFromActiveHaplotypes(
                                     loc, haps, true);
@@ -2591,8 +2640,9 @@ public final class HcFullParityGateDump {
         final String intervalCli = args[2];
         final int loc = Integer.parseInt(args[3]);
         final int padding = args.length > 4 ? parsePadding(args[4]) : DEFAULT_PADDING;
-        try (HcContext ctx = new HcContext(refPath, bamPath, padding)) {
+                try (HcContext ctx = new HcContext(refPath, bamPath, padding)) {
             HcParityGenotypeEmitDump.installOn(ctx.engine, loc);
+            HcParityLlInputDump.installOn(ctx.engine);
             final List<SimpleInterval> intervals =
                     parseIntervals(ctx.header.getSequenceDictionary(), intervalCli);
             for (final List<Locatable> contigIntervals : groupByContig(intervals)) {

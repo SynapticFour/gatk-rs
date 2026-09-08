@@ -74,7 +74,7 @@ fn forensic_6r107_ref44_alt4_is_het_not_hom_alt_strong() {
 fn forensic_6r107_genome_wide_alt_ge_1_is_not_post_emit_overwrite() {
     let event = snp_on("20", "C", "T");
     assert!(
-        !l9_may_overwrite_pairhmm_gls_after_emit_fail(&event, 44, 4),
+        !l9_may_overwrite_pairhmm_gls_after_emit_fail(&event, 44, 4, true),
         "valid PairHMM GLs + REF-majority pileup must not be replaced"
     );
 }
@@ -83,28 +83,43 @@ fn forensic_6r107_genome_wide_alt_ge_1_is_not_post_emit_overwrite() {
 fn forensic_6r107_hom_alt_strong_pileup_may_overwrite() {
     let event = snp_on("20", "C", "T");
     assert!(SparsePlShape::pileup_is_hom_alt_strong(0, 4));
-    assert!(l9_may_overwrite_pairhmm_gls_after_emit_fail(&event, 0, 4));
-    assert!(l9_may_overwrite_pairhmm_gls_after_emit_fail(&event, 1, 8));
+    assert!(l9_may_overwrite_pairhmm_gls_after_emit_fail(
+        &event, 0, 4, true
+    ));
+    assert!(l9_may_overwrite_pairhmm_gls_after_emit_fail(
+        &event, 1, 8, true
+    ));
 }
 
 #[test]
 fn forensic_6r107_p12_scope_never_takes_this_l9() {
     let event = snp_on("2", "C", "T");
-    assert!(!l9_may_overwrite_pairhmm_gls_after_emit_fail(&event, 0, 4));
-    assert!(!l9_may_overwrite_pairhmm_gls_after_emit_fail(&event, 44, 4));
+    assert!(!l9_may_overwrite_pairhmm_gls_after_emit_fail(
+        &event, 0, 4, true
+    ));
+    assert!(!l9_may_overwrite_pairhmm_gls_after_emit_fail(
+        &event, 44, 4, true
+    ));
 }
 
 #[test]
 fn forensic_6r107_no_alt_does_not_overwrite() {
     let event = snp_on("20", "C", "T");
-    assert!(!l9_may_overwrite_pairhmm_gls_after_emit_fail(&event, 44, 0));
+    assert!(!l9_may_overwrite_pairhmm_gls_after_emit_fail(
+        &event, 44, 0, true
+    ));
 }
 
 #[test]
 fn forensic_6r107_indel_keeps_genome_wide_gate() {
     let event = indel();
-    assert!(l9_may_overwrite_pairhmm_gls_after_emit_fail(&event, 0, 4));
-    assert!(!l9_may_overwrite_pairhmm_gls_after_emit_fail(&event, 43, 2));
+    // Calculator GLs unavailable / not a preserved hom-ref result: existing fallback.
+    assert!(l9_may_overwrite_pairhmm_gls_after_emit_fail(
+        &event, 0, 4, false
+    ));
+    assert!(!l9_may_overwrite_pairhmm_gls_after_emit_fail(
+        &event, 43, 2, false
+    ));
 }
 
 #[test]
@@ -114,7 +129,9 @@ fn forensic_6r107_preserving_calculator_does_not_emit_het_shape() {
     let calc_fmt = emit_genotype_format_fields(&calc, &[44, 4]).expect("c");
     let het = SparsePlShape::Het.gl_vec();
     let het_fmt = emit_genotype_format_fields(&het, &[44, 4]).expect("h");
-    assert!(!l9_may_overwrite_pairhmm_gls_after_emit_fail(&event, 44, 4));
+    assert!(!l9_may_overwrite_pairhmm_gls_after_emit_fail(
+        &event, 44, 4, true
+    ));
     assert!(!java_emit_would_pass(&event, &calc, &calc_fmt, JAVA_STAND_CALL_CONF, &[]).unwrap());
     assert!(java_emit_would_pass(&event, &het, &het_fmt, JAVA_STAND_CALL_CONF, &[]).unwrap());
 }

@@ -1037,11 +1037,13 @@ pub fn remap_alt_onto_longer_ref(
         .map(|p| p.alt_allele().to_string())
 }
 
-/// GATK `makeMergedVariantContext` allele list at `loc` (6R.61).
+/// GATK `makeMergedVariantContext` allele list at `loc` (6R.61 / 6R.110).
 ///
 /// Longest REF, then native longest-REF alts in encounter order, then remapped
-/// shorter-REF alts (`createAlleleMapping`). Returns `None` unless a shorter REF
-/// was remapped (same-REF multi-alts stay on the biallelic walk).
+/// shorter-REF alts (`createAlleleMapping`). Returns `None` unless the site is a
+/// joint genotyping VC: shorter-REF remap with 2+ alts (6R.61), or same-REF
+/// with 2+ non-star alts (Java `simpleMerge` of multi-indel insertions, 6R.110).
+/// Same-REF SNP+`*` stays on the biallelic walk (6R.104: one non-star alt).
 pub fn merged_alleles_for_genotyping(
     events: &[VariationEvent],
     loc_1based: u64,
@@ -1060,9 +1062,7 @@ pub fn merged_alleles_for_genotyping(
     if long_ref.is_empty() {
         return None;
     }
-    if !at_loc.iter().any(|e| e.ref_allele.len() < long_ref.len()) {
-        return None;
-    }
+    let has_shorter = at_loc.iter().any(|e| e.ref_allele.len() < long_ref.len());
     let mut alts = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     for e in &at_loc {
@@ -1090,13 +1090,20 @@ pub fn merged_alleles_for_genotyping(
     if at_loc.iter().any(|e| e.alt_allele == "*") && seen.insert("*".to_string()) {
         alts.push("*".to_string());
     }
-    if alts.len() < 2 {
-        return None;
+    let non_star = alts.iter().filter(|a| a.as_str() != "*").count();
+    if has_shorter {
+        if alts.len() < 2 {
+            return None;
+        }
+        Some((long_ref, alts))
+    } else if non_star >= 2 {
+        Some((long_ref, alts))
+    } else {
+        None
     }
-    Some((long_ref, alts))
 }
 
-/// Colocated SNP + indel after longest-REF remap (not L10 nested-STR dels, not same-REF multi-alts).
+/// Colocated SNP + indel after longest-REF remap (not L10 nested-STR dels).
 pub fn is_colocated_snp_indel_merged_site(long_ref: &str, alts: &[String]) -> bool {
     if alts.len() < 2 {
         return false;
@@ -1104,6 +1111,40 @@ pub fn is_colocated_snp_indel_merged_site(long_ref: &str, alts: &[String]) -> bo
     let snp_like = alts.iter().any(|a| a.len() == long_ref.len());
     let indel = alts.iter().any(|a| a.len() != long_ref.len());
     snp_like && indel
+}
+
+/// Java `simpleMerge` of same-REF multi-indel alts (6R.110).
+///
+/// Distinct from 6R.61 SNP+indel (unequal REF lengths / remap) and from 6R.104
+/// SNP+`*` (only one non-star alt). Nested-STR dels with unequal REF lengths are
+/// not this class — they still take the remapped biallelic walk.
+pub fn is_same_ref_multi_indel_merged_site(
+    events: &[VariationEvent],
+    loc_1based: u64,
+    long_ref: &str,
+    alts: &[String],
+) -> bool {
+    let loc = GenomePosition::new_1based(loc_1based);
+    let at_loc: Vec<&VariationEvent> = events.iter().filter(|e| e.start_1based == loc).collect();
+    if at_loc.len() < 2 {
+        return false;
+    }
+    if !at_loc.iter().all(|e| e.ref_allele == long_ref) {
+        return false;
+    }
+    let non_star: Vec<&String> = alts.iter().filter(|a| a.as_str() != "*").collect();
+    non_star.len() >= 2 && non_star.iter().all(|a| a.len() != long_ref.len())
+}
+
+/// Joint `calculateGLsForThisEvent` VC: 6R.61 SNP+indel **or** 6R.110 same-REF multi-indel.
+pub fn merged_site_uses_joint_gls(
+    events: &[VariationEvent],
+    loc_1based: u64,
+    long_ref: &str,
+    alts: &[String],
+) -> bool {
+    is_colocated_snp_indel_merged_site(long_ref, alts)
+        || is_same_ref_multi_indel_merged_site(events, loc_1based, long_ref, alts)
 }
 
 /// GATK `makeMergedVariantContext` lite: one biallelic site per unique ALT at `loc`.
@@ -1593,10 +1634,20 @@ mod tests {
     }
 
     #[test]
-    fn same_ref_multi_alt_is_not_pre_genotype_merge() {
+    fn same_ref_multi_indel_is_java_simple_merge() {
         let a = VariationEvent::from_alleles("20", 50, "G", "GTT");
         let b = VariationEvent::from_alleles("20", 50, "G", "GTTT");
-        assert!(merged_alleles_for_genotyping(&[a, b], 50).is_none());
+        let (long_ref, alts) =
+            merged_alleles_for_genotyping(&[a.clone(), b.clone()], 50).expect("simpleMerge");
+        assert_eq!(long_ref, "G");
+        assert_eq!(alts, vec!["GTT".to_string(), "GTTT".to_string()]);
+        assert!(!is_colocated_snp_indel_merged_site(&long_ref, &alts));
+        assert!(is_same_ref_multi_indel_merged_site(
+            &[a, b],
+            50,
+            &long_ref,
+            &alts
+        ));
     }
 
     #[test]
