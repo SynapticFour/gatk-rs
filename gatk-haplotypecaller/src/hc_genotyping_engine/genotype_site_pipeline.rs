@@ -1391,6 +1391,8 @@ fn try_genotype_variation_event(
                 gt = shaped;
             }
         }
+        // Capture calculator hom-ref before `finalize_site` consumes `gt`.
+        let calculator_is_hom_ref = !gt.format.pl.is_empty() && best_pl_index(&gt.format.pl) == 0;
         if let Some(gt) = GenotypeFinalize::finalize_site(
             gt,
             &event,
@@ -1416,7 +1418,14 @@ fn try_genotype_variation_event(
         // informative/HMM PL looks non-variant while BAM pileup is hom-alt / strong-alt.
         // 6R.107: genome-wide SNP `alt_ad >= 1` is not enough to replace valid calculator GLs;
         // SNPs overwrite only for HomAltStrong pileup (existing `from_pileup_depths` class).
-        if l9_may_overwrite_pairhmm_gls_after_emit_fail(&event, read_ref_ad, read_alt_ad) {
+        // Java 4.4 preserves a valid calculator GL result after an emit failure;
+        // the genome-wide L9 fallback must not overwrite that result.
+        if l9_may_overwrite_pairhmm_gls_after_emit_fail(
+            &event,
+            read_ref_ad,
+            read_alt_ad,
+            calculator_is_hom_ref,
+        ) {
             let (shape_ref, shape_alt) = if event.is_indel() {
                 long_insertion_pileup_shape_ad(&event, read_ref_ad, read_alt_ad)
             } else {

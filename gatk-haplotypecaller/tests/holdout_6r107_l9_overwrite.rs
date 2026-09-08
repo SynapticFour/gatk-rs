@@ -75,7 +75,8 @@ fn holdout_6r107_l9_overwrite_dump() {
     });
     let pileup_ref = 44i32;
     let pileup_alt = 4i32;
-    let overwrite = l9_may_overwrite_pairhmm_gls_after_emit_fail(&event, pileup_ref, pileup_alt);
+    let overwrite =
+        l9_may_overwrite_pairhmm_gls_after_emit_fail(&event, pileup_ref, pileup_alt, true);
     let emitted =
         try_emit_call_region_variants(covering, &outcome, "SAMPLE", DEFAULT_STAND_EMIT_CONFIDENCE)
             .unwrap_or_default();

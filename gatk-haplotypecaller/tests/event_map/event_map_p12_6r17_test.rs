@@ -413,12 +413,12 @@ mod traces {
             );
         }
         assert!(
-            !has_allele(&emap_only, P12_CLUSTER_TTC_START, "TTC", "T"),
-            "STATE 1 EventMap-only variation_events must not contain TTC→T"
+            has_allele(&emap_only, P12_CLUSTER_TTC_START, "TTC", "T"),
+            "6R.114: EventMap harvest contains TTC/T"
         );
         assert!(
-            !has_allele(&emap_only, P12_CLUSTER_ATG_START, "A", "ATG"),
-            "STATE 1 EventMap-only variation_events must not contain A→ATG"
+            has_allele(&emap_only, P12_CLUSTER_ATG_START, "A", "ATG"),
+            "6R.114: EventMap harvest contains A/ATG"
         );
 
         // STATE 2: EventMap + TTC/ATG in variation_events (haps unchanged).

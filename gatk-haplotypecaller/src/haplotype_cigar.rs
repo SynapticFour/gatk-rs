@@ -173,24 +173,17 @@ fn calculate_haplotype_cigar_sw(
             alignment_start_hap_wrt_ref: 0,
         });
     }
-    // Equal-length SNP/MNP: EventMap reads mismatches from Match ops — skip padded SW.
-    // Length-changing alts still need SoftClip/Indel SW below.
-    // Java `CigarUtils.calculateCigar` does **not** have this shortcut (only `Arrays.equals`).
-    if ref_seq.len() == alt_seq.len() {
-        let mut c = Cigar::new();
-        c.push(ref_seq.len(), CigarOperator::Match);
-        return Some(HaplotypeAssemblyCigar {
-            cigar: c,
-            alignment_start_hap_wrt_ref: 0,
-        });
-    }
+    // GATK 4.4 `CigarUtils.calculateCigar` (SHA `2dbc0258`): skip SW only when
+    // `Arrays.equals(refSeq, altSeq)`. Equal-length non-identical sequences must
+    // take padded SW — SW parameters can prefer indel over substitutions
+    // (GATK issue 6863 reverted a ≤2-mismatch `{len}M` shortcut).
     padded_sw_haplotype_cigar(ref_seq, alt_seq, parameters, strategy)
 }
 
 /// Observe-only: GATK 4.4 `CigarUtils.calculateCigar` SoftClip/Indel padded SW.
 ///
 /// Java skips SW only when `Arrays.equals(refSeq, altSeq)`. Production
-/// [`calculate_haplotype_cigar_sw`] still uses the equal-length `{len}M` shortcut.
+/// [`calculate_haplotype_cigar_sw`] uses the same short-circuit (6R.117).
 pub fn calculate_haplotype_cigar_java_padded_sw(
     ref_seq: &[u8],
     alt_seq: &[u8],
@@ -1013,10 +1006,9 @@ mod tests {
     /// `Arrays.equals`; reject null / empty / any `N` / ref-span `< 30` / SoftClip
     /// span mismatch whose Indel retry *matches* the expected span.
     ///
-    /// Equal-length SNP: Java SoftClip typically `{len}M`; Rust production extract
-    /// uses the equal-length `{len}M` shortcut. Current Rust **retains** this class.
-    /// Expected Java: also retain. Do not change production to make a different
-    /// assertion pass.
+    /// Equal-length SNP: Java SoftClip typically `{len}M` after padded SW.
+    /// Production extract uses the same `Arrays.equals`-only short-circuit (6R.117).
+    /// Current Rust **retains** this class. Expected Java: also retain.
     #[test]
     fn equal_length_snp_passes_java_find_best_paths_and_rust_extract() {
         let p = SwParameters::gatk_haplotype_to_reference();

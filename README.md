@@ -31,6 +31,12 @@ Authority: [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Canonical mid-B is on
 ActiveFull region ([`docs/PARITY.md`](docs/PARITY.md)), not a genome-wide product claim.
 Historical L6–L14 narratives live on `pre-cleanup-archive` only — not unqualified **Yes** rows here.
 
+## This is an AI-implementation stress test
+
+The point of this repository is not “a GATK product in Rust.” It is a **deliberate experiment**: can agent-written code survive a mature, scientifically loaded Java codebase if a human owns the claim boundary?
+
+**Agents produced the implementation.** **A human specified the experiment, redirected agents, rejected extras, and signed every claim and non-claim.** The evidence of that discipline is [`CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md) — including what we do **not** claim. That combination (AI speed + human-owned gates) is the skill under test. It is not a substitute for a clinical drop-in, and it is not “the AI did it, so trust it.”
+
 ## Why does this exist?
 
 Nobody asked for this. Here it is anyway: a Rust port of the GATK4
@@ -46,13 +52,14 @@ Java codebase with real scientific stakes — seemed like a fair fight. "Someone
 should really port GATK4 to Rust" is a sentence I apparently said out loud
 once, and this project is what happened next.
 
-Every line of code in this repository was written by AI. I didn't write any
-of it myself. What I *did* do, for months, was something closer to herding
-than engineering — reviewing output, redirecting agents that were confidently
-heading the wrong way, and reining things in when they got creative in ways
-nobody asked for. If this project taught me one thing about my own job, it's
-that my actual title should probably be **Agent Wrangler**. Most days, that's
-exactly what it felt like.
+Every line of implementation in this repository was written by AI. I did not
+type the Rust. What I *did* do, for months, was specify, review, redirect
+agents that were confidently heading the wrong way, and rein things in when
+they got creative in ways nobody asked for. If this project taught me one
+thing about my own job, it's that the scarce skill is **owning the claim
+boundary while agents write code** — not pretending the agents were not
+there, and not pretending they do not need a human who can tell when they
+are wrong.
 
 So — is this now a scientifically proven, drop-in equivalent to GATK4? I
 can't claim that with any authority, and I'd be suspicious of anyone who

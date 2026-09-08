@@ -1,4 +1,3 @@
-
 /// Strict Java: when threading/SeqGraph miss cluster indels, build alt hap from read-proven
 /// `TTC/T` + `A/ATG` then derive EventMap from hap CIGAR (not list inject).
 /// Java analogue: reads are already in `assembleReads`; this adds an alt haplotype the graph
@@ -31,7 +30,12 @@ pub fn strict_materialize_cluster_haplotype_from_reads(
         if debug {
             eprintln!("strict_materialize\tskip already complete {coupled:?}");
         }
-        sync_assembly_events_from_haplotype_cigars_with_harvest(assembly, contig, sw, SyncAssemblyOptions::strict_java());
+        sync_assembly_events_from_haplotype_cigars_with_harvest(
+            assembly,
+            contig,
+            sw,
+            SyncAssemblyOptions::strict_java(),
+        );
         return Ok(());
     }
     // Must match Java trim slice: ref hap `genome_loc.start` + trim-length bases (not full pad).
@@ -62,7 +66,12 @@ pub fn strict_materialize_cluster_haplotype_from_reads(
         active_end_1based,
     );
     if cluster_coupled_events_complete(&coupled_after_graph) {
-        sync_assembly_events_from_haplotype_cigars_with_harvest(assembly, contig, sw, SyncAssemblyOptions::strict_java());
+        sync_assembly_events_from_haplotype_cigars_with_harvest(
+            assembly,
+            contig,
+            sw,
+            SyncAssemblyOptions::strict_java(),
+        );
         return Ok(());
     }
     let haps_before = assembly.haplotypes.len();
@@ -80,7 +89,12 @@ pub fn strict_materialize_cluster_haplotype_from_reads(
         );
     }
     repair_alt_haplotype_alignment_for_event_map(&mut assembly.haplotypes, sw);
-    sync_assembly_events_from_haplotype_cigars_with_harvest(assembly, contig, sw, SyncAssemblyOptions::strict_java());
+    sync_assembly_events_from_haplotype_cigars_with_harvest(
+        assembly,
+        contig,
+        sw,
+        SyncAssemblyOptions::strict_java(),
+    );
     Ok(())
 }
 
@@ -117,12 +131,7 @@ pub fn propagate_cluster_coupled_from_untrimmed(
     let mut from_trimmed: Vec<VariationEvent> = Vec::new();
     for h in assembly.haplotypes.iter().filter(|h| !h.is_reference) {
         for e in crate::event_map::variation_events_for_haplotype(
-            h,
-            &ref_hap,
-            full_ref,
-            full_pad,
-            max_mnp,
-            contig,
+            h, &ref_hap, full_ref, full_pad, max_mnp, contig,
         ) {
             if is_cluster_coupled_event(&e) {
                 from_trimmed.push(e);
@@ -138,10 +147,7 @@ pub fn propagate_cluster_coupled_from_untrimmed(
 }
 
 /// Synthesize coupled cluster alt on the trim ref when apply fails (graph alt already touched trim).
-fn synthesize_coupled_cluster_bases_on_trim(
-    apply_bases: &[u8],
-    apply_pad: u64,
-) -> Option<Vec<u8>> {
+fn synthesize_coupled_cluster_bases_on_trim(apply_bases: &[u8], apply_pad: u64) -> Option<Vec<u8>> {
     let ttc_off = P12_CLUSTER_TTC_START.saturating_sub(apply_pad) as usize;
     let atg_off = P12_CLUSTER_ATG_START.saturating_sub(apply_pad) as usize;
     if ttc_off + 3 > apply_bases.len() || atg_off >= apply_bases.len() {
@@ -158,7 +164,12 @@ fn synthesize_coupled_cluster_bases_on_trim(
     out.remove(ttc_off + 1);
     out.remove(ttc_off + 1);
     let atg_adj = atg_off.saturating_sub(2);
-    if !out.get(atg_adj).copied().unwrap_or(0).eq_ignore_ascii_case(&b'A') {
+    if !out
+        .get(atg_adj)
+        .copied()
+        .unwrap_or(0)
+        .eq_ignore_ascii_case(&b'A')
+    {
         return None;
     }
     out.insert(atg_adj + 1, b'T');
@@ -197,13 +208,20 @@ fn coupled_cluster_alt_bases(
     }
 }
 
+/// Coupled-cluster haplotype CIGAR: `leadM 2D 1M 2I tailM`.
+///
+/// `ttc_off` is the 0-based index of the TTC motif start (deletion-anchor T) in the
+/// apply window. GATK 4.4 `EventMap.processCigarForInitialEvents` records I/D against
+/// the **preceding** reference base, so the leading Match includes that T (`ttc_off + 1`).
+/// Tail Match shrinks by one so reference and haplotype consumption stay `ref_len`.
 fn force_cluster_coupled_haplotype_cigar(apply_pad: u64, ref_len: usize) -> crate::cigar::Cigar {
     use crate::cigar::{Cigar, CigarOperator};
     let ttc_off = P12_CLUSTER_TTC_START.saturating_sub(apply_pad) as usize;
-    let tail = ref_len.saturating_sub(ttc_off + 3);
+    let lead = ttc_off.saturating_add(1);
+    let tail = ref_len.saturating_sub(lead.saturating_add(3));
     let mut c = Cigar::new();
-    if ttc_off > 0 {
-        c.push(ttc_off, CigarOperator::Match);
+    if lead > 0 {
+        c.push(lead, CigarOperator::Match);
     }
     c.push(2, CigarOperator::Deletion);
     c.push(1, CigarOperator::Match);
@@ -229,22 +247,28 @@ fn align_coupled_cluster_bases(
             alignment_start_hap_wrt_ref: ref_align,
         });
     }
-    calculate_haplotype_cigar_for_assembly_with_offset(apply_bases, coupled_bases, ref_cigar_len, sw)
-        .or_else(|| {
-            let cigar = calculate_haplotype_cigar_with_strategy(
-                apply_bases,
-                coupled_bases,
-                sw,
-                SwOverhangStrategy::Indel,
-            )?;
-            Some(HaplotypeAssemblyCigar {
-                cigar,
-                alignment_start_hap_wrt_ref: ref_align,
-            })
+    calculate_haplotype_cigar_for_assembly_with_offset(
+        apply_bases,
+        coupled_bases,
+        ref_cigar_len,
+        sw,
+    )
+    .or_else(|| {
+        let cigar = calculate_haplotype_cigar_with_strategy(
+            apply_bases,
+            coupled_bases,
+            sw,
+            SwOverhangStrategy::Indel,
+        )?;
+        Some(HaplotypeAssemblyCigar {
+            cigar,
+            alignment_start_hap_wrt_ref: ref_align,
         })
+    })
 }
 
-/// Force read-proven P12 cluster indel CIGAR/bases on the primary alt hap (75M2D1M2I… not SW 76M…).
+/// Force read-proven cluster indel CIGAR/bases on the primary alt hap
+/// (`(ttc_off+1)M 2D 1M 2I …`, EventMap preceding-base anchor; not all-`M` SW).
 pub fn fix_p12_cluster_coupled_alt_haplotype(
     assembly: &mut AssemblyResultSet,
     _contig: &str,
@@ -271,7 +295,8 @@ pub fn fix_p12_cluster_coupled_alt_haplotype(
     if !ttc_ok {
         return;
     }
-    let Some(coupled_bases) = synthesize_coupled_cluster_bases_on_trim(&apply_bases, apply_pad) else {
+    let Some(coupled_bases) = synthesize_coupled_cluster_bases_on_trim(&apply_bases, apply_pad)
+    else {
         if crate::runtime_config::strict_cluster_debug_enabled() {
             eprintln!("fix_p12\tsynthesize_failed");
         }
@@ -293,9 +318,9 @@ pub fn fix_p12_cluster_coupled_alt_haplotype(
         .enumerate()
         .find(|(i, h)| {
             *i != ref_idx
-                && h.cigar.as_ref().is_some_and(|c| {
-                    c.elements.iter().any(|e| e.operator.is_indel())
-                })
+                && h.cigar
+                    .as_ref()
+                    .is_some_and(|c| c.elements.iter().any(|e| e.operator.is_indel()))
         })
         .map(|(i, _)| i)
         .or_else(|| {
@@ -359,9 +384,9 @@ pub fn ensure_p12_cluster_variation_events_for_active_span(
         coupled = reference_motif_cluster_coupled_events(&apply_bases, apply_pad, contig);
     }
     for e in coupled {
-        assembly.variation_events.retain(|x| {
-            !(x.start_1based == e.start_1based && is_cluster_coupled_event(x))
-        });
+        assembly
+            .variation_events
+            .retain(|x| !(x.start_1based == e.start_1based && is_cluster_coupled_event(x)));
         assembly.variation_events.push(e);
     }
     let mut existing = assembly.variation_events.clone();
@@ -387,10 +412,7 @@ pub fn ensure_p12_cluster_variation_events_for_active_span(
 }
 
 /// Keep `TTC/T` + `A/ATG` at fixed P12 coords in `variation_events` (EventMap harvest can shift them).
-pub fn ensure_p12_cluster_coupled_variation_events(
-    assembly: &mut AssemblyResultSet,
-    contig: &str,
-) {
+pub fn ensure_p12_cluster_coupled_variation_events(assembly: &mut AssemblyResultSet, contig: &str) {
     ensure_p12_cluster_variation_events_for_active_span(
         assembly,
         contig,
@@ -449,9 +471,9 @@ pub fn upsert_coupled_cluster_alt_haplotype(
     }
     if let Some(idx) = assembly.haplotypes.iter().position(|h| {
         !h.is_reference
-            && h.cigar.as_ref().is_some_and(|c| {
-                c.elements.iter().any(|e| e.operator.is_indel())
-            })
+            && h.cigar
+                .as_ref()
+                .is_some_and(|c| c.elements.iter().any(|e| e.operator.is_indel()))
     }) {
         if let Some(assy) = apply_cigar() {
             let h = &mut assembly.haplotypes[idx];
@@ -509,8 +531,8 @@ pub fn push_coupled_cluster_alt_haplotype(
     h.alignment_start_hap_wrt_ref = assy.alignment_start_hap_wrt_ref;
     h.score = SUPPLEMENT_HAPLOTYPE_SCORE;
     assembly.haplotypes.push(h);
-    assembly.variation_present = assembly.haplotypes.iter().any(|h| !h.is_reference)
-        && assembly.haplotypes.len() > 1;
+    assembly.variation_present =
+        assembly.haplotypes.iter().any(|h| !h.is_reference) && assembly.haplotypes.len() > 1;
     Ok(())
 }
 
@@ -546,12 +568,7 @@ pub fn materialize_p12_cluster_from_assembly_cigars(
     let mut cigar_events = std::collections::BTreeSet::new();
     for h in assembly.haplotypes.iter().filter(|h| !h.is_reference) {
         for e in crate::event_map::variation_events_for_haplotype(
-            h,
-            &ref_hap,
-            &full_ref,
-            full_pad,
-            max_mnp,
-            contig,
+            h, &ref_hap, &full_ref, full_pad, max_mnp, contig,
         ) {
             if e.start_1based >= GenomePosition::new_1based(active_start_1based)
                 && e.start_1based <= GenomePosition::new_1based(active_end_1based)
@@ -621,7 +638,9 @@ pub fn materialize_p12_cluster_from_assembly_cigars(
         assembly_has_alt_indel_cigar(&assembly.haplotypes) || read_proven_cluster;
     if !can_materialize_coupled {
         for e in assembly.variation_events.iter() {
-            if e.start_1based >= GenomePosition::new_1based(active_start_1based) && e.start_1based <= GenomePosition::new_1based(active_end_1based) {
+            if e.start_1based >= GenomePosition::new_1based(active_start_1based)
+                && e.start_1based <= GenomePosition::new_1based(active_end_1based)
+            {
                 // CLONE: needed because owned HashMap/BTree/HashSet key or value.
                 cigar_events.insert(e.clone());
             }
@@ -645,7 +664,8 @@ pub fn materialize_p12_cluster_from_assembly_cigars(
         }
     }
     spec.retain(|e| {
-        e.start_1based >= GenomePosition::new_1based(active_start_1based) && e.start_1based <= GenomePosition::new_1based(active_end_1based)
+        e.start_1based >= GenomePosition::new_1based(active_start_1based)
+            && e.start_1based <= GenomePosition::new_1based(active_end_1based)
     });
     if spec.is_empty() {
         return Ok(());
@@ -658,12 +678,7 @@ pub fn materialize_p12_cluster_from_assembly_cigars(
     let mut from_cigar = std::collections::BTreeSet::new();
     for h in assembly.haplotypes.iter().filter(|h| !h.is_reference) {
         for e in crate::event_map::variation_events_for_haplotype(
-            h,
-            &ref_hap,
-            &full_ref,
-            full_pad,
-            max_mnp,
-            contig,
+            h, &ref_hap, &full_ref, full_pad, max_mnp, contig,
         ) {
             if e.start_1based >= GenomePosition::new_1based(active_start_1based)
                 && e.start_1based <= GenomePosition::new_1based(active_end_1based)
@@ -757,8 +772,8 @@ pub fn materialize_p12_cluster_from_assembly_cigars(
         contig,
     );
     scrub_p12_cluster_phantom_alleles(&mut assembly.variation_events);
-    assembly.variation_present = !assembly.variation_events.is_empty()
-        && assembly.haplotypes.len() > 1;
+    assembly.variation_present =
+        !assembly.variation_events.is_empty() && assembly.haplotypes.len() > 1;
     Ok(())
 }
 
@@ -853,7 +868,10 @@ pub fn ensure_assembly_cluster_indel_events(
     });
 
     let mut events = assembly.variation_events.clone();
-    for loc in [P12_CLUSTER_TTC_START, P12_CLUSTER_TTC_START.saturating_add(3)] {
+    for loc in [
+        P12_CLUSTER_TTC_START,
+        P12_CLUSTER_TTC_START.saturating_add(3),
+    ] {
         if loc < active_start_1based || loc > active_end_1based {
             continue;
         }
@@ -883,53 +901,61 @@ pub fn ensure_assembly_cluster_indel_events(
             events.push(extra);
         }
     }
-    let active_off_start = active_start_1based
-        .saturating_sub(scan_pad)
-        .max(1) as usize;
+    let active_off_start = active_start_1based.saturating_sub(scan_pad).max(1) as usize;
     let active_off_end = active_end_1based
         .saturating_sub(scan_pad)
         .min(scan_bases.len().saturating_sub(4) as u64) as usize;
     if !has_cluster_proof {
-    for off in active_off_start..=active_off_end {
-        if off + 3 >= scan_bases.len() || !cluster_ttc_atg_motif(scan_bases, off) {
-            continue;
-        }
-        let start_1based = scan_pad + off as u64 - 1;
-        let ttc = VariationEvent {
-            contig: contig.to_string(),
-            start_1based: GenomePosition::new_1based(start_1based),
-            end_1based: GenomePosition::new_1based(start_1based.saturating_add(2)),
-            ref_allele: "TTC".into(),
-            alt_allele: "T".into(),
-        };
-        if !events.iter().any(|e| events_match(e, &ttc)) {
-            events.push(ttc);
-        }
-        for extra in synthesize_cluster_motif_insertions(
-            &events,
-            scan_bases,
-            scan_pad,
-            active_start_1based,
-            active_end_1based,
-            contig,
-        ) {
-            if !events.iter().any(|e| events_match(e, &extra)) {
-                events.push(extra);
+        for off in active_off_start..=active_off_end {
+            if off + 3 >= scan_bases.len() || !cluster_ttc_atg_motif(scan_bases, off) {
+                continue;
             }
+            let start_1based = scan_pad + off as u64 - 1;
+            let ttc = VariationEvent {
+                contig: contig.to_string(),
+                start_1based: GenomePosition::new_1based(start_1based),
+                end_1based: GenomePosition::new_1based(start_1based.saturating_add(2)),
+                ref_allele: "TTC".into(),
+                alt_allele: "T".into(),
+            };
+            if !events.iter().any(|e| events_match(e, &ttc)) {
+                events.push(ttc);
+            }
+            for extra in synthesize_cluster_motif_insertions(
+                &events,
+                scan_bases,
+                scan_pad,
+                active_start_1based,
+                active_end_1based,
+                contig,
+            ) {
+                if !events.iter().any(|e| events_match(e, &extra)) {
+                    events.push(extra);
+                }
+            }
+            break;
         }
-        break;
-    }
     }
 
     let before: std::collections::BTreeSet<_> = assembly
         .variation_events
         .iter()
-        .map(|e| (e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone()))
+        .map(|e| {
+            (
+                e.start_1based.get(),
+                e.ref_allele.clone(),
+                e.alt_allele.clone(),
+            )
+        })
         .collect();
     let added: Vec<VariationEvent> = events
         .iter()
         .filter(|e| {
-            !before.contains(&(e.start_1based.get(), e.ref_allele.clone(), e.alt_allele.clone()))
+            !before.contains(&(
+                e.start_1based.get(),
+                e.ref_allele.clone(),
+                e.alt_allele.clone(),
+            ))
         })
         .cloned()
         .collect();
@@ -945,13 +971,8 @@ pub fn ensure_assembly_cluster_indel_events(
         let (_, full_pad) = assembly.event_map_reference();
         refresh_alt_haplotype_indel_cigars(&mut assembly.haplotypes, &window_bases, full_pad, sw);
         let (full_ref, full_pad) = assembly.event_map_reference();
-        let refreshed = collect_variation_events(
-            &assembly.haplotypes,
-            full_ref,
-            full_pad,
-            contig,
-            max_mnp,
-        );
+        let refreshed =
+            collect_variation_events(&assembly.haplotypes, full_ref, full_pad, contig, max_mnp);
         for e in refreshed {
             if !assembly
                 .variation_events
@@ -964,8 +985,8 @@ pub fn ensure_assembly_cluster_indel_events(
         crate::event_map::prefer_indel_over_colocated_snps(&mut assembly.variation_events);
         assembly.variation_events.sort();
         assembly.variation_events.dedup();
-        assembly.variation_present = !assembly.variation_events.is_empty()
-            && assembly.haplotypes.len() > 1;
+        assembly.variation_present =
+            !assembly.variation_events.is_empty() && assembly.haplotypes.len() > 1;
     }
     Ok(())
 }
@@ -995,9 +1016,10 @@ pub fn repair_alt_haplotype_alignment_for_event_map(
             continue;
         }
         if (haplotypes[i].score - SUPPLEMENT_HAPLOTYPE_SCORE).abs() < 1e-6
-            && haplotypes[i].cigar.as_ref().is_some_and(|c| {
-                c.elements.iter().any(|e| e.operator.is_indel())
-            })
+            && haplotypes[i]
+                .cigar
+                .as_ref()
+                .is_some_and(|c| c.elements.iter().any(|e| e.operator.is_indel()))
         {
             continue;
         }
@@ -1046,10 +1068,7 @@ pub fn harvest_snps_from_alt_haplotypes_on_trim_window(
     let Some(ref_hap) = haplotypes.iter().find(|h| h.is_reference) else {
         return Vec::new();
     };
-    let pad = ref_hap
-        .genome_loc
-        .map(|g| g.start_1based())
-        .unwrap_or(1);
+    let pad = ref_hap.genome_loc.map(|g| g.start_1based()).unwrap_or(1);
     let ref_bases = &ref_hap.bases;
     let mut out = std::collections::BTreeSet::new();
     for h in haplotypes.iter().filter(|h| !h.is_reference) {
@@ -1077,4 +1096,24 @@ pub fn harvest_snps_from_alt_haplotypes_on_trim_window(
         }
     }
     out.into_iter().collect()
+}
+
+#[cfg(test)]
+mod cigar_anchor_6r114 {
+    use super::force_cluster_coupled_haplotype_cigar;
+    use super::P12_CLUSTER_TTC_START;
+
+    #[test]
+    fn lead_includes_deletion_anchor_for_interior_and_window_start() {
+        let interior_pad = P12_CLUSTER_TTC_START.saturating_sub(79);
+        let interior = force_cluster_coupled_haplotype_cigar(interior_pad, 191);
+        assert_eq!(interior.to_gatk_string(), "80M2D1M2I108M");
+        assert_eq!(interior.reference_length(), 191);
+        assert_eq!(interior.read_length(), 191);
+
+        let edge = force_cluster_coupled_haplotype_cigar(P12_CLUSTER_TTC_START, 20);
+        assert_eq!(edge.to_gatk_string(), "1M2D1M2I16M");
+        assert_eq!(edge.reference_length(), 20);
+        assert_eq!(edge.read_length(), 20);
+    }
 }

@@ -193,12 +193,16 @@ public final class HcParityGenotypeEmitDump extends HaplotypeCallerGenotypingEng
                     "hap_ll_sample0_evidence",
                     Integer.toString(readLikelihoods.sampleEvidenceCount(0)));
 
+            dumpHaplotypeLikelihoods(readLikelihoods);
+
             final Map alleleMapper =
                     AssemblyBasedCallerUtils.createAlleleMapper(
                             merged, targetStart, haplotypes, true);
             dumpAlleleMapper(alleleMapper, haplotypes, targetStart);
 
             AlleleLikelihoods readAlleleLikelihoods = readLikelihoods.marginalize(alleleMapper);
+            dumpReadAlleleLikelihoodsTagged(
+                    readAlleleLikelihoods, merged, "6R123", "pre_retain");
             final SimpleInterval relevant =
                     new SimpleInterval(merged)
                             .expandWithinContig(
@@ -394,6 +398,8 @@ public final class HcParityGenotypeEmitDump extends HaplotypeCallerGenotypingEng
                         .append("/")
                         .append(vc.getAlternateAlleles());
             }
+            final String cigarStr =
+                    h.getCigar() == null ? "." : h.getCigar().toString();
             kv106(
                     "hap",
                     i
@@ -403,6 +409,12 @@ public final class HcParityGenotypeEmitDump extends HaplotypeCallerGenotypingEng
                             + h.getBases().length
                             + "\tisRef="
                             + h.isReference()
+                            + "\tcigar="
+                            + cigarStr
+                            + "\talignStart="
+                            + h.getAlignmentStartHapwrtRef()
+                            + "\tscore="
+                            + h.getScore()
                             + "\tmapped="
                             + assignment
                             + "\tspanning_n="
@@ -423,6 +435,115 @@ public final class HcParityGenotypeEmitDump extends HaplotypeCallerGenotypingEng
             return "*";
         }
         return a.getBaseString() + (a.isReference() ? "*" : "");
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static void dumpHaplotypeLikelihoods(final AlleleLikelihoods likelihoods) {
+        kv123("hap_ll_n_alleles", Integer.toString(likelihoods.numberOfAlleles()));
+        kv123("hap_ll_n_evidence", Integer.toString(likelihoods.evidenceCount()));
+        if (likelihoods.numberOfSamples() < 1) {
+            return;
+        }
+        final LikelihoodMatrix matrix = likelihoods.sampleMatrix(0);
+        final int nEv = matrix.evidenceCount();
+        final int nHap = matrix.numberOfAlleles();
+        kv123("hap_matrix_evidence", Integer.toString(nEv));
+        kv123("hap_matrix_haps", Integer.toString(nHap));
+        for (int a = 0; a < nHap; a++) {
+            final Object al = matrix.getAllele(a);
+            final String hash;
+            final boolean isRef;
+            final int len;
+            if (al instanceof Haplotype) {
+                final Haplotype h = (Haplotype) al;
+                hash = fnv1a64Hex(h.getBases());
+                isRef = h.isReference();
+                len = h.getBases().length;
+            } else {
+                hash = ".";
+                isRef = false;
+                len = -1;
+            }
+            kv123("hap_col", a + "\t" + hash + "\tisRef=" + isRef + "\tlen=" + len);
+        }
+        for (int r = 0; r < nEv; r++) {
+            final GATKRead ev = (GATKRead) matrix.getEvidence(r);
+            final StringBuilder ll = new StringBuilder();
+            for (int a = 0; a < nHap; a++) {
+                if (a > 0) {
+                    ll.append(",");
+                }
+                ll.append(String.format(java.util.Locale.US, "%.12f", matrix.get(a, r)));
+            }
+            kv123(
+                    "hap_read_ll",
+                    ev.getName()
+                            + "\tflags="
+                            + ev.getFlags()
+                            + "\tstart="
+                            + ev.getStart()
+                            + "\t"
+                            + ll.toString());
+        }
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static void dumpReadAlleleLikelihoodsTagged(
+            final AlleleLikelihoods likelihoods,
+            final VariantContext merged,
+            final String tag,
+            final String stage) {
+        kvTagged(tag, "stage", stage);
+        kvTagged(tag, "allele_ll_n_alleles", Integer.toString(likelihoods.numberOfAlleles()));
+        kvTagged(tag, "allele_ll_n_evidence", Integer.toString(likelihoods.evidenceCount()));
+        kvTagged(tag, "merged_alleles", merged.getAlleles().toString());
+        if (likelihoods.numberOfSamples() < 1) {
+            return;
+        }
+        final LikelihoodMatrix matrix = likelihoods.sampleMatrix(0);
+        final int nEv = matrix.evidenceCount();
+        final int nAl = matrix.numberOfAlleles();
+        final StringBuilder cols = new StringBuilder();
+        for (int a = 0; a < nAl; a++) {
+            if (a > 0) {
+                cols.append(",");
+            }
+            cols.append(alleleLabel((Allele) matrix.getAllele(a)));
+        }
+        kvTagged(tag, "allele_ll_columns", cols.toString());
+        kvTagged(tag, "matrix_evidence", Integer.toString(nEv));
+        kvTagged(tag, "matrix_alleles", Integer.toString(nAl));
+        for (int r = 0; r < nEv; r++) {
+            final GATKRead ev = (GATKRead) matrix.getEvidence(r);
+            final StringBuilder ll = new StringBuilder();
+            for (int a = 0; a < nAl; a++) {
+                if (a > 0) {
+                    ll.append(",");
+                }
+                final Allele al = (Allele) matrix.getAllele(a);
+                ll.append(alleleLabel(al))
+                        .append("=")
+                        .append(String.format(java.util.Locale.US, "%.12f", matrix.get(a, r)));
+            }
+            kvTagged(
+                    tag,
+                    "read_ll",
+                    ev.getName()
+                            + "\tflags="
+                            + ev.getFlags()
+                            + "\tstart="
+                            + ev.getStart()
+                            + "\t"
+                            + ll.toString());
+        }
+    }
+
+    private static void kv123(final String key, final String value) {
+        kvTagged("6R123", key, value);
+    }
+
+    private static void kvTagged(final String tag, final String key, final String value) {
+        System.out.println(tag + "\t" + key + "\t" + value);
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

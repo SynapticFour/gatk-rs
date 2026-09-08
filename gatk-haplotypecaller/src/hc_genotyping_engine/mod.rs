@@ -27,15 +27,21 @@ pub use sparse_pl_shape::SparsePlShape;
 /// GLs with [`SparsePlShape`] only when pileup support is still present **and** (for
 /// SNPs) the pileup is the documented hom-alt / strong-alt class.
 ///
+/// `calculator_is_hom_ref` is true when the calculator produced a non-empty PL
+/// vector whose best genotype is hom-ref (index 0). Java 4.4 preserves a valid
+/// calculator GL result after an emit failure; the genome-wide L9 fallback must
+/// not overwrite that result. Empty / missing calculator GLs keep the existing
+/// indel genome-wide fallback. SNP HomAltStrong is unchanged.
+///
 /// Java 4.4 has no equivalent overwrite of valid calculator GLs from `alt_ad >= 1`.
 /// Empty-mapper / empty-subset L9 (no PairHMM GLs) does not use this gate.
 ///
-/// P12 (`contig == 2` / `chr2`) never takes this L9. Indels keep the existing
-/// [`genome_wide_genotype_read_support`] gate (not this holdout).
+/// P12 (`contig == 2` / `chr2`) never takes this L9.
 pub fn l9_may_overwrite_pairhmm_gls_after_emit_fail(
     event: &VariationEvent,
     read_ref_ad: i32,
     read_alt_ad: i32,
+    calculator_is_hom_ref: bool,
 ) -> bool {
     if is_strict_java_p12_production_emit_scope(event) {
         return false;
@@ -45,6 +51,8 @@ pub fn l9_may_overwrite_pairhmm_gls_after_emit_fail(
     }
     if event.is_snp() {
         SparsePlShape::pileup_is_hom_alt_strong(read_ref_ad, read_alt_ad)
+    } else if calculator_is_hom_ref {
+        false
     } else {
         true
     }
@@ -71,8 +79,8 @@ use crate::emit_gates::{
 };
 use crate::event_map::{
     build_event_start_positions_from_cache, build_per_haplotype_variation_events,
-    cached_events_support_allele_at, is_colocated_snp_indel_merged_site,
-    merged_alleles_for_genotyping, merged_biallelic_sites_at_position, overlapping_events,
+    cached_events_support_allele_at, merged_alleles_for_genotyping,
+    merged_biallelic_sites_at_position, merged_site_uses_joint_gls, overlapping_events,
     remap_alt_onto_longer_ref, variation_events_at_position_from_cache, VariationEvent,
 };
 use crate::genome_loc::GenomePosition;
