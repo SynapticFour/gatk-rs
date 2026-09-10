@@ -1,10 +1,14 @@
 import htsjdk.samtools.SAMFileHeader;
 import htsjdk.samtools.SAMUtils;
+import htsjdk.variant.variantcontext.VariantContext;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeSet;
+import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.AssemblyBasedCallerUtils;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.HaplotypeCallerEngine;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.PairHMMLikelihoodCalculationEngine;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.ReadLikelihoodCalculationEngine;
@@ -12,6 +16,7 @@ import org.broadinstitute.hellbender.utils.genotyper.AlleleLikelihoods;
 import org.broadinstitute.hellbender.utils.genotyper.IndexedAlleleList;
 import org.broadinstitute.hellbender.utils.genotyper.LikelihoodMatrix;
 import org.broadinstitute.hellbender.utils.genotyper.SampleList;
+import org.broadinstitute.hellbender.utils.haplotype.EventMap;
 import org.broadinstitute.hellbender.utils.haplotype.Haplotype;
 import org.broadinstitute.hellbender.utils.pairhmm.PairHMM;
 import org.broadinstitute.hellbender.utils.pairhmm.PairHMMInputScoreImputation;
@@ -27,8 +32,18 @@ import org.broadinstitute.hellbender.utils.read.ReadUtils;
 public final class HcParityLlInputDump implements ReadLikelihoodCalculationEngine {
 
     private final ReadLikelihoodCalculationEngine inner;
+    private static String dumpPrefix = "6R124";
+    private static int vcLoc = -1;
 
     public static void installOn(final HaplotypeCallerEngine engine) throws Exception {
+        installOn(engine, "6R124", -1);
+    }
+
+    public static void installOn(
+            final HaplotypeCallerEngine engine, final String prefix, final int loc)
+            throws Exception {
+        dumpPrefix = prefix;
+        vcLoc = loc;
         final Field f =
                 HaplotypeCallerEngine.class.getDeclaredField("likelihoodCalculationEngine");
         f.setAccessible(true);
@@ -91,6 +106,7 @@ public final class HcParityLlInputDump implements ReadLikelihoodCalculationEngin
         for (int i = 0; i < haplotypeList.size(); i++) {
             dumpHap(i, haplotypeList.get(i));
         }
+        dumpEventMapsAndVcs(haplotypeList);
         int oi = 0;
         for (final List<GATKRead> reads : perSampleReadList.values()) {
             for (final GATKRead r : reads) {
@@ -145,6 +161,111 @@ public final class HcParityLlInputDump implements ReadLikelihoodCalculationEngin
         dumpMatrix(result, "stored");
         kv("stored_evidence_count", Integer.toString(result.evidenceCount()));
         return result;
+    }
+
+    private static void dumpEventMapsAndVcs(final List<Haplotype> haplotypeList) {
+        final TreeSet<String> union = new TreeSet<>();
+        int nWithMap = 0;
+        int nRefEvents = 0;
+        for (int i = 0; i < haplotypeList.size(); i++) {
+            final Haplotype h = haplotypeList.get(i);
+            final EventMap em = h.getEventMap();
+            if (em == null) {
+                kv("em", "idx=" + i + "\thash=" + fnv1a64Hex(h.getBases()) + "\tevent_n=0\tmap=null");
+                continue;
+            }
+            nWithMap++;
+            final ArrayList<VariantContext> evs = new ArrayList<>();
+            for (final Object o : em.values()) {
+                evs.add((VariantContext) o);
+            }
+            kv(
+                    "em",
+                    "idx="
+                            + i
+                            + "\thash="
+                            + fnv1a64Hex(h.getBases())
+                            + "\tisRef="
+                            + h.isReference()
+                            + "\tevent_n="
+                            + evs.size());
+            for (final VariantContext vc : evs) {
+                final String alt =
+                        vc.getAlternateAlleles().isEmpty()
+                                ? "."
+                                : vc.getAlternateAlleles().get(0).getBaseString();
+                final String key =
+                        vc.getStart() + ":" + vc.getReference().getBaseString() + ">" + alt;
+                union.add(key);
+                if (h.isReference()) {
+                    nRefEvents++;
+                }
+                kv(
+                        "em_event",
+                        "idx="
+                                + i
+                                + "\thash="
+                                + fnv1a64Hex(h.getBases())
+                                + "\tstart="
+                                + vc.getStart()
+                                + "\tend="
+                                + vc.getEnd()
+                                + "\tref="
+                                + vc.getReference().getBaseString()
+                                + "\talt="
+                                + alt);
+            }
+        }
+        kv("em_haps_with_map", Integer.toString(nWithMap));
+        kv("em_union_n", Integer.toString(union.size()));
+        kv("em_ref_hap_event_rows", Integer.toString(nRefEvents));
+        for (final String key : union) {
+            kv("em_union", key);
+        }
+        if (vcLoc <= 0) {
+            return;
+        }
+        try {
+            final List events =
+                    AssemblyBasedCallerUtils.getVariantContextsFromActiveHaplotypes(
+                            vcLoc, haplotypeList, true);
+            kv("vc_loc", Integer.toString(vcLoc));
+            kv("vc_n", Integer.toString(events.size()));
+            for (int i = 0; i < events.size(); i++) {
+                final VariantContext vc = (VariantContext) events.get(i);
+                kv(
+                        "vc",
+                        "i="
+                                + i
+                                + "\tstart="
+                                + vc.getStart()
+                                + "\tend="
+                                + vc.getEnd()
+                                + "\tref="
+                                + vc.getReference().getBaseString()
+                                + "\talts="
+                                + altList(vc)
+                                + "\tnAlleles="
+                                + vc.getNAlleles());
+            }
+            final List eventsNoSpan =
+                    AssemblyBasedCallerUtils.getVariantContextsFromActiveHaplotypes(
+                            vcLoc, haplotypeList, false);
+            kv("vc_n_no_span", Integer.toString(eventsNoSpan.size()));
+        } catch (final Exception e) {
+            kv("vc_error", e.getClass().getSimpleName() + "\t" + String.valueOf(e.getMessage()));
+        }
+    }
+
+    private static String altList(final VariantContext vc) {
+        final StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < vc.getAlternateAlleles().size(); i++) {
+            if (i > 0) {
+                sb.append(",");
+            }
+            sb.append(vc.getAlternateAlleles().get(i).getBaseString());
+        }
+        return sb.length() == 0 ? "." : sb.toString();
     }
 
     private static void dumpHap(final int idx, final Haplotype h) {
@@ -379,6 +500,6 @@ public final class HcParityLlInputDump implements ReadLikelihoodCalculationEngin
     }
 
     private static void kv(final String key, final String value) {
-        System.out.println("6R124\t" + key + "\t" + value);
+        System.out.println(dumpPrefix + "\t" + key + "\t" + value);
     }
 }

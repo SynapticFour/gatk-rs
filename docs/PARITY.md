@@ -64,6 +64,33 @@ Remaining **C** regions are predominantly Stage E haplotype-content differences 
 internal graph topology UNKNOWN) and Stage D/G/H cases where an allele exists in EventMap
 but is not emitted.
 
+## Independent chr20_tiny genotype-boundary holdouts (6R.130–6R.149)
+
+Engineering discovery on `20:29455000-29456500` (target SNP `20:29456196 A/T`, HG001).
+**Not** a claim-matrix Yes row and **not** chr20 VCF allele-set closure.
+
+Diagnostic k-best uses `GATK_RS_EXPERIMENTAL_KBEST_POLICY=unbounded_diagnostic` so the
+Java top-128 haplotype population can be compared. Production SeqGraph k-best remains
+`legacy_1024`. Resource policy is experimental only:
+[`parity/KBEST_RESOURCE_POLICY.md`](parity/KBEST_RESOURCE_POLICY.md). Forensic
+`docs/parity/*_REPORT.md` files stay local (gitignored).
+
+Closed on this fixture, within the established Java-float / Rust-f64 residual:
+
+haplotype list / trim / assemble → SeqGraph k-best (Java top-128 under diagnostic
+policy) → EventMap genomic identity → PairHMM inputs / normalization → poorly-modeled
+KEEP **201×25** → `filterAlleles` / realign (two best-haplotype winner-index differences
+are non-causal) → haplotype→allele mapping **25/25** → max-marginalize → raw diploid GLs.
+
+`calculateGLsForThisEvent` is NO_CALL + PL. GT/PL formatting, AD, QUAL, L9, and VCF
+emission are **not** claimed. Next arrow: `retainEvidence` overlap and
+`calculateGenotypes` / genotype priors.
+
+```text
+HOLDOUT_6R149=1 GATK_RS_EXPERIMENTAL_KBEST_POLICY=unbounded_diagnostic \
+  cargo test -p gatk-haplotypecaller --test holdout_6r149_genotype_entry -- --test-threads=1
+```
+
 ## How parity is established
 
 Algorithmic equivalence is **not** “the Rust file looks like the Java class.” It is:
@@ -118,8 +145,9 @@ cargo test -p gatk-haplotypecaller --test p12_call_none_mid_b_test
 HOLDOUT_6R43=1 cargo test -p gatk-haplotypecaller --test holdout_6r43_test
 ```
 
-`six_r*` tests under `gatk-haplotypecaller` pin the contracts above without requiring
-the 6R markdown reports.
+`six_r*` tests under `gatk-haplotypecaller` pin the mid-B contracts above without
+requiring the 6R markdown reports. Chr20_tiny genotype-entry holdouts are env-gated
+(`HOLDOUT_6R130`…`HOLDOUT_6R149`); production k-best is unchanged unless that env is set.
 
 Independent-region discovery (not whole-codebase parity; 6R.43 snapshot):
 [`parity/6R.43_HOLDOUT_MATRIX.md`](parity/6R.43_HOLDOUT_MATRIX.md).

@@ -36,6 +36,13 @@ fix → regression. See [`PARITY.md`](PARITY.md).
 Genome-wide / autosome HC equivalence; other samples; intervals where reservoir
 `nextInt` interleaves with QD; remaining claim-matrix waivers (W-H1, W-H3, …).
 
+## Later independent holdouts (not a Yes row)
+
+Chr20_tiny genotype-boundary discovery through raw GLs (6R.130–6R.149) is recorded
+in [`PARITY.md`](PARITY.md). It is **not** a claim-matrix Yes row and does not
+establish chr20 VCF allele-set closure. Production SeqGraph k-best remains
+`legacy_1024`.
+
 ## Test status (6R.41 / 6R.42 hygiene)
 
 After this documentation cleanup: `gatk-haplotypecaller --lib` **576** passed

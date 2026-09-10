@@ -1,7 +1,7 @@
 # Architecture
 
 gatk-rs is a native Rust workspace focused on a **GATK 4.4–aligned HaplotypeCaller**.
-It is an independent community project (see [`NOTICE.md`](../NOTICE.md)). Product claims
+It is an independent research reimplementation (see [`NOTICE.md`](../NOTICE.md)). Product claims
 live only in [`CLAIM_MATRIX.md`](CLAIM_MATRIX.md). Canonical mid-B HC Java 4.4
 contracts: [`PARITY.md`](PARITY.md).
 
@@ -80,3 +80,10 @@ Pinned Java oracle: [`GATK_PINNED.env`](GATK_PINNED.env) (GATK 4.4.0.0).
 Prefer Rust-native modules and algorithm parity with the pinned Java behavior over cloning
 Java class trees. Observable contracts and waivers are recorded in [`CLAIM_MATRIX.md`](CLAIM_MATRIX.md).
 Further detail belongs in Rustdoc and code comments, not additional markdown sprawl.
+
+SeqGraph k-best **K** (completed paths) is separate from the live-frontier **resource
+policy**. Production default remains `legacy_1024`. Experimental env
+`GATK_RS_EXPERIMENTAL_KBEST_POLICY` (`unbounded_diagnostic` / `byte_budget`) is not a
+product contract: [`parity/KBEST_RESOURCE_POLICY.md`](parity/KBEST_RESOURCE_POLICY.md).
+Chr20_tiny 6R.130–6R.149 (raw GLs, not VCF closure) is engineering discovery in
+[`PARITY.md`](PARITY.md), not a claim-matrix Yes row.

@@ -12,6 +12,51 @@ use std::sync::Arc;
 /// Default GATK HC `--max-mnp-distance` (HaplotypeCallerArgumentCollection).
 pub const DEFAULT_MAX_MNP_DISTANCE: usize = 0;
 
+fn fnv1a64_bases(bases: &[u8]) -> u64 {
+    let mut h = 0xcbf29ce484222325u64;
+    for &b in bases {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+/// Per-input haplotype outcome of `trim_to` (6R.131 TEST-ONLY). Idle unless observe is on.
+#[derive(Clone, Debug)]
+pub struct TrimIoRow {
+    pub input_idx: usize,
+    pub input_fnv: u64,
+    pub input_len: usize,
+    pub input_is_ref: bool,
+    pub outcome: &'static str,
+    pub output_fnv: u64,
+    pub output_len: usize,
+}
+
+thread_local! {
+    static TRIM_IO_ON: std::cell::Cell<bool> = std::cell::Cell::new(false);
+    static TRIM_IO: std::cell::RefCell<Vec<TrimIoRow>> = std::cell::RefCell::new(Vec::new());
+}
+
+/// Enable `trim_to` input/output mapping capture (TEST-ONLY).
+pub fn begin_trim_io_observe() {
+    TRIM_IO_ON.with(|c| c.set(true));
+    TRIM_IO.with(|v| v.borrow_mut().clear());
+}
+
+/// Disable capture and take `trim_to` mapping rows.
+pub fn take_trim_io() -> Vec<TrimIoRow> {
+    TRIM_IO_ON.with(|c| c.set(false));
+    TRIM_IO.with(|v| std::mem::take(&mut *v.borrow_mut()))
+}
+
+fn capture_trim_io(row: TrimIoRow) {
+    if !TRIM_IO_ON.with(|c| c.get()) {
+        return;
+    }
+    TRIM_IO.with(|v| v.borrow_mut().push(row));
+}
+
 /// Rust mirror of GATK `AssemblyResultSet` (haplotype list + variation / kmer metadata).
 /// # Invariants
 /// `variation_present` stays false until calling-path event regeneration ([`Self::from_assembly_for_calling`]).
@@ -210,16 +255,46 @@ impl AssemblyResultSet {
         let mut trimmed_list: Vec<Haplotype> = Vec::new();
         let mut orig_was_ref: Vec<bool> = Vec::new();
         let mut index_by_bases: HashMap<Vec<u8>, usize> = HashMap::new();
-        for h in &self.haplotypes {
+        for (input_idx, h) in self.haplotypes.iter().enumerate() {
+            let input_fnv = fnv1a64_bases(&h.bases);
             let Some(t) = h.trim(&span, true) else {
+                capture_trim_io(TrimIoRow {
+                    input_idx,
+                    input_fnv,
+                    input_len: h.bases.len(),
+                    input_is_ref: h.is_reference,
+                    outcome: "dropped",
+                    output_fnv: 0,
+                    output_len: 0,
+                });
                 continue;
             };
+            let output_fnv = fnv1a64_bases(&t.bases);
+            let output_len = t.bases.len();
             if let Some(&idx) = index_by_bases.get(&t.bases) {
+                capture_trim_io(TrimIoRow {
+                    input_idx,
+                    input_fnv,
+                    input_len: h.bases.len(),
+                    input_is_ref: h.is_reference,
+                    outcome: "collapsed",
+                    output_fnv,
+                    output_len,
+                });
                 if h.is_reference {
                     trimmed_list[idx] = t;
                     orig_was_ref[idx] = true;
                 }
             } else {
+                capture_trim_io(TrimIoRow {
+                    input_idx,
+                    input_fnv,
+                    input_len: h.bases.len(),
+                    input_is_ref: h.is_reference,
+                    outcome: "kept",
+                    output_fnv,
+                    output_len,
+                });
                 // CLONE: HashMap key must outlive the moved haplotype.
                 index_by_bases.insert(t.bases.clone(), trimmed_list.len());
                 orig_was_ref.push(h.is_reference);

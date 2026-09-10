@@ -276,7 +276,7 @@ footer {{ margin-top: 2rem; color: #556; font-size: 0.85rem; }}
 </table>
 <h2>Regressions vs last green</h2>
 {reg_html}
-<footer>Independent community project — HC→Combine→Genotype→Filter joint E2E via hap.py.</footer>
+<footer>Independent research reimplementation — HC→Combine→Genotype→Filter joint E2E via hap.py.</footer>
 </body>
 </html>
 """

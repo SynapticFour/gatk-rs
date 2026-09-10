@@ -9,7 +9,7 @@ The trust lever is: **same inputs → parallel Java + Rust → your comparison**
 Authoritative claims / non-claims: [`CLAIM_MATRIX.md`](CLAIM_MATRIX.md).  
 Pinned Java GATK: [`GATK_PINNED.env`](GATK_PINNED.env) (**4.4.0.0**).
 
-> gatk-rs is an independent community project, **not** affiliated with the Broad
+> gatk-rs is an independent research reimplementation, **not** affiliated with the Broad
 > Institute. Maturity is **Alpha** — start with a small interval, not a clinical
 > cutover.
 

@@ -1,4 +1,4 @@
-//! gatk-rs CLI entry point (independent community project — not Broad GATK).
+//! gatk-rs CLI entry point (independent research reimplementation — not Broad GATK).
 //! GATK-style flags are accepted for pipeline familiarity; this binary is native
 //! Rust and does not launch the Broad GATK JVM.
 
@@ -34,7 +34,7 @@ use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 const DISCLAIMER_HELP: &str = "\
-DISCLAIMER: gatk-rs is an independent, community-driven reimplementation and is \
+DISCLAIMER: gatk-rs is an independent research reimplementation (single-steward) and is \
 not affiliated with, endorsed by, or supported by the Broad Institute. \
 \"GATK\" is a trademark of the Broad Institute; this project's name and branding \
 will be revisited if requested. GATK-style flags (including --java-options) are \
@@ -47,7 +47,7 @@ See NOTICE.md and docs/CLAIM_MATRIX.md.";
     version = env!("CARGO_PKG_VERSION"),
     author = "GATK-RS Contributors",
     about = "gatk-rs: Rust-native GATK4 HaplotypeCaller + germline joint/filter spine (Alpha experiment — not Broad GATK)",
-    long_about = "gatk-rs is an independent, community-driven reimplementation and is not \
+    long_about = "gatk-rs is an independent research reimplementation (single-steward) and is not \
 affiliated with, endorsed by, or supported by the Broad Institute. \
 \"GATK\" is a trademark of the Broad Institute; this project's name and branding \
 will be revisited if requested.\n\n\
@@ -795,7 +795,7 @@ gatk-rs is a native Rust binary and does not start a JVM \
                 // Do not impersonate Broad GATK. Expose our version and the pinned
                 // Java oracle version used for differential parity testing only.
                 println!(
-                    "gatk-rs {} (independent community project — not Broad Institute GATK)",
+                    "gatk-rs {} (independent research reimplementation — not Broad Institute GATK)",
                     env!("CARGO_PKG_VERSION")
                 );
                 println!(

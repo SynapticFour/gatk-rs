@@ -93,7 +93,11 @@ pub mod runtime_config;
 /// Optional observe-only semantic checkpoints (`GATK_RS_SEMANTIC_TRACE`).
 pub mod semantic_trace;
 pub mod seq_graph;
+/// Forensic-only compact/lazy k-best (6R.136). Not used by production search.
+pub mod seq_kbest_compact_forensic;
 pub mod seq_kbest_haplotype;
+/// Experimental SeqGraph k-best resource policy (6R.140). Default remains legacy_1024.
+pub mod seq_kbest_resource_policy;
 /// Arc-backed BAM records shared between the shard read cache and assembly regions.
 pub mod shared_bam;
 pub mod smith_waterman;
@@ -351,7 +355,7 @@ pub use assembly_region_trimmer::{
 /// CLI diagnostic (`gatk-cli DumpSmoothedActivity`) — requires `dev-dumps`.
 #[cfg(feature = "dev-dumps")]
 pub use assembly_regions_dump::dump_smoothed_activity_tsv;
-pub use assembly_result_set::AssemblyResultSet;
+pub use assembly_result_set::{begin_trim_io_observe, take_trim_io, AssemblyResultSet, TrimIoRow};
 pub use bamout::{BamoutWriter, BamoutWriterConfig};
 pub use bio_ids::{
     AlleleDepth, AlleleIndex, DiploidGenotypeIndex, GenotypeQuality, HaplotypeIndex, KmerSize,
@@ -360,12 +364,14 @@ pub use bio_ids::{
 };
 pub use combine_gvcfs::{run_combine_gvcfs, CombineGvcfsArgs};
 pub use engine::{
-    begin_likelihood_pipeline_observe, begin_poorly_modeled_observe,
-    observe_poorly_modeled_haplotypes, take_likelihood_pipeline_cells,
-    take_likelihood_pipeline_snaps, take_poorly_modeled_cells, take_poorly_modeled_haplotypes,
-    take_poorly_modeled_observe, CallRegionArgs, CallRegionMode, CallRegionOutcome,
-    HaplotypeCallerEngine, LikelihoodPipelineCell, LikelihoodPipelineSnap, PoorlyModeledHapColumn,
-    PoorlyModeledObserveCell, PoorlyModeledObserveRow,
+    begin_hap_list_observe, begin_likelihood_pipeline_observe, begin_poorly_modeled_observe,
+    begin_realign_observe, observe_poorly_modeled_haplotypes, take_hap_list_snaps,
+    take_hap_list_trim_span, take_likelihood_pipeline_cells, take_likelihood_pipeline_snaps,
+    take_poorly_modeled_cells, take_poorly_modeled_haplotypes, take_poorly_modeled_observe,
+    take_realign_observe, CallRegionArgs, CallRegionMode, CallRegionOutcome, HapListColumn,
+    HapListSnap, HapListTrimSpan, HaplotypeCallerEngine, LikelihoodPipelineCell,
+    LikelihoodPipelineSnap, PoorlyModeledHapColumn, PoorlyModeledObserveCell,
+    PoorlyModeledObserveRow, RealignObserveRow,
 };
 pub use event_map::{AlleleBytes, Event, EventMap, IndelSpan};
 pub use feature_context::{FeatureContext, FeatureDataSources, FeatureLocatable};
