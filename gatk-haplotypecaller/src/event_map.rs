@@ -1614,6 +1614,89 @@ mod tests {
         );
     }
 
+    /// 6R.142: genomic EventMap coords are invariant under Java's
+    /// `fullReferenceWithPadding` + `alignmentStartHapwrtRef` packing versus the
+    /// assembly graph-pad window + smaller offset. Same haplotype bases/CIGAR.
+    #[test]
+    fn eventmap_genomic_coords_invariant_under_left_pad_and_align_start() {
+        let graph = b"ACGTACGTACGTACGT";
+        let mut full = vec![b'N'; 8];
+        full.extend_from_slice(graph);
+        let graph_loc = 1000u64;
+        let full_loc = graph_loc - 8;
+
+        let mut ref_short = hap_with_cigar(graph, &[(graph.len(), CigarOperator::Match)]);
+        ref_short.is_reference = true;
+        let mut alt_bases = graph.to_vec();
+        alt_bases[4] = b'T';
+        let alt_short = hap_with_cigar(&alt_bases, &[(alt_bases.len(), CigarOperator::Match)]);
+
+        let short_map =
+            EventMap::from_haplotype_and_reference(&alt_short, &ref_short, graph, graph_loc, 0);
+        let short_ev = short_map.variation_events("chrT", graph_loc);
+
+        let mut alt_full = alt_short.clone();
+        alt_full.alignment_start_hap_wrt_ref = 8;
+        let mut ref_full = hap_with_cigar(&full, &[(full.len(), CigarOperator::Match)]);
+        ref_full.is_reference = true;
+        let full_map =
+            EventMap::from_haplotype_and_reference(&alt_full, &ref_full, &full, full_loc, 0);
+        let full_ev = full_map.variation_events("chrT", full_loc);
+
+        assert_eq!(short_ev.len(), 1);
+        assert_eq!(full_ev.len(), 1);
+        assert_eq!(short_ev[0].start_1based.get(), 1004);
+        assert_eq!(full_ev[0].start_1based, short_ev[0].start_1based);
+        assert_eq!(full_ev[0].ref_allele, short_ev[0].ref_allele);
+        assert_eq!(full_ev[0].alt_allele, short_ev[0].alt_allele);
+        assert_eq!(short_ev[0].ref_allele, "A");
+        assert_eq!(short_ev[0].alt_allele, "T");
+    }
+
+    /// 6R.143: `getVariantContextsFromActiveHaplotypes` is EventMap filter+dedup.
+    /// It does not drop haplotypes from the list that later reaches PairHMM.
+    #[test]
+    fn variant_contexts_at_locus_do_not_filter_haplotype_list() {
+        let ref_bytes = b"ACGTACGT";
+        let mut ref_hap = hap_with_cigar(ref_bytes, &[(8, CigarOperator::Match)]);
+        ref_hap.is_reference = true;
+        let mut alt_same_a = hap_with_cigar(b"ACTTACGT", &[(8, CigarOperator::Match)]);
+        alt_same_a.alignment_start_hap_wrt_ref = 0;
+        let mut alt_same_b = hap_with_cigar(b"ACTTACGT", &[(8, CigarOperator::Match)]);
+        alt_same_b.alignment_start_hap_wrt_ref = 0;
+        let mut alt_other = hap_with_cigar(b"ACGTACAT", &[(8, CigarOperator::Match)]);
+        alt_other.alignment_start_hap_wrt_ref = 0;
+        let haps = [ref_hap, alt_same_a, alt_same_b, alt_other];
+        let n_haps = haps.len();
+        let cache = build_per_haplotype_variation_events(&haps, ref_bytes, 1000, 0, "chrT");
+        assert_eq!(cache.events_by_hap.len(), n_haps);
+        assert!(
+            cache.events_by_hap[0].is_empty(),
+            "reference haplotype contributes no VariantContexts: {:?}",
+            cache.events_by_hap[0]
+        );
+        let at_snp = variation_events_at_position_from_cache(&cache, 1002, true);
+        assert_eq!(
+            at_snp.len(),
+            1,
+            "coincident SNPs dedup by (start, alleles): {at_snp:?}"
+        );
+        assert_eq!(at_snp[0].ref_allele, "G");
+        assert_eq!(at_snp[0].alt_allele, "T");
+        let at_other = variation_events_at_position_from_cache(&cache, 1006, true);
+        assert_eq!(at_other.len(), 1);
+        assert_eq!(at_other[0].ref_allele, "G");
+        assert_eq!(at_other[0].alt_allele, "A");
+        assert_eq!(
+            haps.len(),
+            n_haps,
+            "VariantContext construction must not remove haplotypes from the PairHMM list"
+        );
+        let empty_at = variation_events_at_position_from_cache(&cache, 1000, true);
+        assert!(empty_at.is_empty());
+        assert_eq!(haps.len(), n_haps);
+    }
+
     #[test]
     fn merge_colocated_is_not_hardcoded_to_t_g() {
         let snp = VariationEvent::from_alleles("20", 2000, "A", "C");

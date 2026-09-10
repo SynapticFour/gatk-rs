@@ -1,7 +1,9 @@
 //! Test-only poorly-modeled / post-kernel pipeline capture (split from `engine.rs` for N-3).
 //! Idle unless [`begin_poorly_modeled_observe`] / [`begin_likelihood_pipeline_observe`]
-//! is called on this thread. Does not change PairHMM or QUAL arithmetic.
+//! / [`begin_hap_list_observe`] / [`begin_realign_observe`] is called on this thread.
+//! Does not change PairHMM or QUAL arithmetic.
 
+use crate::assembly_region_iterator::AssemblyRegion;
 use crate::haplotype::Haplotype;
 use crate::region_read_likelihood::RegionReadLikelihood;
 
@@ -73,7 +75,7 @@ fn fnv1a64_hap_bases(bases: &[u8]) -> u64 {
     h
 }
 
-fn observe_cigar_string(rec: &rust_htslib::bam::Record) -> String {
+pub(super) fn observe_cigar_string(rec: &rust_htslib::bam::Record) -> String {
     use rust_htslib::bam::record::Cigar;
     let mut out = String::new();
     for c in rec.cigar().iter() {
@@ -398,4 +400,299 @@ pub(super) fn capture_likelihood_pipeline_stage(
     haplotypes: &[Haplotype],
 ) {
     capture_likelihood_pipeline_inner(stage, ll, haplotypes);
+}
+
+/// One haplotype column at a named pre-PairHMM list stage (6R.130/6R.131 TEST-ONLY).
+#[derive(Clone, Debug)]
+pub struct HapListColumn {
+    pub index: usize,
+    pub fnv1a: u64,
+    pub is_reference: bool,
+    pub len: usize,
+    pub loc_start: u64,
+    pub loc_end: u64,
+    pub cigar: String,
+}
+
+/// Snapshot of `assembly.haplotypes` at a named stage (6R.130 TEST-ONLY).
+#[derive(Clone, Debug)]
+pub struct HapListSnap {
+    pub stage: &'static str,
+    pub n: usize,
+    pub columns: Vec<HapListColumn>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct HapListTrimSpan {
+    pub active_start: u64,
+    pub active_end: u64,
+    pub trim_start: u64,
+    pub trim_end: u64,
+}
+
+thread_local! {
+    static HAP_LIST_OBSERVE_ON: std::cell::Cell<bool> = std::cell::Cell::new(false);
+    static HAP_LIST_SNAPS: std::cell::RefCell<Vec<HapListSnap>> =
+        std::cell::RefCell::new(Vec::new());
+    static HAP_LIST_TRIM_SPAN: std::cell::RefCell<Option<HapListTrimSpan>> =
+        std::cell::RefCell::new(None);
+}
+
+/// Enable haplotype-list stage capture for this thread (TEST-ONLY dump).
+pub fn begin_hap_list_observe() {
+    HAP_LIST_OBSERVE_ON.with(|c| c.set(true));
+    HAP_LIST_SNAPS.with(|v| v.borrow_mut().clear());
+    HAP_LIST_TRIM_SPAN.with(|v| *v.borrow_mut() = None);
+}
+
+/// Disable capture and take accumulated haplotype-list snapshots.
+pub fn take_hap_list_snaps() -> Vec<HapListSnap> {
+    HAP_LIST_OBSERVE_ON.with(|c| c.set(false));
+    HAP_LIST_SNAPS.with(|v| std::mem::take(&mut *v.borrow_mut()))
+}
+
+/// Trim interval used by `trim_to` (TEST-ONLY). `None` unless observe is on.
+pub fn take_hap_list_trim_span() -> Option<HapListTrimSpan> {
+    HAP_LIST_TRIM_SPAN.with(|v| v.borrow_mut().take())
+}
+
+/// Record the active and padded-variant spans used for `trim_to`. Idle unless observe is on.
+pub(super) fn capture_hap_list_trim_span(region: &AssemblyRegion, trimmed: &AssemblyRegion) {
+    if !HAP_LIST_OBSERVE_ON.with(|c| c.get()) {
+        return;
+    }
+    HAP_LIST_TRIM_SPAN.with(|s| {
+        *s.borrow_mut() = Some(HapListTrimSpan {
+            active_start: region.start.get(),
+            active_end: region.end.get(),
+            trim_start: trimmed.extended_start.get(),
+            trim_end: trimmed.extended_end.get(),
+        });
+    });
+}
+
+/// Capture haplotype sequence identity at a named pre-PairHMM stage. Idle unless observe is on.
+pub(super) fn capture_hap_list_stage(stage: &'static str, haplotypes: &[Haplotype]) {
+    if !HAP_LIST_OBSERVE_ON.with(|c| c.get()) {
+        return;
+    }
+    let columns: Vec<HapListColumn> = haplotypes
+        .iter()
+        .enumerate()
+        .map(|(index, h)| {
+            let (loc_start, loc_end) = h
+                .genome_loc
+                .map(|g| (g.start_1based(), g.end_1based()))
+                .unwrap_or((0, 0));
+            HapListColumn {
+                index,
+                fnv1a: fnv1a64_hap_bases(&h.bases),
+                is_reference: h.is_reference,
+                len: h.bases.len(),
+                loc_start,
+                loc_end,
+                cigar: h
+                    .cigar
+                    .as_ref()
+                    .map(|c| c.to_gatk_string())
+                    .unwrap_or_else(|| ".".to_string()),
+            }
+        })
+        .collect();
+    HAP_LIST_SNAPS.with(|s| {
+        s.borrow_mut().push(HapListSnap {
+            stage,
+            n: columns.len(),
+            columns,
+        });
+    });
+}
+
+/// One read at `realignReadsToTheirBestHaplotype` (6R.147/6R.148 TEST-ONLY).
+#[derive(Clone, Debug)]
+pub struct RealignObserveRow {
+    pub qname: String,
+    pub flags: u16,
+    pub best_hap_index: usize,
+    pub best_hap_fnv: u64,
+    pub best_is_ref: bool,
+    pub orig_start_1based: i64,
+    pub orig_end_1based: i64,
+    pub orig_cigar: String,
+    pub orig_mq: u8,
+    pub orig_seq_len: usize,
+    pub orig_seq_fnv: u64,
+    pub orig_qual_fnv: u64,
+    pub orig_bi_fnv: u64,
+    pub orig_bd_fnv: u64,
+    pub orig_has_bi: bool,
+    pub orig_has_bd: bool,
+    pub orig_has_hc: bool,
+    pub new_start_1based: i64,
+    pub new_end_1based: i64,
+    pub new_cigar: String,
+    pub new_flags: u16,
+    pub new_mq: u8,
+    pub new_seq_len: usize,
+    pub new_seq_fnv: u64,
+    pub new_qual_fnv: u64,
+    pub new_bi_fnv: u64,
+    pub new_bd_fnv: u64,
+    pub new_has_bi: bool,
+    pub new_has_bd: bool,
+    pub new_has_hc: bool,
+    pub n_reads: usize,
+    pub n_haps: usize,
+}
+
+/// Pre-realign semantic snapshot (TEST-ONLY).
+#[derive(Clone, Debug)]
+pub struct RealignOrigSnap {
+    pub qname: String,
+    pub flags: u16,
+    pub start_1based: i64,
+    pub end_1based: i64,
+    pub cigar: String,
+    pub mq: u8,
+    pub seq_len: usize,
+    pub seq_fnv: u64,
+    pub qual_fnv: u64,
+    pub bi_fnv: u64,
+    pub bd_fnv: u64,
+    pub has_bi: bool,
+    pub has_bd: bool,
+    pub has_hc: bool,
+}
+
+thread_local! {
+    static REALIGN_OBSERVE_ON: std::cell::Cell<bool> = std::cell::Cell::new(false);
+    static REALIGN_OBSERVE: std::cell::RefCell<Vec<RealignObserveRow>> =
+        std::cell::RefCell::new(Vec::new());
+}
+
+fn aux_z_fnv(rec: &rust_htslib::bam::Record, tag: &[u8]) -> (bool, u64) {
+    match rec.aux(tag) {
+        Ok(rust_htslib::bam::record::Aux::String(s)) => (true, fnv1a64_hap_bases(s.as_bytes())),
+        _ => (false, 0),
+    }
+}
+
+fn snap_one(rec: &rust_htslib::bam::Record) -> RealignOrigSnap {
+    let (has_bi, bi_fnv) = aux_z_fnv(rec, b"BI");
+    let (has_bd, bd_fnv) = aux_z_fnv(rec, b"BD");
+    let has_hc = rec.aux(b"HC").is_ok();
+    RealignOrigSnap {
+        qname: String::from_utf8_lossy(rec.qname()).into_owned(),
+        flags: rec.flags(),
+        start_1based: rec.pos() + 1,
+        end_1based: i64::from(crate::read_unclip::alignment_end_1based(rec)),
+        cigar: observe_cigar_string(rec),
+        mq: rec.mapq(),
+        seq_len: rec.seq().len(),
+        seq_fnv: fnv1a64_hap_bases(&rec.seq().as_bytes()),
+        qual_fnv: fnv1a64_hap_bases(rec.qual()),
+        bi_fnv,
+        bd_fnv,
+        has_bi,
+        has_bd,
+        has_hc,
+    }
+}
+
+/// Enable realign input/output capture for this thread (TEST-ONLY).
+pub fn begin_realign_observe() {
+    REALIGN_OBSERVE_ON.with(|c| c.set(true));
+    REALIGN_OBSERVE.with(|v| v.borrow_mut().clear());
+}
+
+pub(super) fn realign_observe_on() -> bool {
+    REALIGN_OBSERVE_ON.with(|c| c.get())
+}
+
+pub(super) fn snapshot_realign_orig(
+    reads: &[impl crate::shared_bam::BamRecordSlot],
+) -> Vec<RealignOrigSnap> {
+    reads.iter().map(|s| snap_one(s.as_record())).collect()
+}
+
+/// Disable capture and take accumulated realign rows.
+pub fn take_realign_observe() -> Vec<RealignObserveRow> {
+    REALIGN_OBSERVE_ON.with(|c| c.set(false));
+    REALIGN_OBSERVE.with(|v| std::mem::take(&mut *v.borrow_mut()))
+}
+
+pub(super) fn record_realign_observe(
+    orig: &[RealignOrigSnap],
+    reads: &[impl crate::shared_bam::BamRecordSlot],
+    haplotypes: &[Haplotype],
+    best_hap_per_read: &[usize],
+) {
+    if !REALIGN_OBSERVE_ON.with(|c| c.get()) {
+        return;
+    }
+    let n_reads = reads.len();
+    let n_haps = haplotypes.len();
+    REALIGN_OBSERVE.with(|rows| {
+        let mut rows = rows.borrow_mut();
+        for (i, slot) in reads.iter().enumerate() {
+            let rec = slot.as_record();
+            let after = snap_one(rec);
+            let best_i = best_hap_per_read.get(i).copied().unwrap_or(0);
+            let (best_fnv, best_is_ref) = haplotypes
+                .get(best_i)
+                .map(|h| (fnv1a64_hap_bases(&h.bases), h.is_reference))
+                .unwrap_or((0, false));
+            let empty = RealignOrigSnap {
+                qname: after.qname.clone(),
+                flags: after.flags,
+                start_1based: after.start_1based,
+                end_1based: after.end_1based,
+                cigar: after.cigar.clone(),
+                mq: after.mq,
+                seq_len: after.seq_len,
+                seq_fnv: after.seq_fnv,
+                qual_fnv: after.qual_fnv,
+                bi_fnv: 0,
+                bd_fnv: 0,
+                has_bi: false,
+                has_bd: false,
+                has_hc: false,
+            };
+            let before = orig.get(i).unwrap_or(&empty);
+            rows.push(RealignObserveRow {
+                qname: before.qname.clone(),
+                flags: before.flags,
+                best_hap_index: best_i,
+                best_hap_fnv: best_fnv,
+                best_is_ref,
+                orig_start_1based: before.start_1based,
+                orig_end_1based: before.end_1based,
+                orig_cigar: before.cigar.clone(),
+                orig_mq: before.mq,
+                orig_seq_len: before.seq_len,
+                orig_seq_fnv: before.seq_fnv,
+                orig_qual_fnv: before.qual_fnv,
+                orig_bi_fnv: before.bi_fnv,
+                orig_bd_fnv: before.bd_fnv,
+                orig_has_bi: before.has_bi,
+                orig_has_bd: before.has_bd,
+                orig_has_hc: before.has_hc,
+                new_start_1based: after.start_1based,
+                new_end_1based: after.end_1based,
+                new_cigar: after.cigar,
+                new_flags: after.flags,
+                new_mq: after.mq,
+                new_seq_len: after.seq_len,
+                new_seq_fnv: after.seq_fnv,
+                new_qual_fnv: after.qual_fnv,
+                new_bi_fnv: after.bi_fnv,
+                new_bd_fnv: after.bd_fnv,
+                new_has_bi: after.has_bi,
+                new_has_bd: after.has_bd,
+                new_has_hc: after.has_hc,
+                n_reads,
+                n_haps,
+            });
+        }
+    });
 }

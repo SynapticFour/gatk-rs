@@ -1,9 +1,9 @@
 # NOTICE
 
-## Independent community project (not Broad GATK)
+## Independent research project (not Broad GATK)
 
-gatk-rs (also referred to as GATK-RS in historical docs) is an **independent,
-community-driven reimplementation**. It is **not** affiliated with, endorsed by,
+gatk-rs (also referred to as GATK-RS in historical docs) is an **independent
+research reimplementation** (single-steward). It is **not** affiliated with, endorsed by,
 or supported by the Broad Institute or the official GATK project.
 
 “GATK” is a trademark of the Broad Institute. This project’s name, CLI branding,

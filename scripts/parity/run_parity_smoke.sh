@@ -93,7 +93,7 @@ check_modes=(
 check_extract_regex=(
   ""
   ""
-  "(?i)(The Genome Analysis Toolkit \\(GATK\\) v[0-9.]+|gatk-rs [0-9.]+ \\(independent community project)"
+  "(?i)(The Genome Analysis Toolkit \\(GATK\\) v[0-9.]+|gatk-rs [0-9.]+ \\(independent research reimplementation)"
   "(?i)validat"
   "Call germline SNPs and indels via local re-assembly of haplotypes"
   "PrintReads"

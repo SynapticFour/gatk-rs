@@ -51,15 +51,18 @@ pub use call_region_audit::{
 #[path = "engine_observe.rs"]
 mod engine_observe;
 pub use engine_observe::{
-    begin_likelihood_pipeline_observe, begin_poorly_modeled_observe,
-    observe_poorly_modeled_haplotypes, take_likelihood_pipeline_cells,
-    take_likelihood_pipeline_snaps, take_poorly_modeled_cells, take_poorly_modeled_haplotypes,
-    take_poorly_modeled_observe, LikelihoodPipelineCell, LikelihoodPipelineSnap,
-    PoorlyModeledHapColumn, PoorlyModeledObserveCell, PoorlyModeledObserveRow,
+    begin_hap_list_observe, begin_likelihood_pipeline_observe, begin_poorly_modeled_observe,
+    begin_realign_observe, observe_poorly_modeled_haplotypes, take_hap_list_snaps,
+    take_hap_list_trim_span, take_likelihood_pipeline_cells, take_likelihood_pipeline_snaps,
+    take_poorly_modeled_cells, take_poorly_modeled_haplotypes, take_poorly_modeled_observe,
+    take_realign_observe, HapListColumn, HapListSnap, HapListTrimSpan, LikelihoodPipelineCell,
+    LikelihoodPipelineSnap, PoorlyModeledHapColumn, PoorlyModeledObserveCell,
+    PoorlyModeledObserveRow, RealignObserveRow,
 };
 use engine_observe::{
-    capture_likelihood_pipeline_stage, capture_scored_likelihood_pipeline,
-    record_poorly_modeled_filter_read, record_poorly_modeled_hap_columns,
+    capture_hap_list_stage, capture_hap_list_trim_span, capture_likelihood_pipeline_stage,
+    capture_scored_likelihood_pipeline, realign_observe_on, record_poorly_modeled_filter_read,
+    record_poorly_modeled_hap_columns, record_realign_observe, snapshot_realign_orig,
     start_poorly_modeled_filter_pass,
 };
 
@@ -269,10 +272,12 @@ pub(crate) fn preserve_untrimmed_indel_haplotypes(
             let Some(t) = h.trim(&span, false) else {
                 continue;
             };
-            // B4: compare borrowed bases (avoid cloning every assembly hap for dedupe).
-            if !assembly.haplotypes.iter().any(|x| {
-                x.is_reference == t.is_reference && x.bases.as_slice() == t.bases.as_slice()
-            }) {
+            // Java `Haplotype.equals` is bases; skip a second REF-sequence PairHMM column.
+            if !assembly
+                .haplotypes
+                .iter()
+                .any(|x| x.bases.as_slice() == t.bases.as_slice())
+            {
                 assembly.haplotypes.push(t);
             }
         }
@@ -502,6 +507,7 @@ impl HaplotypeCallerEngine {
             ),
         );
         let mut untrimmed = assembled.assembly;
+        capture_hap_list_stage("after_assemble", &untrimmed.haplotypes);
         let assemble_finalized = assembled.finalized_reads;
 
         let ref_hap_u = untrimmed.haplotypes.iter().find(|h| h.is_reference);
@@ -675,7 +681,10 @@ impl HaplotypeCallerEngine {
         }
         let mut region_for_genotyping = AssemblyRegionTrimmer::apply_trim(region, &trim_result);
         remove_read_stubs_after_trim(&mut region_for_genotyping);
+        capture_hap_list_stage("before_trim", &untrimmed.haplotypes);
+        capture_hap_list_trim_span(region, &region_for_genotyping);
         let mut assembly = untrimmed.trim_to(&region_for_genotyping)?;
+        capture_hap_list_stage("after_trim_to", &assembly.haplotypes);
         #[cfg(test)]
         call_region_audit::note_hap_stage("after_trim_to", &assembly);
         if assembly.haplotypes.is_empty() {
@@ -715,6 +724,7 @@ impl HaplotypeCallerEngine {
             );
         }
         preserve_untrimmed_indel_haplotypes(&untrimmed, &mut assembly, &region_for_genotyping, sw);
+        capture_hap_list_stage("after_preserve_untrimmed", &assembly.haplotypes);
         if !args.is_strict_java() {
             for e in untrimmed.variation_events() {
                 if e.start_1based >= region_for_genotyping.start
@@ -921,6 +931,7 @@ impl HaplotypeCallerEngine {
         let mut event_map_synced_post_filter = false;
         if args.compute_read_likelihoods {
             crate::read_event_discovery::prune_spillover_supplement_haplotypes(&mut assembly);
+            capture_hap_list_stage("after_prune_spillover", &assembly.haplotypes);
             if args.is_strict_java() {
                 crate::hc_genotyping_engine::supplement_mid_b_sparse_softclip_alt_reads_for_pairhmm(
                     &mut region_for_genotyping.reads,
@@ -948,6 +959,7 @@ impl HaplotypeCallerEngine {
                 ),
             );
             let ll_normalize = !args.is_strict_java();
+            capture_hap_list_stage("pairhmm_input", &assembly.haplotypes);
             let pairhmm_t0 = std::time::Instant::now();
             let (ll, scored) = compute_region_read_likelihoods(
                 &region_for_genotyping,
@@ -1102,6 +1114,11 @@ impl HaplotypeCallerEngine {
             // A3: realign via Arc COW (`BamRecordSlot`) — no deep clone of every BAM payload.
             let t_realign = std::time::Instant::now();
             let _sw_prof = crate::hc_profile::begin(crate::hc_profile::Stage::SmithWaterman);
+            let orig_snaps = if realign_observe_on() {
+                snapshot_realign_orig(&region_for_genotyping.reads)
+            } else {
+                Vec::new()
+            };
             let (_realigned, best_hap_per_read) = realign_reads_to_best_haplotype(
                 region_for_genotyping.reads.as_mut_slice(),
                 &assembly.haplotypes,
@@ -1109,6 +1126,12 @@ impl HaplotypeCallerEngine {
                 assembly.padded_reference_start_1based(),
                 &args.assemble.assembler.haplotype_to_reference_sw,
             )?;
+            record_realign_observe(
+                &orig_snaps,
+                &region_for_genotyping.reads,
+                &assembly.haplotypes,
+                &best_hap_per_read,
+            );
             read_likelihoods = crate::read_realignment::change_evidence_to_best_haplotype(
                 read_likelihoods,
                 &best_hap_per_read,

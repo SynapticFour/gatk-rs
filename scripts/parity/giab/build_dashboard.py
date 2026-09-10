@@ -136,7 +136,7 @@ Generated (UTC): {datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}</p>
 </tbody>
 </table>
 <footer>
-Independent community project — not Broad-affiliated. Metric: Rust−Java F1 delta via hap.py/RTG (gatk-rs-equiv).
+Independent research reimplementation — not Broad-affiliated. Metric: Rust−Java F1 delta via hap.py/RTG (gatk-rs-equiv).
 </footer>
 </body>
 </html>

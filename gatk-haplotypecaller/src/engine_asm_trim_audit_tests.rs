@@ -85,3 +85,88 @@ fn preserve_untrimmed_indel_haplotypes_reattaches_when_trim_loses_indel_cigar() 
         "G-6: indel alt hap must survive trim when assembly lost indel CIGAR"
     );
 }
+
+/// 6R.143: Java `trimTo` → `getHaplotypeList()` does not append a second REF-sequence
+/// column. `preserve_untrimmed` must not re-insert identical bases as `isRef=false`.
+#[test]
+fn preserve_untrimmed_does_not_duplicate_reference_sequence_column() {
+    let sw = SwParameters::gatk_haplotype_to_reference();
+    let ref_bases = b"ACGTACGTACGT".to_vec();
+    let span = GenomeLoc::new(50, 61);
+    let mut ref_cigar = Cigar::new();
+    ref_cigar.push(ref_bases.len(), CigarOperator::Match);
+    let mut untrimmed_ref = Haplotype::new(ref_bases.clone(), true);
+    untrimmed_ref.cigar = Some(ref_cigar.clone());
+    untrimmed_ref.genome_loc = Some(span);
+    let mut untrimmed_alt = Haplotype::new(ref_bases.clone(), false);
+    untrimmed_alt.cigar = Some(ref_cigar);
+    untrimmed_alt.genome_loc = Some(span);
+    let untrimmed = AssemblyResultSet::from_assembly_for_calling(
+        &AssemblyResult {
+            status: AssemblyStatus::AssembledSomeVariation,
+            kmer_size: 10,
+            haplotypes: vec![untrimmed_alt, untrimmed_ref],
+            event_maps: Vec::new(),
+        },
+        ref_bases.as_slice(),
+        50,
+        "chrT",
+        0,
+    );
+    let trimmed_region = AssemblyRegion {
+        contig: "chrT".into(),
+        start: GenomePosition::new_1based(52),
+        end: GenomePosition::new_1based(59),
+        is_active: true,
+        extended_start: GenomePosition::new_1based(50),
+        extended_end: GenomePosition::new_1based(61),
+        extension: 0,
+        reads: Vec::new(),
+        read_qnames: Vec::new(),
+        reference: crate::reference_context::ReferenceContext::empty(),
+        features: crate::feature_context::FeatureContext::empty(),
+        pileup_loci: Vec::new(),
+    };
+    let mut trimmed_ref = Haplotype::new(ref_bases.clone(), true);
+    trimmed_ref.cigar = Some({
+        let mut c = Cigar::new();
+        c.push(ref_bases.len(), CigarOperator::Match);
+        c
+    });
+    trimmed_ref.genome_loc = Some(span);
+    let mut assembly = AssemblyResultSet::from_assembly_for_calling(
+        &AssemblyResult {
+            status: AssemblyStatus::AssembledSomeVariation,
+            kmer_size: 10,
+            haplotypes: vec![trimmed_ref],
+            event_maps: Vec::new(),
+        },
+        ref_bases.as_slice(),
+        50,
+        "chrT",
+        0,
+    );
+    let n_before = assembly.haplotypes.len();
+    preserve_untrimmed_indel_haplotypes(&untrimmed, &mut assembly, &trimmed_region, &sw);
+    assert_eq!(
+        assembly.haplotypes.len(),
+        n_before,
+        "must not append a duplicate REF-sequence PairHMM column"
+    );
+    assert_eq!(
+        assembly
+            .haplotypes
+            .iter()
+            .filter(|h| h.bases.as_slice() == ref_bases.as_slice())
+            .count(),
+        1
+    );
+    assert_eq!(
+        assembly
+            .haplotypes
+            .iter()
+            .filter(|h| h.is_reference)
+            .count(),
+        1
+    );
+}

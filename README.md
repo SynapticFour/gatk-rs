@@ -5,7 +5,7 @@
 
 Built by **[Synaptic Four](https://synapticfour.com)** · [contact@synapticfour.com](mailto:contact@synapticfour.com).
 
-gatk-rs is an independent, community-driven reimplementation and is not
+gatk-rs is an independent research reimplementation (single-steward) and is not
 affiliated with, endorsed by, or supported by the Broad Institute.
 "GATK" is a trademark of the Broad Institute; this project's name and
 branding will be revisited if requested. Parity tests **call** a pinned
@@ -26,10 +26,12 @@ GATK 4.4 jar as an oracle; they do not ship Broad source (see [`NOTICE.md`](NOTI
 | Canonical **mid-B** HC path (assembly through QUAL/QD) on `2:92317000-92319000` — [`docs/PARITY.md`](docs/PARITY.md) | Whole-codebase HaplotypeCaller equivalence |
 | Synthetic joint-genotype cohort ladder (**≤100** samples on a tiny interval) | WGS × large-N / GenomicsDB-class joint calling |
 | Scoped algorithm parity with honest waivers (W-H1 / W-H3 / W-L7-FORMAT) | Clinical drop-in, bitwise-identical QUAL/FORMAT everywhere, or a product launch |
-| Equivalence **harness** green on GIAB **smoke** (hosted CI, RTG F1 Δ=0 on three ~50 kb windows) | A **signed** GIAB `ci-subset` / full-autosome F1 claim — still **unsigned** |
+| Equivalence **harness** green on GIAB **smoke** (hosted CI, RTG F1 Δ=0 on three ~50 kb windows) | Signed vs unsigned GIAB / autosome rows — **[`CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md) only**; do not infer from this table |
 
 Authority: [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Canonical mid-B is one
 ActiveFull region ([`docs/PARITY.md`](docs/PARITY.md)), not a genome-wide product claim.
+Chr20_tiny 6R.130–6R.149 holdouts in that file are engineering discovery through raw
+GLs, not a new Yes row.
 Historical L6–L14 narratives live on `pre-cleanup-archive` only — not unqualified **Yes** rows here.
 
 ## This is an AI-implementation stress test
@@ -44,9 +46,8 @@ A Rust reimplementation of the GATK4 HaplotypeCaller germline spine
 (HC → CombineGVCFs → GenotypeGVCFs → hard-filter VariantFiltration).
 
 On the **signed scopes** in [`CLAIM_MATRIX`](docs/CLAIM_MATRIX.md) there is
-reproducible gate evidence — and that file lists what this tree does **not**
-claim (including unsigned GIAB `ci-subset` / full-autosome runs). That is not
-genome-wide equivalence and not a clinical drop-in.
+reproducible gate evidence — and that file is the only list of what this tree
+does **not** claim. That is not genome-wide equivalence and not a clinical drop-in.
 
 This is also an **AI-implementation stress test**: every line of implementation
 in this repository was written by AI. I did not type the Rust. What I *did*
@@ -66,9 +67,9 @@ If you know genomics and something here is wrong, open an issue.
 **[Equivalence dashboard (GitHub Pages)](https://synapticfour.github.io/gatk-rs/)**
 (source: [`docs/parity-site/`](docs/parity-site/)) — Chart.js view of hap.py
 metrics **only after** a signed publish lands in `history.json`.
-Until then the UI shows “No published runs yet.” Treat the site as
-**instrumentation**, not a product claim — GIAB `ci-subset` is still
-**unsigned** in [`CLAIM_MATRIX`](docs/CLAIM_MATRIX.md).
+Until then the UI shows **“No published runs yet.”** Treat the site as
+**instrumentation**, not GIAB evidence. Signed vs unsigned rows live only in
+[`CLAIM_MATRIX`](docs/CLAIM_MATRIX.md).
 
 ## Validated Scope
 
@@ -163,15 +164,11 @@ Two labeled Peak-RSS profiles via
 vs pinned Java GATK **4.4.0.0** (`-Xms1g -Xmx4g`). Full tables, commands, and
 raw logs: [`docs/perf/HC_MEMORY_PROFILE.md`](docs/perf/HC_MEMORY_PROFILE.md).
 
-### A. Trivial smoke — reproducibility only
+### A. Trivial smoke — not a public memory claim
 
-Checked-in fixture `parity/fixtures/`, interval `chr1:1-32` (32 bp). Dominated
-by JVM/runtime fixed cost — **not** a public “X% less memory” claim.
-
-| Engine | Peak RSS (run `20260724T181512Z`) |
-|--------|-------------------------------------|
-| gatk-rs (release) | **9.52 MiB (9744 KiB)** |
-| Java GATK 4.4.0.0 | **437.49 MiB (447988 KiB)** |
+Checked-in fixture `parity/fixtures/`, interval `chr1:1-32` (32 bp). Peak-RSS
+on this window is dominated by JVM/runtime fixed cost. **Do not quote a
+“X% less memory” figure from it.** Raw table: [`docs/perf/HC_MEMORY_PROFILE.md`](docs/perf/HC_MEMORY_PROFILE.md).
 
 ### B. Realistic GIAB-dense window — public-claim basis
 

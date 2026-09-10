@@ -156,6 +156,34 @@ pub fn hc_rss_trace_enabled() -> bool {
     RuntimeConfig::from_env().debug.rss_trace
 }
 
+/// Experimental SeqGraph k-best resource policy name (`GATK_RS_EXPERIMENTAL_KBEST_POLICY`).
+/// `None` = unset → production default `legacy_1024`. Not a product contract.
+pub fn experimental_kbest_policy_raw() -> Option<String> {
+    env_nonempty("GATK_RS_EXPERIMENTAL_KBEST_POLICY")
+}
+
+/// Experimental frontier byte ceiling (`GATK_RS_EXPERIMENTAL_KBEST_MEMORY_BUDGET`).
+/// Required when policy is `byte_budget`. Decimal integer bytes. Not a product contract.
+pub fn experimental_kbest_memory_budget_raw() -> Option<String> {
+    env_nonempty("GATK_RS_EXPERIMENTAL_KBEST_MEMORY_BUDGET")
+}
+
+/// `GATK_RS_KBEST_DIAGNOSTICS=1` — log SeqGraph k-best resource diagnostics (stderr).
+pub fn kbest_diagnostics_enabled() -> bool {
+    env_truthy("GATK_RS_KBEST_DIAGNOSTICS")
+}
+
+fn env_nonempty(name: &str) -> Option<String> {
+    std::env::var(name).ok().and_then(|v| {
+        let t = v.trim();
+        if t.is_empty() || t == "0" || t.eq_ignore_ascii_case("off") {
+            None
+        } else {
+            Some(t.to_string())
+        }
+    })
+}
+
 /// `GATK_RS_PAIRHMM_INPUT_DUMP=<path>` — observe-only kernel-input dump (no genotype effect).
 /// Re-reads env each call so dump helpers can open the file lazily.
 pub fn pairhmm_input_dump_path() -> Option<String> {
