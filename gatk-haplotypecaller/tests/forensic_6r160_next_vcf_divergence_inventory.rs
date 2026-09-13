@@ -146,6 +146,14 @@ fn load_region(root: &Path, id: &str) -> (Vec<Rec>, Vec<Rec>) {
 #[test]
 fn forensic_6r160_next_vcf_divergence_inventory() {
     let root = repo_root();
+    let reports = root.join("parity/reports/6r43");
+    let has_java = CURRENT_REGIONS
+        .iter()
+        .any(|id| reports.join(id).join("java.vcf").is_file());
+    if !has_java {
+        eprintln!("skip: missing parity/reports/6r43 Java VCFs");
+        return;
+    }
     let mut java_map = BTreeMap::new();
     let mut rust_map = BTreeMap::new();
     for id in CURRENT_REGIONS {

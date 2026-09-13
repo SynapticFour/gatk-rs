@@ -210,6 +210,14 @@ fn genuine_info_value_diffs(j: &Rec, r: &Rec) -> Vec<(String, String, String)> {
 #[test]
 fn forensic_6r173_live_vcf_reconnaissance() {
     let root = repo_root();
+    let reports = root.join("parity/reports/6r43");
+    let has_java = CURRENT_REGIONS
+        .iter()
+        .any(|id| reports.join(id).join("java.vcf").is_file());
+    if !has_java {
+        eprintln!("skip: missing parity/reports/6r43 Java VCFs");
+        return;
+    }
     let mut java_map = BTreeMap::new();
     let mut rust_map = BTreeMap::new();
     kv("java_pin", JAVA_PIN);
