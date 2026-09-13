@@ -15,6 +15,7 @@ pub const HARNESS_ENV_FLAGS: &[&str] = &[
     "GATK_RS_ENABLE_CLUSTER_INJECT",
     "GATK_RS_ASM8_ONLY",
     "GATK_RS_HC_GIVEN_VCF",
+    "GATK_RS_DIAGNOSTIC_SKIP_SITE_RESHAPE",
 ];
 
 /// True when parity harness env vars may affect Rust behavior.

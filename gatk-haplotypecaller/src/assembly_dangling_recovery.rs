@@ -1508,13 +1508,18 @@ impl AssemblyGraph {
                 if !self.has_edge(plan.from, plan.to) {
                     self.add_dangling_recovery_edge(plan.from, plan.to, params.dangling_java_exact);
                 }
-                let has_indel = plan.cigar.elements.iter().any(|e| e.operator.is_indel());
-                if has_indel || plan.alt_bases != plan.ref_path_bases {
-                    self.dangling_merge_haps.push(DanglingMergeHaplotype {
-                        alt_bases: plan.alt_bases,
-                        cigar: plan.cigar,
-                        alignment_start_hap_wrt_ref: 0,
-                    });
+                // Java `mergeDanglingTail` is `addEdge` only. Recording `path_bases` as a
+                // `DanglingMergeHaplotype` is an ASM-1 EventMap workaround, not GATK 4.4.
+                // 6R.164: Java-exact recovery produces graph structure, not a standalone haplotype.
+                if !params.dangling_java_exact {
+                    let has_indel = plan.cigar.elements.iter().any(|e| e.operator.is_indel());
+                    if has_indel || plan.alt_bases != plan.ref_path_bases {
+                        self.dangling_merge_haps.push(DanglingMergeHaplotype {
+                            alt_bases: plan.alt_bases,
+                            cigar: plan.cigar,
+                            alignment_start_hap_wrt_ref: 0,
+                        });
+                    }
                 }
                 true
             }
@@ -1966,6 +1971,9 @@ impl AssemblyGraph {
 }
 
 /// Inject ASM-1 dangling merge haps into the assembly haplotype list (graph-only EventMap path).
+///
+/// Java-exact assembly (`dangling_java_exact`) must not call this: GATK
+/// `mergeDanglingTail` only `addEdge`s; haplotypes come from `findBestPaths`.
 pub fn apply_dangling_merge_haplotypes(
     haplotypes: &mut Vec<crate::haplotype::Haplotype>,
     ref_hap: &crate::haplotype::Haplotype,

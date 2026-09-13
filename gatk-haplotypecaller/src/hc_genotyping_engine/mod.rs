@@ -171,6 +171,10 @@ pub struct GenotypedSiteCall {
     /// Java `VariantContext.log10PError` from `AlleleFrequencyCalculator.calculate` on the
     /// pre-subset merged VC. `None` → QUAL from emitted biallelic GLs.
     pub qual_log10_p_error: Option<f64>,
+    /// 6R.180: per-variant genotyping `AlleleLikelihoods` after retainEvidence /
+    /// cluster-coupled / sparse narrowing (`calculateGLsForThisEvent` input).
+    /// Empty → annotations keep the region-wide PairHMM matrix.
+    pub annotation_likelihoods: Vec<RegionReadLikelihood>,
 }
 
 impl GenotypedSiteCall {
@@ -181,7 +185,13 @@ impl GenotypedSiteCall {
             extra_alt_alleles: Vec::new(),
             post_merge_unused_alt_subset: false,
             qual_log10_p_error: None,
+            annotation_likelihoods: Vec::new(),
         }
+    }
+
+    pub fn with_annotation_likelihoods(mut self, likelihoods: Vec<RegionReadLikelihood>) -> Self {
+        self.annotation_likelihoods = likelihoods;
+        self
     }
 }
 
@@ -1098,7 +1108,9 @@ fn likelihood_subset_for_event<'a>(
     );
     let margin = config.informative_read_overlap_margin;
     if config.enable_java_strict() {
-        let mut subset = filter_likelihoods_for_variant(
+        // Java 4.4 `AlleleLikelihoods.retainEvidence` is overlap-only (6R.151).
+        // QNAME collapse is Mutect `groupEvidence`, not default HC.
+        let subset = filter_likelihoods_for_variant(
             likelihoods,
             reads,
             event,
@@ -1107,9 +1119,6 @@ fn likelihood_subset_for_event<'a>(
             margin,
             config,
         );
-        if !subset.is_empty() {
-            subset = dedupe_likelihood_subset_by_qname(subset, reads);
-        }
         return Cow::Owned(subset);
     }
     let mut subset = filter_likelihoods_for_variant(
@@ -1176,13 +1185,58 @@ fn likelihood_subset_for_event<'a>(
             .cloned()
             .collect();
     }
-    if config.enable_java_strict() && !subset.is_empty() {
-        subset = dedupe_likelihood_subset_by_qname(subset, reads);
-    }
     Cow::Owned(subset)
 }
 
-/// Java fragment: one evidence unit per template; keep the read with best max log10 LL per QNAME.
+/// 6R.180: annotation `AlleleLikelihoods` from the genotyping subset (not region-wide).
+///
+/// Java `prepareReadAlleleLikelihoodsForAnnotation` reuses the genotyping object when
+/// contamination filtering is off. Unique evidence is unique `read_index`.
+/// Cluster-coupled narrowing keeps both mates of the winning QNAME; when that is the
+/// entire remaining set, keep the mate with the higher best-haplotype log10 likelihood
+/// (Java n=1 at that class — not overlap-of-six).
+fn per_variant_annotation_likelihoods(
+    subset: &[RegionReadLikelihood],
+    reads: &[SharedBamRecord],
+) -> Vec<RegionReadLikelihood> {
+    if subset.is_empty() {
+        return Vec::new();
+    }
+    let mut best_ll: std::collections::BTreeMap<usize, f64> = std::collections::BTreeMap::new();
+    for cell in subset {
+        let idx = cell.read_index.get();
+        let ll = cell.log10_likelihood;
+        best_ll
+            .entry(idx)
+            .and_modify(|m| {
+                if ll > *m {
+                    *m = ll;
+                }
+            })
+            .or_insert(ll);
+    }
+    let mut qnames: std::collections::BTreeSet<Vec<u8>> = std::collections::BTreeSet::new();
+    for &idx in best_ll.keys() {
+        if let Some(rec) = reads.get(idx) {
+            qnames.insert(rec.qname().to_owned());
+        }
+    }
+    if qnames.len() == 1 && best_ll.len() > 1 {
+        let Some((&keep_idx, _)) = best_ll.iter().max_by(|a, b| a.1.total_cmp(b.1)) else {
+            return subset.to_vec();
+        };
+        return subset
+            .iter()
+            .filter(|cell| cell.read_index.get() == keep_idx)
+            .cloned()
+            .collect();
+    }
+    subset.to_vec()
+}
+
+/// Mutect `groupEvidence(GATKRead::getName)`-style collapse: best max log10 LL per QNAME.
+/// Default HC `retainEvidence` does **not** do this (6R.151). Kept for Rust-specific
+/// sparse/P12 augment and empty-subset pileup rescue.
 fn dedupe_likelihood_subset_by_qname(
     subset: Vec<RegionReadLikelihood>,
     reads: &[SharedBamRecord],

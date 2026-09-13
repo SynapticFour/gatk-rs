@@ -12,6 +12,9 @@ use crate::likelihood_engine::score_read_against_haplotypes;
 /// evidence vector is what `filterPoorlyModeledEvidence` indexes (`sampleEvidence.get(i)`
 /// ↔ `valuesBySampleIndex[a][i]`). Callers must keep the returned reads as the filter /
 /// realign / genotyping evidence list.
+///
+/// PairHMM membership applies Java `MATE_ON_SAME_CONTIG_OR_NO_MAPPED_MATE` (6R.176):
+/// failing reads stay in the returned evidence list with `addEvidence(..., 0)` cells.
 pub(super) fn compute_region_read_likelihoods(
     region: &AssemblyRegion,
     haplotypes: &[Haplotype],
@@ -43,7 +46,12 @@ pub(super) fn compute_region_read_likelihoods(
     let active_span = Some((region.start.get(), region.end.get()));
     // Trim/hard-clip can drop sparse-BAM reads that still overlap the active locus.
     if finalized.is_empty() && !region.reads.is_empty() {
-        let out = score_pairhmm_from_records(region.reads.as_slice(), haplotypes, config)?;
+        let out = score_pairhmm_from_records_java_mate_contig(
+            region.reads.as_slice(),
+            haplotypes,
+            config,
+            region.reads.as_slice(),
+        )?;
         capture_scored_likelihood_pipeline(&out, region.reads.as_slice(), haplotypes);
         let ll = post_process_pairhmm_likelihoods(
             out,
@@ -54,7 +62,12 @@ pub(super) fn compute_region_read_likelihoods(
         );
         return Ok((ll, region.reads.clone()));
     }
-    let out = score_pairhmm_from_records(&finalized, haplotypes, config)?;
+    let out = score_pairhmm_from_records_java_mate_contig(
+        &finalized,
+        haplotypes,
+        config,
+        region.reads.as_slice(),
+    )?;
     capture_scored_likelihood_pipeline(&out, &finalized, haplotypes);
     let ll =
         post_process_pairhmm_likelihoods(out, &finalized, haplotypes, apply_normalize, active_span);
@@ -63,6 +76,91 @@ pub(super) fn compute_region_read_likelihoods(
         .map(crate::shared_bam::share_record)
         .collect();
     Ok((ll, scored))
+}
+
+/// GATK `filterNonPassingReads` mate-contig membership at PairHMM construction.
+///
+/// Java removes `!MATE_ON_SAME_CONTIG_OR_NO_MAPPED_MATE` reads from the scored
+/// `regionForGenotyping` list, then `prepareReadAlleleLikelihoodsForAnnotation`
+/// `addEvidence(overlappingFilteredReads, 0)`. Rust keeps those reads in the
+/// returned evidence vector (Coverage / INFO DP) and emits 0-likelihood cells
+/// instead of running PairHMM.
+///
+/// Mate contig is taken from the original BAM evidence (`mate_originals`), not
+/// the clipped PairHMM copy: `hard_clip` rebuilds records without `mtid`.
+/// A scored read missing from that list was already dropped by
+/// `filterNonPassingReads` and receives `addEvidence(..., 0)` rather than PairHMM.
+fn score_pairhmm_from_records_java_mate_contig<
+    R: std::borrow::Borrow<rust_htslib::bam::Record> + Sync,
+>(
+    reads: &[R],
+    haplotypes: &[Haplotype],
+    config: &HcLikelihoodEngineConfig,
+    mate_originals: &[crate::shared_bam::SharedBamRecord],
+) -> GatkResult<Vec<RegionReadLikelihood>> {
+    use crate::read_pre_mate::passes_mate_on_same_contig_or_no_mapped_mate;
+    use std::collections::HashMap;
+    let original_pass: HashMap<(Vec<u8>, u16), bool> = mate_originals
+        .iter()
+        .map(|r| {
+            (
+                (r.qname().to_vec(), r.flags()),
+                passes_mate_on_same_contig_or_no_mapped_mate(r),
+            )
+        })
+        .collect();
+    let pass: Vec<bool> = reads
+        .iter()
+        .map(|r| {
+            let rec = r.borrow();
+            // Post-`filterNonPassingReads` evidence still has BAM mate contig. Assemble
+            // finalize copies lose `mtid`, so identity is QNAME+FLAG. A scored read that
+            // is absent from that list was filtered (mate-contig / MAPQ / RG) and must
+            // not enter PairHMM (`addEvidence(..., 0)`).
+            original_pass
+                .get(&(rec.qname().to_vec(), rec.flags()))
+                .copied()
+                .unwrap_or(false)
+        })
+        .collect();
+    if pass.iter().all(|&ok| ok) {
+        return score_pairhmm_from_records(reads, haplotypes, config);
+    }
+    let passing: Vec<&rust_htslib::bam::Record> = reads
+        .iter()
+        .zip(pass.iter())
+        .filter(|(_, ok)| **ok)
+        .map(|(r, _)| r.borrow())
+        .collect();
+    let orig_idx: Vec<usize> = pass
+        .iter()
+        .enumerate()
+        .filter(|(_, ok)| **ok)
+        .map(|(i, _)| i)
+        .collect();
+    let mut out = if passing.is_empty() {
+        Vec::new()
+    } else {
+        score_pairhmm_from_records(&passing, haplotypes, config)?
+    };
+    for cell in &mut out {
+        let k = cell.read_index.get();
+        cell.read_index = crate::bio_ids::ReadIndex::new(orig_idx[k]);
+    }
+    let eligible = super::pairhmm_eligible_haplotype_indices(haplotypes);
+    for (i, ok) in pass.iter().enumerate() {
+        if *ok {
+            continue;
+        }
+        for &hi in &eligible {
+            out.push(RegionReadLikelihood {
+                read_index: crate::bio_ids::ReadIndex::new(i),
+                haplotype_index: crate::bio_ids::HaplotypeIndex::new(hi),
+                log10_likelihood: 0.0,
+            });
+        }
+    }
+    Ok(out)
 }
 
 /// GATK 4.4 `ReadUtils` BI/BD FastQ-33 string → Phred. Absent or non-string → None (Q45).

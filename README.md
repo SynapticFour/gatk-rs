@@ -30,8 +30,50 @@ GATK 4.4 jar as an oracle; they do not ship Broad source (see [`NOTICE.md`](NOTI
 
 Authority: [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Canonical mid-B is one
 ActiveFull region ([`docs/PARITY.md`](docs/PARITY.md)), not a genome-wide product claim.
-Chr20_tiny 6R.130–6R.149 holdouts in that file are engineering discovery through raw
-GLs, not a new Yes row.
+Chr20_tiny 6R.130–6R.185 holdouts in that file are engineering discovery through
+default USE_PLS GT/PL/GQ, the first AD write, Class-A3 preservation of
+an assigned calculator genotype (not a `pl_gt == 0` guard), the
+hom-ref emission boundary (Java also does not VCF-emit that 0/0),
+closure of the `2:92316347` FORMAT AD/PL split by not materializing
+dangling path_bases as a standalone haplotype, the 6R.165
+proof-only FS/MQ/SOR annotation-membership split, the 6R.166
+FS/SOR evidence-source fix, the 6R.167 MQ evidence-source
+fix, the 6R.168 RMS formula so MQ=40.25, the 6R.169
+proof that remaining INFO extras are Java-suppressed
+`ReadPosRankSum`/`InbreedingCoeff`, and the 6R.170
+proof that ReadPosRankSum still uses pileup versus
+Java informative likelihoods, and the 6R.171 proof that
+undefined RankSum is collapsed to numeric `0.0` (Java omits the key;
+a legitimate finite `0.0` must remain emittable), and the 6R.172
+change to `Option<f64>` so undefined omits while finite `0.0` still
+emits, and the 6R.173 reconnaissance that the next genuine remaining
+VCF field is INFO DP at `2:92305634` (Java 3 vs Rust 2), and the 6R.174
+switch of INFO DP onto Java `Coverage.evidenceCount` (FORMAT DP stays 2),
+and the 6R.175 proof that remaining SOR at that site is extra
+informative membership of a mate-on-other-contig read, not the SOR
+formula, and the 6R.176 PairHMM mate-contig membership so FLAG=145
+is `addEvidence(0)` only (SOR 0.693, INFO DP stays 3),
+and the 6R.177 proof that InbreedingCoeff=1.0 is always-insert versus
+Java `MIN_SAMPLES=10` emptyMap, and the 6R.178 emission gate so
+one-sample records omit InbreedingCoeff (formula still `1 - het/n`),
+and the 6R.179 proof that `2:92307324 TTC/T` INFO DP/MQ/SOR still used
+the region-wide PairHMM matrix versus Java’s per-variant n=1
+annotation likelihoods, and the 6R.180 bind of those INFO fields onto
+that per-variant object (DP=1 MQ=44 SOR=1.609),
+and the 6R.181 proof that `2:92307333 T/G` still has no
+per-variant annotation `AlleleLikelihoods` on the cluster-TG
+early-template path,
+and the 6R.182 proof that Java constructs that object as
+`filterPoorlyModeledEvidence` 8→2 then `marginalize`+`retainEvidence`
+2→1 (direct dump n=1 FLAG=83 MAPQ=44; Rust overlap candidate is n=6),
+and the 6R.183 proof that Rust’s poorly-modeled pass already drops to
+n=2 and stored n=8 is a later unfiltered cluster refresh,
+and the 6R.184 proof that replaying the existing normalize+filter
+on that last refreshed matrix restores Java n=2 then diagnostic
+`retainEvidence` n=1,
+and the 6R.185 restore of that Java-order filter after the last
+P12 refresh (stored n=2; cluster-TG annotation object still later),
+not a new Yes row.
 Historical L6–L14 narratives live on `pre-cleanup-archive` only — not unqualified **Yes** rows here.
 
 ## This is an AI-implementation stress test

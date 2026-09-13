@@ -190,6 +190,7 @@ pub fn dump_variant_vcf_from_gl_ad_tsv(
         &genotype,
         "SAMPLE",
         &HcGenotypingConfig::default(),
+        None,
     )?;
     let gt = rec
         .samples
@@ -281,6 +282,7 @@ pub fn dump_variant_format_from_gl_ad_tsv(
         &genotype,
         "SAMPLE",
         &HcGenotypingConfig::default(),
+        None,
     )?;
     let gt = rec
         .samples

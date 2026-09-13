@@ -8,13 +8,28 @@ use crate::annotator::plugins::{
     excess_het, fisher_strand, qual_by_depth, read_pos_rank_sum, strand_odds_ratio,
 };
 use crate::assembly_region_iterator::AssemblyRegion;
+use crate::event_map::{build_per_haplotype_variation_events, VariationEvent};
 use crate::fragment_overlap::read_base_at_ref_coord_1based;
 use crate::genotyping::GenotypeFormatFields;
-use crate::hc_genotyping_engine::{HcGenotypingConfig, RegionGenotypeResult};
+use crate::haplotype::Haplotype;
+use crate::hc_allele_mapping::create_allele_mapper_with_events;
+use crate::hc_genotyping_engine::{
+    java_alignment_read_overlaps_interval, marginalize_rows_to_biallelic_alleles,
+    region_likelihoods_to_rows, HcGenotypingConfig, RegionGenotypeResult,
+};
+use crate::read_model::MAPPING_QUALITY_UNAVAILABLE;
+use crate::read_realignment::LOG_10_INFORMATIVE_THRESHOLD;
+use crate::region_read_likelihood::RegionReadLikelihood;
+use crate::shared_bam::SharedBamRecord;
 use gatk_common::GatkResult;
 use gatk_core::io::vcf::Genotype;
+use std::collections::BTreeSet;
 
 const FLAG_REVERSE: u16 = 0x10;
+/// GATK `StrandBiasTest.ARRAY_DIM` — `FisherStrand.MIN_COUNT`.
+pub const FISHER_STRAND_MIN_COUNT: u32 = 2;
+/// GATK `StrandOddsRatio.MIN_COUNT`.
+pub const STRAND_ODDS_RATIO_MIN_COUNT: u32 = 0;
 
 /// HC INFO + QUAL slice aligned with GATK `HaplotypeCaller` default annotators on biallelic sites.
 /// # Invariants
@@ -42,7 +57,8 @@ pub struct HcVariantSiteAnnotations {
     pub mq: f64,
     pub qd: f64,
     pub sor: f64,
-    pub read_pos_rank_sum: f64,
+    /// `None` = Java `RankSumTest` emptyMap (undefined / NaN). `Some(0.0)` emits.
+    pub read_pos_rank_sum: Option<f64>,
     pub inbreeding_coeff: f64,
 }
 
@@ -95,14 +111,253 @@ fn is_het_or_hom_var(gt: &Genotype) -> bool {
     matches!(gt.alleles.as_slice(), [0, 1] | [1, 0] | [1, 1])
 }
 
+/// Post-filter `AlleleLikelihoods` slice for Java `StrandBiasTest.getContingencyTable`.
+///
+/// # Java equivalence
+/// GATK 4.4 `FisherStrand` / `StrandOddsRatio` `calculateAnnotationFromLikelihoods`
+/// consume the same allele-marginalized evidence object passed to
+/// `VariantAnnotatorEngine.annotateContext` (after `filterPoorlyModeledEvidence`).
+/// MQ uses [`Self::reads`] as Java `likelihoods.sampleEvidence` (6R.167);
+/// it does **not** apply the informative best-allele filter used by FS/SOR.
+pub struct HcStrandBiasLikelihoods<'a> {
+    pub reads: &'a [SharedBamRecord],
+    pub likelihoods: &'a [RegionReadLikelihood],
+    pub haplotypes: &'a [Haplotype],
+    pub contig: &'a str,
+    pub ref_bytes: &'a [u8],
+    pub pad_start_1based: u64,
+    pub full_ref_bytes: &'a [u8],
+    pub full_pad_1based: u64,
+    pub max_mnp_distance: usize,
+    pub emit_spanning_dels: bool,
+}
+
+fn apply_strand_min_count(table: (u32, u32, u32, u32), min_count: u32) -> (u32, u32, u32, u32) {
+    let total = table.0 + table.1 + table.2 + table.3;
+    if total > min_count {
+        table
+    } else {
+        (0, 0, 0, 0)
+    }
+}
+
+/// GATK `StrandBiasTest.getContingencyTable` (REF/ALT × forward/reverse).
+///
+/// Per-read: remarg to site REF/ALT haplotype pools, `bestAllelesBreakingTies`
+/// (REF wins likelihood ties), then `isInformative` (`confidence > 0.2`).
+/// Best alleles that are neither REF nor an ALT of this site are skipped.
+/// Sample table is copied only when total counts `> min_count`.
+pub fn strand_bias_contingency_table(
+    evidence: &HcStrandBiasLikelihoods<'_>,
+    loc_1based: u64,
+    ref_allele: &str,
+    alt_allele: &str,
+    min_count: u32,
+) -> (u32, u32, u32, u32) {
+    apply_strand_min_count(
+        strand_bias_sample_counts(evidence, loc_1based, ref_allele, alt_allele),
+        min_count,
+    )
+}
+
+fn strand_bias_sample_counts(
+    evidence: &HcStrandBiasLikelihoods<'_>,
+    loc_1based: u64,
+    ref_allele: &str,
+    alt_allele: &str,
+) -> (u32, u32, u32, u32) {
+    if evidence.likelihoods.is_empty() || evidence.haplotypes.is_empty() {
+        return (0, 0, 0, 0);
+    }
+    let event = VariationEvent::from_alleles(evidence.contig, loc_1based, ref_allele, alt_allele);
+    let hap_cache = build_per_haplotype_variation_events(
+        evidence.haplotypes,
+        evidence.full_ref_bytes,
+        evidence.full_pad_1based,
+        evidence.max_mnp_distance,
+        evidence.contig,
+    );
+    let mapping = create_allele_mapper_with_events(
+        &event,
+        loc_1based,
+        evidence.haplotypes,
+        evidence.pad_start_1based,
+        evidence.ref_bytes,
+        evidence.max_mnp_distance,
+        evidence.emit_spanning_dels,
+        Some(&hap_cache),
+    );
+    let rows = region_likelihoods_to_rows(evidence.likelihoods, evidence.haplotypes.len());
+    let marg = marginalize_rows_to_biallelic_alleles(
+        &rows,
+        &mapping.ref_haplotype_indices,
+        &mapping.alt_haplotype_indices,
+    );
+    let mut ref_fw = 0u32;
+    let mut ref_rv = 0u32;
+    let mut alt_fw = 0u32;
+    let mut alt_rv = 0u32;
+    for row in &marg {
+        let Some(rec) = evidence.reads.get(row.read_index) else {
+            continue;
+        };
+        let lls = &row.haplotype_log10_likelihoods;
+        let ll_ref = lls.first().copied().unwrap_or(f64::NEG_INFINITY);
+        let ll_alt = lls.get(1).copied().unwrap_or(f64::NEG_INFINITY);
+        if !ll_ref.is_finite() && !ll_alt.is_finite() {
+            continue;
+        }
+        let (best_is_ref, best, second) = if ll_ref > ll_alt {
+            (true, ll_ref, ll_alt)
+        } else if ll_alt > ll_ref {
+            (false, ll_alt, ll_ref)
+        } else {
+            // Java `bestAllelesBreakingTies`: REF priority 1.0 vs ALT 0 on a tie.
+            (true, ll_ref, ll_alt)
+        };
+        let gap = if second.is_finite() {
+            best - second
+        } else {
+            f64::INFINITY
+        };
+        // Java `BestAllele.isInformative`: strict `confidence > 0.2`. Near-ties do not count.
+        if gap <= LOG_10_INFORMATIVE_THRESHOLD {
+            continue;
+        }
+        let reverse = rec.flags() & FLAG_REVERSE != 0;
+        if best_is_ref {
+            if reverse {
+                ref_rv += 1;
+            } else {
+                ref_fw += 1;
+            }
+        } else if reverse {
+            alt_rv += 1;
+        } else {
+            alt_fw += 1;
+        }
+    }
+    (ref_fw, ref_rv, alt_fw, alt_rv)
+}
+
+/// GATK `RMSMappingQuality.calculateRawData` membership:
+/// unique reads remaining in `likelihoods.sampleEvidence` after
+/// `filterPoorlyModeledEvidence`, with `MQ != QualityUtils.MAPPING_QUALITY_UNAVAILABLE`.
+///
+/// This is **not** the full `genotyping_reads` overlap list, **not** an ALT pileup,
+/// and **not** the informative-best-allele subset used by FS/SOR.
+/// MQ=0 is included; MQ=255 is skipped. Duplicates / secondary / supplementary
+/// are already absent from this post-filter evidence list.
+pub fn rms_mapping_quality_sample_reads<'a>(
+    reads: &'a [SharedBamRecord],
+    likelihoods: &[RegionReadLikelihood],
+) -> Vec<&'a SharedBamRecord> {
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for cell in likelihoods {
+        let idx = cell.read_index.get();
+        if !seen.insert(idx) {
+            continue;
+        }
+        if let Some(rec) = reads.get(idx) {
+            out.push(rec);
+        }
+    }
+    out
+}
+
+pub fn rms_mapping_quality_sample_mapqs(
+    reads: &[SharedBamRecord],
+    likelihoods: &[RegionReadLikelihood],
+) -> Vec<u8> {
+    rms_mapping_quality_sample_reads(reads, likelihoods)
+        .into_iter()
+        .map(|rec| rec.mapq())
+        .filter(|&mq| mq != MAPPING_QUALITY_UNAVAILABLE)
+        .collect()
+}
+
+/// GATK `RMSMappingQuality.calculateRawData` squares + count, then
+/// `makeFinalizedAnnotationString`: `Math.sqrt(sumOfSquaredMQs / (double) numOfReads)`.
+///
+/// Empty eligible list returns `None` (caller keeps the pre-existing MQ=0.0 emit).
+pub fn rms_mapping_quality_raw(mqs: &[u8]) -> Option<(usize, u64, f64)> {
+    if mqs.is_empty() {
+        return None;
+    }
+    let n = mqs.len();
+    let sum_sq: u64 = mqs
+        .iter()
+        .map(|&m| {
+            let mq = u64::from(m);
+            mq * mq
+        })
+        .sum();
+    let rms = (sum_sq as f64 / n as f64).sqrt();
+    Some((n, sum_sq, rms))
+}
+
+/// Java `RMSMappingQuality.OUTPUT_PRECISION` (`String.format("%.2f", rms)`).
+fn java_finalize_mq(rms: f64) -> f64 {
+    (rms * 100.0).round() / 100.0
+}
+
+/// GATK 4.4 `Coverage.annotate`: `likelihoods.evidenceCount()` on the
+/// allele-level object passed to `VariantAnnotatorEngine.annotateContext`.
+///
+/// That object is genotyping `retainEvidence` (overlap with
+/// `variantCallingRelevantOverlap` = merged VC ± `informativeReadOverlapMargin`).
+/// This is **not** FORMAT/`DepthPerSampleHC` (informative `bestAlleles` only)
+/// and **not** the unfiltered region `sampleEvidence` used by MQ.
+///
+/// Default HC `prepareReadAlleleLikelihoodsForAnnotation` also
+/// `addEvidence(overlappingFilteredReads, 0)`. Reads already remaining in the
+/// post-filter matrix are not double-counted. INFO DP may exceed FORMAT DP.
+pub fn coverage_evidence_count(
+    reads: &[SharedBamRecord],
+    likelihoods: &[RegionReadLikelihood],
+    start_1based: u64,
+    end_1based: u64,
+    margin: i32,
+) -> i32 {
+    let mut seen = BTreeSet::new();
+    for cell in likelihoods {
+        let idx = cell.read_index.get();
+        if !seen.insert(idx) {
+            continue;
+        }
+        let Some(rec) = reads.get(idx) else {
+            seen.remove(&idx);
+            continue;
+        };
+        if !java_alignment_read_overlaps_interval(rec, start_1based, end_1based, margin) {
+            seen.remove(&idx);
+        }
+    }
+    seen.len() as i32
+}
+
+/// 6R.168: Java RMS on [`rms_mapping_quality_sample_mapqs`], then `%.2f`.
+fn mq_rms_of_sample_evidence(
+    reads: &[SharedBamRecord],
+    likelihoods: &[RegionReadLikelihood],
+) -> f64 {
+    let mqs = rms_mapping_quality_sample_mapqs(reads, likelihoods);
+    match rms_mapping_quality_raw(&mqs) {
+        Some((_, _, rms)) => java_finalize_mq(rms),
+        None => 0.0,
+    }
+}
+
 pub fn annotate_hc_variant_site(
     region: Option<&AssemblyRegion>,
     position_1based: u64,
     ref_allele: &str,
     alt_allele: &str,
     genotype: &RegionGenotypeResult,
-    _config: &HcGenotypingConfig,
+    config: &HcGenotypingConfig,
     qual_log10_p_error: Option<f64>,
+    strand_likelihoods: Option<&HcStrandBiasLikelihoods<'_>>,
 ) -> GatkResult<HcVariantSiteAnnotations> {
     let gl_for_qual = genotype_log10_likelihoods_after_java_genotype_pl_roundtrip(
         &genotype.genotype_log10_likelihoods,
@@ -115,7 +370,20 @@ pub fn annotate_hc_variant_site(
     let best_idx =
         crate::genotyping::biallelic_genotype_index_from_pl(&genotype.format.pl).as_usize();
     let gt = genotype_from_index(best_idx);
-    let dp = genotype.format.dp.as_i32().max(0);
+    // 6R.174: INFO DP is Java `Coverage.evidenceCount`, not FORMAT/`DepthPerSampleHC`.
+    // 6R.180: `strand_likelihoods` is the per-variant genotyping AlleleLikelihoods when
+    // present; formulas below are unchanged.
+    let var_end = VariationEvent::vcf_end_1based(position_1based, ref_allele);
+    let dp = match strand_likelihoods {
+        Some(ev) => coverage_evidence_count(
+            ev.reads,
+            ev.likelihoods,
+            position_1based,
+            var_end,
+            config.informative_read_overlap_margin,
+        ),
+        None => genotype.format.dp.as_i32().max(0),
+    };
     let qd_depth = qd_depth_for_variant(&gt, &genotype.format);
     // Java AC/AF/AN from called genotypes; MLEAC/MLEAF from AFCalculationResult
     // (`composeCallAttributes`: round(EM alt count), MLEAF = MLEAC / AN).
@@ -126,21 +394,37 @@ pub fn annotate_hc_variant_site(
     } else {
         0.0
     };
-    let (ref_fw, ref_rv, alt_fw, alt_rv, mq_sum, mq_n) =
-        read_strand_evidence_at_site(region, position_1based, ref_allele, alt_allele);
     let (ref_positions, alt_positions) =
         read_offset_evidence_at_site(region, position_1based, ref_allele, alt_allele);
-    let fs = fisher_strand::fisher_strand_statistic(ref_fw, ref_rv, alt_fw, alt_rv);
-    let sor = strand_odds_ratio::strand_odds_ratio(ref_fw, ref_rv, alt_fw, alt_rv);
+    // 6R.166: FS/SOR use Java `getContingencyTable` on post-filter allele likelihoods.
+    // 6R.167: MQ membership is Java `sampleEvidence` (MQ != 255). Do not change it.
+    // 6R.168: MQ aggregation is Java `makeFinalizedAnnotationString` RMS + `%.2f`.
+    let (fs_rf, fs_rr, fs_af, fs_ar, sor_rf, sor_rr, sor_af, sor_ar, mq) = match strand_likelihoods
+    {
+        Some(ev) => {
+            let sample = strand_bias_sample_counts(ev, position_1based, ref_allele, alt_allele);
+            let fs = apply_strand_min_count(sample, FISHER_STRAND_MIN_COUNT);
+            let sor = apply_strand_min_count(sample, STRAND_ODDS_RATIO_MIN_COUNT);
+            (
+                fs.0,
+                fs.1,
+                fs.2,
+                fs.3,
+                sor.0,
+                sor.1,
+                sor.2,
+                sor.3,
+                mq_rms_of_sample_evidence(ev.reads, ev.likelihoods),
+            )
+        }
+        None => (0, 0, 0, 0, 0, 0, 0, 0, 0.0),
+    };
+    let fs = fisher_strand::fisher_strand_statistic(fs_rf, fs_rr, fs_af, fs_ar);
+    let sor = strand_odds_ratio::strand_odds_ratio(sor_rf, sor_rr, sor_af, sor_ar);
     let rp = read_pos_rank_sum::read_pos_rank_sum(&ref_positions, &alt_positions);
     // Raw QUAL/depth only. `fixTooHighQD` consumes the process-global Java RNG and
     // must run later in genomic emit order (see `apply_fix_too_high_qd_to_vcf_records`).
     let qd = qual_by_depth::raw_qual_by_depth(qual, qd_depth);
-    let mq = if mq_n > 0 {
-        mq_sum as f64 / mq_n as f64
-    } else {
-        0.0
-    };
     let (ref_n, het_n, hom_alt_n) = genotype_counts_from_index(best_idx); // usize diploid index
     let excess_het_phred = excess_het::excess_heterozygosity_phred(ref_n, het_n, hom_alt_n);
     let inbreeding_coeff = if ref_n + het_n + hom_alt_n > 0 {
@@ -218,6 +502,7 @@ fn genotype_counts_from_index(best: usize) -> (u32, u32, u32) {
     }
 }
 
+#[allow(dead_code)] // 6R.165 ALT-pileup MQ walk; production MQ moved in 6R.167.
 fn read_strand_evidence_at_site(
     region: Option<&AssemblyRegion>,
     position_1based: u64,

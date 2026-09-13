@@ -753,6 +753,8 @@ fn try_genotype_variation_event(
             }
             return Ok(None);
         }
+        let overlap_indices: std::collections::HashSet<usize> =
+            subset.iter().map(|rl| rl.read_index.get()).collect();
         subset = augment_sparse_softclip_likelihood_subset(
             subset,
             likelihoods,
@@ -777,7 +779,12 @@ fn try_genotype_variation_event(
             &event,
             config.informative_read_overlap_margin,
         );
-        if !likelihood_reads.is_empty() && !subset.is_empty() {
+        // 6R.151: QNAME collapse is not Java retainEvidence. Apply it only when a
+        // Rust-specific sparse augment added rows (P12/mid-B rescue).
+        let augmented = subset
+            .iter()
+            .any(|rl| !overlap_indices.contains(&rl.read_index.get()));
+        if augmented && !likelihood_reads.is_empty() && !subset.is_empty() {
             subset = dedupe_likelihood_subset_by_qname(subset, likelihood_reads);
         }
         if is_coupled_indel_for_genotyping(&event, region_events) {
@@ -1183,7 +1190,11 @@ fn try_genotype_variation_event(
                 softclip_two_read_format,
                 region_events,
             )? {
-                return Ok(Some(GenotypedSiteCall::new(event, gt)));
+                return Ok(Some(
+                    GenotypedSiteCall::new(event, gt).with_annotation_likelihoods(
+                        per_variant_annotation_likelihoods(&subset, likelihood_reads),
+                    ),
+                ));
             }
         }
         // L13-B: score owned by [`SiteScore`] (behavior-neutral extract).
@@ -1411,7 +1422,11 @@ fn try_genotype_variation_event(
             softclip_two_read_format,
             region_events,
         )? {
-            return Ok(Some(GenotypedSiteCall::new(event, gt)));
+            return Ok(Some(
+                GenotypedSiteCall::new(event, gt).with_annotation_likelihoods(
+                    per_variant_annotation_likelihoods(&subset, likelihood_reads),
+                ),
+            ));
         }
         // L9: PairHMM genotype failed Java emit, but pileup still supports the allele.
         // Dense SNPs next to indels often keep an "alt" hap that is REF at the SNP locus, so

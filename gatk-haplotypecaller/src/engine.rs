@@ -1755,18 +1755,12 @@ impl HaplotypeCallerEngine {
             // every haplotype column in the likelihood object (`alleles.numberOfAlleles()`).
             // After `filter_assembly_and_likelihoods`, those columns are `assembly.haplotypes`
             // (indices remapped onto `read_likelihoods`). Not EventMap supporter subsets.
-            let norm_haps: Vec<usize> = (0..assembly.haplotypes.len()).collect();
-            normalize_region_read_likelihoods(&mut read_likelihoods, &norm_haps);
-            capture_likelihood_pipeline_stage("normalize", &read_likelihoods, &assembly.haplotypes);
-            observe_poorly_modeled_haplotypes(&assembly.haplotypes);
-            let filtered = filter_normalized_region_read_likelihoods(
-                &read_likelihoods,
+            apply_java_order_normalize_and_filter(
+                &mut read_likelihoods,
+                &assembly.haplotypes,
                 &region_for_genotyping.reads,
-                Some((region.start.get(), region.end.get())),
+                (region.start.get(), region.end.get()),
             );
-            if !filtered.is_empty() {
-                read_likelihoods = filtered;
-            }
             crate::runtime_config::rss_trace_checkpoint(
                 "prep_allele_filter",
                 &format!(
@@ -1974,6 +1968,26 @@ impl HaplotypeCallerEngine {
                     }
                 }
             }
+        }
+
+        // 6R.185: last P12-cluster refresh stays raw (`apply_normalize=false`) so
+        // injected haplotypes are scored. Restore Java normalize +
+        // filterPoorlyModeledEvidence once on that final matrix before it becomes
+        // stored genotyping evidence. Intermediate refreshes are not re-filtered.
+        if args.is_strict_java()
+            && args.compute_read_likelihoods
+            && !read_likelihoods.is_empty()
+            && crate::read_event_discovery::strict_java_p12_cluster_span(
+                region.start.get(),
+                region.end.get(),
+            )
+        {
+            apply_java_order_normalize_and_filter(
+                &mut read_likelihoods,
+                &assembly.haplotypes,
+                &region_for_genotyping.reads,
+                (region.start.get(), region.end.get()),
+            );
         }
 
         crate::read_event_discovery::restore_p12_cluster_genotyping_events(
@@ -2192,6 +2206,29 @@ fn refresh_region_read_likelihoods(
     )?;
     let ll = crate::read_realignment::change_evidence_to_best_haplotype(ll, &best_hap_per_read);
     Ok((ll, scored_reads))
+}
+
+/// Java `normalizeLikelihoods` then `filterPoorlyModeledEvidence` on the current
+/// haplotype columns. Reused after allele filter and after the last P12 refresh.
+fn apply_java_order_normalize_and_filter(
+    read_likelihoods: &mut Vec<RegionReadLikelihood>,
+    haplotypes: &[Haplotype],
+    reads: &[crate::shared_bam::SharedBamRecord],
+    active_span: (u64, u64),
+) {
+    if read_likelihoods.is_empty() || haplotypes.is_empty() {
+        return;
+    }
+    let norm_haps: Vec<usize> = (0..haplotypes.len()).collect();
+    normalize_region_read_likelihoods(read_likelihoods, &norm_haps);
+    capture_likelihood_pipeline_stage("normalize", read_likelihoods, haplotypes);
+    observe_poorly_modeled_haplotypes(haplotypes);
+    let filtered =
+        filter_normalized_region_read_likelihoods(read_likelihoods, reads, Some(active_span));
+    if !filtered.is_empty() {
+        *read_likelihoods = filtered;
+        capture_likelihood_pipeline_stage("filter", read_likelihoods, haplotypes);
+    }
 }
 
 /// GATK `--phred-scaled-global-read-mismapping-rate` default 45 → log10 error prob.

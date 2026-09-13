@@ -62,7 +62,7 @@ Harness env flags (ignored unless built with `--features parity_harness`):
 `P12_PHASE_E`, `P12_BASELINE_EMIT_FILTER`, `GATK_RS_P12_EVENT_REGISTRY`,
 `GATK_RS_P12_ENSURE_BRIDGES`, `P12_L4_JAVA_FORMAT`, `GATK_RS_ENABLE_READ_SUPPLEMENT`,
 `GATK_RS_ENABLE_REF_MOTIF`, `GATK_RS_ENABLE_CLUSTER_INJECT`, `GATK_RS_ASM8_ONLY`,
-`GATK_RS_HC_GIVEN_VCF`.
+`GATK_RS_HC_GIVEN_VCF`, `GATK_RS_DIAGNOSTIC_SKIP_SITE_RESHAPE`.
 
 ## Equivalence proof
 
@@ -85,5 +85,46 @@ SeqGraph k-best **K** (completed paths) is separate from the live-frontier **res
 policy**. Production default remains `legacy_1024`. Experimental env
 `GATK_RS_EXPERIMENTAL_KBEST_POLICY` (`unbounded_diagnostic` / `byte_budget`) is not a
 product contract: [`parity/KBEST_RESOURCE_POLICY.md`](parity/KBEST_RESOURCE_POLICY.md).
-Chr20_tiny 6R.130–6R.149 (raw GLs, not VCF closure) is engineering discovery in
-[`PARITY.md`](PARITY.md), not a claim-matrix Yes row.
+Chr20_tiny 6R.130–6R.185 (default USE_PLS GT/PL/GQ, first AD write after
+retainEvidence, Class-A3 skip of pileup GT replacement so an assigned
+calculator genotype is preserved; hom-ref calculator 0/0 is not
+VCF-emitted on either diagnostic path; `2:92316347` FORMAT AD/PL now
+matches Java after removing Rust-only dangling-merge haplotype
+materialization; 6R.165 proved INFO FS/MQ/SOR still used `region.reads`
+pileup rather than Java `AlleleLikelihoods`; 6R.166 switched FS/SOR onto
+that post-filter likelihood table; 6R.167 switched MQ onto Java
+`sampleEvidence`; 6R.168 applied Java RMS so MQ=40.25; 6R.169 inventoried
+Rust-only `ReadPosRankSum`/`InbreedingCoeff` as Java-suppressed default
+annotators; 6R.170 proved ReadPosRankSum pileup vs informative
+likelihoods; 6R.171 proved empty/NaN RankSum was collapsed to `0.0`;
+6R.172 restored `Option<f64>` so finite `0.0` still emits and undefined
+omits; 6R.173 inventoried the next genuine remaining VCF field as INFO
+DP at `2:92305634`; 6R.174 switched INFO DP onto Java
+`Coverage.evidenceCount` so that site is 3 while FORMAT DP stays 2;
+6R.175 proved remaining SOR 0.693 vs 1.179 is extra informative
+membership of mate-on-other-contig FLAG=145, not `calculateSOR`;
+6R.176 applied that mate-contig gate at PairHMM construction so
+SOR is 0.693 and INFO DP stays 3;
+6R.177 proved remaining InbreedingCoeff=1.0 is always-insert vs Java
+`MIN_SAMPLES=10` emptyMap, not a sample-count mismatch;
+6R.178 gated record emission on `n_genotypes >= 10` and left the
+`1 - het/n` formula stacked vs Java HWE;
+6R.179 proved the next INFO split at `2:92307324 TTC/T` is region-wide
+vs per-variant annotation membership for DP/MQ/SOR;
+6R.180 bound INFO DP/MQ/SOR to that per-variant genotyping
+`AlleleLikelihoods` so the site is DP=1 MQ=44 SOR=1.609;
+6R.181 proved `2:92307333 T/G` still falls back to region-wide
+evidence because the cluster-TG path never constructs the
+per-variant object;
+6R.182 proved Java’s object is `filterPoorlyModeledEvidence` 8→2 then
+`marginalize`+`retainEvidence` 2→1, so overlap-of-six is not that
+object;
+6R.183 proved Rust’s poorly-modeled pass already matches Java n=2 and
+the stored n=8 is an unfiltered P12-cluster refresh overwrite;
+6R.184 proved that last refresh is the final membership write and that
+replaying the existing normalize+filter on it restores Java n=2 then
+diagnostic `retainEvidence` n=1;
+6R.185 restored that Java-order lifecycle after the last P12 refresh
+so stored evidence is n=2, without constructing `annotation_likelihoods`)
+is engineering
+discovery in [`PARITY.md`](PARITY.md), not a claim-matrix Yes row.

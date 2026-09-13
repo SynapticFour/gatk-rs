@@ -1704,13 +1704,17 @@ fn extract_rt_haplotypes_from_built_graph(
     let dangling = std::mem::take(&mut graph.dangling_merge_haps);
     // Peak-RSS: clear RT topology before dangling-merge SW / PairHMM.
     let _rt_freed = std::mem::take(&mut graph);
-    crate::assembly_dangling_recovery::apply_dangling_merge_haplotypes(
-        &mut haps,
-        &ref_hap,
-        &dangling,
-        reference.bases.as_slice(),
-        &args.haplotype_to_reference_sw,
-    );
+    // 6R.164: Java-exact path keeps the graph splice but does not materialize
+    // dangling `path_bases` as an independent Haplotype.
+    if !args.dangling_java_exact {
+        crate::assembly_dangling_recovery::apply_dangling_merge_haplotypes(
+            &mut haps,
+            &ref_hap,
+            &dangling,
+            reference.bases.as_slice(),
+            &args.haplotype_to_reference_sw,
+        );
+    }
     // Keep SW TLS warm for further k-mer extracts in this region; PairHMM path
     // releases SW once before likelihoods (`engine` before_pairhmm).
     // CIGAR indel refresh is deferred to one end-of-assemble pass
@@ -1950,13 +1954,17 @@ fn try_assemble_kmer(
     let dangling = std::mem::take(&mut graph.dangling_merge_haps);
     // Peak-RSS: clear RT topology before dangling-merge SW / PairHMM.
     let _rt_freed = std::mem::take(&mut graph);
-    crate::assembly_dangling_recovery::apply_dangling_merge_haplotypes(
-        &mut haplotypes,
-        &ref_hap,
-        &dangling,
-        reference.bases.as_slice(),
-        &args.haplotype_to_reference_sw,
-    );
+    // 6R.164: Java-exact path keeps the graph splice but does not materialize
+    // dangling `path_bases` as an independent Haplotype.
+    if !args.dangling_java_exact {
+        crate::assembly_dangling_recovery::apply_dangling_merge_haplotypes(
+            &mut haplotypes,
+            &ref_hap,
+            &dangling,
+            reference.bases.as_slice(),
+            &args.haplotype_to_reference_sw,
+        );
+    }
     if args.ensure_reference_in_result {
         ensure_reference_haplotype(&mut haplotypes, &ref_hap);
     }
