@@ -32,7 +32,9 @@ use crate::read_event_discovery::{
     is_strict_java_p12_production_emit_scope, is_strict_java_production_emit_admits,
     p12_baseline_emit_oracle_blocks, read_allele_depths_at_locus, strict_java_asm8_only_enabled,
 };
-use crate::variant_site_hc_annotations::{annotate_hc_variant_site, HcVariantSiteAnnotations};
+use crate::variant_site_hc_annotations::{
+    annotate_hc_variant_site, HcStrandBiasLikelihoods, HcVariantSiteAnnotations,
+};
 use gatk_common::GatkResult;
 use gatk_core::io::vcf::{
     FormatField, Genotype, InfoField, InfoValue, SampleData, VcfHeader, VcfRecord,
@@ -261,6 +263,67 @@ fn genotype_from_index(best: usize) -> Genotype {
     }
 }
 
+fn hc_strand_bias_likelihoods<'a>(
+    region: &'a AssemblyRegion,
+    outcome: &'a CallRegionOutcome,
+    genotyping_config: &HcGenotypingConfig,
+) -> HcStrandBiasLikelihoods<'a> {
+    let (full_ref, full_pad) = outcome.assembly.event_map_reference();
+    let apply_pad = outcome
+        .assembly
+        .haplotypes
+        .iter()
+        .find(|h| h.is_reference)
+        .and_then(|h| h.genome_loc.as_ref().map(|g| g.start.get()))
+        .unwrap_or(full_pad);
+    HcStrandBiasLikelihoods {
+        reads: &outcome.genotyping_reads,
+        likelihoods: &outcome.read_likelihoods,
+        haplotypes: &outcome.assembly.haplotypes,
+        contig: &region.contig,
+        ref_bytes: outcome.assembly.reference_bases(),
+        pad_start_1based: apply_pad,
+        full_ref_bytes: full_ref,
+        full_pad_1based: full_pad,
+        max_mnp_distance: outcome.assembly.max_mnp_distance(),
+        emit_spanning_dels: !genotyping_config.disable_spanning_event_genotyping,
+    }
+}
+
+/// 6R.180: bind INFO DP/MQ/SOR to the per-variant genotyping AlleleLikelihoods.
+fn annotation_likelihoods_for_call<'a>(
+    call: &'a GenotypedSiteCall,
+    region_wide: &'a HcStrandBiasLikelihoods<'a>,
+) -> HcStrandBiasLikelihoods<'a> {
+    if call.annotation_likelihoods.is_empty() {
+        HcStrandBiasLikelihoods {
+            reads: region_wide.reads,
+            likelihoods: region_wide.likelihoods,
+            haplotypes: region_wide.haplotypes,
+            contig: region_wide.contig,
+            ref_bytes: region_wide.ref_bytes,
+            pad_start_1based: region_wide.pad_start_1based,
+            full_ref_bytes: region_wide.full_ref_bytes,
+            full_pad_1based: region_wide.full_pad_1based,
+            max_mnp_distance: region_wide.max_mnp_distance,
+            emit_spanning_dels: region_wide.emit_spanning_dels,
+        }
+    } else {
+        HcStrandBiasLikelihoods {
+            reads: region_wide.reads,
+            likelihoods: &call.annotation_likelihoods,
+            haplotypes: region_wide.haplotypes,
+            contig: region_wide.contig,
+            ref_bytes: region_wide.ref_bytes,
+            pad_start_1based: region_wide.pad_start_1based,
+            full_ref_bytes: region_wide.full_ref_bytes,
+            full_pad_1based: region_wide.full_pad_1based,
+            max_mnp_distance: region_wide.max_mnp_distance,
+            emit_spanning_dels: region_wide.emit_spanning_dels,
+        }
+    }
+}
+
 /// Build one biallelic SNP record from genotyping + REF/ALT haplotype sequences.
 pub fn build_biallelic_variant_record(
     contig: &str,
@@ -271,6 +334,7 @@ pub fn build_biallelic_variant_record(
     genotype: &RegionGenotypeResult,
     sample_name: &str,
     genotyping_config: &HcGenotypingConfig,
+    strand_likelihoods: Option<&HcStrandBiasLikelihoods<'_>>,
 ) -> GatkResult<VcfRecord> {
     let fields = &genotype.format;
     let best_idx = biallelic_genotype_index_from_pl(&fields.pl).as_usize();
@@ -297,7 +361,7 @@ pub fn build_biallelic_variant_record(
                 mq: 0.0,
                 qd: 0.0,
                 sor: 0.0,
-                read_pos_rank_sum: 0.0,
+                read_pos_rank_sum: None,
                 inbreeding_coeff: 0.0,
             },
             true,
@@ -311,6 +375,7 @@ pub fn build_biallelic_variant_record(
         genotype,
         genotyping_config,
         None,
+        strand_likelihoods,
     )?;
     build_record_inner(
         contig,
@@ -347,6 +412,14 @@ fn build_record_inner(
     } else {
         vec![".".to_string()]
     };
+    let samples = vec![SampleData {
+        gt: Some(gt.clone()),
+        gq: Some(fields.gq.as_i32() as f64),
+        dp: Some(fields.dp.get()),
+        ad: Some(fields.ad.iter().map(|v| v.get()).collect()),
+        pl: Some(fields.pl.iter().map(|v| v.get()).collect()),
+        other: Vec::new(),
+    }];
     Ok(VcfRecord {
         chromosome: contig.to_string(),
         position: position_1based,
@@ -355,21 +428,19 @@ fn build_record_inner(
         alternate: vec![alt_allele.to_string()],
         quality: if hom_ref { None } else { Some(ann.qual) },
         filter,
-        info: hc_info_values(ann),
+        // Java `vc.getGenotypes().size()` — same one-sample population as 6R.177.
+        info: hc_info_values(ann, samples.len()),
         format: format_keys,
-        samples: vec![SampleData {
-            gt: Some(gt.clone()),
-            gq: Some(fields.gq.as_i32() as f64),
-            dp: Some(fields.dp.get()),
-            ad: Some(fields.ad.iter().map(|v| v.get()).collect()),
-            pl: Some(fields.pl.iter().map(|v| v.get()).collect()),
-            other: Vec::new(),
-        }],
+        samples,
     })
 }
 
-fn hc_info_values(ann: &HcVariantSiteAnnotations) -> Vec<InfoValue> {
-    vec![
+/// Java `InbreedingCoeff.MIN_SAMPLES` (GATK 4.4 SHA `2dbc0258`).
+/// Record emission only; the header still declares the INFO key.
+const INBREEDING_COEFF_MIN_SAMPLES: usize = 10;
+
+fn hc_info_values(ann: &HcVariantSiteAnnotations, n_genotypes: usize) -> Vec<InfoValue> {
+    let mut info = vec![
         InfoValue::Integer("AC".to_string(), vec![ann.ac]),
         InfoValue::Float("AF".to_string(), vec![ann.af]),
         InfoValue::Integer("AN".to_string(), vec![ann.an]),
@@ -381,9 +452,21 @@ fn hc_info_values(ann: &HcVariantSiteAnnotations) -> Vec<InfoValue> {
         InfoValue::Float("MQ".to_string(), vec![ann.mq]),
         InfoValue::Float("QD".to_string(), vec![ann.qd]),
         InfoValue::Float("SOR".to_string(), vec![ann.sor]),
-        InfoValue::Float("ReadPosRankSum".to_string(), vec![ann.read_pos_rank_sum]),
-        InfoValue::Float("InbreedingCoeff".to_string(), vec![ann.inbreeding_coeff]),
-    ]
+    ];
+    // 6R.172: ReadPosRankSum only. Insert finite z including 0.0; omit None.
+    // Do not skip other annotations when they are numeric zero (FS=0 must emit).
+    if let Some(z) = ann.read_pos_rank_sum {
+        info.push(InfoValue::Float("ReadPosRankSum".to_string(), vec![z]));
+    }
+    // Java InbreedingCoeff.annotate: genotypes.size() < MIN_SAMPLES → emptyMap.
+    // Formula in annotate_hc_variant_site stays 1 - het/n (not Java HWE F).
+    if n_genotypes >= INBREEDING_COEFF_MIN_SAMPLES {
+        info.push(InfoValue::Float(
+            "InbreedingCoeff".to_string(),
+            vec![ann.inbreeding_coeff],
+        ));
+    }
+    info
 }
 
 /// Emit one VCF row per assembled variation event (GATK `getVariationEvents` + per-call emit).
@@ -459,9 +542,11 @@ fn try_emit_call_region_variants_inner(
     let _prof = crate::hc_profile::begin(crate::hc_profile::Stage::VcfEmission);
     if !outcome.genotyped_calls.is_empty() {
         let assembly_events = outcome.assembly.variation_events();
+        let strand_likelihoods = hc_strand_bias_likelihoods(region, outcome, genotyping_config);
         let mut records = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
         for call in &outcome.genotyped_calls {
+            let site_ann = annotation_likelihoods_for_call(call, &strand_likelihoods);
             let key = vcf_emit_key(
                 &region.contig,
                 call.event.start_1based.get(),
@@ -505,6 +590,7 @@ fn try_emit_call_region_variants_inner(
                     &call.genotype,
                     genotyping_config,
                     call.qual_log10_p_error,
+                    Some(&site_ann),
                 )?;
                 seen.insert(key);
                 let mut rec = build_record_inner(
@@ -645,6 +731,7 @@ fn try_emit_call_region_variants_inner(
                     emit_genotype,
                     genotyping_config,
                     call.qual_log10_p_error,
+                    Some(&site_ann),
                 )?;
                 seen.insert(key);
                 let mut rec = build_record_inner(
@@ -812,6 +899,7 @@ fn try_emit_call_region_variants_inner(
                 &call.genotype,
                 genotyping_config,
                 call.qual_log10_p_error,
+                Some(&site_ann),
             )?;
             let rec = build_record_inner(
                 &region.contig,
@@ -954,6 +1042,7 @@ pub fn try_emit_call_region_variant_with_config(
             return Ok(None);
         }
     }
+    let strand_likelihoods = hc_strand_bias_likelihoods(region, outcome, genotyping_config);
     let rec = build_biallelic_variant_record(
         &region.contig,
         Some(region),
@@ -963,6 +1052,7 @@ pub fn try_emit_call_region_variant_with_config(
         genotype,
         sample_name,
         genotyping_config,
+        Some(&strand_likelihoods),
     )?;
     let gt = rec
         .samples
@@ -1040,5 +1130,76 @@ mod tests {
         assert!(text.contains("##FORMAT=<ID=GT,"));
         assert!(text.contains("##INFO=<ID=AC,"));
         assert!(text.contains("##FORMAT=<ID=PL,"));
+        assert!(text.contains("##INFO=<ID=InbreedingCoeff,"));
+    }
+
+    fn dummy_ann(inbreeding_coeff: f64) -> HcVariantSiteAnnotations {
+        HcVariantSiteAnnotations {
+            qual: 78.32,
+            ac: 2,
+            af: 1.0,
+            an: 2,
+            dp: 3,
+            excess_het: 0.0,
+            fs: 0.0,
+            mleac: 2,
+            mleaf: 1.0,
+            mq: 41.96,
+            qd: 25.0,
+            sor: 0.693,
+            read_pos_rank_sum: None,
+            inbreeding_coeff,
+        }
+    }
+
+    fn info_has_key(info: &[InfoValue], key: &str) -> bool {
+        info.iter().any(|v| match v {
+            InfoValue::Flag(k)
+            | InfoValue::Integer(k, _)
+            | InfoValue::Float(k, _)
+            | InfoValue::String(k, _)
+            | InfoValue::Character(k, _) => k == key,
+        })
+    }
+
+    fn info_f64(info: &[InfoValue], key: &str) -> Option<f64> {
+        for v in info {
+            if let InfoValue::Float(k, xs) = v {
+                if k == key {
+                    return xs.first().copied();
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn inbreeding_coeff_omitted_below_java_min_samples() {
+        let ann = dummy_ann(1.0);
+        assert_eq!(INBREEDING_COEFF_MIN_SAMPLES, 10);
+        for n in [0usize, 1, 9] {
+            let info = hc_info_values(&ann, n);
+            assert!(
+                !info_has_key(&info, "InbreedingCoeff"),
+                "n={n} must omit InbreedingCoeff (Java MIN_SAMPLES=10)"
+            );
+            assert!(
+                info_has_key(&info, "FS"),
+                "n={n}: FS=0 must still emit; the gate is sample count, not value==0"
+            );
+            assert!(
+                (ann.inbreeding_coeff - 1.0).abs() < 1e-12,
+                "formula field must remain computed even when the key is omitted"
+            );
+        }
+        let info10 = hc_info_values(&ann, 10);
+        assert!(
+            info_has_key(&info10, "InbreedingCoeff"),
+            "n=10 must insert InbreedingCoeff"
+        );
+        assert!(
+            (info_f64(&info10, "InbreedingCoeff").unwrap_or(-1.0) - 1.0).abs() < 1e-12,
+            "n>=10 still uses the existing 1-het/n value, not Java HWE F"
+        );
     }
 }

@@ -134,7 +134,10 @@ pub fn dump_standard_annotations_tsv(
     writeln!(out, "SOR\t{sor:.6}")?;
     writeln!(out, "QD\t{qd:.6}")?;
     writeln!(out, "BaseQRankSum\t{bq:.6}")?;
-    writeln!(out, "ReadPosRankSum\t{rp:.6}")?;
+    match rp {
+        Some(z) => writeln!(out, "ReadPosRankSum\t{z:.6}")?,
+        None => writeln!(out, "ReadPosRankSum\t")?,
+    }
     writeln!(out, "MQRankSum\t{mq:.6}")?;
     Ok(())
 }
