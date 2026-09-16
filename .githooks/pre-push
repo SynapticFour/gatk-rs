@@ -10,9 +10,11 @@ cd "$ROOT"
 echo "[pre-push] cargo fmt --all -- --check"
 cargo fmt --all -- --check
 
-echo "[pre-push] cargo clippy --workspace"
-# Lint debt: warn-only (same as CI pr-check / quality). Hard errors still fail.
-cargo clippy --workspace
+echo "[pre-push] cargo clippy --workspace (deny rustc warnings)"
+# Clippy lints stay non-blocking (same lint debt as CI). Rustc warnings fail
+# except `dead_code` (unused Java-shaped / test-only helpers).
+# Commit-gate only: does not change generated code or runtime flow.
+cargo clippy --workspace -- -D warnings -A clippy::all -A dead_code
 
 echo "[pre-push] excellence gates (N-1…N-7)"
 python3 scripts/parity/excellence_gates_audit.py
