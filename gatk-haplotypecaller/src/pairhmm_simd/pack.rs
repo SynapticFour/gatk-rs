@@ -198,7 +198,7 @@ pub(crate) const PREFIX_REUSE_MIN_HAPS_AVX2: usize = 5;
 ///
 /// Always uses the full-matrix path so consecutive same-length haps can reuse prefix
 /// columns. Leftover singles that never reuse should call [`score_one_f64_rolling`].
-pub(crate) fn score_one_f64(
+fn score_one_f64(
     read_bases: &[u8],
     read_quals: &[u8],
     hap: &[u8],

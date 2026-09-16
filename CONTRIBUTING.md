@@ -18,9 +18,12 @@ First step after clone — enable the versioned Git hooks (`.githooks/`):
 This sets `git config core.hooksPath .githooks` so every contributor shares the same
 checks:
 
-- **pre-commit** — `cargo fmt --check`, scoped `cargo clippy`, unwrap/clone ratchets,
-  doc links, >1 MiB guard, `cargo test --workspace --lib`
-- **pre-push** — `cargo fmt --check` + `cargo clippy --workspace` (same lint surface as CI)
+- **pre-commit** — `cargo fmt --check`, scoped `cargo clippy` with rustc warnings
+  denied (`-D warnings -A clippy::all -A dead_code`; clippy lints and unused
+  Java-shaped helpers stay non-blocking), unwrap/clone
+  ratchets, doc links, >1 MiB guard, `cargo test --workspace --lib`
+- **pre-push** — `cargo fmt --check` + `cargo clippy --workspace` with the same
+  rustc-warning deny (clippy lint debt and `dead_code` stay non-blocking)
 
 Always run `./scripts/dev/install-hooks.sh` after clone. Do not skip with `--no-verify`
 unless intentional; PR CI still runs the same fmt/clippy/ratchet gates.

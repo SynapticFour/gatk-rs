@@ -53,21 +53,23 @@ if [[ "$has_rs" -eq 1 ]]; then
 fi
 
 # 2) clippy — scoped to affected crates when possible; else workspace.
-# Lint debt: do not use -D warnings here yet (hundreds of existing findings).
-# Still fails the commit on hard rustc/clippy errors.
+# Rustc compiler warnings fail the commit. Clippy lints stay non-blocking
+# (`-A clippy::all`). `dead_code` stays allowed: this crate keeps unused
+# Java-shaped helpers and test-only `pub` items that lib-only clippy cannot
+# see as used. Do not put `#![deny(warnings)]` in crate roots.
+# No --all-targets: integration tests need feature-gated private modules.
 if [[ "$has_rs" -eq 1 ]]; then
   clippy_args=""
   for c in $crates; do
     clippy_args="${clippy_args} -p ${c}"
   done
-  # No --all-targets: several integration tests need feature-gated private modules.
   if [[ -n "$clippy_args" ]]; then
-    echo "[pre-commit] cargo clippy${clippy_args}"
+    echo "[pre-commit] cargo clippy${clippy_args} (deny rustc warnings)"
     # shellcheck disable=SC2086
-    cargo clippy ${clippy_args}
+    cargo clippy ${clippy_args} -- -D warnings -A clippy::all -A dead_code
   else
-    echo "[pre-commit] cargo clippy --workspace"
-    cargo clippy --workspace
+    echo "[pre-commit] cargo clippy --workspace (deny rustc warnings)"
+    cargo clippy --workspace -- -D warnings -A clippy::all -A dead_code
   fi
 fi
 
