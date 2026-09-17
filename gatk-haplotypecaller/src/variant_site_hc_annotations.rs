@@ -2,20 +2,26 @@
 
 use crate::activity_scoring::genotype_log10_likelihoods_after_java_genotype_pl_roundtrip;
 use crate::af_calc::{
-    calculate_biallelic_af_em, diploid_af_log10_prob_only_ref_allele_exists, AfCalculatorConfig,
+    biallelic_alt_pseudocount, calculate_biallelic_af_em,
+    calculate_biallelic_af_em_with_alt_pseudocount, diploid_af_log10_prob_only_ref_allele_exists,
+    AfCalculatorConfig,
 };
 use crate::annotator::plugins::{
-    excess_het, fisher_strand, qual_by_depth, read_pos_rank_sum, strand_odds_ratio,
+    excess_het, fisher_strand, mapping_quality_rank_sum, qual_by_depth, rank_sum_baseq,
+    read_pos_rank_sum, strand_odds_ratio,
 };
 use crate::assembly_region_iterator::AssemblyRegion;
 use crate::event_map::{build_per_haplotype_variation_events, VariationEvent};
-use crate::fragment_overlap::read_base_at_ref_coord_1based;
+use crate::fragment_overlap::{
+    pre_realign_alignment, read_base_at_ref_coord_1based, read_base_quality_at_ref_coord_1based,
+    read_base_quality_at_ref_coord_on_cigar,
+};
 use crate::genotyping::GenotypeFormatFields;
 use crate::haplotype::Haplotype;
 use crate::hc_allele_mapping::create_allele_mapper_with_events;
 use crate::hc_genotyping_engine::{
-    java_alignment_read_overlaps_interval, marginalize_rows_to_biallelic_alleles,
-    region_likelihoods_to_rows, HcGenotypingConfig, RegionGenotypeResult,
+    marginalize_rows_to_biallelic_alleles, region_likelihoods_to_rows, HcGenotypingConfig,
+    RegionGenotypeResult,
 };
 use crate::read_model::MAPPING_QUALITY_UNAVAILABLE;
 use crate::read_realignment::LOG_10_INFORMATIVE_THRESHOLD;
@@ -23,6 +29,8 @@ use crate::region_read_likelihood::RegionReadLikelihood;
 use crate::shared_bam::SharedBamRecord;
 use gatk_common::GatkResult;
 use gatk_core::io::vcf::Genotype;
+use rust_htslib::bam::record::{Cigar, CigarString};
+use rust_htslib::bam::Record;
 use std::collections::BTreeSet;
 
 const FLAG_REVERSE: u16 = 0x10;
@@ -59,6 +67,10 @@ pub struct HcVariantSiteAnnotations {
     pub sor: f64,
     /// `None` = Java `RankSumTest` emptyMap (undefined / NaN). `Some(0.0)` emits.
     pub read_pos_rank_sum: Option<f64>,
+    /// 6R.193: `BaseQRankSum`. Same Option contract as [`Self::read_pos_rank_sum`].
+    pub base_q_rank_sum: Option<f64>,
+    /// 6R.194: `MQRankSum`. Same Option contract as [`Self::read_pos_rank_sum`].
+    pub mq_rank_sum: Option<f64>,
     pub inbreeding_coeff: f64,
 }
 
@@ -240,6 +252,230 @@ fn strand_bias_sample_counts(
     (ref_fw, ref_rv, alt_fw, alt_rv)
 }
 
+/// GATK `RankSumTest.isUsableRead`: MQ != 0 and MQ != 255.
+fn java_ranksum_mq_usable(rec: &Record) -> bool {
+    let mq = rec.mapq();
+    mq != 0 && mq != MAPPING_QUALITY_UNAVAILABLE
+}
+
+/// GATK `ReadPosRankSumTest.getReadPosition`: `min(left, right)` including hard clips.
+fn java_read_pos_rank_element_on_cigar(
+    alignment_pos0: i64,
+    cig: &CigarString,
+    seq_len: i64,
+    vc_start_1based: i32,
+) -> Option<f64> {
+    let mut leading_hard = 0i64;
+    let mut trailing_hard = 0i64;
+    if let Some(Cigar::HardClip(n)) = cig.iter().next() {
+        leading_hard = i64::from(*n);
+    }
+    if let Some(Cigar::HardClip(n)) = cig.iter().last() {
+        trailing_hard = i64::from(*n);
+    }
+    let vc = i64::from(vc_start_1based);
+    let mut ref_pos = alignment_pos0 + 1;
+    let mut q = 0usize;
+    for c in cig.iter() {
+        match c {
+            Cigar::Match(n) | Cigar::Equal(n) | Cigar::Diff(n) => {
+                let n = i64::from(*n);
+                if vc >= ref_pos && vc < ref_pos + n {
+                    let idx = q + (vc - ref_pos) as usize;
+                    let left = leading_hard + idx as i64;
+                    let right = seq_len - 1 - idx as i64 + trailing_hard;
+                    return Some(left.min(right) as f64);
+                }
+                ref_pos += n;
+                q += n as usize;
+            }
+            Cigar::Del(n) | Cigar::RefSkip(n) => {
+                ref_pos += i64::from(*n);
+            }
+            Cigar::Ins(n) | Cigar::SoftClip(n) => {
+                q += *n as usize;
+            }
+            Cigar::HardClip(_) | Cigar::Pad(_) => {}
+        }
+    }
+    None
+}
+
+/// GATK `ReadPosRankSumTest.getReadPosition`: `min(left, right)` including hard clips.
+///
+/// 6R.203: when the attached (haplotype-realigned) CIGAR does not cover
+/// `vc.getStart()`, retry on the pre-realign POS/CIGAR Java RankSum still has.
+fn java_read_pos_rank_element(rec: &Record, vc_start_1based: i32) -> Option<f64> {
+    if let Some(v) = java_read_pos_rank_element_on_cigar(
+        rec.pos(),
+        &CigarString::from(rec.cigar().iter().copied().collect::<Vec<_>>()),
+        rec.seq_len() as i64,
+        vc_start_1based,
+    ) {
+        return Some(v);
+    }
+    let (pos0, cig) = pre_realign_alignment(rec)?;
+    java_read_pos_rank_element_on_cigar(pos0, &cig, rec.seq_len() as i64, vc_start_1based)
+}
+
+/// GATK `RankSumTest.fillQualsFromLikelihood` REF/ALT lists.
+///
+/// Observable Java 4.4 contract on the annotation `AlleleLikelihoods`:
+/// remarginalize `evidence.likelihoods` to site REF/ALT,
+/// `bestAllelesBreakingTies` (REF wins ties), `isInformative` (gap > 0.2),
+/// `isUsableRead`, then `getElementForRead`. Does **not** walk `region.reads`.
+///
+/// 6R.191: ReadPosRankSum uses this membership plus `getReadPosition`.
+/// 6R.193: BaseQRankSum uses the same membership plus
+/// `ReadUtils.getReadBaseQualityAtReferenceCoordinate`.
+/// 6R.194: MQRankSum uses the same membership plus `read.getMappingQuality()`.
+/// Mann-Whitney / undefined-vs-zero stay in the RankSum plugins.
+fn fill_ranksum_quals_from_likelihood<F>(
+    evidence: &HcStrandBiasLikelihoods<'_>,
+    loc_1based: u64,
+    ref_allele: &str,
+    alt_allele: &str,
+    mut element_for_read: F,
+) -> (Vec<f64>, Vec<f64>)
+where
+    F: FnMut(&Record, i32) -> Option<f64>,
+{
+    let mut ref_vals = Vec::new();
+    let mut alt_vals = Vec::new();
+    if evidence.likelihoods.is_empty() || evidence.haplotypes.is_empty() {
+        return (ref_vals, alt_vals);
+    }
+    let event = VariationEvent::from_alleles(evidence.contig, loc_1based, ref_allele, alt_allele);
+    let hap_cache = build_per_haplotype_variation_events(
+        evidence.haplotypes,
+        evidence.full_ref_bytes,
+        evidence.full_pad_1based,
+        evidence.max_mnp_distance,
+        evidence.contig,
+    );
+    let mapping = create_allele_mapper_with_events(
+        &event,
+        loc_1based,
+        evidence.haplotypes,
+        evidence.pad_start_1based,
+        evidence.ref_bytes,
+        evidence.max_mnp_distance,
+        evidence.emit_spanning_dels,
+        Some(&hap_cache),
+    );
+    let rows = region_likelihoods_to_rows(evidence.likelihoods, evidence.haplotypes.len());
+    let marg = marginalize_rows_to_biallelic_alleles(
+        &rows,
+        &mapping.ref_haplotype_indices,
+        &mapping.alt_haplotype_indices,
+    );
+    for row in &marg {
+        let Some(rec) = evidence.reads.get(row.read_index) else {
+            continue;
+        };
+        let lls = &row.haplotype_log10_likelihoods;
+        let ll_ref = lls.first().copied().unwrap_or(f64::NEG_INFINITY);
+        let ll_alt = lls.get(1).copied().unwrap_or(f64::NEG_INFINITY);
+        if !ll_ref.is_finite() && !ll_alt.is_finite() {
+            continue;
+        }
+        let (best_is_ref, best, second) = if ll_ref > ll_alt {
+            (true, ll_ref, ll_alt)
+        } else if ll_alt > ll_ref {
+            (false, ll_alt, ll_ref)
+        } else {
+            (true, ll_ref, ll_alt)
+        };
+        let gap = if second.is_finite() {
+            best - second
+        } else {
+            f64::INFINITY
+        };
+        if gap <= LOG_10_INFORMATIVE_THRESHOLD {
+            continue;
+        }
+        if !java_ranksum_mq_usable(rec) {
+            continue;
+        }
+        let Some(v) = element_for_read(rec, loc_1based as i32) else {
+            continue;
+        };
+        if best_is_ref {
+            ref_vals.push(v);
+        } else {
+            alt_vals.push(v);
+        }
+    }
+    (ref_vals, alt_vals)
+}
+
+/// 6R.191: ReadPosRankSum `fillQualsFromLikelihood` lists (`getReadPosition`).
+pub fn read_pos_rank_sum_quals_from_likelihoods(
+    evidence: &HcStrandBiasLikelihoods<'_>,
+    loc_1based: u64,
+    ref_allele: &str,
+    alt_allele: &str,
+) -> (Vec<f64>, Vec<f64>) {
+    fill_ranksum_quals_from_likelihood(
+        evidence,
+        loc_1based,
+        ref_allele,
+        alt_allele,
+        java_read_pos_rank_element,
+    )
+}
+
+/// 6R.193: BaseQRankSum `fillQualsFromLikelihood` lists
+/// (`getReadBaseQualityAtReferenceCoordinate`). Same membership as ReadPos.
+pub fn baseq_rank_sum_quals_from_likelihoods(
+    evidence: &HcStrandBiasLikelihoods<'_>,
+    loc_1based: u64,
+    ref_allele: &str,
+    alt_allele: &str,
+) -> (Vec<f64>, Vec<f64>) {
+    fill_ranksum_quals_from_likelihood(
+        evidence,
+        loc_1based,
+        ref_allele,
+        alt_allele,
+        java_baseq_rank_element,
+    )
+}
+
+/// 6R.194: MQRankSum `fillQualsFromLikelihood` lists (`read.getMappingQuality()`).
+/// Same membership as ReadPos / BaseQ. Does **not** use RMS `sampleEvidence`.
+pub fn mq_rank_sum_quals_from_likelihoods(
+    evidence: &HcStrandBiasLikelihoods<'_>,
+    loc_1based: u64,
+    ref_allele: &str,
+    alt_allele: &str,
+) -> (Vec<f64>, Vec<f64>) {
+    fill_ranksum_quals_from_likelihood(
+        evidence,
+        loc_1based,
+        ref_allele,
+        alt_allele,
+        java_mq_rank_element,
+    )
+}
+
+/// GATK `BaseQualityRankSumTest.getElementForRead`.
+///
+/// 6R.203: attached CIGAR first (Java `getReadBaseQualityAtReferenceCoordinate`);
+/// if empty, the pre-realign covering CIGAR Java RankSum still uses.
+fn java_baseq_rank_element(rec: &Record, vc_start_1based: i32) -> Option<f64> {
+    if let Some(q) = read_base_quality_at_ref_coord_1based(rec, vc_start_1based) {
+        return Some(f64::from(q));
+    }
+    let (pos0, cig) = pre_realign_alignment(rec)?;
+    read_base_quality_at_ref_coord_on_cigar(pos0, &cig, rec.qual(), vc_start_1based).map(f64::from)
+}
+
+/// GATK `MappingQualityRankSumTest.getElementForRead`: `read.getMappingQuality()`.
+fn java_mq_rank_element(rec: &Record, _vc_start_1based: i32) -> Option<f64> {
+    Some(f64::from(rec.mapq()))
+}
+
 /// GATK `RMSMappingQuality.calculateRawData` membership:
 /// unique reads remaining in `likelihoods.sampleEvidence` after
 /// `filterPoorlyModeledEvidence`, with `MQ != QualityUtils.MAPPING_QUALITY_UNAVAILABLE`.
@@ -303,36 +539,30 @@ fn java_finalize_mq(rms: f64) -> f64 {
 }
 
 /// GATK 4.4 `Coverage.annotate`: `likelihoods.evidenceCount()` on the
-/// allele-level object passed to `VariantAnnotatorEngine.annotateContext`.
+/// already-canonical annotation AlleleLikelihoods passed to
+/// `VariantAnnotatorEngine.annotateContext`.
 ///
-/// That object is genotyping `retainEvidence` (overlap with
-/// `variantCallingRelevantOverlap` = merged VC ± `informativeReadOverlapMargin`).
-/// This is **not** FORMAT/`DepthPerSampleHC` (informative `bestAlleles` only)
-/// and **not** the unfiltered region `sampleEvidence` used by MQ.
+/// Java `evidenceCount()` is remaining-list cardinality
+/// (`evidenceBySampleIndex.stream().mapToInt(List::size).sum()`). Loc-loop
+/// `retainEvidence` / overlap is **object construction**, not a second
+/// Coverage filter (6R.201). Unique `read_index` is the attached
+/// unique-evidence cardinality. This is **not** FORMAT/`DepthPerSampleHC`
+/// (informative `bestAlleles` only) and **not** the unfiltered region
+/// `sampleEvidence` used by MQ.
 ///
 /// Default HC `prepareReadAlleleLikelihoodsForAnnotation` also
 /// `addEvidence(overlappingFilteredReads, 0)`. Reads already remaining in the
 /// post-filter matrix are not double-counted. INFO DP may exceed FORMAT DP.
 pub fn coverage_evidence_count(
-    reads: &[SharedBamRecord],
+    _reads: &[SharedBamRecord],
     likelihoods: &[RegionReadLikelihood],
-    start_1based: u64,
-    end_1based: u64,
-    margin: i32,
+    _start_1based: u64,
+    _end_1based: u64,
+    _margin: i32,
 ) -> i32 {
     let mut seen = BTreeSet::new();
     for cell in likelihoods {
-        let idx = cell.read_index.get();
-        if !seen.insert(idx) {
-            continue;
-        }
-        let Some(rec) = reads.get(idx) else {
-            seen.remove(&idx);
-            continue;
-        };
-        if !java_alignment_read_overlaps_interval(rec, start_1based, end_1based, margin) {
-            seen.remove(&idx);
-        }
+        seen.insert(cell.read_index.get());
     }
     seen.len() as i32
 }
@@ -362,7 +592,11 @@ pub fn annotate_hc_variant_site(
     let gl_for_qual = genotype_log10_likelihoods_after_java_genotype_pl_roundtrip(
         &genotype.genotype_log10_likelihoods,
     );
-    let af_result = calculate_biallelic_af_em(&[&gl_for_qual], &AfCalculatorConfig::default())?;
+    // 6R.196: Java AF alt Dirichlet weight is SNP iff `alt.length()==ref.length()`.
+    let af_cfg = AfCalculatorConfig::default();
+    let alt_pc = biallelic_alt_pseudocount(ref_allele, alt_allele, &af_cfg);
+    let af_result =
+        calculate_biallelic_af_em_with_alt_pseudocount(&[&gl_for_qual], &af_cfg, alt_pc)?;
     let qual = match qual_log10_p_error {
         Some(log10_pe) => (-10.0 * log10_pe.min(0.0)) + 0.0,
         None => (-10.0 * af_result.log10_posterior_no_variant) + 0.0,
@@ -394,8 +628,41 @@ pub fn annotate_hc_variant_site(
     } else {
         0.0
     };
-    let (ref_positions, alt_positions) =
-        read_offset_evidence_at_site(region, position_1based, ref_allele, alt_allele);
+    // 6R.191: ReadPosRankSum uses Java `fillQualsFromLikelihood` on the same
+    // per-variant annotation `AlleleLikelihoods` as DP/MQ/SOR (`strand_likelihoods`).
+    // 6R.193: BaseQRankSum uses that same object and membership; only the
+    // element is base quality. Do not walk `region.reads` pileup.
+    // 6R.194: MQRankSum uses that same object and membership; element is
+    // `read.getMappingQuality()`. Do not use RMS `sampleEvidence`.
+    let _ = region;
+    let (ref_positions, alt_positions, ref_baseq, alt_baseq, ref_mapq, alt_mapq) =
+        match strand_likelihoods {
+            Some(ev) => {
+                let (rp_ref, rp_alt) = read_pos_rank_sum_quals_from_likelihoods(
+                    ev,
+                    position_1based,
+                    ref_allele,
+                    alt_allele,
+                );
+                let (bq_ref, bq_alt) = baseq_rank_sum_quals_from_likelihoods(
+                    ev,
+                    position_1based,
+                    ref_allele,
+                    alt_allele,
+                );
+                let (mq_ref, mq_alt) =
+                    mq_rank_sum_quals_from_likelihoods(ev, position_1based, ref_allele, alt_allele);
+                (rp_ref, rp_alt, bq_ref, bq_alt, mq_ref, mq_alt)
+            }
+            None => (
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            ),
+        };
     // 6R.166: FS/SOR use Java `getContingencyTable` on post-filter allele likelihoods.
     // 6R.167: MQ membership is Java `sampleEvidence` (MQ != 255). Do not change it.
     // 6R.168: MQ aggregation is Java `makeFinalizedAnnotationString` RMS + `%.2f`.
@@ -422,6 +689,8 @@ pub fn annotate_hc_variant_site(
     let fs = fisher_strand::fisher_strand_statistic(fs_rf, fs_rr, fs_af, fs_ar);
     let sor = strand_odds_ratio::strand_odds_ratio(sor_rf, sor_rr, sor_af, sor_ar);
     let rp = read_pos_rank_sum::read_pos_rank_sum(&ref_positions, &alt_positions);
+    let bq = rank_sum_baseq::base_quality_rank_sum(&ref_baseq, &alt_baseq);
+    let mqrs = mapping_quality_rank_sum::mapping_quality_rank_sum(&ref_mapq, &alt_mapq);
     // Raw QUAL/depth only. `fixTooHighQD` consumes the process-global Java RNG and
     // must run later in genomic emit order (see `apply_fix_too_high_qd_to_vcf_records`).
     let qd = qual_by_depth::raw_qual_by_depth(qual, qd_depth);
@@ -446,10 +715,13 @@ pub fn annotate_hc_variant_site(
         qd,
         sor,
         read_pos_rank_sum: rp,
+        base_q_rank_sum: bq,
+        mq_rank_sum: mqrs,
         inbreeding_coeff,
     })
 }
 
+#[allow(dead_code)] // 6R.170 pileup RankSum; production moved in 6R.191.
 fn read_offset_evidence_at_site(
     region: Option<&AssemblyRegion>,
     position_1based: u64,

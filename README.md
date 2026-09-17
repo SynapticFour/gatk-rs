@@ -30,7 +30,7 @@ GATK 4.4 jar as an oracle; they do not ship Broad source (see [`NOTICE.md`](NOTI
 
 Authority: [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Canonical mid-B is one
 ActiveFull region ([`docs/PARITY.md`](docs/PARITY.md)), not a genome-wide product claim.
-Chr20_tiny 6R.130–6R.185 holdouts in that file are engineering discovery through
+Chr20_tiny 6R.130–6R.221 holdouts in that file are engineering discovery through
 default USE_PLS GT/PL/GQ, the first AD write, Class-A3 preservation of
 an assigned calculator genotype (not a `pl_gt == 0` guard), the
 hom-ref emission boundary (Java also does not VCF-emit that 0/0),
@@ -72,7 +72,115 @@ and the 6R.184 proof that replaying the existing normalize+filter
 on that last refreshed matrix restores Java n=2 then diagnostic
 `retainEvidence` n=1,
 and the 6R.185 restore of that Java-order filter after the last
-P12 refresh (stored n=2; cluster-TG annotation object still later),
+P12 refresh (stored n=2),
+and the 6R.186 construction of the cluster-TG per-variant annotation
+object (n=2 → `marginalize` → `retainEvidence` n=1; INFO DP=1 MQ=44
+SOR=1.609),
+and the 6R.187 proof-only reconnaissance that the next remaining
+INFO field is DP at `2:92305635 A/G` (attached genotyping-subset
+n=1 vs Java stored-hap `retainEvidence` n=3; not the 6R.186 cause),
+and the 6R.188 proof that the n=1 object is the FORMAT-narrowed
+SiteScore subset (not 6R.186 cluster-TG construction),
+and the 6R.189 production bind of SiteScore annotation to the
+stored-hap loc-loop object (INFO DP=3 MQ=41.96 SOR=0.693 at
+`2:92305635 A/G`; FORMAT/QUAL unchanged),
+and the 6R.190 proof-only reconnaissance that the next remaining
+INFO field is rust-only `ReadPosRankSum` at `2:92305716 A/C`
+(pileup vs Java `fillQualsFromLikelihood`; FORMAT/QUAL/DP/MQ/SOR
+closed; 6R.189 site stays closed),
+and the 6R.191 production bind of ReadPosRankSum to that
+annotation `AlleleLikelihoods` object (`2:92305716 A/C` omits
+the key; REF=0 ALT=3; formula unchanged),
+and the 6R.192 proof-only reconnaissance that the next remaining
+INFO field is Java-only `BaseQRankSum`/`MQRankSum` at
+`2:92307359 CT/C` (header-only; not another RankSum source or QD),
+and the 6R.193 production emit of BaseQRankSum from that same
+fillQuals object (`2:92307359 CT/C` finite zero; MQRankSum still
+header-only),
+and the 6R.194 production emit of MQRankSum from that same
+fillQuals membership (`2:92307359 CT/C` finite `-0.674`; QUAL/QD
+not retuned),
+and the 6R.195 proof-only that QD at that site follows QUAL/AD-depth
+(Java 15.80 = Java QUAL/2; Rust 15.82 = Rust QUAL/2; no independent
+QD arrow; production unchanged),
+and the 6R.196 production bind of biallelic QUAL AF to Java’s
+length-based alt prior (`2:92307359 CT/C` QUAL 31.60; QD follows),
+and the 6R.197 proof-only reconnaissance that the next remaining
+INFO field is DP at `2:92307403 C/A` (Java 6 vs Rust 4; Java-only
+BaseQ/ReadPos; production unchanged),
+and the 6R.198 proof-only that this is the cluster-downstream
+early-template skip (empty annotation object; stored n=6 vs
+retain n=4; production unchanged),
+and the 6R.199 production attach of stored-unique n=6 annotation
+evidence on that arm (not the 6R.186 retain subset; INFO DP still
+4 is deferred),
+and the 6R.200 proof-only that INFO DP 6 vs 4 is a second Coverage
+overlap filter on that n=6 object (production unchanged),
+and the 6R.201 production removal of that second Coverage overlap
+so INFO DP consumes attached unique evidenceCount (n=6) at
+`2:92307403 C/A` (FORMAT/QUAL/MQ unchanged; RankSums not retuned),
+and the 6R.202 proof-only that remaining Java-only BaseQRankSum /
+ReadPosRankSum is empty-REF fillQuals `getElementForRead` on the two
+extra stored unique rows (invocation and n=6 object already reach
+RankSum; MQRankSum already 1.834; production unchanged),
+and the 6R.203 production shared RankSum `getElementForRead`
+covering-CIGAR retry at `2:92307403 C/A` so BaseQRankSum=−1.834
+and ReadPosRankSum=1.282 (MQRankSum stays 1.834; INFO DP stays 6;
+FORMAT/QUAL unchanged),
+and the 6R.204 proof-only that remaining INFO DP at `2:92316296 A/T`
+is Java loc-loop retainEvidence n=2 versus Rust region-wide stored
+unique n=3 (empty two-read hom-alt annotation; production unchanged),
+and the 6R.205 production attach of the stored-haplotype loc-loop
+object on that two-read hom-alt arm (INFO DP=2, MQ=47.00, SOR=2.303;
+FORMAT/QUAL unchanged),
+and the 6R.206 proof-only that remaining INFO DP at `2:92316416 C/A`
+is Java loc-loop retainEvidence n=1 versus Rust region-wide stored
+unique n=3 (empty one-read hom-alt annotation; production unchanged),
+and the 6R.207 production attach of the stored-haplotype loc-loop
+object on that one-read hom-alt arm (INFO DP=1, MQ=21.00, SOR=1.609;
+FORMAT/QUAL unchanged),
+and the 6R.208 proof-only that remaining INFO DP/SOR at
+`2:92317399 C/A` is Java loc-loop retainEvidence n=2 versus Rust
+attached n=1 after the 6R.180 same-QNAME collapse (FORMAT/QUAL match;
+production unchanged),
+and the 6R.209 production skip of that same-QNAME collapse on the
+loc-loop retainEvidence object so both mates survive (INFO DP=2,
+SOR=0.693; FORMAT/QUAL/MQ unchanged),
+and the 6R.210 production attach of the stored-haplotype loc-loop
+object on the gap-sparse shaped-early FORMAT path (INFO DP=1,
+MQ=24.00, SOR=1.609; MQRankSum omitted; FORMAT/QUAL unchanged),
+and the 6R.211 production attach of the same object on the gap-tail
+het early-template FORMAT path (INFO DP=3, MQ=28.03, SOR=0.223;
+FORMAT/QUAL unchanged),
+and the 6R.212 production attach of the same object on the weak-sparse
+het early-template FORMAT path (INFO DP=3, MQ=28.03, SOR=1.179;
+FORMAT/QUAL unchanged),
+and the 6R.213 proof that the earliest remaining common-site split is
+FORMAT PL at `20:29455015 G/T` (Java `69,0,2140` vs Rust `122,0,2304`;
+QUAL/GQ/QD follow those GLs; GT/AD/INFO match; production unchanged),
+and the 6R.214 proof that those GLs already sit on a different
+pre-marginalization haplotype matrix (Java 30 trimmed 130 bp haplotypes
+vs Rust 84 of 181/212 bp; production unchanged),
+and the 6R.215 proof that the extra haplotypes are materialized by
+post-SeqGraph RT k=10 merge after Java-equivalent k=25 findBestPaths
+(production unchanged),
+and the 6R.216 proof that Java never k-bests that cyclic k=10
+ReadThreadingGraph after SeqGraph findBestPaths (production
+unchanged; global RT disable is not the Java rule),
+and the 6R.217 diagnostic that createGraph cycle abort at RT extract
+drops the 44 extras (production unchanged),
+and the 6R.218 production SeqGraph-path extract abort (cyclic k=10
+contributes 0; assemble 78; PL/GQ/QUAL/QD match Java at
+`20:29455015 G/T`),
+and the 6R.219 proof that FORMAT AD at `20:29455379 G/A` is not
+Java `DepthPerAlleleBySample` on retainEvidence (Rust 44,5 vs Java
+42,5; production unchanged),
+and the 6R.220 proof that the 52-row remarg is isolated
+`try_genotype` while `call_region` FORMAT is a later object
+(production unchanged),
+and the 6R.221 proof that `assign_genotype_likelihoods_for_region`
+is that FORMAT object while production-arg `try_genotype` stays
+the 52-row state (production unchanged),
 not a new Yes row.
 Historical L6–L14 narratives live on `pre-cleanup-archive` only — not unqualified **Yes** rows here.
 

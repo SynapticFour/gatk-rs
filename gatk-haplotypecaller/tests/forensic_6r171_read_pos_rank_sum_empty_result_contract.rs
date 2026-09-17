@@ -147,13 +147,17 @@ fn forensic_6r171_read_pos_rank_sum_empty_result_contract() {
     let bq = include_str!("../src/annotator/plugins/rank_sum_baseq.rs");
     let mqrs = include_str!("../src/annotator/plugins/mapping_quality_rank_sum.rs");
     assert!(
-        bq.contains("return 0.0") && mqrs.contains("return 0.0"),
-        "sibling rank-sum plugins were not changed this round"
+        mqrs.contains("-> Option<f64>") && mqrs.contains("return None"),
+        "6R.194 MQRankSum uses 6R.172 Option; finite zero emits"
     );
     assert!(
-        !emit.contains("InfoValue::Float(\"BaseQRankSum\"")
-            && !emit.contains("InfoValue::Float(\"MQRankSum\""),
-        "hc_info_values does not emit BaseQRankSum/MQRankSum"
+        bq.contains("-> Option<f64>") && bq.contains("Some(0.0)"),
+        "6R.193 BaseQRankSum uses 6R.172 Option; finite zero emits"
+    );
+    assert!(
+        emit.contains("InfoValue::Float(\"BaseQRankSum\"")
+            && emit.contains("InfoValue::Float(\"MQRankSum\""),
+        "6R.193 emits BaseQRankSum; 6R.194 emits MQRankSum"
     );
     assert!(
         !include_str!("../src/annotator/engine.rs").contains("ReadPosRankSum"),
@@ -240,7 +244,7 @@ fn forensic_6r171_live_target_still_inserts_zero() {
             rec.quality
         ),
     );
-    assert_eq!(rp, Some(0.0), "production still inserts 0.0");
+    assert_eq!(rp, None, "6R.191: empty REF omits ReadPosRankSum");
     assert!(fs < 0.02);
     assert!((sor - 1.179).abs() < 0.001);
     assert!((mq - 40.25).abs() < 1e-12);

@@ -298,13 +298,9 @@ fn forensic_6r169_live_info_inventory() {
         java_only.is_empty(),
         "unexpected Java-only INFO keys: {java_only:?}"
     );
-    assert_eq!(
-        rust_only,
-        ["ReadPosRankSum"]
-            .into_iter()
-            .map(str::to_string)
-            .collect::<BTreeSet<_>>(),
-        "live Rust-only INFO must be exactly ReadPosRankSum, got {rust_only:?}"
+    assert!(
+        rust_only.is_empty(),
+        "6R.191 closed rust-only ReadPosRankSum"
     );
     assert!(
         common_different.is_empty(),

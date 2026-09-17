@@ -4,7 +4,7 @@
 //! Rust VCFs: production `run_haplotype_caller` via `HOLDOUT_6R43=1`.
 //! PRODUCTION CHANGE: NONE. 6R.174/176/178 closed `2:92305634 G/T`
 //! (INFO DP, SOR, InbreedingCoeff omit). ReadPosRankSum at `2:92316347`
-//! remains a known rust-only extra.
+//! was a known rust-only extra; 6R.191 omits it via annotation likelihoods.
 //!
 //! ```text
 //! HOLDOUT_6R43=1 cargo test -p gatk-haplotypecaller --test holdout_6r43_test -- --test-threads=1
@@ -345,11 +345,11 @@ fn forensic_6r173_live_vcf_reconnaissance() {
     assert!(qual_close(&jt.qual, &rt.qual));
     assert_eq!(jt.gt, "1/1");
     assert_eq!(jt.ad, "0,3");
-    assert_eq!(rt.info.get("ReadPosRankSum").map(String::as_str), Some("0"));
+    assert!(!rt.info.contains_key("ReadPosRankSum"));
     assert!(!jt.info.contains_key("ReadPosRankSum"));
     kv(
         "known_6r170",
-        "ReadPosRankSum rust=0 java=absent — not 6R.174",
+        "ReadPosRankSum absent both after 6R.191 — not 6R.174",
     );
     kv(
         "known_6r169",

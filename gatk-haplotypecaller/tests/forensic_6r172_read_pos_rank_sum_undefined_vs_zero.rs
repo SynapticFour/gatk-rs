@@ -107,9 +107,8 @@ fn forensic_6r172_read_pos_rank_sum_undefined_vs_zero() {
         "FS insert stays unconditional (FS=0 must remain)"
     );
     assert!(
-        ann.contains("read_offset_evidence_at_site")
-            && ann.contains("read_pos_rank_sum: Option<f64>"),
-        "evidence source unchanged; field is Option"
+        ann.contains("read_pos_rank_sum: Option<f64>"),
+        "field is Option; 6R.191 changed the source, not the Option contract"
     );
     assert!(
         !production_plugin.contains("92316347")
@@ -251,6 +250,6 @@ fn forensic_6r172_live_target_format_and_fs_zero_preserved() {
     );
     kv(
         "live_pileup_note",
-        "live ReadPosRankSum follows pileup (6R.170), not Java-equivalent REF=0/ALT=3",
+        "6R.172 Option contract unchanged; 6R.191 live bind is annotation_likelihoods (Java-equivalent REF=0/ALT=3 omits)",
     );
 }

@@ -758,8 +758,8 @@ fn forensic_6r179_indel_info_membership() {
     assert!((closed_sor - 0.6931471805599453).abs() < 1e-6 || (closed_sor - 0.693).abs() < 0.002);
 
     assert_eq!(
-        dp_n, 1,
-        "6R.185 stored poorly-modeled survivors covering this deletion (n=1 of 2)"
+        dp_n, 2,
+        "6R.201 Coverage is unique stored evidenceCount (n=2); covering-this-deletion stays overlap_m2 n=1"
     );
     assert_eq!(
         mq_mqs.len(),
@@ -800,6 +800,6 @@ fn forensic_6r179_indel_info_membership() {
     );
     kv(
         "first_arrow",
-        "6R.185 stored outcome.read_likelihoods is Java n=2 (overlap=1 at this deletion). TTC/T emit still uses the 6R.180 per-variant annotation object (n=1, MAPQ=44). Cluster-TG T/G still has empty annotation_likelihoods (later 6R.181 B).",
+        "6R.185 stored outcome.read_likelihoods is Java n=2 (overlap=1 at this deletion). TTC/T emit still uses the 6R.180 per-variant annotation object (n=1, MAPQ=44). Cluster-TG T/G annotation object is 6R.186.",
     );
 }

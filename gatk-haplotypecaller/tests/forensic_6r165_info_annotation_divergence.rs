@@ -661,9 +661,10 @@ fn forensic_6r165_info_annotation_divergence() {
     );
 
     // Extra INFO tags are recorded, not investigated. 6R.178 omits InbreedingCoeff at n=1.
+    // 6R.191 binds ReadPosRankSum to annotation likelihoods; empty REF omits the key.
     assert!(
-        info_keys.contains("ReadPosRankSum"),
-        "ReadPosRankSum remains out of 6R.165 scope: {info_keys:?}"
+        !info_keys.contains("ReadPosRankSum"),
+        "6R.191 omits ReadPosRankSum at this hom-alt site: {info_keys:?}"
     );
     assert!(
         !info_keys.contains("InbreedingCoeff"),

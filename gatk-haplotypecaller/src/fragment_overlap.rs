@@ -9,7 +9,14 @@ use crate::read_unclip::{
 };
 use gatk_common::{GatkError, GatkResult};
 use rust_htslib::bam;
-use rust_htslib::bam::record::{Cigar, CigarString};
+use rust_htslib::bam::record::{Aux, Cigar, CigarString};
+
+/// SAM `OC`/`OP` written once before haplotype realignment overwrites CIGAR/POS.
+/// RankSum `getElementForRead` retries this alignment when the attached CIGAR
+/// does not cover `vc.getStart()` (GATK 4.4 `createReadAlignedToRef` keeps a
+/// covering CIGAR on those reads; Rust's later haplotype CIGAR may not).
+pub(crate) const RANK_SUM_ORIGINAL_CIGAR_TAG: &[u8] = b"OC";
+pub(crate) const RANK_SUM_ORIGINAL_POS_TAG: &[u8] = b"OP";
 
 /// `FragmentUtils.HALF_OF_DEFAULT_PCR_SNV_ERROR_QUAL` (phred(1e-4)/2 = 20).
 pub const HALF_OF_DEFAULT_PCR_SNV_ERROR_QUAL: u8 = 20;
@@ -103,6 +110,142 @@ pub fn read_base_at_ref_coord_1based(rec: &bam::Record, ref_coord_1based: i32) -
         RefCoordIndex::Index(i) => rec.seq().as_bytes().get(i).copied(),
         _ => None,
     }
+}
+
+/// Persist the current POS/CIGAR before `createReadAlignedToRef` overwrites them.
+pub(crate) fn preserve_pre_realign_alignment(rec: &mut bam::Record) {
+    if rec.aux(RANK_SUM_ORIGINAL_CIGAR_TAG).is_ok() {
+        return;
+    }
+    let oc = rec.cigar().to_string();
+    let op = i32::try_from(rec.pos() + 1).unwrap_or(1);
+    let _ = rec.push_aux(RANK_SUM_ORIGINAL_CIGAR_TAG, Aux::String(&oc));
+    let _ = rec.push_aux(RANK_SUM_ORIGINAL_POS_TAG, Aux::I32(op));
+}
+
+fn i32_from_aux(aux: Aux<'_>) -> Option<i32> {
+    match aux {
+        Aux::I8(v) => Some(i32::from(v)),
+        Aux::U8(v) => Some(i32::from(v)),
+        Aux::I16(v) => Some(i32::from(v)),
+        Aux::U16(v) => Some(i32::from(v)),
+        Aux::I32(v) => Some(v),
+        Aux::U32(v) => i32::try_from(v).ok(),
+        _ => None,
+    }
+}
+
+fn parse_hts_cigar(s: &str) -> Option<CigarString> {
+    let mut ops = Vec::new();
+    let mut n = 0u32;
+    let mut saw_digit = false;
+    for c in s.chars() {
+        if let Some(d) = c.to_digit(10) {
+            saw_digit = true;
+            n = n.saturating_mul(10).saturating_add(d);
+            continue;
+        }
+        if !saw_digit {
+            return None;
+        }
+        let op = match c {
+            'M' => Cigar::Match(n),
+            'I' => Cigar::Ins(n),
+            'D' => Cigar::Del(n),
+            'N' => Cigar::RefSkip(n),
+            'S' => Cigar::SoftClip(n),
+            'H' => Cigar::HardClip(n),
+            'P' => Cigar::Pad(n),
+            '=' => Cigar::Equal(n),
+            'X' => Cigar::Diff(n),
+            _ => return None,
+        };
+        ops.push(op);
+        n = 0;
+        saw_digit = false;
+    }
+    if saw_digit || ops.is_empty() {
+        return None;
+    }
+    Some(CigarString::from(ops))
+}
+
+/// POS0 + CIGAR from before haplotype realignment, if preserved.
+pub(crate) fn pre_realign_alignment(rec: &bam::Record) -> Option<(i64, CigarString)> {
+    let op = i32_from_aux(rec.aux(RANK_SUM_ORIGINAL_POS_TAG).ok()?)?;
+    let oc = match rec.aux(RANK_SUM_ORIGINAL_CIGAR_TAG).ok()? {
+        Aux::String(s) => s.to_string(),
+        _ => return None,
+    };
+    let cigar = parse_hts_cigar(&oc)?;
+    Some((i64::from(op) - 1, cigar))
+}
+
+fn alignment_end_1based_from_cigar(alignment_pos0: i64, cigar: &CigarString) -> i64 {
+    let pos1 = alignment_pos0 + 1;
+    let mut ref_len = 0i64;
+    for c in cigar.iter() {
+        if consumes_ref_bases(c) {
+            ref_len += i64::from(cigar_len(c));
+        }
+    }
+    if ref_len > 0 {
+        pos1 + ref_len - 1
+    } else {
+        pos1
+    }
+}
+
+/// GATK `ReadUtils.getReadBaseQualityAtReferenceCoordinate` on an explicit CIGAR.
+pub(crate) fn read_base_quality_at_ref_coord_on_cigar(
+    alignment_pos0: i64,
+    cigar: &CigarString,
+    qual: &[u8],
+    ref_coord_1based: i32,
+) -> Option<u8> {
+    let start = alignment_pos0 + 1;
+    let end = alignment_end_1based_from_cigar(alignment_pos0, cigar);
+    if i64::from(ref_coord_1based) < start || end < i64::from(ref_coord_1based) {
+        return None;
+    }
+    let alignment_start = soft_start_1based_from_cigar(alignment_pos0, cigar);
+    if ref_coord_1based < alignment_start {
+        return None;
+    }
+    let mut last_read = 0usize;
+    let mut last_ref = alignment_start;
+    for c in cigar.iter() {
+        let op_len = cigar_len(c) as i32;
+        let op_consumes_read = consumes_read_bases(c);
+        let op_consumes_ref = consumes_ref_bases(c) || matches!(c, Cigar::SoftClip(_));
+        let first_read = last_read;
+        let first_ref = last_ref;
+        if op_consumes_read {
+            last_read += op_len as usize;
+        }
+        if op_consumes_ref {
+            last_ref += op_len;
+        }
+        if first_ref <= ref_coord_1based && ref_coord_1based < last_ref {
+            if !op_consumes_read {
+                return None;
+            }
+            let idx = first_read + (ref_coord_1based - first_ref) as usize;
+            return qual.get(idx).copied();
+        }
+    }
+    None
+}
+
+/// GATK `ReadUtils.getReadBaseQualityAtReferenceCoordinate`.
+///
+/// Empty when `refCoord` is outside unclipped `getStart`/`getEnd`, or when the
+/// CIGAR operator at that coordinate does not consume read bases (deletion).
+pub fn read_base_quality_at_ref_coord_1based(
+    rec: &bam::Record,
+    ref_coord_1based: i32,
+) -> Option<u8> {
+    read_base_quality_at_ref_coord_on_cigar(rec.pos(), &rec.cigar(), rec.qual(), ref_coord_1based)
 }
 
 /// Softclip-aware base lookup on cached CIGAR/seq (same contract as

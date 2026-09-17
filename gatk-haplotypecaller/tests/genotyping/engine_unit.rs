@@ -1254,3 +1254,85 @@ fn java_strict_likelihood_subset_keeps_overlapping_paired_mates() {
         "Java-strict retainEvidence path must keep overlapping mates"
     );
 }
+
+/// 6R.186: stored hap matrix → `marginalize(alleleMapper)` → `retainEvidence(±margin)`
+/// yields a present per-variant annotation object. No target coordinate / QNAME.
+#[test]
+fn annotation_from_stored_haps_is_marginalize_then_retain_evidence() {
+    use rust_htslib::bam::{self, record::Cigar, record::CigarString};
+    use std::collections::BTreeSet;
+    fn read_at(qname: &[u8], pos0: i64) -> crate::shared_bam::SharedBamRecord {
+        let mut rec = bam::Record::new();
+        rec.set(
+            qname,
+            Some(&CigarString(vec![Cigar::Match(10)])),
+            b"ACGTACGTAC",
+            b"##########",
+        );
+        rec.set_pos(pos0);
+        crate::share_record(rec)
+    }
+    let overlapping = read_at(b"keep", 99);
+    let outside = read_at(b"drop", 200);
+    let reads = vec![overlapping, outside];
+    let haplotypes = vec![
+        Haplotype::new(b"ACGT", true),
+        Haplotype::new(b"AGGT", false),
+        Haplotype::new(b"ATGT", false),
+    ];
+    let mapping = AlleleHaplotypeMapping {
+        ref_allele: "A".into(),
+        alt_allele: "G".into(),
+        ref_haplotype_indices: vec![HaplotypeIndex::new(0)],
+        alt_haplotype_indices: vec![HaplotypeIndex::new(1)],
+    };
+    let mut likelihoods = Vec::new();
+    for ri in 0..2 {
+        for hi in 0..3 {
+            likelihoods.push(RegionReadLikelihood {
+                read_index: crate::bio_ids::ReadIndex::new(ri),
+                haplotype_index: HaplotypeIndex::new(hi),
+                log10_likelihood: if hi == 1 { -1.0 } else { -4.0 },
+            });
+        }
+    }
+    assert_eq!(unique_likelihood_read_indices(&likelihoods).len(), 2);
+
+    let rows = region_likelihoods_to_rows(&likelihoods, haplotypes.len());
+    let marg = marginalize_rows_to_biallelic_alleles(
+        &rows,
+        &mapping.ref_haplotype_indices,
+        &mapping.alt_haplotype_indices,
+    );
+    assert_eq!(
+        marg.len(),
+        2,
+        "marginalize constructs a new n=2 allele object"
+    );
+    assert_eq!(marg[0].haplotype_log10_likelihoods.len(), 2);
+
+    let event = VariationEvent::from_alleles("20", 105, "A", "G");
+    let attached = annotation_likelihoods_from_stored_haplotypes(
+        &likelihoods,
+        &reads,
+        &haplotypes,
+        &mapping,
+        &event,
+        &HcGenotypingConfig::strict_java(),
+        90,
+        120,
+    );
+    let unique = unique_likelihood_read_indices(&attached);
+    assert_eq!(
+        unique.len(),
+        1,
+        "retainEvidence on the marginalized object drops the non-overlapping read"
+    );
+    assert!(unique.contains(&0));
+    let hap_cols: BTreeSet<usize> = attached.iter().map(|c| c.haplotype_index.get()).collect();
+    assert_eq!(
+        hap_cols.len(),
+        3,
+        "attached cells stay haplotype-indexed for emit remarginalize"
+    );
+}

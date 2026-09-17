@@ -2,7 +2,8 @@
 //!
 //! # Invariants
 //! - Active only between [`begin_assemble_region`] and [`end_assemble_region`].
-//! - Cache key includes kmer + allow_lc/nu + before_remove mode (wrong key ⇒ wrong alleles).
+//! - Cache key includes kmer + allow_lc/nu + before_remove mode + cycle-abort
+//!   (wrong key ⇒ wrong alleles; SeqGraph abort vs RT-fallback must not share).
 //! - Stores haplotype lists only (graphs dropped after extract) so Peak-RSS stays lean.
 //! - `empty_configured_kmers` records production configured k-mers whose before_remove
 //!   extract already yielded no alts (RT-first miss) so supplement/merge_rt skip re-probe.
@@ -23,6 +24,8 @@ pub(crate) struct RtExtractKey {
     pub allow_low_complexity: bool,
     pub allow_non_unique_ref: bool,
     pub before_remove_paths: bool,
+    /// Java `createGraph` cycle abort (`generateSeqGraph && abort_seq_graph_on_cycles`).
+    pub abort_cyclic_before_dangling: bool,
 }
 
 thread_local! {

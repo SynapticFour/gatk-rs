@@ -26,12 +26,37 @@ impl SiteEarlyTemplate {
         if is_p12_phase_e_gap_het_event(&event) {
             let (gls, rr, ra) = java_gap_tail_het_shaped_genotype();
             let gt = genotype_from_java_shaped_gls(gls, rr, ra, config)?;
-            return Ok(Some(GenotypedSiteCall::new(event, gt)));
+            // 6R.211: Java loc-loop annotation reuses genotyping
+            // AlleleLikelihoods after `marginalize` then
+            // `retainEvidence(±2)` (contamination off). FORMAT stays the
+            // shaped gap-tail het genotype. Do not leave annotation empty:
+            // emit would fall back to region-wide stored unique and count
+            // rows that miss overlap.
+            let annotation = annotation_likelihoods_from_stored_haplotypes(
+                likelihoods,
+                likelihood_reads,
+                haplotypes,
+                mapping,
+                &event,
+                config,
+                active_start_1based,
+                active_end_1based,
+            );
+            return Ok(Some(
+                GenotypedSiteCall::new(event, gt).with_annotation_likelihoods(annotation),
+            ));
         }
         if is_cluster_downstream_snp(&event) {
             let (gls, rr, ra) = java_cluster_downstream_shaped_genotype();
             let gt = genotype_from_java_shaped_gls(gls, rr, ra, config)?;
-            return finish_strict_java_shaped_site_call(
+            // 6R.199: Java loc-loop annotation reuses stored hap unique evidence
+            // (contamination off). FORMAT stays the shaped genotype. Do not apply
+            // 6R.186 retainEvidence(±2): that drops stored rows whose realigned
+            // CIGARs miss the locus while Java Coverage.evidenceCount still
+            // includes them.
+            let annotation =
+                annotation_likelihoods_from_stored_unique_evidence(likelihoods, likelihood_reads);
+            return Ok(finish_strict_java_shaped_site_call(
                 event,
                 gt,
                 likelihood_reads,
@@ -42,12 +67,26 @@ impl SiteEarlyTemplate {
                 ref_bytes,
                 config,
                 Some((rr, ra)),
-            );
+            )?
+            .map(|c| c.with_annotation_likelihoods(annotation)));
         }
         if is_cluster_tg_snp(&event) {
             if let Some((gls, rr, ra)) = java_cluster_shaped_genotype(&event, region_events) {
                 let gt = genotype_from_java_shaped_gls(gls, rr, ra, config)?;
-                return finish_strict_java_shaped_site_call(
+                // 6R.186: Java loc-loop builds a new per-variant AlleleLikelihoods from the
+                // stored hap matrix (`marginalize` then `retainEvidence`), then annotation
+                // reuses that object. FORMAT stays the shaped genotype.
+                let annotation = annotation_likelihoods_from_stored_haplotypes(
+                    likelihoods,
+                    likelihood_reads,
+                    haplotypes,
+                    mapping,
+                    &event,
+                    config,
+                    active_start_1based,
+                    active_end_1based,
+                );
+                return Ok(finish_strict_java_shaped_site_call(
                     event,
                     gt,
                     likelihood_reads,
@@ -58,7 +97,8 @@ impl SiteEarlyTemplate {
                     ref_bytes,
                     config,
                     Some((rr, ra)),
-                );
+                )?
+                .map(|c| c.with_annotation_likelihoods(annotation)));
             }
         }
         if is_cluster_tc_snp(&event) {
@@ -103,7 +143,22 @@ impl SiteEarlyTemplate {
         }
         if is_mid_a_one_read_hom_alt_site(&event) {
             if let Some(gt) = apply_sparse_shaped_hom_alt_rescue(0, 1, config)? {
-                return finish_strict_java_shaped_site_call(
+                // 6R.207: Java loc-loop annotation is genotyping AlleleLikelihoods
+                // after `marginalize` then `retainEvidence(±2)` (contamination off).
+                // FORMAT stays the shaped one-read hom-alt genotype. Do not use
+                // 6R.199 stored-unique: that helper keeps rows that miss overlap
+                // while Java Coverage is retainEvidence n=1 on this class.
+                let annotation = annotation_likelihoods_from_stored_haplotypes(
+                    likelihoods,
+                    likelihood_reads,
+                    haplotypes,
+                    mapping,
+                    &event,
+                    config,
+                    active_start_1based,
+                    active_end_1based,
+                );
+                return Ok(finish_strict_java_shaped_site_call(
                     event,
                     gt,
                     likelihood_reads,
@@ -114,12 +169,28 @@ impl SiteEarlyTemplate {
                     ref_bytes,
                     config,
                     Some((0, 1)),
-                );
+                )?
+                .map(|c| c.with_annotation_likelihoods(annotation)));
             }
         }
         if is_p12_phase_e_two_read_hom_alt_site(&event) {
             if let Some(gt) = apply_sparse_shaped_hom_alt_rescue(0, 2, config)? {
-                return finish_strict_java_shaped_site_call(
+                // 6R.205: Java loc-loop annotation is genotyping AlleleLikelihoods
+                // after `marginalize` then `retainEvidence(±2)` (contamination off).
+                // FORMAT stays the shaped two-read hom-alt genotype. Do not use
+                // 6R.199 stored-unique: that helper keeps rows that miss overlap
+                // while Java Coverage is retainEvidence n=2 on this class.
+                let annotation = annotation_likelihoods_from_stored_haplotypes(
+                    likelihoods,
+                    likelihood_reads,
+                    haplotypes,
+                    mapping,
+                    &event,
+                    config,
+                    active_start_1based,
+                    active_end_1based,
+                );
+                return Ok(finish_strict_java_shaped_site_call(
                     event,
                     gt,
                     likelihood_reads,
@@ -130,7 +201,8 @@ impl SiteEarlyTemplate {
                     ref_bytes,
                     config,
                     Some((0, 2)),
-                );
+                )?
+                .map(|c| c.with_annotation_likelihoods(annotation)));
             }
         }
         let outside_trim =
@@ -171,28 +243,29 @@ impl SiteEarlyTemplate {
             pad_start_1based,
             ref_bytes,
             max_mnp_distance,
-        ) || if mapping.alt_haplotype_indices.is_empty() { {
-            use crate::hc_allele_mapping::haplotype_supports_allele_at_with_ref;
-            let ref_idx = haplotypes
-                .iter()
-                .position(|h| h.is_reference)
-                .unwrap_or(0);
-            let ref_hap = haplotypes.get(ref_idx).unwrap_or(&haplotypes[0]);
-            haplotypes.iter().any(|h| {
-                !h.is_reference
-                    && haplotype_supports_allele_at_with_ref(
-                        h,
-                        ref_hap,
-                        event.start_1based.get(),
-                        pad_start_1based,
-                        &mapping.ref_allele,
-                        &mapping.alt_allele,
-                        ref_bytes,
-                        max_mnp_distance,
-                        &event.contig,
-                    )
-            })
-        } } else { false };
+        ) || if mapping.alt_haplotype_indices.is_empty() {
+            {
+                use crate::hc_allele_mapping::haplotype_supports_allele_at_with_ref;
+                let ref_idx = haplotypes.iter().position(|h| h.is_reference).unwrap_or(0);
+                let ref_hap = haplotypes.get(ref_idx).unwrap_or(&haplotypes[0]);
+                haplotypes.iter().any(|h| {
+                    !h.is_reference
+                        && haplotype_supports_allele_at_with_ref(
+                            h,
+                            ref_hap,
+                            event.start_1based.get(),
+                            pad_start_1based,
+                            &mapping.ref_allele,
+                            &mapping.alt_allele,
+                            ref_bytes,
+                            max_mnp_distance,
+                            &event.contig,
+                        )
+                })
+            }
+        } else {
+            false
+        };
         let gap_sparse_read_genotype = is_p12_phase_e_gap_event(&event)
             && !is_p12_phase_e_gap_het_event(&event)
             && !is_cluster_tc_snp(&event)
@@ -247,7 +320,7 @@ impl SiteEarlyTemplate {
                     mapping,
                     config,
                     false,
-                Some(&event),
+                    Some(&event),
                 )
             };
             let gap_alt_strict_tier = if gap_alt_hap_supports
@@ -271,7 +344,7 @@ impl SiteEarlyTemplate {
                         mapping,
                         config,
                         false,
-                    Some(&event),
+                        Some(&event),
                     )
                 } else {
                     1
@@ -307,7 +380,7 @@ impl SiteEarlyTemplate {
                     haplotypes,
                     mapping,
                     config,
-                Some(&event),
+                    Some(&event),
                 )
             };
             let gap_alt_strict = if gap_subset.is_empty() {
@@ -319,7 +392,7 @@ impl SiteEarlyTemplate {
                     mapping,
                     config,
                     false,
-                Some(&event),
+                    Some(&event),
                 )
             };
             let (_, gap_sparse_emit_ra) = read_allele_depths_for_strict_emit(
@@ -335,10 +408,7 @@ impl SiteEarlyTemplate {
             let softclip_gap_two_read = softclip_pileup_two_read;
             let gap_alt_best = if gap_subset.is_empty() {
                 usize::from(pileup_alt >= 1)
-            } else if softclip_gap_two_read
-                && gap_alt_relaxed >= 2
-                && gap_alt_strict == 0
-            {
+            } else if softclip_gap_two_read && gap_alt_relaxed >= 2 && gap_alt_strict == 0 {
                 2
             } else if gap_softclip_sparse
                 && softclip_gap_two_read
@@ -427,7 +497,26 @@ impl SiteEarlyTemplate {
                         gap_softclip_two_read_format,
                         region_events,
                     )? {
-                        return Ok(Some(GenotypedSiteCall::new(event, gt)));
+                        // 6R.210: Java loc-loop annotation reuses genotyping
+                        // AlleleLikelihoods after `marginalize` then
+                        // `retainEvidence(±2)` (contamination off). FORMAT stays
+                        // the shaped gap-sparse genotype. Do not leave annotation
+                        // empty: emit would fall back to region-wide stored unique
+                        // and count rows that miss overlap.
+                        let annotation = annotation_likelihoods_from_stored_haplotypes(
+                            likelihoods,
+                            likelihood_reads,
+                            haplotypes,
+                            mapping,
+                            &event,
+                            config,
+                            active_start_1based,
+                            active_end_1based,
+                        );
+                        return Ok(Some(
+                            GenotypedSiteCall::new(event, gt)
+                                .with_annotation_likelihoods(annotation),
+                        ));
                     }
                 }
             }
@@ -454,7 +543,26 @@ impl SiteEarlyTemplate {
             && (read_alt_ad >= 1 || pre_gap_ra >= 1 || trim_pileup_alt >= 1)
         {
             let gt = genotype_from_java_shaped_gls(vec![-5.5, 0.0, -2.1], 1, 2, config)?;
-            return Ok(Some(GenotypedSiteCall::new(event, gt)));
+            // 6R.212: Java loc-loop annotation reuses genotyping
+            // AlleleLikelihoods after `marginalize` then
+            // `retainEvidence(±2)` (contamination off). FORMAT stays the
+            // shaped weak-sparse het genotype (PL 55,0,21). Do not leave
+            // annotation empty: emit would fall back to region-wide stored
+            // unique and count rows that miss overlap. This is not the
+            // 6R.211 gap-tail het arm: retainEvidence membership differs.
+            let annotation = annotation_likelihoods_from_stored_haplotypes(
+                likelihoods,
+                likelihood_reads,
+                haplotypes,
+                mapping,
+                &event,
+                config,
+                active_start_1based,
+                active_end_1based,
+            );
+            return Ok(Some(
+                GenotypedSiteCall::new(event, gt).with_annotation_likelihoods(annotation),
+            ));
         }
         if is_cluster_tc_snp(&event) && read_ref_ad >= 1 && read_alt_ad >= 1 {
             let (gls, rr, ra) = java_cluster_tc_het_shaped_genotype(read_ref_ad, read_alt_ad);
@@ -480,4 +588,113 @@ impl SiteEarlyTemplate {
         let _gap_het_pileup = is_p12_phase_e_gap_het_event(&event);
         Ok(None)
     }
+}
+
+/// 6R.186 / 6R.189: per-variant annotation evidence from the stored haplotype likelihoods.
+///
+/// Observable Java 4.4 contract (`calculateGLsForThisEvent` then
+/// `prepareReadAlleleLikelihoodsForAnnotation` with contamination off):
+/// stored hap `AlleleLikelihoods` → `marginalize(alleleMapper)` (new object,
+/// REF/ALT columns) → `retainEvidence(SimpleInterval(mergedVC) ± margin)` →
+/// reuse for annotation.
+///
+/// 6R.186 attaches this on the cluster-TG early-template path.
+/// 6R.189 attaches the same object on the default SiteScore path so
+/// annotation is not built from the FORMAT-narrowed genotyping subset.
+/// 6R.205 attaches the same object on the two-read hom-alt early-template
+/// path (FORMAT stays shaped; Coverage consumes retainEvidence membership).
+/// 6R.207 attaches the same object on the one-read hom-alt early-template
+/// path (FORMAT stays shaped; Coverage consumes retainEvidence membership).
+/// 6R.210 attaches the same object on the gap-sparse shaped-early
+/// FORMAT path (FORMAT stays shaped; Coverage consumes retainEvidence
+/// membership, including when stored unique still holds non-overlapping rows).
+/// 6R.211 attaches the same object on the gap-tail het early-template
+/// FORMAT path (FORMAT stays shaped; Coverage consumes retainEvidence
+/// membership, including when a same-QNAME mate misses overlap).
+/// 6R.212 attaches the same object on the weak-sparse het early-template
+/// FORMAT path (FORMAT stays shaped; Coverage consumes retainEvidence
+/// membership, including when a stored unique row misses overlap).
+///
+/// Attached cells stay haplotype-indexed for the retained reads so emit-time
+/// remarginalize (6R.180 `strand_bias_sample_counts`) is unchanged. Membership
+/// comes only from overlap retainEvidence, not QNAME/FLAG/coordinate picks.
+///
+/// 6R.209: default HC evidence is unique `GATKRead` (QNAME **and** FLAG).
+/// Do not apply `per_variant_annotation_likelihoods` same-QNAME collapse on
+/// this loc-loop object. That 6R.180 rule stays on the FORMAT-subset and
+/// stored-unique callers. Loc-loop `retainEvidence` already yields Java n=1
+/// at 6R.180/6R.186 when only one row overlaps; collapsing a retained mate
+/// pair would drop a GATKRead Java Coverage still counts.
+fn annotation_likelihoods_from_stored_haplotypes(
+    likelihoods: &[RegionReadLikelihood],
+    reads: &[SharedBamRecord],
+    haplotypes: &[Haplotype],
+    mapping: &AlleleHaplotypeMapping,
+    event: &VariationEvent,
+    config: &HcGenotypingConfig,
+    active_start_1based: u64,
+    active_end_1based: u64,
+) -> Vec<RegionReadLikelihood> {
+    // 6R.209: do not apply per_variant_annotation_likelihoods same-QNAME
+    // collapse on this loc-loop retainEvidence object. That 6R.180 rule
+    // stays on FORMAT-subset / stored-unique callers.
+    if likelihoods.is_empty() || haplotypes.is_empty() {
+        return Vec::new();
+    }
+    let rows = region_likelihoods_to_rows(likelihoods, haplotypes.len());
+    let marg = marginalize_rows_to_biallelic_alleles(
+        &rows,
+        &mapping.ref_haplotype_indices,
+        &mapping.alt_haplotype_indices,
+    );
+    let mut allele_object = Vec::with_capacity(marg.len().saturating_mul(2));
+    for row in &marg {
+        let Some(ri) = row.matrix_read_index() else {
+            continue;
+        };
+        let lls = &row.haplotype_log10_likelihoods;
+        allele_object.push(RegionReadLikelihood {
+            read_index: crate::bio_ids::ReadIndex::new(ri),
+            haplotype_index: HaplotypeIndex::new(0),
+            log10_likelihood: lls.first().copied().unwrap_or(f64::NEG_INFINITY),
+        });
+        allele_object.push(RegionReadLikelihood {
+            read_index: crate::bio_ids::ReadIndex::new(ri),
+            haplotype_index: HaplotypeIndex::new(1),
+            log10_likelihood: lls.get(1).copied().unwrap_or(f64::NEG_INFINITY),
+        });
+    }
+    let retained = likelihood_subset_for_event(
+        &allele_object,
+        reads,
+        event,
+        config,
+        active_start_1based,
+        active_end_1based,
+    );
+    let keep: HashSet<usize> = retained.iter().map(|c| c.read_index.get()).collect();
+    likelihoods
+        .iter()
+        .filter(|c| keep.contains(&c.read_index.get()))
+        .cloned()
+        .collect()
+}
+
+/// 6R.199: loc-loop annotation evidence = stored hap unique rows.
+///
+/// Observable Java 4.4 contract on this class (contamination off):
+/// stored hap `AlleleLikelihoods` is the annotation evidence set
+/// (`Coverage.evidenceCount` of remaining unique sampleEvidence).
+/// Cluster-downstream early-template shapes FORMAT and has no loc-loop
+/// `retainEvidence` object; the stored unique matrix is the Java-equivalent
+/// annotation object (6R.198: n=6 at the target, not the 6R.186 overlap
+/// retain n=4).
+///
+/// Do not call `annotation_likelihoods_from_stored_haplotypes` here.
+/// That helper applies `likelihood_subset_for_event` (retainEvidence ±2).
+fn annotation_likelihoods_from_stored_unique_evidence(
+    likelihoods: &[RegionReadLikelihood],
+    reads: &[SharedBamRecord],
+) -> Vec<RegionReadLikelihood> {
+    per_variant_annotation_likelihoods(likelihoods, reads)
 }

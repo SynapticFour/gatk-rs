@@ -124,12 +124,13 @@ pub fn dump_standard_annotations_tsv(
     let fs = fisher_strand::fisher_strand_statistic(ref_fw, ref_rv, alt_fw, alt_rv);
     let sor = strand_odds_ratio::strand_odds_ratio(ref_fw, ref_rv, alt_fw, alt_rv);
     let qd = qual_by_depth::qual_by_depth(qual, dp);
-    let bq = rank_sum_baseq::base_quality_rank_sum(&parse_u8(ref_bqs_csv), &parse_u8(alt_bqs_csv));
+    let ref_bq: Vec<f64> = parse_u8(ref_bqs_csv).into_iter().map(f64::from).collect();
+    let alt_bq: Vec<f64> = parse_u8(alt_bqs_csv).into_iter().map(f64::from).collect();
+    let bq = rank_sum_baseq::base_quality_rank_sum(&ref_bq, &alt_bq).unwrap_or(0.0);
     let rp = read_pos_rank_sum::read_pos_rank_sum(&parse_f64(ref_pos_csv), &parse_f64(alt_pos_csv));
-    let mq = mapping_quality_rank_sum::mapping_quality_rank_sum(
-        &parse_u8(ref_mq_csv),
-        &parse_u8(alt_mq_csv),
-    );
+    let ref_mq: Vec<f64> = parse_u8(ref_mq_csv).into_iter().map(f64::from).collect();
+    let alt_mq: Vec<f64> = parse_u8(alt_mq_csv).into_iter().map(f64::from).collect();
+    let mq = mapping_quality_rank_sum::mapping_quality_rank_sum(&ref_mq, &alt_mq).unwrap_or(0.0);
     writeln!(out, "FS\t{fs:.6}")?;
     writeln!(out, "SOR\t{sor:.6}")?;
     writeln!(out, "QD\t{qd:.6}")?;
@@ -229,10 +230,9 @@ pub fn dump_annotation_plugin_tsv(
             writeln!(out, "value\t{v:.6}")?;
         }
         "BaseQRankSum" | "rank_sum_baseq" => {
-            let v = rank_sum_baseq::base_quality_rank_sum(
-                &parse_bqs(ref_bqs_csv),
-                &parse_bqs(alt_bqs_csv),
-            );
+            let ref_bq: Vec<f64> = parse_bqs(ref_bqs_csv).into_iter().map(f64::from).collect();
+            let alt_bq: Vec<f64> = parse_bqs(alt_bqs_csv).into_iter().map(f64::from).collect();
+            let v = rank_sum_baseq::base_quality_rank_sum(&ref_bq, &alt_bq).unwrap_or(0.0);
             writeln!(out, "plugin\tBaseQRankSum")?;
             writeln!(out, "value\t{v:.6}")?;
         }

@@ -151,7 +151,10 @@ fn holdout_6r169_live_info() {
             rec.quality
         ),
     );
-    assert!(keys.contains("ReadPosRankSum"));
+    assert!(
+        !keys.contains("ReadPosRankSum"),
+        "6R.191 closed rust-only ReadPosRankSum"
+    );
     assert!(
         !keys.contains("InbreedingCoeff"),
         "6R.178: n=1 omits InbreedingCoeff"

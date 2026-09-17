@@ -557,8 +557,8 @@ fn forensic_6r184_lifecycle_refresh_is_last_membership_write() {
         })
         .expect("T/G");
     assert!(
-        call.annotation_likelihoods.is_empty(),
-        "cluster-TG still does not construct/subset a likelihood object"
+        unique_likelihood_indices(&call.annotation_likelihoods).len() == 1,
+        "6R.186 attached per-variant annotation object"
     );
     let indel = outcome.genotyped_calls.iter().find(|c| {
         c.event.start_1based == GenomePosition::new_1based(CLOSED_INDEL)

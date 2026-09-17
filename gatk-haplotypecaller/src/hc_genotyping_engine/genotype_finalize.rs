@@ -1098,8 +1098,8 @@ pub fn diagnose_genotype_variation_event(
     max_mnp_distance: usize,
     config: &HcGenotypingConfig,
 ) -> GatkResult<Result<GenotypedSiteCall, GenotypeRejectReason>> {
-    match try_genotype_variation_event(
-        event.clone(),
+    diagnose_genotype_variation_event_with_region_state(
+        event,
         likelihoods,
         likelihood_reads,
         pileup_reads,
@@ -1115,6 +1115,47 @@ pub fn diagnose_genotype_variation_event(
         config,
         &[],
         None,
+    )
+}
+
+/// 6R.221 investigation-only: same as [`diagnose_genotype_variation_event`]
+/// but with production `region_events` / `hap_events`. Does not change
+/// production `call_region` / `assign_genotype_likelihoods_for_region`.
+pub fn diagnose_genotype_variation_event_with_region_state(
+    event: &VariationEvent,
+    likelihoods: &[RegionReadLikelihood],
+    likelihood_reads: &[SharedBamRecord],
+    pileup_reads: &[SharedBamRecord],
+    supplemental_pileup_reads: Option<&[SharedBamRecord]>,
+    haplotypes: &[Haplotype],
+    ref_bytes: &[u8],
+    pad_start_1based: u64,
+    full_reference_bases: &[u8],
+    full_reference_pad_1based: u64,
+    active_start_1based: u64,
+    active_end_1based: u64,
+    max_mnp_distance: usize,
+    config: &HcGenotypingConfig,
+    region_events: &[VariationEvent],
+    hap_events: Option<&crate::event_map::PerHaplotypeVariationEvents>,
+) -> GatkResult<Result<GenotypedSiteCall, GenotypeRejectReason>> {
+    match try_genotype_variation_event(
+        event.clone(),
+        likelihoods,
+        likelihood_reads,
+        pileup_reads,
+        supplemental_pileup_reads,
+        haplotypes,
+        ref_bytes,
+        pad_start_1based,
+        full_reference_bases,
+        full_reference_pad_1based,
+        active_start_1based,
+        active_end_1based,
+        max_mnp_distance,
+        config,
+        region_events,
+        hap_events,
     )? {
         Some(call) => Ok(Ok(call)),
         None => Ok(Err(classify_genotype_reject(

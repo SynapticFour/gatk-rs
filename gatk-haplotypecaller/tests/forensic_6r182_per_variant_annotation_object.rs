@@ -448,10 +448,9 @@ fn forensic_6r182_source_contracts_no_production_change() {
         .next()
         .expect("tg body");
     assert!(
-        !tg_body.contains("likelihood_subset_for_event")
-            && !tg_body.contains("with_annotation_likelihoods")
-            && !tg_body.contains("per_variant_annotation_likelihoods"),
-        "cluster-TG arm still does not construct a per-variant likelihood object"
+        tg_body.contains("annotation_likelihoods_from_stored_haplotypes")
+            && tg_body.contains("with_annotation_likelihoods"),
+        "6R.186 cluster-TG arm constructs the per-variant likelihood object"
     );
     assert!(
         fin.contains("fn finish_strict_java_shaped_site_call")
@@ -605,8 +604,8 @@ fn forensic_6r182_construct_candidate_on_cluster_tg_path() {
     assert_eq!(call.genotype.format.gq.as_i32(), 3);
     assert_eq!(call.genotype.format.pl_as_i32(), vec![45, 3, 0]);
     assert!(
-        call.annotation_likelihoods.is_empty(),
-        "cluster-TG path must still leave annotation_likelihoods empty"
+        unique_likelihood_indices(&call.annotation_likelihoods).len() == 1,
+        "6R.186 attached per-variant annotation object"
     );
 
     let indel = outcome
@@ -895,8 +894,11 @@ fn forensic_6r182_construct_candidate_on_cluster_tg_path() {
     );
     let mq = info_f64(&rec.info, "MQ").unwrap_or(-1.0);
     let sor = info_f64(&rec.info, "SOR").unwrap_or(-1.0);
-    assert!((mq - 42.05).abs() < 0.005, "MQ={mq}");
-    assert!((sor - 0.6931471805599453).abs() < 1e-9, "SOR={sor}");
+    assert!((mq - 44.0).abs() < 0.005, "MQ={mq}");
+    assert!(
+        (sor - 1.6094379124341003).abs() < 1e-3 || (sor - 1.609).abs() < 0.002,
+        "SOR={sor}"
+    );
 
     let closed_indel = emitted
         .iter()

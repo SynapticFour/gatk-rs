@@ -159,7 +159,16 @@ fn holdout_6r184_post_refresh_refilter() {
     assert_eq!(call.genotype.format.dp.as_i32(), 1);
     assert_eq!(call.genotype.format.ad_as_i32(), vec![0, 1]);
     assert_eq!(call.genotype.format.pl_as_i32(), vec![45, 3, 0]);
-    assert!(call.annotation_likelihoods.is_empty());
+    let unique: std::collections::BTreeSet<usize> = call
+        .annotation_likelihoods
+        .iter()
+        .map(|c| c.read_index.get())
+        .collect();
+    assert_eq!(
+        unique.len(),
+        1,
+        "6R.186 attached per-variant annotation object"
+    );
 
     let emitted =
         try_emit_call_region_variants(covering, &outcome, "NA12878", DEFAULT_STAND_EMIT_CONFIDENCE)
@@ -186,8 +195,8 @@ fn holdout_6r184_post_refresh_refilter() {
     );
     let mq = info_f64(&rec.info, "MQ").unwrap_or(-1.0);
     let sor = info_f64(&rec.info, "SOR").unwrap_or(-1.0);
-    assert!((mq - 42.05).abs() < 0.005);
-    assert!((sor - 0.6931471805599453).abs() < 1e-9);
+    assert!((mq - 44.0).abs() < 0.005);
+    assert!((sor - 1.6094379124341003).abs() < 1e-3 || (sor - 1.609).abs() < 0.002);
 
     let closed_indel = emitted
         .iter()
