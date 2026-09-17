@@ -139,9 +139,9 @@ fn java_read_pos_rank_element(rec: &Record, vc_start_1based: i32) -> Option<f64>
 fn forensic_6r170_production_still_pileup_and_inserts_zero() {
     let ann = include_str!("../src/variant_site_hc_annotations.rs");
     assert!(
-        ann.contains("read_offset_evidence_at_site")
+        ann.contains("read_pos_rank_sum_quals_from_likelihoods")
             && ann.contains("read_pos_rank_sum::read_pos_rank_sum"),
-        "ReadPosRankSum must still be computed from read_offset_evidence_at_site"
+        "6R.191: ReadPosRankSum uses fillQualsFromLikelihood; 6R.170 pileup helper is retired"
     );
     assert!(
         ann.contains("6R.166: FS/SOR use Java") && ann.contains("6R.167: MQ membership is Java"),
@@ -199,7 +199,7 @@ fn forensic_6r170_read_pos_rank_sum_java_evidence_source() {
     );
     kv(
         "rust_path",
-        "annotate_hc_variant_site → read_offset_evidence_at_site(region.reads pileup) → read_pos_rank_sum (6R.172 Option<f64>)",
+        "6R.170 measured pileup vs fillQualsFromLikelihood; 6R.191 binds annotation_likelihoods; 6R.172 Option<f64> unchanged",
     );
 
     let dict = SequenceDictionary::from_fasta_path(&ref_fasta).expect("dict");
@@ -509,10 +509,9 @@ fn forensic_6r170_read_pos_rank_sum_java_evidence_source() {
             rec.quality
         ),
     );
-    assert!(info_has(&rec.info, "ReadPosRankSum"));
     assert!(
-        (rp - 0.0).abs() < 1e-12,
-        "production still emits 0, got {rp}"
+        !info_has(&rec.info, "ReadPosRankSum"),
+        "6R.191: Java-equivalent empty REF omits ReadPosRankSum"
     );
     assert!(fs < 0.02, "FS must stay Java 0");
     assert!((sor - 1.179).abs() < 0.001, "SOR must stay Java 1.179");

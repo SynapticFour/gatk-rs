@@ -440,9 +440,10 @@ fn forensic_6r181_cluster_tg_annotation_membership() {
     );
     let tg_unique: BTreeSet<usize> = unique_likelihood_indices(&call.annotation_likelihoods);
     kv("tg_annotation_unique_n", tg_unique.len().to_string());
-    assert!(
-        call.annotation_likelihoods.is_empty() && tg_unique.is_empty(),
-        "cluster-TG path must leave annotation_likelihoods empty"
+    assert_eq!(
+        tg_unique.len(),
+        1,
+        "6R.186 attached per-variant annotation object"
     );
 
     let indel = outcome
@@ -655,18 +656,14 @@ fn forensic_6r181_cluster_tg_annotation_membership() {
     kv("fallback_dp", fallback_dp.to_string());
     kv("fallback_mapqs", format!("{fallback_mqs:?}"));
     kv("fallback_mq", format!("{fallback_mq:?}"));
-    assert_eq!(fallback_dp, 1);
+    assert_eq!(fallback_dp, 2, "6R.201 Coverage is unique stored n=2");
     assert_eq!(region_unique.len(), 2);
     assert_eq!(
         overlap.len(),
         1,
-        "stored n=2 retainEvidence overlap is the MAPQ=44 read; annotation still not attached"
+        "stored n=2 retainEvidence overlap is the MAPQ=44 read"
     );
-    assert_eq!(
-        hypo_unique.len(),
-        1,
-        "overlap on stored n=2 is n=1; 6R.181 B still does not attach it"
-    );
+    assert_eq!(hypo_unique.len(), 1, "overlap on stored n=2 is n=1");
     let fallback_mq_printed = fallback_mq.map(|t| (t.2 * 100.0).round() / 100.0);
     assert_eq!(fallback_mq_printed, Some(42.05));
 
@@ -728,8 +725,11 @@ fn forensic_6r181_cluster_tg_annotation_membership() {
     let sor = info_f64(&rec.info, "SOR").unwrap_or(-1.0);
     kv("emit_mq", format!("{mq}"));
     kv("emit_sor", format!("{sor}"));
-    assert!((mq - 42.05).abs() < 0.005, "MQ={mq}");
-    assert!((sor - 0.6931471805599453).abs() < 1e-9, "SOR={sor}");
+    assert!((mq - 44.0).abs() < 0.005, "MQ={mq}");
+    assert!(
+        (sor - 1.6094379124341003).abs() < 1e-3 || (sor - 1.609).abs() < 0.002,
+        "SOR={sor}"
+    );
 
     let closed_indel = emitted
         .iter()

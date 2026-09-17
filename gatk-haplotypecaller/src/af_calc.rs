@@ -131,10 +131,40 @@ fn effective_allele_counts_biallelic(
     [10_f64.powf(log10_counts[0]), 10_f64.powf(log10_counts[1])]
 }
 
+/// Java `AlleleFrequencyCalculator` alt Dirichlet weight: SNP if `alt.length()==refLength`, else indel.
+pub fn biallelic_alt_pseudocount(
+    ref_allele: &str,
+    alt_allele: &str,
+    config: &AfCalculatorConfig,
+) -> f64 {
+    if alt_allele.len() == ref_allele.len() {
+        config.snp_pseudocount
+    } else {
+        config.indel_pseudocount
+    }
+}
+
 /// Biallelic diploid EM AF (GATK `AlleleFrequencyCalculator#calculate` core loop).
+///
+/// Uses the SNP alt prior. Callers that know REF/ALT lengths should use
+/// [`calculate_biallelic_af_em_with_alt_pseudocount`] with
+/// [`biallelic_alt_pseudocount`] (6R.196).
 pub fn calculate_biallelic_af_em(
     samples_log10_likelihoods: &[&[f64]],
     config: &AfCalculatorConfig,
+) -> GatkResult<AfCalculationResult> {
+    calculate_biallelic_af_em_with_alt_pseudocount(
+        samples_log10_likelihoods,
+        config,
+        config.snp_pseudocount,
+    )
+}
+
+/// Same EM as [`calculate_biallelic_af_em`] with an explicit alt Dirichlet pseudocount.
+pub fn calculate_biallelic_af_em_with_alt_pseudocount(
+    samples_log10_likelihoods: &[&[f64]],
+    config: &AfCalculatorConfig,
+    alt_pseudocount: f64,
 ) -> GatkResult<AfCalculationResult> {
     const THRESHOLD: f64 = 0.1;
     let flat = -(2.0_f64).log10();
@@ -157,7 +187,7 @@ pub fn calculate_biallelic_af_em(
         allele_counts = new_counts;
         let posterior_pseudo = [
             config.ref_pseudocount + allele_counts[0],
-            config.snp_pseudocount + allele_counts[1],
+            alt_pseudocount + allele_counts[1],
         ];
         let means = log10_dirichlet_mean_weights(&posterior_pseudo);
         log10_af = [means[0], means[1]];
@@ -400,7 +430,9 @@ pub fn diploid_af_log10_prob_only_ref_allele_exists(
     }
     let span_del = alleles.iter().position(|a| *a == "*");
     if n_alleles == 2 && span_del.is_none() {
-        let af = calculate_biallelic_af_em(&[log10_likelihoods], config)?;
+        let alt_pc = biallelic_alt_pseudocount(alleles[0], alleles[1], config);
+        let af =
+            calculate_biallelic_af_em_with_alt_pseudocount(&[log10_likelihoods], config, alt_pc)?;
         return Ok(af.log10_posterior_no_variant);
     }
     let pairs = diploid_genotype_pairs(n_alleles);
@@ -624,5 +656,77 @@ mod six_r102_qual_af_diagnostics {
             (q_star - 510.06).abs() < 0.02,
             "SPAN_DEL P(no variant) + mixed priors → Java QUAL, got {q_star}"
         );
+    }
+}
+
+#[cfg(test)]
+mod six_r196_indel_prior_qual_diagnostics {
+    use super::*;
+
+    fn phred(log10_p: f64) -> f64 {
+        (-10.0 * log10_p.min(0.0)) + 0.0
+    }
+
+    /// PL=39,0,39 biallelic indel (REF longer than ALT). Java AF alt prior is indel.
+    #[test]
+    fn six_r196_snp_vs_indel_prior_on_pl_39_0_39() {
+        let gl = [-3.9, 0.0, -3.9];
+        let cfg = AfCalculatorConfig::default();
+        let snp = calculate_biallelic_af_em(&[&gl], &cfg).expect("snp");
+        let q_snp = phred(snp.log10_posterior_no_variant);
+        let mut indel_cfg = cfg;
+        indel_cfg.snp_pseudocount = cfg.indel_pseudocount;
+        let indel = calculate_biallelic_af_em(&[&gl], &indel_cfg).expect("indel");
+        let q_indel = phred(indel.log10_posterior_no_variant);
+        eprintln!(
+            "6R196\tsnp_log10PError={}\tsnp_qual={}\tsnp_qual_2dp={:.2}\tindel_log10PError={}\tindel_qual={}\tindel_qual_2dp={:.2}\tref_pc={}\tsnp_pc={}\tindel_pc={}",
+            snp.log10_posterior_no_variant,
+            q_snp,
+            q_snp,
+            indel.log10_posterior_no_variant,
+            q_indel,
+            q_indel,
+            cfg.ref_pseudocount,
+            cfg.snp_pseudocount,
+            cfg.indel_pseudocount,
+        );
+        assert!(
+            (q_snp - 31.639400251058753).abs() < 1e-9,
+            "Rust production QUAL is SNP-prior AF on PL-roundtrip GLs, got {q_snp}"
+        );
+        assert_eq!(format!("{q_snp:.2}"), "31.64");
+        assert_eq!(
+            format!("{q_indel:.2}"),
+            "31.60",
+            "Java length-based indel prior must reproduce emitted QUAL 31.60, got {q_indel}"
+        );
+        assert!(
+            (q_indel - 31.60).abs() < 0.005,
+            "indel-prior QUAL should milliround to Java 31.60, got {q_indel}"
+        );
+    }
+
+    #[test]
+    fn six_r196_n2_shortcut_uses_allele_length_prior() {
+        let gl = [-3.9, 0.0, -3.9];
+        let cfg = AfCalculatorConfig::default();
+        let snp =
+            diploid_af_log10_prob_only_ref_allele_exists(&gl, &["T", "C"], &cfg).expect("snp");
+        let indel =
+            diploid_af_log10_prob_only_ref_allele_exists(&gl, &["CT", "C"], &cfg).expect("indel");
+        assert_eq!(format!("{:.2}", phred(snp)), "31.64");
+        assert_eq!(format!("{:.2}", phred(indel)), "31.60");
+    }
+
+    #[test]
+    fn six_r196_pl_45_3_0_indel_prior_matches_java_ttc_t() {
+        let gl = [-4.5, -0.3, 0.0];
+        let cfg = AfCalculatorConfig::default();
+        let snp =
+            diploid_af_log10_prob_only_ref_allele_exists(&gl, &["T", "G"], &cfg).expect("snp");
+        let indel =
+            diploid_af_log10_prob_only_ref_allele_exists(&gl, &["TTC", "T"], &cfg).expect("indel");
+        assert_eq!(format!("{:.2}", phred(snp)), "35.48");
+        assert_eq!(format!("{:.2}", phred(indel)), "35.44");
     }
 }

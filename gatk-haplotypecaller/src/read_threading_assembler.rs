@@ -1618,17 +1618,22 @@ fn extract_rt_haplotypes_from_built_graph(
     allow_non_unique_ref: bool,
     before_remove_paths: bool,
 ) -> GatkResult<Vec<Haplotype>> {
+    // Java `createGraph`: `if (generateSeqGraph && rtgraph.hasCycles()) return null`
+    // before dangling recovery. SeqGraph-path RT extract (merge_rt / supplement_p12)
+    // must honor that gate. `use_seq_graph=false` fallback keeps abort off.
+    let abort_cyclic_before_dangling = args.use_seq_graph && args.abort_seq_graph_on_cycles;
     let cache_key = crate::rt_region_cache::RtExtractKey {
         kmer_size,
         allow_low_complexity,
         allow_non_unique_ref,
         before_remove_paths,
+        abort_cyclic_before_dangling,
     };
     if let Some(cached) = crate::rt_region_cache::get_cached(&cache_key) {
         crate::runtime_config::rss_trace_checkpoint(
             "rt_extract_cache_hit",
             &format!(
-                "kmer={kmer_size} before_remove={before_remove_paths} haps={}",
+                "kmer={kmer_size} before_remove={before_remove_paths} abort_cyclic={abort_cyclic_before_dangling} haps={}",
                 cached.len()
             ),
         );
@@ -1642,7 +1647,9 @@ fn extract_rt_haplotypes_from_built_graph(
     }
     crate::runtime_config::rss_trace_checkpoint(
         "rt_graph_build_begin",
-        &format!("kmer={kmer_size} before_remove_paths={before_remove_paths}"),
+        &format!(
+            "kmer={kmer_size} before_remove_paths={before_remove_paths} abort_cyclic={abort_cyclic_before_dangling}"
+        ),
     );
     let Some(graph) = build_threading_graph_core(
         reference,
@@ -1651,7 +1658,7 @@ fn extract_rt_haplotypes_from_built_graph(
         &local_args,
         allow_low_complexity,
         allow_non_unique_ref,
-        false,
+        abort_cyclic_before_dangling,
     )?
     else {
         crate::runtime_config::rss_trace_checkpoint(
@@ -2109,6 +2116,10 @@ fn build_threading_graph_core(
         && args.abort_seq_graph_on_cycles
         && graph.has_cycle()
     {
+        crate::runtime_config::rss_trace_checkpoint(
+            "rt_build_abort_cyclic_before_dangling",
+            &format!("kmer={kmer_size}"),
+        );
         return Ok(None);
     }
 

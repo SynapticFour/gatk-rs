@@ -386,12 +386,12 @@ pub use gvcf_writer::{
 pub use haplotype::Haplotype;
 pub use hc_genotyping_engine::{
     audit_colocated_snp_indel_merge_numerics, biallelic_genotype_log10_likelihoods_gatk,
-    diagnose_genotype_variation_event, genotype_active_region, java_emit_af_decision,
-    java_vcf_shaped_rescue_gl, l9_may_overwrite_pairhmm_gls_after_emit_fail,
-    marginalize_rows_to_biallelic_alleles, region_likelihoods_to_rows,
-    subset_biallelic_haplotype_indices, take_colocated_merge_numerics, with_region_likelihood_rows,
-    ColocatedMergeNumerics, GenotypeRejectReason, GenotypingSemantics, HcGenotypingConfig,
-    InformativeAd, JavaEmitAfDecision, RegionGenotypeResult, SparsePlShape,
+    diagnose_genotype_variation_event, diagnose_genotype_variation_event_with_region_state,
+    genotype_active_region, java_emit_af_decision, java_vcf_shaped_rescue_gl,
+    l9_may_overwrite_pairhmm_gls_after_emit_fail, marginalize_rows_to_biallelic_alleles,
+    region_likelihoods_to_rows, subset_biallelic_haplotype_indices, take_colocated_merge_numerics,
+    with_region_likelihood_rows, ColocatedMergeNumerics, GenotypeRejectReason, GenotypingSemantics,
+    HcGenotypingConfig, InformativeAd, JavaEmitAfDecision, RegionGenotypeResult, SparsePlShape,
     DEFAULT_INFORMATIVE_READ_OVERLAP_MARGIN, DEFAULT_STAND_EMIT_CONFIDENCE,
 };
 #[cfg(feature = "dev-dumps")]

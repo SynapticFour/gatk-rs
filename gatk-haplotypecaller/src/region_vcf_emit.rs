@@ -362,6 +362,8 @@ pub fn build_biallelic_variant_record(
                 qd: 0.0,
                 sor: 0.0,
                 read_pos_rank_sum: None,
+                base_q_rank_sum: None,
+                mq_rank_sum: None,
                 inbreeding_coeff: 0.0,
             },
             true,
@@ -453,8 +455,14 @@ fn hc_info_values(ann: &HcVariantSiteAnnotations, n_genotypes: usize) -> Vec<Inf
         InfoValue::Float("QD".to_string(), vec![ann.qd]),
         InfoValue::Float("SOR".to_string(), vec![ann.sor]),
     ];
-    // 6R.172: ReadPosRankSum only. Insert finite z including 0.0; omit None.
-    // Do not skip other annotations when they are numeric zero (FS=0 must emit).
+    // 6R.172: insert finite RankSum z including 0.0; omit None.
+    // 6R.193: BaseQRankSum. 6R.194: MQRankSum from the same fillQuals membership.
+    if let Some(z) = ann.base_q_rank_sum {
+        info.push(InfoValue::Float("BaseQRankSum".to_string(), vec![z]));
+    }
+    if let Some(z) = ann.mq_rank_sum {
+        info.push(InfoValue::Float("MQRankSum".to_string(), vec![z]));
+    }
     if let Some(z) = ann.read_pos_rank_sum {
         info.push(InfoValue::Float("ReadPosRankSum".to_string(), vec![z]));
     }
@@ -1148,6 +1156,8 @@ mod tests {
             qd: 25.0,
             sor: 0.693,
             read_pos_rank_sum: None,
+            base_q_rank_sum: None,
+            mq_rank_sum: None,
             inbreeding_coeff,
         }
     }

@@ -394,6 +394,7 @@ fn create_read_aligned_to_ref_cached(
     if !cigar_changed && old_pos == pos_0based {
         return Ok(false);
     }
+    crate::fragment_overlap::preserve_pre_realign_alignment(rec);
     let hts_cigar = cigar_to_hts(&final_cigar);
     // Position + CIGAR only — avoid re-encoding qname/seq/qual (Java updates alignment fields).
     rec.set_cigar(Some(&hts_cigar));

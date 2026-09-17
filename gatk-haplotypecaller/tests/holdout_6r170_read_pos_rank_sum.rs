@@ -131,7 +131,10 @@ fn holdout_6r170_read_pos_rank_sum() {
             rec.quality
         ),
     );
-    assert!(rp.is_some(), "proof-only: production still inserts the key");
+    assert!(
+        rp.is_none(),
+        "6R.191 omits ReadPosRankSum (Java-equivalent empty REF)"
+    );
     assert!(fs < 0.02, "FS={fs}");
     assert!((sor - 1.179).abs() < 0.001, "SOR={sor}");
     assert!((mq - 40.25).abs() < 1e-12, "MQ={mq}");

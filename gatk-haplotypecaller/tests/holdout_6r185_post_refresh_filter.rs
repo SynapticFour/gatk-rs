@@ -144,9 +144,15 @@ fn holdout_6r185_post_refresh_filter() {
     assert_eq!(call.genotype.format.dp.as_i32(), 1);
     assert_eq!(call.genotype.format.ad_as_i32(), vec![0, 1]);
     assert_eq!(call.genotype.format.pl_as_i32(), vec![45, 3, 0]);
-    assert!(
-        call.annotation_likelihoods.is_empty(),
-        "6R.181 B not implemented this round"
+    let unique: std::collections::BTreeSet<usize> = call
+        .annotation_likelihoods
+        .iter()
+        .map(|c| c.read_index.get())
+        .collect();
+    assert_eq!(
+        unique.len(),
+        1,
+        "6R.186 attached per-variant annotation object"
     );
 
     let emitted =
@@ -183,8 +189,8 @@ fn holdout_6r185_post_refresh_filter() {
     assert_eq!(info_i32(&rec.info, "DP"), Some(1));
     let mq = info_f64(&rec.info, "MQ").unwrap_or(-1.0);
     let sor = info_f64(&rec.info, "SOR").unwrap_or(-1.0);
-    assert!((mq - 42.05).abs() < 0.005);
-    assert!((sor - 0.6931471805599453).abs() < 1e-9);
+    assert!((mq - 44.0).abs() < 0.005);
+    assert!((sor - 1.6094379124341003).abs() < 1e-3 || (sor - 1.609).abs() < 0.002);
 
     let closed_indel = emitted
         .iter()

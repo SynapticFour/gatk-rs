@@ -280,8 +280,8 @@ fn forensic_6r185_stored_membership_after_final_p12_filter() {
         })
         .expect("T/G");
     assert!(
-        call.annotation_likelihoods.is_empty(),
-        "6R.181 B is not this arrow: annotation_likelihoods stays empty"
+        unique_likelihood_indices(&call.annotation_likelihoods).len() == 1,
+        "6R.186 attached per-variant annotation object; 6R.185 stored n=2 stays"
     );
 
     let emitted =

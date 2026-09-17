@@ -244,8 +244,8 @@ fn forensic_6r180_per_variant_annotation_evidence() {
         "6R.185 stored poorly-modeled survivors"
     );
     assert_eq!(
-        region_dp, 1,
-        "6R.185 stored covering this deletion is 1 of 2 survivors"
+        region_dp, 2,
+        "6R.201 Coverage is unique stored evidenceCount (n=2); covering-this-deletion remains 1 of 2"
     );
 
     let site_dp = coverage_evidence_count(

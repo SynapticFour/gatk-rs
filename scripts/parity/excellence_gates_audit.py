@@ -53,7 +53,8 @@ SIZE_GRANDFATHER: dict[str, int] = {
     # include! of finalize/assign; 6R.108–6R.185 added annotation/filter helpers over 2500.
     "hc_genotyping_engine/mod.rs": 2570,
     "engine.rs": 2540,
-    "read_threading_assembler.rs": 2510,
+    # 6R.218 SeqGraph-path cyclic k=10 extract abort (2510→2519).
+    "read_threading_assembler.rs": 2520,
 }
 SIZE_MAX_DEFAULT = 2500
 

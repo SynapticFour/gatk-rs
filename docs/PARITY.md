@@ -64,7 +64,7 @@ Remaining **C** regions are predominantly Stage E haplotype-content differences 
 internal graph topology UNKNOWN) and Stage D/G/H cases where an allele exists in EventMap
 but is not emitted.
 
-## Independent chr20_tiny genotype-boundary holdouts (6R.130–6R.185)
+## Independent chr20_tiny genotype-boundary holdouts (6R.130–6R.221)
 
 Engineering discovery on `20:29455000-29456500` (target SNP `20:29456196 A/T`, HG001).
 **Not** a claim-matrix Yes row and **not** chr20 VCF allele-set closure.
@@ -410,6 +410,396 @@ Closed `2:92307324` and `2:92305634` unchanged.
 `classification: ANNOTATION_INPUT_MEMBERSHIP_DIVERGENCE` (D, upstream closed).
 `production_change: restore Java-order filter after final P12 refresh`.
 
+6R.186: production. On the strict-Java cluster-TG early-template path,
+construct the per-variant annotation `AlleleLikelihoods` from the 6R.185
+stored n=2 hap matrix: `marginalize(alleleMapper)` then
+`retainEvidence(mergedVC ±2)`. At `2:92307333 T/G` the attached object
+is n=1 (MAPQ=44 FLAG=83 best=G). INFO DP=1 MQ=44.00 SOR=1.609.
+FORMAT/QUAL unchanged. Formulas unchanged. Closed `2:92307324`,
+`2:92305634`, and `2:92316347` unchanged.
+`classification: ANNOTATION_INPUT_MEMBERSHIP_DIVERGENCE` (B, missing
+object construction).
+`production_change: construct cluster-TG annotation_likelihoods`.
+
+6R.187: proof-only. Fresh post-6R.186 INFO reconnaissance. It does not
+assume that remaining annotation differences share the 6R.181/6R.186
+cause. FORMAT/QUAL stay closed on chr2. First remaining genuine field
+is INFO DP at `2:92305635 A/G` (Java 3 vs Rust 1). MQ 41.96 vs 53 and
+SOR 0.693 vs 1.609 share that evidence object. Neighbor `2:92305634`
+still has empty `annotation_likelihoods` (region-wide n=3, matches
+Java). The target attaches a genotyping-subset object unique n=1
+(MAPQ=53 FLAG=99) instead of Java stored-hap `retainEvidence` n=3.
+Closed `2:92307333` still has `annotation_likelihoods` n=1.
+`classification: A — WRONG SOURCE OBJECT`.
+`production_change: NONE`.
+
+6R.188: proof-only. At `2:92305635 A/G` the attached
+`annotation_likelihoods` is the FORMAT-narrowed genotyping subset
+(keep_qnames n=2 mates → 6R.180 same-QNAME collapse n=1 FLAG=99
+MAPQ=53), not Java’s loc-loop stored-hap object after `marginalize` +
+`retainEvidence` (n=3, includes MAPQ=25). Neighbor `2:92305634` stays
+empty and luckily matches via stored fallback. 6R.186 cluster-TG is
+not selected (`is_cluster_tg_snp` is `92307333` only).
+`classification: A2 — WRONG SUBSET CONSTRUCTED AND ATTACHED`.
+`production_change: NONE`.
+
+6R.189: production. SiteScore annotation binds to the stored-hap
+loc-loop object (`annotation_likelihoods_from_stored_haplotypes`:
+`marginalize` then `retainEvidence(±2)`), not the FORMAT genotyping
+subset. Target `2:92305635 A/G` is INFO DP=3 MQ=41.96 SOR=0.693.
+FORMAT/QUAL stay `GT=1/1 AD=0,2 DP=2 GQ=6 PL=90,6,0` / `78.32`.
+Neighbor `2:92305634` empty-fallback and 6R.186 cluster-TG stay.
+`classification: A2 — WRONG SUBSET (closed)`.
+`production_change: SiteScore stored-hap loc-loop attach`.
+
+6R.190: proof-only. Fresh post-6R.189 INFO/VCF reconnaissance. It does
+not assume another FORMAT-subset, annotation-object, or 6R.181–6R.189
+cause, and it does not assume DP/MQ/SOR is next. FORMAT/QUAL stay
+closed on chr2. First remaining genuine field is rust-only
+`ReadPosRankSum` at `2:92305716 A/C`. Java
+`RankSumTest.fillQualsFromLikelihood` on the annotation
+`AlleleLikelihoods` has empty REF (hom-alt) and omits the key. Rust
+still fills both lists from `region.reads` pileup and emits. Closed
+`2:92305635 A/G` stays FORMAT `GT=1/1 AD=0,2 DP=2 GQ=6 PL=90,6,0`
+QUAL `78.32` INFO DP=3 MQ=41.96 SOR=0.693 annotation n=3. Later
+`2:92307359` Java-only BaseQ/MQ RankSums are not this arrow.
+`classification: A — WRONG SOURCE OBJECT`.
+`production_change: NONE`.
+
+6R.191: production. ReadPosRankSum evidence binds to the same
+per-variant annotation `AlleleLikelihoods` already used by SiteScore
+(`GenotypedSiteCall.annotation_likelihoods` / `fillQualsFromLikelihood`).
+Target `2:92305716 A/C` is REF=0 ALT=3 → undefined → key omitted.
+FORMAT/QUAL stay `GT=1/1 AD=0,3 DP=3 GQ=9 PL=130,9,0` / `116.84`.
+Mann-Whitney / 6R.172 `Option<f64>` / empty-list omit stay.
+BaseQRankSum and MQRankSum remain header-only. Closed `2:92305635 A/G`
+stays FORMAT/QUAL/DP=3/MQ=41.96/SOR=0.693 annotation n=3; 6R.186
+cluster-TG stays n=1.
+`classification: A — WRONG SOURCE OBJECT (closed)`.
+`production_change: ReadPosRankSum from annotation_likelihoods`.
+
+6R.192: proof-only. Fresh post-6R.191 INFO/VCF reconnaissance. It does
+not assume BaseQRankSum, MQRankSum, another RankSum source-object,
+`2:92305759`, or QD formatting. FORMAT/QUAL stay closed on chr2.
+First remaining genuine field is Java-only `BaseQRankSum` /
+`MQRankSum` at `2:92307359 CT/C` (header-only in Rust;
+`hc_info_values` never inserts). ReadPosRankSum already matches.
+QD 15.80 vs 15.82 is QUAL/2, not the first causal arrow. Closed
+`2:92305635` / `2:92305716` / 6R.186 cluster-TG stay.
+`classification: F — WRONG EMISSION PREDICATE`.
+`production_change: NONE`.
+
+6R.193: production. BaseQRankSum is emitted from the same
+`fillQualsFromLikelihood` membership as ReadPosRankSum, with
+`getReadBaseQualityAtReferenceCoordinate` as the element and 6R.172
+`Option<f64>` (finite `0.0` emits). Target `2:92307359 CT/C` is
+REF=1 ALT=1 → `Some(0.0)` → INFO insert. FORMAT/QUAL/ReadPos stay.
+MQRankSum stays header-only. Closed hom-alts still omit BaseQ.
+`classification: F — WRONG EMISSION PREDICATE (closed)`.
+`production_change: BaseQRankSum from annotation likelihoods`.
+
+6R.194: production. MQRankSum is emitted from the same
+`fillQualsFromLikelihood` membership as ReadPos/BaseQ, with
+`read.getMappingQuality()` as the element and 6R.172 `Option<f64>`.
+Target `2:92307359 CT/C` is REF=1 ALT=1 unequal MAPQ → `Some(-0.674)`
+→ INFO insert. FORMAT/QUAL/ReadPos/BaseQ stay. QD/QUAL are not
+retuned. Closed hom-alts still omit MQRankSum.
+`classification: ANNOTATION_EMIT / EVIDENCE-MEMBERSHIP PARITY (closed)`.
+`production_change: MQRankSum from annotation likelihoods`.
+
+6R.195: proof-only. QD at `2:92307359 CT/C` is Java
+`QualByDepth.annotate`: `-10 * vc.getLog10PError()` / `getDepth` AD
+sum, then `fixTooHighQD` (no-op below 35) then `%.2f`. Rust is the
+same unrounded `ann.qual` / AD-depth. Java 15.80 is Java QUAL/2;
+Rust 15.82 is Rust QUAL/2. RankSums stay closed. QUAL 31.60 vs 31.64
+is not retuned.
+`classification: E — NO QD DIVERGENCE: QD correctly follows an already-divergent QUAL`.
+`production_change: NONE`.
+
+6R.196: production. Biallelic QUAL AF uses Java length-based alt
+Dirichlet prior (`alt.length()==refLength` → SNP else indel). Target
+`2:92307359 CT/C` (PL `39,0,39`) is indel prior → unrounded QUAL
+`31.60158` → 31.60; QD follows to 15.80. SNPs with the same PL stay
+31.64. Emit-threshold AF unchanged.
+`classification: D — WRONG PROBABILITY / QUAL FORMULA`.
+`production_change: length-based AF alt prior at QUAL`.
+
+6R.197: proof-only. Fresh post-6R.196 INFO/VCF reconnaissance. It does
+not assume another QUAL prior, QD formula, RankSum emit predicate, or
+6R.174 DP-source regression. FORMAT/QUAL stay closed on chr2. First
+remaining genuine field is INFO DP at `2:92307403 C/A` (Java 6 vs
+Rust 4), with co-observed Java-only `BaseQRankSum`/`ReadPosRankSum`.
+`MQRankSum` already matches. Closed `2:92307359` stays QUAL 31.60 /
+QD 15.80 / RankSums present. Rust `annotation_likelihoods` is empty
+(n=0); INFO DP=4 is the region-wide emit fallback. Causal object
+construction is not proven in this round.
+`classification: G — UPSTREAM OBJECT / LIFECYCLE (provisional)`.
+`production_change: NONE`.
+
+6R.198: proof-only. At `2:92307403 C/A` Rust takes the cluster-downstream
+early-template (`is_cluster_downstream_snp`) and returns shaped FORMAT
+without constructing the Java loc-loop annotation AlleleLikelihoods.
+Stored hap unique n=6 (MQ RMS 40.58 = Java MQ). Diagnostic
+`marginalize` then `retainEvidence(±2)` is n=4. Java INFO DP=6 is
+`Coverage.evidenceCount()` of that n=6 stored set, not the 6R.186
+retain helper (which would regress MQ to ~44.15). BaseQ/ReadPos stay
+omitted because the two extra stored rows are realigned off-locus.
+Controls `2:92305634`/`635`/`716`/`7324`/`7333`/`7359`/`16347` stay.
+`classification: E — DIFFERENT BRANCH / SPECIAL-PATH SEMANTICS`.
+`production_change: NONE`.
+
+6R.199: production. Cluster-downstream early-template attaches the
+Java-equivalent loc-loop annotation object from stored unique haplotype
+evidence (n=6 at `2:92307403 C/A`), not the 6R.186 retainEvidence
+subset (n=4). FORMAT/QUAL stay `0/1` `2,4` `6` `72` `162,0,72` /
+154.64. MQ of the attached object is 40.58. INFO DP remains 4 because
+Rust Coverage still overlap-filters the n=6 object (Java
+`evidenceCount` is 6); that is a new 6R.200 arrow, not combined here.
+`classification: E — DIFFERENT BRANCH / SPECIAL-PATH SEMANTICS`.
+`production_change: cluster-downstream stored-unique annotation attach`.
+
+6R.200: proof-only. After 6R.199 the attached object is n=6. Java
+`Coverage.annotate` is `likelihoods.evidenceCount()` (list cardinality;
+no overlap). Rust `coverage_evidence_count` unique-counts then applies
+`java_alignment_read_overlaps_interval(±2)`, dropping
+`H06HDADXX130110:1:1101:10061:17286` FLAG=83 and
+`H06JUADXX130110:1:1101:10011:51168` FLAG=81 (6→4). FORMAT/QUAL/MQ
+stay. First remaining INFO DP 6 vs 4 is that second filter.
+`classification: ANNOTATION_INPUT_MEMBERSHIP_DIVERGENCE / WRONG SECONDARY FILTER / DOUBLE OVERLAP FILTER`.
+`production_change: NONE`.
+
+6R.201: production. Coverage consumes attached unique-evidence
+cardinality (`evidenceCount`) with no second ±2 overlap filter.
+At `2:92307403 C/A` annotation n=6, Coverage n=6, INFO DP=6. The two
+rows above remain counted. FORMAT/QUAL/MQ unchanged. 6R.199 object
+construction unchanged. Remaining INFO at this site is Java-only
+BaseQRankSum/ReadPosRankSum (record only).
+`classification: ANNOTATION_INPUT_MEMBERSHIP_DIVERGENCE / WRONG SECONDARY FILTER / DOUBLE OVERLAP FILTER`.
+`production_change: Coverage unique evidenceCount; no second overlap`.
+
+6R.202: proof-only. RankSums **are invoked** on the 6R.199 n=6 object
+(MQRankSum already 1.834). BaseQ and ReadPos share empty REF fillQuals
+(`getElementForRead` none on the two extra stored unique rows whose
+Rust CIGARs miss the locus; those rows are MQ REF MAPQ 40 and 22).
+Java emits BaseQ −1.834 / ReadPos 1.282. FORMAT/QUAL/DP/MQ stay.
+`classification: ANNOTATION_INPUT_MEMBERSHIP_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.203: production. Shared RankSum `getElementForRead` retries the
+pre-realign covering CIGAR when the attached haplotype CIGAR does
+not cover `vc.getStart()`. BaseQ and ReadPos share that retry.
+At `2:92307403 C/A` REF lists become `[30,30]` / `[65,91]`;
+BaseQRankSum=−1.834, ReadPosRankSum=1.282. MQRankSum stays 1.834.
+INFO DP stays 6. FORMAT/QUAL unchanged. Next INFO split
+`2:92316296 A/T` DP/MQ/SOR is recorded only.
+`classification: ANNOTATION_INPUT_MEMBERSHIP_DIVERGENCE`.
+`production_change: one shared getElementForRead covering-CIGAR retry`.
+
+6R.204: proof-only. At `2:92316296 A/T` live INFO DP is Java **2** vs
+Rust **3** (FORMAT/QUAL already match). The two-read hom-alt
+early-template leaves `annotation_likelihoods` empty, so Coverage
+falls back to region-wide stored unique n=3 including
+`H06HDADXX130110:2:1101:10046:78083` FLAG=147. Java Coverage is
+loc-loop `retainEvidence` n=2. MQ 47.00 vs 40.25 and SOR 2.303 vs
+1.179 are the same object split (record only). 6R.201 Coverage
+cardinality is not reopened.
+`classification: ANNOTATION_SOURCE_OBJECT_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.205: production. The two-read hom-alt early-template attaches
+`annotation_likelihoods_from_stored_haplotypes` (marginalize then
+`retainEvidence(±2)`). At `2:92316296 A/T` the attached object is
+n=2; Coverage consumes it (INFO DP=2); MQ=47.00 and SOR=2.303 follow
+the object. FORMAT/QUAL unchanged. 6R.199 stored-unique and 6R.201
+Coverage are not reused as the arrow.
+`classification: ANNOTATION_SOURCE_OBJECT_DIVERGENCE`.
+`production_change: one annotation-object construction arrow`.
+
+6R.206: proof-only. At `2:92316416 C/A` live INFO DP is Java **1** vs
+Rust **3** (FORMAT `GT=1/1 AD=0,1 DP=1 GQ=3 PL=45,3,0` QUAL 35.48
+already match). The one-read hom-alt early-template
+(`is_mid_a_one_read_hom_alt_site`) leaves `annotation_likelihoods`
+empty, so Coverage falls back to region-wide stored unique n=3
+(two MAPQ=47 mates that miss ±2 plus FLAG=147 MAPQ=21). Java Coverage
+is loc-loop `retainEvidence` n=1 (that MAPQ=21 row only). MQ 21.00 vs
+40.25 and SOR 1.609 vs 1.179 are the same object split (record only).
+6R.205's two-read arm is not this site.
+`classification: ANNOTATION_SOURCE_OBJECT_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.207: production. On **only** `is_mid_a_one_read_hom_alt_site`, attach
+`annotation_likelihoods_from_stored_haplotypes` (marginalize then
+`retainEvidence(±2)`). At `2:92316416 C/A` the attached object is
+n=1; Coverage consumes it (INFO DP=1); MQ=21.00 and SOR=1.609 follow
+the object. FORMAT/QUAL unchanged. 6R.199 stored-unique, 6R.201
+Coverage, and 6R.205's two-read arm are not reused as the arrow.
+`classification: ANNOTATION_SOURCE_OBJECT_DIVERGENCE`.
+`production_change: one annotation-object construction arrow`.
+
+6R.208: proof-only. At `2:92317399 C/A` live INFO DP is Java **2** vs
+Rust **1** and SOR **0.693** vs **1.609** (FORMAT `GT=1/1 AD=0,2 DP=2
+GQ=6 PL=90,6,0` QUAL 78.32 already match; MQ print-close 27.00).
+`try_shaped` is `None` (not 6R.205/207/199). SiteScore 6R.189
+retainEvidence(±2) is n=2 (same-QNAME mates FLAG=99/147 MAPQ=27).
+`per_variant_annotation_likelihoods` then collapses that pair to
+attached n=1. Coverage and `calculateSOR` consume that object.
+6R.205/207/199 are not this site.
+`classification: ANNOTATION_SOURCE_OBJECT_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.209: production. On the Java loc-loop helper
+`annotation_likelihoods_from_stored_haplotypes`, do not apply the
+6R.180 same-QNAME collapse. At `2:92317399 C/A` retainEvidence n=2
+(same-QNAME mates) is preserved; Coverage consumes n=2 (INFO DP=2);
+SOR `[0,0;1,1]`=0.693. FORMAT/QUAL/MQ unchanged. The 6R.180 collapse
+stays on FORMAT-subset and stored-unique callers; 6R.186 cluster-TG
+stays n=1 because retainEvidence already drops the non-overlapping
+row.
+`classification: ANNOTATION_SOURCE_OBJECT_DIVERGENCE`.
+`production_change: one lifecycle-scoped removal of same-QNAME collapse from the Java loc-loop annotation object`.
+
+6R.210: production. On `gap_sparse_shaped_early` (FORMAT-shaped gap path),
+attach `annotation_likelihoods_from_stored_haplotypes`. At `2:92318199 C/T`
+the attached object is loc-loop retainEvidence n=1 (the overlapping FLAG=99
+MAPQ=24 read); Coverage consumes it (INFO DP=1); MQ=24.00 and SOR=1.609
+follow the object; MQRankSum is omitted (empty REF fillQuals). FORMAT/QUAL
+unchanged. Region-wide stored unique remains n=4. 6R.209 loc-loop helper
+and 6R.199/205/207 construction are not reused as the arrow.
+`classification: ANNOTATION_SOURCE_OBJECT_DIVERGENCE`.
+`production_change: one annotation-object construction arrow on gap_sparse_shaped_early`.
+
+6R.211: production. On `is_p12_phase_e_gap_het_event` (FORMAT-shaped gap-tail
+het path), attach `annotation_likelihoods_from_stored_haplotypes`. At
+`2:92325193 C/T` the attached object is loc-loop retainEvidence n=3
+(FLAG 163/81/83, MAPQ 34/24/25); Coverage consumes it (INFO DP=3);
+MQ=28.03 follows the MAPQ list; SOR `[0,1;1,1]`=0.223 was already
+print-close. The same-QNAME mate FLAG=83 MAPQ=34 misses overlap and is
+dropped by retainEvidence, not by 6R.180 collapse. FORMAT/QUAL
+unchanged. Region-wide stored unique remains n=4. Sibling
+`2:92325205 G/A` closed on the same class. 6R.209 loc-loop helper and
+6R.210 gap-sparse attach are not reused as the arrow.
+`classification: ANNOTATION_SOURCE_OBJECT_DIVERGENCE`.
+`production_change: one annotation-object construction arrow on is_p12_phase_e_gap_het_event`.
+
+6R.212: production. On `event_weak_sparse_het_pl` (FORMAT-shaped weak-sparse
+het path, PL 55,0,21), attach `annotation_likelihoods_from_stored_haplotypes`.
+At `2:92325268 C/T` the attached object is loc-loop retainEvidence n=3
+(FLAG 81/83/83, MAPQ 24/25/34); Coverage consumes it (INFO DP=3);
+MQ=28.03 follows that MAPQ list. The extra stored-unique row is FLAG=163
+MAPQ=34, which misses overlap (ends 92325230). This is not the 6R.211
+membership: at `92325193` FLAG=163 was kept and the FLAG=83 mate was
+dropped. FORMAT/QUAL (`0/1 1,2 3 21 55,0,21` QUAL 47.64) unchanged.
+SOR `[0,1;0,2]`=1.179 and MQRankSum=0.000 were already print-close.
+6R.209 helper and 6R.210/211 attaches are not reused as the arrow.
+`classification: ANNOTATION_SOURCE_OBJECT_DIVERGENCE`.
+`production_change: one annotation-object construction arrow on event_weak_sparse_het_pl`.
+
+6R.213: proof-only. Earliest remaining common-site split is `20:29455015 G/T`.
+QD 0.96 vs 1.79 is not causal: FORMAT PL already differs (`69,0,2140` vs
+`122,0,2304`). GT/AD/DP and INFO MQ/FS/SOR/RankSum/DP match. EventMap at
+the loc is biallelic `G/T` (neighbor `20:29455019 G/A` already matches
+Java QUAL 637.64 / PL `645,0,1147`). AF calc on Java PL GLs reproduces
+QUAL 61.64 and QD 0.96; AF calc on Rust GLs reproduces QUAL 114.64 and
+QD 1.79. GQ 69 vs 99 is the PL second-best cap. No production change:
+annotation/Coverage/PairHMM/read-filter/haplotype-construction stay as
+closed in 6R.209–6R.212. Next arrow is the biallelic genotype-likelihood
+object itself (allele-likelihood matrix / marginalize), not QD.
+`classification: GENOTYPE_LIKELIHOOD_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.214: proof-only. First divergent object is the **pre-marginalization
+haplotype likelihood matrix**, not `marginalize` arithmetic. Java
+`assignGenotypeLikelihoods` / PairHMM input has **30** trimmed 130 bp
+haplotypes (`20:29454995-29455124`, mapper REF=18 ALT=12, evidence 88
+then retainEvidence 65) and still emits PL `69,0,2140` QUAL 61.64. Rust
+`call_region` has **84** haplotypes (82×181 bp + 2×212 bp, span
+`29454944-29455124`, mapper REF=66 ALT=18). All 30 Java FNV window
+hashes are present in Rust; Rust has 13 additional unique sequences in
+that same window. Stop: Case A `ALLELE_LIKELIHOOD_INPUT_DIVERGENCE`.
+Do not compensate in max-marginalize / QUAL / GQ / QD. Next arrow is
+haplotype trim / extra assembled haplotypes vs Java's 30.
+`classification: ALLELE_LIKELIHOOD_INPUT_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.215: proof-only. First extra haplotypes at `20:29455015 G/T` enter
+**after** Java-equivalent SeqGraph k=25 `findBestPaths` (78 hashes
+match). Java skips k=10 (`cycles_before_dangling`) and returns K=128
+n=78. Rust `merge_rt_kbest_pre_remove_paths` then extracts
+RT-before-remove k=10 and inserts **44** unique `kmer_size=10`
+haplotypes (after_assemble 122; trim later 122→89; `call_region` hap_n
+84). Case A: not trim, not SeqGraph k-best K, not dangling-merge, not
+P12 cluster supplement as the first insert. Stop:
+`HAPLOTYPE_MATERIALIZATION_DIVERGENCE`. Do not disable RT merge
+globally. Next arrow is a Java-equivalent restriction of that
+post-SeqGraph RT merge.
+`classification: HAPLOTYPE_MATERIALIZATION_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.216: proof-only. Java `assembleKmerGraphsAndHaplotypeCall` never
+k-bests the ReadThreadingGraph after SeqGraph `findBestPaths`.
+`createGraph(k=10)` returns null (`generateSeqGraph && hasCycles`)
+before dangling recovery; `assemble()` still tries every configured
+kmer (not a higher-k fallback). Rust SeqGraph k=25 remains hash-
+identical to Java's 78; the 44 extras originate only at
+`merge_rt_kbest_pre_remove_paths` / RT-before-remove k=10 (extract
+skips the cycle abort). Global RT disable is not Java-equivalent
+(L2 `g2-subset-live` p11 / P12 TTC still need merge_rt). Stop:
+`RT_GRAPH_LIFECYCLE_DIVERGENCE`. Production unchanged; wait for
+authorization before any cycle-abort-in-merge_rt change.
+`classification: RT_GRAPH_LIFECYCLE_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.217: proof-only. Diagnostic `createGraph` cycle abort at RT extract
+(`abort_cyclic_before_dangling` matching Java prune-then-`hasCycles`
+before dangling) makes k=10 contribute 0, drops all 44 extras, and
+leaves unique merge = 78; k=25 stays hash-identical. Production extract
+still uses abort=false (assemble n=122). p11/indel4 acyclic k=10 ALTs
+survive; P12 TTC stays n=6. Scope is extract when `use_seq_graph`, not
+dump/RT-fallback. Stop: `GRAPH_STATE_DIVERGENCE`. Production unchanged.
+`classification: GRAPH_STATE_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.218: ONE production change. SeqGraph-path RT extract now passes
+`abort_cyclic_before_dangling = use_seq_graph && abort_seq_graph_on_cycles`
+(Java `createGraph`). Cyclic k=10 contributes 0; extras 0; assemble 78;
+trimmed hap_n 30. Measured PL/GQ/QUAL/QD match Java (`69,0,2140` / 69 /
+61.64 / 0.96). p11/indel4 acyclic k=10 retained; P12 TTC n=6;
+`use_seq_graph=false` still extracts 54. `RtExtractKey` includes the
+abort flag. Dump builder and SeqGraph createGraph unchanged.
+`classification: GRAPH_STATE_DIVERGENCE`.
+`production_change: ONE`.
+
+6R.219: proof-only. At `20:29455379 G/A`, Java FORMAT AD is `42,5`
+(FORMAT DP 47) vs Rust `44,5` (FORMAT DP 49). Java
+`DepthPerAlleleBySample` is informative `bestAllelesBreakingTies` on
+the retainEvidence `AlleleLikelihoods`. Rust retainEvidence remarg is
+already `47,5` (n=52, UNINF=0); annotation/INFO DP use that n=52
+object; FORMAT AD/PL are a different 49-row subset. PairHMM residuals
+are noncausal. Allele mapping is biallelic G/A. 6R.218 stays closed.
+`classification: ALLELE_LIKELIHOOD_INPUT_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.220: proof-only. The 52-row retainEvidence remarg (`AD 47,5` /
+`PL 68,0,1937`) **is** isolated `try_genotype_variation_event`
+(`hap_events=None`). Production `call_region` FORMAT is a different
+object (`AD 44,5` / `PL 78,0,1811`). No BAM/overlap/QNAME/`keep_qnames`
+predicate on the 52 reproduces FORMAT. Java
+`calculateGLsForThisEvent` and `DepthPerAlleleBySample` share the same
+retainEvidence object; default HC has no post-retainEvidence FORMAT
+subset. The three REF rows cannot be named as a filter of the 52.
+Case A. 6R.218 stays closed.
+`classification: ALLELE_LIKELIHOOD_INPUT_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.221: proof-only. Isolated and production-arg `try_genotype` stay
+`AD 47,5` / `PL 68,0,1937`. `assign_genotype_likelihoods_for_region`
+loc-loop is the FORMAT object `AD 44,5` / `PL 78,0,1811` (B = C).
+Colocated merge does not fire. Event identity is unchanged. Annotation
+unique n=52 on both (not a 52→49 row filter). Assign visits EventMap
+loc 29455375 before the target with no emitted call (next inner).
+`classification: GENOTYPE_LIKELIHOOD_LIFECYCLE_DIVERGENCE`.
+`production_change: NONE`.
+
 ```text
 HOLDOUT_6R158=1 GATK_RS_EXPERIMENTAL_KBEST_POLICY=unbounded_diagnostic \
   cargo test -p gatk-haplotypecaller --test holdout_6r158_class_a3_preserve -- --test-threads=1
@@ -470,6 +860,78 @@ cargo test -p gatk-haplotypecaller --test forensic_6r184_post_refresh_refilter_l
 HOLDOUT_6R184=1 cargo test -p gatk-haplotypecaller --test holdout_6r184_post_refresh_refilter -- --test-threads=1
 cargo test -p gatk-haplotypecaller --test forensic_6r185_post_refresh_java_order_filter -- --test-threads=1
 HOLDOUT_6R185=1 cargo test -p gatk-haplotypecaller --test holdout_6r185_post_refresh_filter -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r186_cluster_tg_annotation_object -- --test-threads=1
+HOLDOUT_6R186=1 cargo test -p gatk-haplotypecaller --test holdout_6r186_cluster_tg_annotation -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r187_fresh_info_reconnaissance -- --test-threads=1
+HOLDOUT_6R187=1 cargo test -p gatk-haplotypecaller --test holdout_6r187_fresh_info -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r188_wrong_annotation_source_object -- --test-threads=1
+HOLDOUT_6R188=1 cargo test -p gatk-haplotypecaller --test holdout_6r188_wrong_annotation_source -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r189_site_annotation_uses_stored_haplotype_object -- --test-threads=1
+HOLDOUT_6R189=1 cargo test -p gatk-haplotypecaller --test holdout_6r189_site_annotation_stored_hap -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r190_fresh_info_reconnaissance -- --test-threads=1
+HOLDOUT_6R190=1 cargo test -p gatk-haplotypecaller --test holdout_6r190_fresh_info -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r191_read_pos_rank_sum_uses_annotation_likelihoods -- --test-threads=1
+HOLDOUT_6R191=1 cargo test -p gatk-haplotypecaller --test holdout_6r191_read_pos_rank_sum -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r192_fresh_info_reconnaissance -- --test-threads=1
+HOLDOUT_6R192=1 cargo test -p gatk-haplotypecaller --test holdout_6r192_fresh_info -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r193_baseq_rank_sum_emission -- --test-threads=1
+HOLDOUT_6R193=1 cargo test -p gatk-haplotypecaller --test holdout_6r193_baseq_rank_sum -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r194_mq_rank_sum_emission -- --test-threads=1
+HOLDOUT_6R194=1 cargo test -p gatk-haplotypecaller --test holdout_6r194_mq_rank_sum -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r195_qd_follows_qual -- --test-threads=1
+HOLDOUT_6R195=1 cargo test -p gatk-haplotypecaller --test holdout_6r195_qd_follows_qual -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r196_qual_indel_af_prior -- --test-threads=1
+HOLDOUT_6R196=1 cargo test -p gatk-haplotypecaller --test holdout_6r196_qual_indel_af_prior -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r197_fresh_info_reconnaissance -- --test-threads=1
+HOLDOUT_6R197=1 cargo test -p gatk-haplotypecaller --test holdout_6r197_fresh_info -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r198_per_variant_annotation_object -- --test-threads=1
+HOLDOUT_6R198=1 cargo test -p gatk-haplotypecaller --test holdout_6r198_per_variant_object -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r199_cluster_downstream_annotation_object -- --test-threads=1
+HOLDOUT_6R199=1 cargo test -p gatk-haplotypecaller --test holdout_6r199_cluster_downstream_annotation -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r200_coverage_no_secondary_overlap_filter -- --test-threads=1
+HOLDOUT_6R200=1 cargo test -p gatk-haplotypecaller --test holdout_6r200_coverage_secondary_overlap -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r201_coverage_consumes_annotation_cardinality -- --test-threads=1
+HOLDOUT_6R201=1 cargo test -p gatk-haplotypecaller --test holdout_6r201_coverage_cardinality -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r202_ranksum_annotation_boundary -- --test-threads=1
+HOLDOUT_6R202=1 cargo test -p gatk-haplotypecaller --test holdout_6r202_ranksum_boundary -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r203_ranksum_get_element_java_cigar_semantics -- --test-threads=1
+HOLDOUT_6R203=1 cargo test -p gatk-haplotypecaller --test holdout_6r203_ranksum_get_element -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r204_coverage_evidence_boundary -- --test-threads=1
+HOLDOUT_6R204=1 cargo test -p gatk-haplotypecaller --test holdout_6r204_coverage_evidence -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r205_two_read_hom_alt_annotation_object -- --test-threads=1
+HOLDOUT_6R205=1 cargo test -p gatk-haplotypecaller --test holdout_6r205_two_read_hom_alt_annotation -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r206_annotation_object_membership -- --test-threads=1
+HOLDOUT_6R206=1 cargo test -p gatk-haplotypecaller --test holdout_6r206_annotation_object_membership -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r207_mid_a_one_read_hom_alt_annotation_object -- --test-threads=1
+HOLDOUT_6R207=1 cargo test -p gatk-haplotypecaller --test holdout_6r207_mid_a_one_read_hom_alt_annotation -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r208_mid_b_annotation_evidence -- --test-threads=1
+HOLDOUT_6R208=1 cargo test -p gatk-haplotypecaller --test holdout_6r208_mid_b_annotation_evidence -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r209_preserve_loc_loop_mate_evidence -- --test-threads=1
+HOLDOUT_6R209=1 cargo test -p gatk-haplotypecaller --test holdout_6r209_preserve_loc_loop_mate_evidence -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r210_annotation_source_boundary -- --test-threads=1
+HOLDOUT_6R210=1 cargo test -p gatk-haplotypecaller --test holdout_6r210_annotation_source_boundary -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r211_annotation_membership_boundary -- --test-threads=1
+HOLDOUT_6R211=1 cargo test -p gatk-haplotypecaller --test holdout_6r211_annotation_membership_boundary -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r212_event_weak_sparse_annotation_boundary -- --test-threads=1
+HOLDOUT_6R212=1 cargo test -p gatk-haplotypecaller --test holdout_6r212_event_weak_sparse_annotation_boundary -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r213_first_genotype_qual_boundary -- --test-threads=1
+HOLDOUT_6R213=1 cargo test -p gatk-haplotypecaller --test holdout_6r213_first_genotype_qual_boundary -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r214_marginalized_allele_likelihood_boundary -- --test-threads=1
+HOLDOUT_6R214=1 cargo test -p gatk-haplotypecaller --test holdout_6r214_marginalized_allele_likelihood -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r215_haplotype_population_boundary -- --test-threads=1
+HOLDOUT_6R215=1 cargo test -p gatk-haplotypecaller --test holdout_6r215_haplotype_population -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r216_rt_kbest_java_restriction -- --test-threads=1
+HOLDOUT_6R216=1 cargo test -p gatk-haplotypecaller --test holdout_6r216_rt_kbest_java_restriction -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r217_rt_cycle_abort_scope -- --test-threads=1
+HOLDOUT_6R217=1 cargo test -p gatk-haplotypecaller --test holdout_6r217_rt_cycle_abort_scope -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r218_java_seqgraph_cycle_gate -- --test-threads=1
+HOLDOUT_6R218=1 cargo test -p gatk-haplotypecaller --test holdout_6r218_java_seqgraph_cycle_gate -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r219_ad_membership_boundary -- --test-threads=1
+HOLDOUT_6R219=1 cargo test -p gatk-haplotypecaller --test holdout_6r219_ad_membership -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r220_format_ad_subset_boundary -- --test-threads=1
+HOLDOUT_6R220=1 cargo test -p gatk-haplotypecaller --test holdout_6r220_format_ad_subset -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r221_call_region_assign_boundary -- --test-threads=1
+HOLDOUT_6R221=1 cargo test -p gatk-haplotypecaller --test holdout_6r221_call_region_assign -- --test-threads=1
 ```
 
 ## How parity is established
@@ -528,7 +990,7 @@ HOLDOUT_6R43=1 cargo test -p gatk-haplotypecaller --test holdout_6r43_test
 
 `six_r*` tests under `gatk-haplotypecaller` pin the mid-B contracts above without
 requiring the 6R markdown reports. Chr20_tiny genotype-entry holdouts are env-gated
-(`HOLDOUT_6R130`…`HOLDOUT_6R185`); production k-best is unchanged unless that env is set.
+(`HOLDOUT_6R130`…`HOLDOUT_6R221`); production k-best is unchanged unless that env is set.
 
 Independent-region discovery (not whole-codebase parity; 6R.43 snapshot):
 [`parity/6R.43_HOLDOUT_MATRIX.md`](parity/6R.43_HOLDOUT_MATRIX.md).

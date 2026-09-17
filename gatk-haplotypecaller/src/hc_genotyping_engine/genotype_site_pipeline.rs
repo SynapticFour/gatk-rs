@@ -1422,10 +1422,22 @@ fn try_genotype_variation_event(
             softclip_two_read_format,
             region_events,
         )? {
+            let annotation = annotation_likelihoods_from_stored_haplotypes(
+                likelihoods,
+                likelihood_reads,
+                haplotypes,
+                &mapping,
+                &event,
+                config,
+                active_start_1based,
+                active_end_1based,
+            );
             return Ok(Some(
-                GenotypedSiteCall::new(event, gt).with_annotation_likelihoods(
-                    per_variant_annotation_likelihoods(&subset, likelihood_reads),
-                ),
+                // 6R.189: Java loc-loop annotation reuses the stored-hap
+                // AlleleLikelihoods after `marginalize` then `retainEvidence(±2)`
+                // (`prepareReadAlleleLikelihoodsForAnnotation`, contamination off).
+                // FORMAT `subset` (keep_qnames / genotyping GLs) is unchanged.
+                GenotypedSiteCall::new(event, gt).with_annotation_likelihoods(annotation),
             ));
         }
         // L9: PairHMM genotype failed Java emit, but pileup still supports the allele.
