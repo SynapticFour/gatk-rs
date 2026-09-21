@@ -849,7 +849,11 @@ fn try_genotype_colocated_snp_indel_merge(
         extra_alt_alleles: extra,
         post_merge_unused_alt_subset: unused.alt_alleles.len() < alts.len(),
         qual_log10_p_error,
-        annotation_likelihoods: Vec::new(),
+        // 6R.246: Java `prepareReadAlleleLikelihoodsForAnnotation` reuses the
+        // post-retainEvidence genotyping AlleleLikelihoods (contamination off).
+        // `hap_rows` already copied subset cells for GLs; `into_owned` is a move
+        // of the existing `Cow::Owned` retainEvidence object, not PairHMM.
+        annotation_likelihoods: subset.into_owned(),
     }))
 }
 
