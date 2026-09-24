@@ -43,9 +43,6 @@ tracing.workspace = true
 # Internal dependencies
 gatk-core = { path = "../gatk-core" }
 gatk-common = { path = "../gatk-common" }
-# External dependencies
-petgraph = "0.8"
-ordered-float = "5.3"
 
 [dev-dependencies]
 criterion.workspace = true
