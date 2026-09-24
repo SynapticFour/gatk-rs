@@ -8,13 +8,14 @@ pub use super::semantics::GenotypingSemantics;
 
 /// Default GATK `informativeReadOverlapMargin` (bases).
 pub const DEFAULT_INFORMATIVE_READ_OVERLAP_MARGIN: i32 = 2;
-/// Default GATK `standard-min-confidence-threshold-for-calling` (GQ/QUAL gate).
+/// GATK3 / non-strict `--stand-emit-conf` (GQ/QUAL gate). Not Java 4.4 HC calling conf.
 pub const DEFAULT_STAND_EMIT_CONFIDENCE: f64 = 10.0;
 
 /// HC genotyping configuration for [`super::genotype_active_region`].
 /// # Invariants
 /// [`Self::strict_java`] sets [`GenotypingSemantics::JavaCompatible`] with bridges/ rescue flags off.
-/// `stand_emit_confidence` matches GATK standard min GQ/QUAL threshold (default 10).
+/// `stand_emit_confidence` on that path is Java 4.4 `standardConfidenceForCalling` (30).
+/// Non-strict / legacy keeps GATK3 `--stand-emit-conf` (10).
 /// # Ownership
 /// Cloneable config snapshot threaded through `call_region` and genotype engines.
 /// # Mutation
@@ -30,7 +31,9 @@ pub struct HcGenotypingConfig {
     pub informative_read_overlap_margin: i32,
     /// GATK `disableSpanningEventGenotyping` (default false → spanning enabled).
     pub disable_spanning_event_genotyping: bool,
-    /// Minimum GQ to keep a site (GATK `standard-min-confidence-threshold-for-calling`).
+    /// Threshold for Java `passesEmitThreshold` / `calculateGenotypes`.
+    /// [`Self::strict_java`] supplies GATK 4.4 `standardConfidenceForCalling` (30).
+    /// Non-strict / legacy paths keep [`DEFAULT_STAND_EMIT_CONFIDENCE`] (10).
     pub stand_emit_confidence: f64,
     /// N1 bridge: genotype SNPs from read AD when no alt-hap support (off for Java parity).
     pub enable_sparse_read_genotype: bool,
@@ -68,7 +71,9 @@ impl HcGenotypingConfig {
             priors: BiallelicDiploidPriorModel::default(),
             informative_read_overlap_margin: DEFAULT_INFORMATIVE_READ_OVERLAP_MARGIN,
             disable_spanning_event_genotyping: false,
-            stand_emit_confidence: DEFAULT_STAND_EMIT_CONFIDENCE,
+            // Java 4.4 HC has no separate stand-emit-conf; `passesEmitThreshold`
+            // uses `standardConfidenceForCalling` = 30.
+            stand_emit_confidence: crate::genotype_gvcfs::DEFAULT_STAND_CALL_CONF,
             enable_sparse_read_genotype: false,
             enable_read_style_emit: false,
             genotype_stored_events_only: false,
@@ -100,6 +105,7 @@ impl HcGenotypingConfig {
     pub fn parity_aligned() -> Self {
         Self {
             semantics: GenotypingSemantics::ParityExperimental,
+            stand_emit_confidence: DEFAULT_STAND_EMIT_CONFIDENCE,
             ..Self::strict_java()
         }
     }

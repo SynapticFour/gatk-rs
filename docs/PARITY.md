@@ -64,7 +64,7 @@ Remaining **C** regions are predominantly Stage E haplotype-content differences 
 internal graph topology UNKNOWN) and Stage D/G/H cases where an allele exists in EventMap
 but is not emitted.
 
-## Independent chr20_tiny genotype-boundary holdouts (6R.130–6R.221)
+## Independent chr20_tiny genotype-boundary holdouts (6R.130–6R.265)
 
 Engineering discovery on `20:29455000-29456500` (target SNP `20:29456196 A/T`, HG001).
 **Not** a claim-matrix Yes row and **not** chr20 VCF allele-set closure.
@@ -800,6 +800,416 @@ loc 29455375 before the target with no emitted call (next inner).
 `classification: GENOTYPE_LIKELIHOOD_LIFECYCLE_DIVERGENCE`.
 `production_change: NONE`.
 
+6R.222: proof-only. Loc-loop order through the target is
+`[29455375, 29455379]`. Predecessor `20:29455375 T/A` REJECTS
+(`VariantNotConfident`) but writes TLS region-likelihood rows
+`(len=2808, n_haps=54, n_rows=52)`. Target `SiteScore` then hits that
+cache and emits FORMAT `AD 44,5` / `PL 78,0,1811`. Skip-pred and
+target-first stay A' (`47,5` / `68,0,1937`); filling the full PairHMM
+table after the predecessor restores A'. Annotation 52×54 cells are
+unchanged (`changed=0`). No second PairHMM. Java has no pointer-keyed
+row cache between neighboring events.
+`classification: SHARED_STATE_LIFECYCLE_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.223: proof-only. First inner operation is
+`with_region_likelihood_rows` cache HIT `(ptr, len=2808, n_haps=54)`
+inside `SiteScore::from_allele_mapping`. Dense 52×54 hash matches the
+predecessor T/A table; 52×2 membership differs by 3 rows (intersection
+cells unchanged). AD `47,5`→`44,5` and PL `68,0,1937`→`78,0,1811`
+change together in `genotype_from_marginalized_rows`. No second
+PairHMM. Java has no equivalent pointer-keyed row cache.
+`classification: GENOTYPE_LIKELIHOOD_CACHE_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.224: proof-only. Predecessor `20:29455375 T/A` and target
+`20:29455379 G/A` produce the same TLS key `(ptr, len=2808, n_haps=54)`
+because successive owned retainEvidence subset Vecs of length 2808 reuse
+the same allocator address after the predecessor Vec is dropped. Sparse
+cells and read-index membership differ; the HIT returns predecessor
+dense rows. Java has no pointer-keyed row cache.
+`classification: CACHE_STORAGE_ALIASING`.
+`production_change: NONE`.
+
+6R.225: proof-only. `with_region_likelihood_rows` stores an owned dense
+`Vec<ReadLikelihoodRow>` copy; the cache value outlives the source subset.
+The key is `(as_ptr, len, n_haps)` — storage identity of a short-lived
+retainEvidence Vec, not sparse-cell identity. Isolated predecessor has a
+legitimate intra-event HIT (reshape then SiteScore on the same live slice).
+Production `assign` on this region records 34 MISS + 1 invalid alias HIT
+and 0 legitimate HITs. Diagnostic disable and a content-hash key both
+restore P2 dense `0x67d17c7b8ef58d07`. Extra independent storage cannot
+prevent the alias because the value is already owned. Java has no
+equivalent cache. Decision Case B: smallest semantic identity is the
+sparse-cell population plus `n_haps`. Uncached rebuild is semantically
+sufficient (G1 KEEP is performance).
+`classification: CACHE_KEY_IDENTITY_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.226: one production change. `with_region_likelihood_rows` keys the
+exact sparse-cell sequence `(read_index, haplotype_index, log10.to_bits())`
+plus `n_haps`. Allocator reuse of a dropped 2808-cell subset Vec no
+longer returns predecessor dense rows. Canonical `20:29455379 G/A`
+dense hash is P2 `0x67d17c7b8ef58d07`; FORMAT `AD=47,5` `PL=68,0,1937`
+`GQ=68` `DP=52` (P2 remarg). Java FORMAT remains `AD=42,5` `PL=84,0,1738`
+`GQ=84` `DP=47` — that remaining membership/PL split is not patched here.
+Intra-event same-slice HIT is preserved. Cache disabling was not chosen.
+`classification: CACHE_KEY_IDENTITY_DIVERGENCE`.
+`production_change: ONE`.
+
+6R.227: proof-only. After 6R.226, isolated `try_genotype` and production
+`assign_genotype_likelihoods_for_region` both consume P2 dense
+`0x67d17c7b8ef58d07` and the identical 52×2 allele-likelihood matrix
+(`AD=47,5` `PL=68,0,1937`). Predecessor `20:29455375 T/A` does not mutate
+that matrix. Remaining vs Java is the 52-row retainEvidence remarg versus
+Java's 47-read `AlleleLikelihoods` (five extra REF votes). Cache key
+unchanged.
+`classification: GENOTYPE_LIKELIHOOD_INPUT_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.228: proof-only. Live Java `genotype-emit-at-loc` captures the actual
+post-`retainEvidence` set at `20:29455379 G/A`: 47 reads, interval
+`20:29455377-29455381`, votes AD `42,5`, PL `84,0,1738`. Rust event-local
+overlap remarg is 52. Intersection 47, Rust-only 5, Java-only 0. The five
+extras are informative REF and absent from Java hap_ll (n=236); original-BAM
+mate-contig passes (6R.176 eliminated). First drop is before retainEvidence.
+Cache key and `genotype_from_marginalized_rows` unchanged.
+`classification: READ_FILTER_MEMBERSHIP_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.229: proof-only. Live Java `hap-ll-membership-at-loc` tracks the five
+Rust-only REF reads through hap_ll construction at `20:29455379 G/A`.
+They are present through `normalizeLikelihoods` (245, bitmap `11111`)
+and absent after `filterPoorlyModeledEvidence` (236, `00000`). Region,
+clip, stub, `filterNonPassingReads`, mate-contig, PairHMM input, and
+`AlleleLikelihoods` construction all KEEP. Java `max_ll < -8` DROP;
+Rust same thresh KEEP (`max_ll ≥ -8`, `extra_retain=false`).
+Cache key, `genotype_from_marginalized_rows`, and retainEvidence
+unchanged.
+`classification: POORLY_MODELED_FILTER_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.230: proof-only. Live Java `five-ll-at-loc` vs Rust PairHMM evidence at
+`20:29455379 G/A`. All five reads enter both PairHMM engines. Java raw
+`max_ll` already `< -8` (`prim_max == norm_max`). Rust PairHMM sequences
+are clipped to start `29455355`; Java keeps padded-window `148M` /
+`33H113M2H`. Haplotype FNV sets are disjoint (Java 60 vs Rust 54).
+300 Java prim cells have no matching Rust hap identity. Not the −8
+predicate and not the ~1e-6 GKL-float residual.
+Cache key, `genotype_from_marginalized_rows`, retainEvidence, and the
+poorly-modeled formula unchanged.
+`classification: READ_SEQUENCE_INPUT_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.231: proof-only. The five Rust PairHMM sequences at `20:29455379 G/A`
+are physical hard-clips to `region.extended_start=29455355`, produced by
+`clip_finalized_reads_in_place` / `hard_clip_to_region` after
+`AssemblyRegionTrimmer::apply_trim`. Same Java clip primitive
+(`ReadClipper.hardClipToRegion`); Java interval is padded variant
+`20:29455294-29455584` (`29455314 − 20`). Rust `29455355 = 29455375 − 20`
+because EventMap `variation_events` lacks Java's leftmost SNP `29455314`.
+PairHMM is downstream. Haplotype-population arrow deferred at that
+interval dependency.
+Cache key, `genotype_from_marginalized_rows`, retainEvidence, and the
+poorly-modeled formula unchanged.
+`classification: READ_INTERVAL_INPUT_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.232: proof-only. Java variation event `20:29455314` is SNP `G>C` on a
+single assembled haplotype (`c7acc50dfb9f9ecc`, CIGAR `460M`). Rust's
+128 untrimmed haplotypes are all `G` at that coordinate, so EventMap
+union never sees the event. Diagnostic: adding the SNP to Rust trim
+restores left pad `29455294`; removing only that Java event does **not**
+make Java match Rust (`29455328` remains). Clip/padding/PairHMM
+downstream. Do not patch EventMap.
+`classification: HAPLOTYPE_CONSTRUCTION_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.233: proof-only. The missing carrier is already a k=25 SeqGraph
+source→sink path in both implementations (C-edge multiplicity **3**;
+post-prune RT graphs match 1064/1079). Java k-best `K=128` selects
+`c7acc50dfb9f9ecc` at rank **116**. Rust production `K=128` returns
+G at `29455314` on 128/128 paths; diagnostic `K=256` (not a product
+change) returns the **same FNV at rank 129**. One of four pileup-C
+reads does not thread C k-mers. EventMap/clip/PairHMM stay
+downstream. Do not raise `K`.
+`classification: ASSEMBLY_KBEST_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.234: proof-only. Same carrier FNV `c7acc50dfb9f9ecc` is **not** the
+same k-best path state: Java 18 edges vs Rust 19. Prefix 0–16 matches
+(`log10(mult/out)` on total multiplicity). Rust splits the 38 bp Java
+sink into 30+8 bp and adds `log10(63/78)=−0.09275`, moving rank
+116 / −2.64786702 → 129 / −2.74062107. Production `K=128` is a
+downstream cutoff. Do not raise `K`.
+`classification: ASSEMBLY_KBEST_STATE_IDENTITY_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.235: proof-only. The 38 vs 30+8 split is **graph topology**, not
+k-best. Rust's 1 bp SeqGraph already joins at the first base of
+`TGTTTCTT` (`in_degree=2`, plus a `GT` bubble). Initial
+`zip_linear_chains` emits the independent 8 bp sink; Java's sink is one
+38 bp vertex 36 with 4 incoming. The 30 bp vertex appears later at
+`merge_common_suffices`. `63/78` is a consequence. `K=128` stays
+downstream. Do not raise `K`.
+`classification: GRAPH_TOPOLOGY_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.236: proof-only. The 1 bp join is an **edge insertion**, not a
+different vertex-identity rule. `971 → 428` (support 1, non-ref) is
+absent after raw threading and prune; dangling-tail recovery
+(`addEdge` weight 1, `dangling_java_exact=true`) splices it onto
+reference k-mer 428, making `in_degree=2`. Java's post-cleanup
+SeqGraph has no `TGTTTCTT` / `GT` vertices (one 38 bp sink). `K=128`
+stays downstream. Do not raise `K`.
+`classification: EDGE_INSERTION_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.237: proof-only. Same dangling-tail candidate and SW CIGAR `3I9M`.
+Java `mergeDanglingTail` computes `refIndexToMerge = 8 - 9 + 1 = 0`
+and returns 0 (LCA-cycle guard). Rust `saturating_sub` yields 1 and
+`addEdge(971,428,weight=1)`. `K=128` stays downstream. Do not raise
+`K`.
+`classification: DANGLING_TAIL_MERGE_PREDICATE_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.238: proof-only. Java `refIndexToMerge == 0` is a **path-index
+sentinel** (LCA / no `addEdge`), not a graph vertex id. Signed
+`lastRefIndex - matchingSuffix + 1` can be 0; Rust
+`saturating_sub + 1` maps that underflow onto path index 1. Negative
+raw is unreachable from `longestSuffixMatch`. Graph vertex 0 can
+exist independently (carrier ref source). `K=128` stays downstream.
+Do not raise `K`.
+`classification: INDEX_SENTINEL_SEMANTICS_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.239: production. Replace saturating unsigned subtraction in
+`plan_dangling_tail_merge` with checked
+`(last_ref_idx + 1).checked_sub(matching_suffix)` so Java path-index
+`0` remains the LCA / no-splice sentinel (`ref_index_zero_cycle`).
+Canonical `8 - 9 + 1 = 0`: splice `971→428` absent, 38 bp sink,
+carrier `c7acc50dfb9f9ecc` score `-2.64786702`, K256/K128 rank 116.
+`K=128` was not changed.
+`classification: INDEX_SENTINEL_SEMANTICS_DIVERGENCE`.
+`production_change: ONE` (`dangling_tail_ref_index_to_merge`).
+
+6R.240: proof-only. After 6R.239, Java and Rust EventMaps both contain
+`20:29455314 G>C` on the canonical carrier (score `-2.64786702`,
+K=128 unchanged). Pinned Java covering VCF still omits the locus.
+Live Rust GLs `PL=21,0,1461` pass `passesEmitThreshold` at
+`stand_emit=10` (QUAL 13.63) and fail Java `stand-call-conf=30`
+(AF-monomorphic). First operation: emit predicate, not assembly.
+`classification: EMISSION_PREDICATE_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.241: production. `HcGenotypingConfig::strict_java` supplies Java 4.4
+`standardConfidenceForCalling=30` to the existing `passesEmitThreshold`
+equivalent (`java_emit_would_pass` / `filter_genotyped_calls_for_strict_java_emit`).
+Non-strict / legacy keep `stand_emit=10`. Covering G>C GLs stay
+`GT 0/1 PL 21,0,1461` QUAL ~13.63 and are no longer VCF-emitted.
+`20:29455379 G/A` FORMAT is unchanged. K=128 unchanged.
+`classification: EMISSION_PREDICATE_DIVERGENCE`.
+`production_change: ONE` (`strict_java` calling confidence).
+
+6R.242: proof-only. Fresh post-6R.241 covering VCF inventory. Covering
+`20:29455314 G>C` is omitted by both engines. Totals Java 126 / Rust 126,
+java-only 2, rust-only 2. First genuine remaining split is a **common**
+record `20:29455649 T/TGTTTG` INFO DP 123 vs 230 (PL ±1 representation;
+GT/AD/QUAL match; both emit at stand=30). Live `annotation_likelihoods`
+is empty (`ann_n=0`); live emit INFO DP=230 is the region-wide fallback.
+Do not jump to later rust-only `20:29456196 A/T`.
+`classification: GENOTYPE_LIKELIHOOD_INPUT_DIVERGENCE` (annotation
+AlleleLikelihoods, not genotyping PL).
+`production_change: NONE`.
+
+6R.243: proof-only. At `20:29455649 T/TGTTTG` colocated merge already
+builds retainEvidence unique n=123 (Java INFO DP) then constructs
+`GenotypedSiteCall` with `annotation_likelihoods=Vec::new()`.
+`merged_handled_locs` skips SiteScore attach. Emit falls back to
+stored-hap unique 230. PL ±1 is non-causal. Not emission.
+`classification: ANNOTATION_LIKELIHOOD_LIFECYCLE_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.244: proof-only. Why merge discards the 123-read object. Local
+`subset` (retainEvidence n=123) is in scope at the Call constructor and
+is not copied onto `annotation_likelihoods`. Java 4.4
+`prepareReadAlleleLikelihoodsForAnnotation` reuses the genotyping
+AlleleLikelihoods (contamination off); it does not build a new object.
+`merged_handled_locs` then skips SiteScore attach (correct one-loc
+merged VC; does not wipe a populated field). Empty emit sentinel →
+INFO DP 230. PL ±1 independent. Candidates A+C (E as interaction).
+`classification: ANNOTATION_LIKELIHOOD_LIFECYCLE_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.245: proof-only. Minimal Java-equivalent attach is
+`subset.into_owned()` onto `GenotypedSiteCall.annotation_likelihoods`
+after `hap_rows` (Cow::Owned move; no second PairHMM). Empty sentinel
+suppression is sufficient: Coverage of the subset identity is 123.
+`production_change: NONE`. Proposed 6R.246: that single field assignment.
+
+6R.246: production. `try_genotype_colocated_snp_indel_merge` Call sets
+`annotation_likelihoods: subset.into_owned()` after `hap_rows`. Unique
+read_index 123 / 2952 cells; INFO DP 230 → 123. FORMAT GT/AD/DP/GQ and
+QUAL unchanged. PL ±1 retained. Fallback sentinel implementation
+unchanged.
+`classification: ANNOTATION_LIKELIHOOD_LIFECYCLE_DIVERGENCE`.
+
+6R.247: proof-only. Remaining PL `570,0,3518` vs Java `570,0,3517` at
+`20:29455649 T/TGTTTG` is not rounding. Rust 1/1 log10 GL
+`-351.75162674083281900` has continuous PL `3517.516…`; both
+`f64::round` and Java `Math.round`/`GLsToPLs` of those GLs emit 3518.
+Java VCF 3517. First unequal value is the calculator 1/1 (merged 2/2)
+genotype likelihood.
+`classification: GENOTYPE_LIKELIHOOD_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.248: proof-only. Merged allele 2 is `TGTTTG`; 2/2 is emitted 1/1.
+Homozygous calculator is Java-equivalent: `GL(2/2)=Σ L(read|allele2)`
+(Δ vs column sum 4.55e-13). Evidence 123×3. Allele floor and mapper
+pools do not move PL. The 3517.5 crossing is already in the allele-row
+`L(read|TGTTTG)` column.
+`classification: GENOTYPE_LIKELIHOOD_INPUT_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.249: proof-only. The TGTTTG allele-row is `max` over five EventMap
+`T/TGTTTG` assembly haplotypes (idx 19–23, FNV `55012fcf3b430591` …
+`79451c576721a729`). Rust `pool_max_log10` matches Java 4.4
+`AlleleLikelihoods.marginalize` (max, not log-sum-exp). Reconstruction
+matches all 123 cells. Allele-level −4.5 floor is a no-op. Java hap-list
+dump for this ActiveFull is absent. Remaining causal inputs are the five
+PairHMM columns.
+`classification: ALLELE_LIKELIHOOD_INPUT_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.250: proof-only. The five TGTTTG PairHMM columns share one Java-equivalent
+read/quality plane (BQ 18, PCR Conservative, GOP/GCP). Kernel is NEON f64
+vs Java GKL float. Known 7.41e-6 residual stacked over 123 reads cannot
+cross 3517.5. Remaining candidate is the five haplotype sequences vs Java
+(executable dump absent).
+`classification: HAPLOTYPE_INPUT_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.251: proof-only. The five Rust PairHMM 161-mers are EventMap-exact,
+share CIGAR insertion `GTTTG`, and are trim subsequences of 388-bp k-best
+parents. They differ from each other only by flank SNPs, not the insertion.
+Java 4.4 construction/trim operations match; Java's concrete 161-mers are
+unverified (executable absent).
+`classification: HAPLOTYPE_SEQUENCE_INTERNALLY_CONSISTENT`.
+`production_change: NONE`.
+
+6R.252: recovered official GATK 4.4.0.0 JAR and ran `hap-trim-at-loc` on
+the parity BAM/REF. Untrimmed five TGTTTG parents are byte-identical.
+Trimmed haplotypes are not: Java `20:29455560-29455728` 174 bp
+`90M5I79M` vs Rust `20:29455569-29455724` 161 bp `81M5I75M`; Rust is
+Java[9:-4].
+`classification: HAPLOTYPE_TRIM_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.253: Java executable dump of `AssemblyRegionTrimmer.trim`. Variant span
+matches (`29455590–29455703`). Java pads `A/AT` @ 29455644 with STR 84
+(`75+longestSTR=9`); Rust keeps indel pad 75 (insertion STR skipped).
+That is the 9-left / 4-right trim-span split.
+`classification: TRIM_PADDING_SEMANTICS_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.254: measurement-only. Frozen 123-read retainEvidence + actual Java
+174-mer TGTTTG haplotypes through Rust NEON-f64 PairHMM. Control strip
+of `CAAAGAGTA`/`TAAA` reproduces the 161-mer baseline (PL 3518). Java
+174-mers apply a uniform ~−0.0337 log10 penalty, move emitted 2/2 GL
+from −351.7516 to −351.8965, and integer PL **3518 → 3519**, away from
+3517.5. Winner sets unchanged (12 unique-max rows keep H3/H1/H4).
+`classification: TRIM_SPAN_MOVES_GL_BUT_NOT_PL_BOUNDARY`.
+`production_change: NONE`.
+
+6R.255: measurement-only. Frozen 123 reads and Rust 161-mer TGTTTG
+haplotypes; only `hardClipToRegion` span varies. Rust clip reproduces
+PL 3518. Java clip `20:29455560-29455728` adds 739 read bases, moves
+emitted 2/2 from −351.7516 to −428.0464 (integer PL **4280**), away
+from 3517.5. Left-only and right-only both hurt (3942 / 3711). 22/123
+rows shift; membership unchanged.
+`classification: READ_CLIP_INTERVAL_MOVES_GL_BUT_NOT_PL_BOUNDARY`.
+`production_change: NONE`.
+
+6R.256: measurement-only. Frozen 123 reads with Java 174-mer TGTTTG
+haplotypes **and** Java clip `20:29455560-29455728` together. Three
+controls reproduce (PL 3518 / 3519 / 4280). Joint emitted 2/2 is
+−351.9157 (continuous PL 3519.157, integer **3519**), still above
+3517.5. The two isolated effects are non-additive
+(Δ_interaction = +76.2755 log10): 174-mer flanks cancel almost all of
+the 6R.255 clip overhang penalty.
+`classification: JOINT_JAVA_INPUTS_MOVE_GL_BUT_NOT_PL_BOUNDARY`.
+`production_change: NONE`.
+
+6R.257: measurement-only. Frozen Java 174-mers + Java clip; 123/123
+clipped read arrays, five haplotype FNV, BQ/PCR/GCP match Java 4.4
+`modifyReadQualities`. IQ/DQ Q6 floor never fires (0 bytes `< 6`).
+Joint diagnostic remains PL 3519. Remaining difference is kernel
+configuration (GKL vs NEON f64), not trim/clip.
+`classification: PAIRHMM_CONFIGURATION_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.258: measurement-only. Frozen 6R.257 inputs. First backend value is
+GKL float `1.0f32/174` vs Rust `1.0f64/174` (bits `0x3f778a4c80000000` vs
+`0x3f778a4c8178a4c8`). Substituting only that haplen quotient leaves
+integer PL 3519. NEON is bit-identical to scalar logless on this matrix.
+`classification: PAIRHMM_RECURRENCE_DIVERGENCE_NOT_SUFFICIENT`.
+`production_change: NONE`.
+
+6R.259: measurement-only. Frozen 6R.257 inputs. First remaining ph2pr-chain
+value is GKL `-((float)32)/10.f` vs Rust `-(32 as f64)/10.0` (bits
+`0xc04ccccd` vs `0xc00999999999999a`). Substituting only that exponent
+moves continuous PL by −1.00e-6; integer PL stays 3519.
+`classification: PAIRHMM_NUMERICAL_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.260: measurement-only. Frozen 6R.257 inputs. First isolated `powf`
+split is Q=20 (exponent −2.0 exact both sides): GKL `powf(10.f, −2.f)`
+f32 `0x3c23d70a` vs Rust `10f64.powf(−2.0)` `0x3f847ae147ae147b`.
+Injecting only the stored GKL ph2pr moves continuous PL by −8.26e-7;
+integer PL stays 3519. `1-ph2pr` diagnostic moves *away* from Java.
+`classification: PAIRHMM_POWF_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.261: measurement-only. Frozen 6R.257 inputs. GKL match is AVX
+`VEC_SUB(1.0, distm)` in float (`_1_distm`), not a Context table.
+Q=20: f32 `0x3f7d70a4` vs Rust `1.0-0.01` `0x3fefae147ae147ae`.
+Injecting only that match moves continuous PL by +3.77e-6 (away from
+Java); integer PL stays 3519.
+`classification: PAIRHMM_MATCH_PRIOR_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.262: measurement-only. Frozen 6R.257 inputs. GKL mismatch is AVX
+`VEC_DIV(distm, 3.0)` in float. Q=20: f32 `0x3b5a740d` vs Rust
+`err/3` `0x3f6b4e81b4e81b4f` (`new-f32-division-rounding`). Injecting
+only that mismatch moves continuous PL by −7.94e-7; integer PL stays
+3519. `classification: PAIRHMM_MISMATCH_PRIOR_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.263: measurement-only. Frozen 6R.257 inputs. GKL AVX distm is
+`VEC_BLENDV` / `_mm256_blendv_ps(mismatch, match, mask)` (AVX-512:
+`_mm512_mask_blend_ps`). Bit-preserving: output bits equal the selected
+match `0x3f7d70a4` or mismatch `0x3b5a740d` at Q=20. Injecting only
+those selected distm values moves continuous PL by +2.97e-6 (away from
+Java); integer PL stays 3519.
+`classification: PAIRHMM_DISTM_BLEND_DIVERGENCE_NOT_CAUSAL`.
+First new primitive: `NONE`. `production_change: NONE`.
+
+6R.264: measurement-only. Frozen 6R.257 inputs. GKL AVX M-update is
+`computeMXY` outer `VEC_MUL(sum, distmSel)` = `_mm256_mul_ps` (float).
+First-cell-only injection of the INITIAL-normalized f32 product moves
+continuous PL by −4.60e-8; all-M-multiply GKL-f32 CF moves +1.96e-6;
+integer PL stays 3519.
+`classification: PAIRHMM_M_MULTIPLY_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.265: measurement-only. Frozen 6R.257 inputs. GKL AVX X-update first
+primitive is `computeMXY` `VEC_MUL(M_t_1, pMX)` = `_mm256_mul_ps`
+(float). At `(i=1,j=1)` the product is 0. First-meaningful-cell
+injection of the INITIAL-normalized f32 product leaves continuous PL
+bit-identical (integer PL 3519).
+`classification: PAIRHMM_X_UPDATE_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
 ```text
 HOLDOUT_6R158=1 GATK_RS_EXPERIMENTAL_KBEST_POLICY=unbounded_diagnostic \
   cargo test -p gatk-haplotypecaller --test holdout_6r158_class_a3_preserve -- --test-threads=1
@@ -932,6 +1342,94 @@ cargo test -p gatk-haplotypecaller --test forensic_6r220_format_ad_subset_bounda
 HOLDOUT_6R220=1 cargo test -p gatk-haplotypecaller --test holdout_6r220_format_ad_subset -- --test-threads=1
 cargo test -p gatk-haplotypecaller --test forensic_6r221_call_region_assign_boundary -- --test-threads=1
 HOLDOUT_6R221=1 cargo test -p gatk-haplotypecaller --test holdout_6r221_call_region_assign -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r222_loc_loop_likelihood_lifecycle -- --test-threads=1
+HOLDOUT_6R222=1 cargo test -p gatk-haplotypecaller --test holdout_6r222_loc_loop_likelihood -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r223_first_inner_likelihood_transition -- --test-threads=1
+HOLDOUT_6R223=1 cargo test -p gatk-haplotypecaller --test holdout_6r223_first_inner_likelihood -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r224_tls_cache_key_identity -- --test-threads=1
+HOLDOUT_6R224=1 cargo test -p gatk-haplotypecaller --test holdout_6r224_tls_cache_key -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r225_cache_semantic_contract -- --test-threads=1
+HOLDOUT_6R225=1 cargo test -p gatk-haplotypecaller --test holdout_6r225_cache_semantic_contract -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r226_cache_key_uses_sparse_population_identity -- --test-threads=1
+HOLDOUT_6R226=1 cargo test -p gatk-haplotypecaller --test holdout_6r226_cache_key_sparse_identity -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r227_post_cache_genotype_likelihood_boundary -- --test-threads=1
+HOLDOUT_6R227=1 cargo test -p gatk-haplotypecaller --test holdout_6r227_post_cache_genotype_likelihood -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r228_java_rust_retain_evidence_membership -- --test-threads=1
+HOLDOUT_6R228=1 cargo test -p gatk-haplotypecaller --test holdout_6r228_java_rust_retain_evidence -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r229_java_hap_ll_membership_pipeline -- --test-threads=1
+HOLDOUT_6R229=1 cargo test -p gatk-haplotypecaller --test holdout_6r229_java_hap_ll_membership -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r230_five_read_likelihood_boundary -- --test-threads=1
+HOLDOUT_6R230=1 cargo test -p gatk-haplotypecaller --test holdout_6r230_five_read_likelihood -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r231_read_clipping_boundary -- --test-threads=1
+HOLDOUT_6R231=1 cargo test -p gatk-haplotypecaller --test holdout_6r231_read_clipping -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r232_missing_variation_event_boundary -- --test-threads=1
+HOLDOUT_6R232=1 cargo test -p gatk-haplotypecaller --test holdout_6r232_missing_variation_event -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r233_c_carrier_haplotype_boundary -- --test-threads=1
+HOLDOUT_6R233=1 cargo test -p gatk-haplotypecaller --test holdout_6r233_c_carrier_haplotype -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r234_c_carrier_kbest_rank_boundary -- --test-threads=1
+HOLDOUT_6R234=1 cargo test -p gatk-haplotypecaller --test holdout_6r234_c_carrier_kbest_rank -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r235_carrier_sink_edge_split -- --test-threads=1
+HOLDOUT_6R235=1 cargo test -p gatk-haplotypecaller --test holdout_6r235_carrier_sink_edge -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r236_seqgraph_sink_topology -- --test-threads=1
+HOLDOUT_6R236=1 cargo test -p gatk-haplotypecaller --test holdout_6r236_seqgraph_sink_topology -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r237_dangling_tail_splice_decision -- --test-threads=1
+HOLDOUT_6R237=1 cargo test -p gatk-haplotypecaller --test holdout_6r237_dangling_tail_splice -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r238_dangling_index_sentinel_contract -- --test-threads=1
+HOLDOUT_6R238=1 cargo test -p gatk-haplotypecaller --test holdout_6r238_dangling_index_sentinel -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r239_dangling_index_sentinel_java_semantics -- --test-threads=1
+HOLDOUT_6R239=1 cargo test -p gatk-haplotypecaller --test holdout_6r239_dangling_index_sentinel -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r240_covering_gc_emit -- --test-threads=1
+HOLDOUT_6R240=1 cargo test -p gatk-haplotypecaller --test holdout_6r240_covering_gc_emit -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r241_strict_java_emit_confidence -- --test-threads=1
+HOLDOUT_6R241=1 cargo test -p gatk-haplotypecaller --test holdout_6r241_strict_java_emit_confidence -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r242_fresh_parity_inventory -- --test-threads=1
+HOLDOUT_6R242=1 cargo test -p gatk-haplotypecaller --test holdout_6r242_fresh_parity_inventory -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r243_annotation_likelihood_lifecycle -- --test-threads=1
+HOLDOUT_6R243=1 cargo test -p gatk-haplotypecaller --test holdout_6r243_annotation_likelihood_lifecycle -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r244_colocated_merge_annotation_lifecycle -- --test-threads=1
+HOLDOUT_6R244=1 cargo test -p gatk-haplotypecaller --test holdout_6r244_colocated_merge_annotation -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r245_colocated_merge_annotation_propagation -- --test-threads=1
+HOLDOUT_6R245=1 cargo test -p gatk-haplotypecaller --test holdout_6r245_colocated_merge_annotation_propagation -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r246_colocated_merge_annotation_attach -- --test-threads=1
+HOLDOUT_6R246=1 cargo test -p gatk-haplotypecaller --test holdout_6r246_colocated_merge_annotation_attach -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r247_first_pl_divergence -- --test-threads=1
+HOLDOUT_6R247=1 cargo test -p gatk-haplotypecaller --test holdout_6r247_first_pl_divergence -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r248_merged_hom_alt_gl -- --test-threads=1
+HOLDOUT_6R248=1 cargo test -p gatk-haplotypecaller --test holdout_6r248_merged_hom_alt_gl -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r249_tgtttg_allele_row -- --test-threads=1
+HOLDOUT_6R249=1 cargo test -p gatk-haplotypecaller --test holdout_6r249_tgtttg_allele_row -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r250_tgtttg_pairhmm_columns -- --test-threads=1
+HOLDOUT_6R250=1 cargo test -p gatk-haplotypecaller --test holdout_6r250_tgtttg_pairhmm_columns -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r251_haplotype_sequence_identity -- --test-threads=1
+HOLDOUT_6R251=1 cargo test -p gatk-haplotypecaller --test holdout_6r251_haplotype_sequence_identity -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r252_java_actual_haplotype_comparison -- --test-threads=1
+HOLDOUT_6R252=1 cargo test -p gatk-haplotypecaller --test holdout_6r252_java_actual_haplotype_comparison -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r253_java_vs_rust_trim_span -- --test-threads=1
+HOLDOUT_6R253=1 cargo test -p gatk-haplotypecaller --test holdout_6r253_java_vs_rust_trim_span -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r254_java_trim_bases_pairhmm_consequence -- --test-threads=1
+HOLDOUT_6R254=1 cargo test -p gatk-haplotypecaller --test holdout_6r254_java_trim_bases_pairhmm_consequence -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r255_read_clip_interval_pairhmm_consequence -- --test-threads=1
+HOLDOUT_6R255=1 cargo test -p gatk-haplotypecaller --test holdout_6r255_read_clip_interval_pairhmm_consequence -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r256_joint_java_input_plane -- --test-threads=1
+HOLDOUT_6R256=1 cargo test -p gatk-haplotypecaller --test holdout_6r256_joint_java_input_plane -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r257_pairhmm_input_plane -- --test-threads=1
+HOLDOUT_6R257=1 cargo test -p gatk-haplotypecaller --test holdout_6r257_pairhmm_input_plane -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r258_pairhmm_recurrence -- --test-threads=1
+HOLDOUT_6R258=1 cargo test -p gatk-haplotypecaller --test holdout_6r258_pairhmm_recurrence -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r259_gkl_powf_ph2pr -- --test-threads=1
+HOLDOUT_6R259=1 cargo test -p gatk-haplotypecaller --test holdout_6r259_gkl_powf_ph2pr -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r260_gkl_powf_ph2pr -- --test-threads=1
+HOLDOUT_6R260=1 cargo test -p gatk-haplotypecaller --test holdout_6r260_gkl_powf_ph2pr -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r261_gkl_float_one_minus_ph2pr -- --test-threads=1
+HOLDOUT_6R261=1 cargo test -p gatk-haplotypecaller --test holdout_6r261_gkl_float_one_minus_ph2pr -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r262_gkl_float_ph2pr_div3 -- --test-threads=1
+HOLDOUT_6R262=1 cargo test -p gatk-haplotypecaller --test holdout_6r262_gkl_float_ph2pr_div3 -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r263_gkl_avx_distm_blend -- --test-threads=1
+HOLDOUT_6R263=1 cargo test -p gatk-haplotypecaller --test holdout_6r263_gkl_avx_distm_blend -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r264_gkl_avx_m_update_distm_mul -- --test-threads=1
+HOLDOUT_6R264=1 cargo test -p gatk-haplotypecaller --test holdout_6r264_gkl_avx_m_update_distm_mul -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r265_gkl_avx_x_update -- --test-threads=1
+HOLDOUT_6R265=1 cargo test -p gatk-haplotypecaller --test holdout_6r265_gkl_avx_x_update -- --test-threads=1
 ```
 
 ## How parity is established
@@ -990,7 +1488,7 @@ HOLDOUT_6R43=1 cargo test -p gatk-haplotypecaller --test holdout_6r43_test
 
 `six_r*` tests under `gatk-haplotypecaller` pin the mid-B contracts above without
 requiring the 6R markdown reports. Chr20_tiny genotype-entry holdouts are env-gated
-(`HOLDOUT_6R130`…`HOLDOUT_6R221`); production k-best is unchanged unless that env is set.
+(`HOLDOUT_6R130`…`HOLDOUT_6R262`); production k-best is unchanged unless that env is set.
 
 Independent-region discovery (not whole-codebase parity; 6R.43 snapshot):
 [`parity/6R.43_HOLDOUT_MATRIX.md`](parity/6R.43_HOLDOUT_MATRIX.md).

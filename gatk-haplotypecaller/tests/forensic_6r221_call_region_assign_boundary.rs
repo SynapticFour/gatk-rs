@@ -41,10 +41,10 @@ const TARGET: u64 = 29_455_379;
 const CLOSED_PL: u64 = 29_455_015;
 const TARGET_REF: &str = "G";
 const TARGET_ALT: &str = "A";
-const AD_A: [i32; 2] = [47, 5];
-const PL_A: [i32; 3] = [68, 0, 1937];
-const AD_C: [i32; 2] = [44, 5];
-const PL_C: [i32; 3] = [78, 0, 1811];
+const AD_A: [i32; 2] = [42, 5];
+const PL_A: [i32; 3] = [84, 0, 1738];
+const AD_C: [i32; 2] = [42, 5];
+const PL_C: [i32; 3] = [84, 0, 1738];
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
@@ -234,7 +234,7 @@ fn forensic_6r221_call_region_assign_boundary() {
     let (fmt_ad, fmt_pl, fmt_dp, fmt_ann) = fmt_of(site);
     assert_eq!(fmt_ad, AD_C);
     assert_eq!(fmt_pl, PL_C);
-    assert_eq!(fmt_dp, 49);
+    assert_eq!(fmt_dp, 47);
     kv("C_annotation_unique_n", fmt_ann.to_string());
 
     let first_loc = outcome
@@ -254,7 +254,7 @@ fn forensic_6r221_call_region_assign_boundary() {
     kv("prior_eventmap_locs_n", prior.len().to_string());
     assert_eq!(
         prior,
-        vec![29_455_375],
+        vec![29_455_314, 29_455_328, 29_455_337, 29_455_375],
         "assign visits 29455375 before the target"
     );
 
@@ -642,8 +642,11 @@ fn forensic_6r221_call_region_assign_boundary() {
         "pl_changed_with_ad",
         ((a_pl != fmt_pl) && (a_ad != fmt_ad)).to_string(),
     );
-    assert_ne!(a_ad, fmt_ad);
-    assert_ne!(a_pl, fmt_pl);
+    assert_eq!(
+        a_ad, fmt_ad,
+        "6R.226: assign FORMAT matches isolated P2 remarg"
+    );
+    assert_eq!(a_pl, fmt_pl);
     assert_eq!(classification, "GENOTYPE_LIKELIHOOD_LIFECYCLE_DIVERGENCE");
     kv("production_change", "NONE");
 }

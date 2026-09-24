@@ -1,0 +1,55 @@
+6R131	region_active	20:29455560-29455744
+6R131	region_padded	20:29455460-29455844
+6R253	knobs	snpPadding=20	indelPadding=75	strPadding=75	assemblyRegionPadding=100	legacy=false
+6R253	ref_window	20:29455460-29455844
+6R253	active	20:29455560-29455744
+6R253	padded	20:29455460-29455844
+6R253	event	start=29455504	end=29455504	ref=T	alts=C	isIndel=false	isSNP=true	overlaps_active=false
+6R253	event	start=29455505	end=29455506	ref=AT	alts=A	isIndel=true	isSNP=false	overlaps_active=false
+6R253	event	start=29455512	end=29455512	ref=T	alts=G	isIndel=false	isSNP=true	overlaps_active=false
+6R253	event	start=29455521	end=29455521	ref=T	alts=G	isIndel=false	isSNP=true	overlaps_active=false
+6R253	event	start=29455523	end=29455523	ref=G	alts=A	isIndel=false	isSNP=true	overlaps_active=false
+6R253	event	start=29455590	end=29455590	ref=C	alts=A	isIndel=false	isSNP=true	overlaps_active=true
+6R253	event	start=29455601	end=29455601	ref=C	alts=T	isIndel=false	isSNP=true	overlaps_active=true
+6R253	event	start=29455607	end=29455607	ref=C	alts=T	isIndel=false	isSNP=true	overlaps_active=true
+6R253	event	start=29455615	end=29455615	ref=A	alts=G	isIndel=false	isSNP=true	overlaps_active=true
+6R253	event	start=29455621	end=29455621	ref=A	alts=T	isIndel=false	isSNP=true	overlaps_active=true
+6R253	event	start=29455630	end=29455630	ref=A	alts=T	isIndel=false	isSNP=true	overlaps_active=true
+6R253	event	start=29455644	end=29455644	ref=A	alts=AT	isIndel=true	isSNP=false	overlaps_active=true
+6R253	event	start=29455649	end=29455649	ref=T	alts=TGTTTG	isIndel=true	isSNP=false	overlaps_active=true
+6R253	event	start=29455649	end=29455649	ref=T	alts=TTTG	isIndel=true	isSNP=false	overlaps_active=true
+6R253	event	start=29455674	end=29455674	ref=G	alts=A	isIndel=false	isSNP=true	overlaps_active=true
+6R253	event	start=29455674	end=29455674	ref=G	alts=C	isIndel=false	isSNP=true	overlaps_active=true
+6R253	event	start=29455701	end=29455701	ref=C	alts=T	isIndel=false	isSNP=true	overlaps_active=true
+6R253	event	start=29455703	end=29455703	ref=C	alts=G	isIndel=false	isSNP=true	overlaps_active=true
+6R253	event	start=29455769	end=29455769	ref=G	alts=A	isIndel=false	isSNP=true	overlaps_active=false
+6R253	event	start=29455780	end=29455780	ref=G	alts=T	isIndel=false	isSNP=true	overlaps_active=false
+6R253	event	start=29455785	end=29455785	ref=T	alts=TA	isIndel=true	isSNP=false	overlaps_active=false
+6R253	event	start=29455804	end=29455806	ref=TGA	alts=T	isIndel=true	isSNP=false	overlaps_active=false
+6R253	event	start=29455811	end=29455811	ref=G	alts=T	isIndel=false	isSNP=true	overlaps_active=false
+6R253	event	start=29455836	end=29455836	ref=A	alts=C	isIndel=false	isSNP=true	overlaps_active=false
+6R253	n_union	24
+6R253	n_overlap	13
+6R253	raw_min_start	29455590
+6R253	raw_max_end	29455703
+6R253	variant_span_before_pad	20:29455590-29455703
+6R253	pad	start=29455590	end=29455590	ref=C	alts=A	isIndel=false	padding=20	str=none	start_minus_pad=29455570	end_plus_pad=29455610	running_minStart=29455570	running_maxEnd=29455703
+6R253	pad	start=29455601	end=29455601	ref=C	alts=T	isIndel=false	padding=20	str=none	start_minus_pad=29455581	end_plus_pad=29455621	running_minStart=29455570	running_maxEnd=29455703
+6R253	pad	start=29455607	end=29455607	ref=C	alts=T	isIndel=false	padding=20	str=none	start_minus_pad=29455587	end_plus_pad=29455627	running_minStart=29455570	running_maxEnd=29455703
+6R253	pad	start=29455615	end=29455615	ref=A	alts=G	isIndel=false	padding=20	str=none	start_minus_pad=29455595	end_plus_pad=29455635	running_minStart=29455570	running_maxEnd=29455703
+6R253	pad	start=29455621	end=29455621	ref=A	alts=T	isIndel=false	padding=20	str=none	start_minus_pad=29455601	end_plus_pad=29455641	running_minStart=29455570	running_maxEnd=29455703
+6R253	pad	start=29455630	end=29455630	ref=A	alts=T	isIndel=false	padding=20	str=none	start_minus_pad=29455610	end_plus_pad=29455650	running_minStart=29455570	running_maxEnd=29455703
+6R253	pad	start=29455644	end=29455644	ref=A	alts=AT	isIndel=true	padding=84	str=unit=T;counts=[8, 9];mostRepeats=9;longestSTR=9	start_minus_pad=29455560	end_plus_pad=29455728	running_minStart=29455560	running_maxEnd=29455728
+6R253	pad	start=29455649	end=29455649	ref=T	alts=TGTTTG	isIndel=true	padding=75	str=none	start_minus_pad=29455574	end_plus_pad=29455724	running_minStart=29455560	running_maxEnd=29455728
+6R253	pad	start=29455649	end=29455649	ref=T	alts=TTTG	isIndel=true	padding=75	str=none	start_minus_pad=29455574	end_plus_pad=29455724	running_minStart=29455560	running_maxEnd=29455728
+6R253	pad	start=29455674	end=29455674	ref=G	alts=A	isIndel=false	padding=20	str=none	start_minus_pad=29455654	end_plus_pad=29455694	running_minStart=29455560	running_maxEnd=29455728
+6R253	pad	start=29455674	end=29455674	ref=G	alts=C	isIndel=false	padding=20	str=none	start_minus_pad=29455654	end_plus_pad=29455694	running_minStart=29455560	running_maxEnd=29455728
+6R253	pad	start=29455701	end=29455701	ref=C	alts=T	isIndel=false	padding=20	str=none	start_minus_pad=29455681	end_plus_pad=29455721	running_minStart=29455560	running_maxEnd=29455728
+6R253	pad	start=29455703	end=29455703	ref=C	alts=G	isIndel=false	padding=20	str=none	start_minus_pad=29455683	end_plus_pad=29455723	running_minStart=29455560	running_maxEnd=29455728
+6R253	minStart_after_pad	29455560
+6R253	maxEnd_after_pad	29455728
+6R253	padded_variant_span	20:29455560-29455728
+6R253	object	padded_variant_span_class=htsjdk_or_gatk.SimpleInterval	coordinate=reference
+6R131	trim_variation_present	true
+6R131	trim_span	20:29455560-29455728
+6R131	variant_span	20:29455590-29455703

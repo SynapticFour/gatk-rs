@@ -1,7 +1,7 @@
 //! 6R.197: proof-only fresh VCF reconnaissance after 6R.196.
-//! After 6R.218, `20:29455015 G/T` FORMAT/QUAL/INFO match Java.
-//! First remaining genuine common-site split is recorded only at
-//! `20:29455379 G/A` (FORMAT/AD first; QUAL/INFO downstream).
+//! After 6R.239, `20:29455379 G/A` FORMAT matches Java in the covering dump.
+//! First remaining genuine common-site split in that dump is
+//! `20:29455649 T/TGTTTG` (PL/INFO). Rust-only `20:29455314 G>C` is 6R.240.
 //! PRODUCTION CHANGE: NONE.
 //!
 //! Frozen Java 4.4.0.0 SHA `2dbc025821bc5f686c423ff332a41e6cef892a77`.
@@ -36,7 +36,8 @@ const CURRENT_REGIONS: &[&str] = &[
 ];
 const STALE_MISSING_BAM: &[&str] = &["chr20_w47", "chr21_w10"];
 const QUAL_TOL: f64 = 0.05;
-const FIRST_REMAINING: (&str, u64, &str, &str) = ("20", 29_455_379, "G", "A");
+const FIRST_REMAINING: (&str, u64, &str, &str) = ("20", 29_455_649, "T", "TGTTTG");
+const CLOSED_GA: (&str, u64, &str, &str) = ("20", 29_455_379, "G", "A");
 const CLOSED_CHR20_PL: (&str, u64, &str, &str) = ("20", 29_455_015, "G", "T");
 const CLOSED_WEAK: (&str, u64, &str, &str) = ("2", 92_325_268, "C", "T");
 const CLOSED_HET_TAIL: (&str, u64, &str, &str) = ("2", 92_325_193, "C", "T");
@@ -463,7 +464,11 @@ fn forensic_6r197_live_vcf_inventory() {
         kv("first_rust_only", rust_map[k].site());
     }
     assert!(java_only.is_empty());
-    assert_eq!(rust_only.len(), 3);
+    assert_eq!(rust_only.len(), 4);
+    assert_eq!(
+        rust_map[rust_only.first().unwrap()].site(),
+        "20:29455314 G/C"
+    );
     assert!(
         rust_only.iter().all(|k| k.0 == "20"),
         "rust-only records stay on chr20_tiny, not chr2"
@@ -471,13 +476,13 @@ fn forensic_6r197_live_vcf_inventory() {
     assert_eq!(chr2_fmt, 0, "chr2 FORMAT must stay closed after 6R.196");
     assert_eq!(chr2_qual, 0, "chr2 QUAL must stay closed within 0.05");
     assert_eq!(java_map.len(), 126);
-    assert_eq!(rust_map.len(), 129);
+    assert_eq!(rust_map.len(), 130);
     assert_eq!(common.len(), 126);
     assert!(
         first_fmt
             .as_ref()
-            .is_some_and(|(site, fd)| site.starts_with("20:29455379") && *fd == "AD"),
-        "first FORMAT split after 6R.218 is AD at 20:29455379: {first_fmt:?}"
+            .is_some_and(|(site, fd)| site.starts_with("20:29455649") && *fd == "PL"),
+        "6R.239 closed AD at 20:29455379; first remaining FORMAT split is PL at 20:29455649: {first_fmt:?}"
     );
     assert!(
         extra_info_keys.is_empty(),
@@ -659,20 +664,20 @@ fn forensic_6r197_live_vcf_inventory() {
             j0.alt.as_str()
         ),
         FIRST_REMAINING,
-        "first remaining common-site INFO split must be 20:29455379 G/A, got {}",
+        "first remaining common-site INFO split after 6R.239 G/A closure is 20:29455649 T/TGTTTG, got {}",
         j0.site()
     );
-    assert_eq!(j0.gt, "0/1");
-    assert_eq!(j0.ad, "42,5");
-    assert_eq!(r0.ad, "44,5");
-    assert_eq!(j0.qual, "76.64");
     assert!(
         vals.iter()
-            .any(|(k, jv, rv)| k == "DP" && jv == "47" && rv == "52"),
-        "INFO DP at 20:29455379 is 47 vs 52, got {vals:?}"
+            .any(|(k, jv, rv)| k == "DP" && jv == "123" && rv == "230"),
+        "INFO DP at 20:29455649 is 123 vs 230, got {vals:?}"
     );
     assert!(java_only_info_keys(&j0, &r0).is_empty());
     assert!(rust_only_info_keys(&j0, &r0).is_empty());
+    let closed_ga = rec_key(CLOSED_GA);
+    let jga = &java_map[&closed_ga];
+    let rga = &rust_map[&closed_ga];
+    assert!(format_equal(jga, rga), "6R.239 closed 20:29455379 FORMAT");
     let closed_pl = rec_key(CLOSED_CHR20_PL);
     let jc = &java_map[&closed_pl];
     let rc = &rust_map[&closed_pl];
@@ -685,11 +690,11 @@ fn forensic_6r197_live_vcf_inventory() {
     );
     kv(
         "primary_arrow_field",
-        "6R.218 closed 20:29455015 G/T; first remaining is FORMAT/AD at 20:29455379 G/A — record only",
+        "6R.239 closed 20:29455379 G/A FORMAT; dump first remaining is PL/INFO at 20:29455649 — record only",
     );
     kv(
         "classification",
-        "recorded only; next frontier is 20:29455379 G/A FORMAT/AD (not this round)",
+        "recorded only; 6R.240 rust-only covering emit is 20:29455314 G>C (not this round)",
     );
 }
 

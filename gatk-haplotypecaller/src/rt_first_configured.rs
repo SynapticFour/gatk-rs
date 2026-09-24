@@ -244,12 +244,6 @@ mod tests {
             rt.is_some(),
             "RT configured extract must succeed so the test exercises the retired skip"
         );
-        let rt_has_snp1 = rt
-            .as_ref()
-            .unwrap()
-            .haplotypes
-            .iter()
-            .any(|h| h.bases.get(snp) == Some(&alt_base));
 
         crate::read_threading_assembler::seq_graph_assemble_probe::reset();
         let assembled =
@@ -267,14 +261,10 @@ mod tests {
             .haplotypes
             .iter()
             .any(|h| h.bases.get(snp) == Some(&alt_base));
-        let has_snp2 = assembled
-            .haplotypes
-            .iter()
-            .any(|h| h.bases.get(snp2) == Some(&alt2));
         assert!(has_snp1, "first SNP must survive SeqGraph assemble");
-        assert!(
-            has_snp2,
-            "second SNP must survive SeqGraph even if RT extract already had an alt (rt_snp1={rt_has_snp1})"
-        );
+        // 6R.238: Java `refIndexToMerge == 0` is a no-splice sentinel. The previous
+        // saturating-sub mapped that zero onto path index 1 and could emit snp2 via a
+        // non-Java dangling-tail merge. SeqGraph still ran (probe above); snp2 emission
+        // is not the skip-detection oracle.
     }
 }

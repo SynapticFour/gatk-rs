@@ -1057,3 +1057,27 @@ fn disconnected_alt_island_not_attached_by_either_dangling_java_exact() {
         );
     }
 }
+
+#[test]
+fn dangling_tail_ref_index_to_merge_java_sentinel() {
+    // GATK 4.4 mergeDanglingTail: lastRefIndex - matchingSuffix + 1 + (leadingDel ? 1 : 0).
+    let rows: &[(usize, usize, bool, Result<usize, &str>)] = &[
+        (8, 9, false, Ok(0)),
+        (9, 9, false, Ok(1)),
+        (10, 9, false, Ok(2)),
+        (8, 8, false, Ok(1)),
+        (0, 1, false, Ok(0)),
+        (0, 2, false, Err("ref_index_to_merge_underflow")),
+        (8, 9, true, Ok(1)),
+        (8, 8, true, Ok(2)),
+        (0, 1, true, Ok(1)),
+        (9, 9, true, Ok(2)),
+    ];
+    for &(last, suf, lead, expect) in rows {
+        assert_eq!(
+            dangling_tail_ref_index_to_merge(last, suf, lead),
+            expect,
+            "last={last} suf={suf} lead={lead}"
+        );
+    }
+}

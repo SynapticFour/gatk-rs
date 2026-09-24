@@ -156,9 +156,9 @@ fn holdout_6r220_format_ad_subset() {
         })
         .expect("G/A");
     assert!(!target_call.post_merge_unused_alt_subset);
-    assert_eq!(target_call.genotype.format.ad_as_i32(), vec![44, 5]);
-    assert_eq!(target_call.genotype.format.pl_as_i32(), vec![78, 0, 1811]);
-    assert_eq!(target_call.genotype.format.dp.as_i32(), 49);
+    assert_eq!(target_call.genotype.format.ad_as_i32(), vec![42, 5]);
+    assert_eq!(target_call.genotype.format.pl_as_i32(), vec![84, 0, 1738]);
+    assert_eq!(target_call.genotype.format.dp.as_i32(), 47);
     let emitted = try_emit_call_region_variants(
         covering_target,
         &target_outcome,
@@ -172,13 +172,13 @@ fn holdout_6r220_format_ad_subset() {
         .expect("emit G/A");
     assert_eq!(
         target_rec.samples[0].ad.as_deref(),
-        Some([44, 5].as_slice())
+        Some([42, 5].as_slice())
     );
-    assert_eq!(target_rec.samples[0].dp, Some(49));
-    assert_eq!(info_i32(&target_rec.info, "DP"), Some(52));
+    assert_eq!(target_rec.samples[0].dp, Some(47));
+    assert_eq!(info_i32(&target_rec.info, "DP"), Some(47));
     kv("java_ad", "42,5");
-    kv("rust_ad", "44,5");
-    kv("matched_format", "GT=0/1 AD=44,5 DP=49 vs Java 42,5 DP=47");
+    kv("rust_ad", "42,5");
+    kv("matched_format", "GT=0/1 AD=42,5 DP=47 matches Java");
     kv(
         "unmatched",
         "call_region FORMAT is not isolated try_genotype (52-row remarg 47,5 / 68,0,1937)",
@@ -228,14 +228,15 @@ fn holdout_6r220_format_ad_subset() {
     )
     .expect("diagnose");
     let diagnosed = diagnosed.expect("try_genotype Ok");
-    assert_eq!(diagnosed.genotype.format.ad_as_i32(), vec![47, 5]);
-    assert_eq!(diagnosed.genotype.format.pl_as_i32(), vec![68, 0, 1937]);
-    assert_ne!(
+    assert_eq!(diagnosed.genotype.format.ad_as_i32(), vec![42, 5]);
+    assert_eq!(diagnosed.genotype.format.pl_as_i32(), vec![84, 0, 1738]);
+    assert_eq!(
         diagnosed.genotype.format.ad_as_i32(),
-        target_call.genotype.format.ad_as_i32()
+        target_call.genotype.format.ad_as_i32(),
+        "6R.226: isolated try_genotype matches production FORMAT P2 remarg"
     );
-    kv("diagnose_try_genotype_ad", "47,5");
-    kv("diagnose_try_genotype_pl", "68,0,1937");
+    kv("diagnose_try_genotype_ad", "42,5");
+    kv("diagnose_try_genotype_pl", "84,0,1738");
 
     let closed_218_outcome = HaplotypeCallerEngine::call_region(
         covering_218,

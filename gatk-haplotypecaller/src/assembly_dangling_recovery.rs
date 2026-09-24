@@ -56,6 +56,41 @@ pub struct DanglingTailMergePlan {
     pub cigar: Cigar,
 }
 
+/// Proof-only snapshot of one dangling-tail merge decision (no graph mutation).
+#[derive(Debug, Clone)]
+pub struct DanglingTailDecisionDump {
+    pub sink: usize,
+    pub sink_kmer: Vec<u8>,
+    pub classified_dangling_tail: bool,
+    pub min_vertices: usize,
+    pub prune_factor: u32,
+    pub min_dangling_branch_length: usize,
+    pub min_matching_bases: i32,
+    pub dangling_java_exact: bool,
+    pub give_up_at_branch: bool,
+    pub reject_reason: Option<&'static str>,
+    pub alt_path_ids: Vec<usize>,
+    pub ref_path_ids: Vec<usize>,
+    pub alt_bases: Vec<u8>,
+    pub ref_bases: Vec<u8>,
+    pub cigar: String,
+    pub cigar_ok: bool,
+    pub matching_suffix: usize,
+    pub last_ref_idx: usize,
+    pub last_m_len: usize,
+    pub alt_index_to_merge: Option<usize>,
+    pub ref_index_to_merge: Option<usize>,
+    pub from: Option<usize>,
+    pub to: Option<usize>,
+    pub from_kmer: Vec<u8>,
+    pub to_kmer: Vec<u8>,
+    pub alignment_offset: i32,
+    pub mismatch_count: usize,
+    pub indel_count: usize,
+    pub edge_exists_before: bool,
+    pub java_merge_predicate: &'static str,
+}
+
 /// GATK dangling recovery knobs.
 /// # Invariants
 /// `min_dangling_branch_length` gates recovery attempts; HC recovers heads with tails by default.
@@ -278,6 +313,43 @@ fn cigar_ok_to_merge_head(cigar: &Cigar) -> bool {
             .is_some_and(|e| e.operator == CigarOperator::Match)
 }
 
+fn cigar_debug(cigar: &Cigar) -> String {
+    if cigar.elements.is_empty() {
+        return String::from("*");
+    }
+    cigar
+        .elements
+        .iter()
+        .map(|e| format!("{}{}", e.length, e.operator.as_char()))
+        .collect()
+}
+
+fn count_alignment_mismatches(ref_bases: &[u8], alt_bases: &[u8], cigar: &Cigar) -> usize {
+    let mut ri = 0usize;
+    let mut ai = 0usize;
+    let mut mm = 0usize;
+    for e in &cigar.elements {
+        match e.operator {
+            CigarOperator::Match => {
+                for _ in 0..e.length {
+                    if ri < ref_bases.len()
+                        && ai < alt_bases.len()
+                        && !base_eq(ref_bases[ri], alt_bases[ai])
+                    {
+                        mm += 1;
+                    }
+                    ri += 1;
+                    ai += 1;
+                }
+            }
+            CigarOperator::Insertion | CigarOperator::SoftClip => ai += e.length,
+            CigarOperator::Deletion => ri += e.length,
+            CigarOperator::HardClip => {}
+        }
+    }
+    mm
+}
+
 /// GATK `bestPrefixMatch` (modern dangling-head merge from SW CIGAR).
 fn best_prefix_match(
     cigar: &Cigar,
@@ -373,6 +445,29 @@ fn best_prefix_match_legacy_java_44(
         index += 1;
     }
     last_good_index
+}
+
+/// GATK 4.4.0.0 `AbstractReadThreadingGraph.mergeDanglingTail` `refIndexToMerge`
+/// (SHA `2dbc025821bc5f686c423ff332a41e6cef892a77`):
+/// `lastRefIndex - matchingSuffix + 1 + (leadingDel ? 1 : 0)`.
+///
+/// `Ok(0)` is the LCA / no-splice sentinel (`if (refIndexToMerge == 0) return 0`).
+/// It is a **path index**, not a graph vertex id. `Err` is a signed result `< 0`,
+/// which Java `longestSuffixMatch` cannot produce (`matchingSuffix ≤ lastRefIndex + 1`).
+///
+/// # Invariants
+/// Must not map the zero sentinel onto a valid unsigned path index via saturating sub.
+/// # Java equivalence
+/// Signed `int` arithmetic; zero-test is exactly `== 0` after the leading-del bump.
+pub fn dangling_tail_ref_index_to_merge(
+    last_ref_idx: usize,
+    matching_suffix: usize,
+    leading_del: bool,
+) -> Result<usize, &'static str> {
+    (last_ref_idx + 1)
+        .checked_sub(matching_suffix)
+        .and_then(|idx| idx.checked_add(usize::from(leading_del)))
+        .ok_or("ref_index_to_merge_underflow")
 }
 
 /// GATK `AbstractReadThreadingGraph.longestSuffixMatch(seq, kmer, seqStart)`.
@@ -1104,8 +1199,11 @@ impl AssemblyGraph {
             .unwrap_or(0);
         let must_handle_leading_del =
             first_is_del && first_del_len + matching_suffix == last_ref_idx + 1;
-        let ref_index_to_merge =
-            last_ref_idx.saturating_sub(matching_suffix) + 1 + usize::from(must_handle_leading_del);
+        let ref_index_to_merge = dangling_tail_ref_index_to_merge(
+            last_ref_idx,
+            matching_suffix,
+            must_handle_leading_del,
+        )?;
         if ref_index_to_merge == 0 {
             return Err("ref_index_zero_cycle");
         }
@@ -1125,6 +1223,196 @@ impl AssemblyGraph {
             ref_path_bases: ref_bases,
             cigar,
         })
+    }
+
+    /// Proof-only dump of one dangling-tail merge decision. Does not mutate the graph
+    /// and does not change [`Self::recover_dangling_tail`].
+    pub fn dangling_tail_decision_dump(
+        &self,
+        sink: usize,
+        params: &DanglingRecoveryParams,
+    ) -> DanglingTailDecisionDump {
+        let classified = self.outgoing_nodes(sink).is_empty() && !self.is_ref_sink(sink);
+        let min_tail = params.min_dangling_branch_length.max(1);
+        let min_vertices = min_tail + 1;
+        let give_up = !params.recover_all_dangling_branches;
+        let mut dump = DanglingTailDecisionDump {
+            sink,
+            sink_kmer: self.kmer_at(sink).to_vec(),
+            classified_dangling_tail: classified,
+            min_vertices,
+            prune_factor: params.min_prune_factor,
+            min_dangling_branch_length: params.min_dangling_branch_length,
+            min_matching_bases: params.min_matching_bases_to_dangling_end_recovery,
+            dangling_java_exact: params.dangling_java_exact,
+            give_up_at_branch: give_up,
+            reject_reason: None,
+            alt_path_ids: Vec::new(),
+            ref_path_ids: Vec::new(),
+            alt_bases: Vec::new(),
+            ref_bases: Vec::new(),
+            cigar: String::new(),
+            cigar_ok: false,
+            matching_suffix: 0,
+            last_ref_idx: 0,
+            last_m_len: 0,
+            alt_index_to_merge: None,
+            ref_index_to_merge: None,
+            from: None,
+            to: None,
+            from_kmer: Vec::new(),
+            to_kmer: Vec::new(),
+            alignment_offset: 0,
+            mismatch_count: 0,
+            indel_count: 0,
+            edge_exists_before: false,
+            java_merge_predicate: "n/a",
+        };
+        if !classified {
+            dump.reject_reason = Some("not_dangling_sink");
+            return dump;
+        }
+        let alt_path = self.find_path_upwards_to_lca(sink, params.min_prune_factor, give_up);
+        let Some(alt_path) = alt_path else {
+            dump.reject_reason = Some("no_alt_path");
+            dump.java_merge_predicate =
+                "generateCigarAgainstDownwardsReferencePath returns null (no alt path)";
+            return dump;
+        };
+        dump.alt_path_ids = alt_path.to_vec();
+        if self.is_ref_source(alt_path[0]) {
+            dump.reject_reason = Some("alt_path_starts_at_ref_source");
+            dump.java_merge_predicate =
+                "generateCigarAgainstDownwardsReferencePath returns null (alt starts at refSource)";
+            return dump;
+        }
+        if alt_path.len() < min_vertices {
+            dump.reject_reason = Some("alt_path_too_short");
+            dump.java_merge_predicate =
+                "generateCigarAgainstDownwardsReferencePath returns null (altPath.size() < minDangling+1)";
+            return dump;
+        }
+        let lca = alt_path[0];
+        let blacklist = if alt_path.len() > 1 {
+            let a = alt_path[1];
+            self.heaviest_incoming(a).map(|(p, _)| (p, a))
+        } else {
+            None
+        };
+        let ref_path = self.reference_path_from(lca, TraversalDir::Down, blacklist);
+        dump.ref_path_ids = ref_path.to_vec();
+        let ref_bases = path_bases(self, &ref_path, false);
+        let alt_bases = path_bases(self, &alt_path, false);
+        dump.ref_bases = ref_bases.to_vec();
+        dump.alt_bases = alt_bases.to_vec();
+        let (cigar, offset) = if ref_bases.is_empty() || alt_bases.is_empty() {
+            (Cigar::new(), 0)
+        } else {
+            match align(
+                &ref_bases,
+                &alt_bases,
+                &sw_parameters(&params.sw),
+                SwOverhangStrategy::LeadingIndel,
+            ) {
+                Ok(aln) => (remove_trailing_deletions(aln.cigar), aln.alignment_offset),
+                Err(_) => (Cigar::new(), 0),
+            }
+        };
+        dump.alignment_offset = offset;
+        dump.cigar = cigar_debug(&cigar);
+        dump.indel_count = cigar
+            .elements
+            .iter()
+            .filter(|e| e.operator.is_indel())
+            .map(|e| e.length)
+            .sum();
+        dump.mismatch_count = count_alignment_mismatches(&ref_bases, &alt_bases, &cigar);
+        let cigar_ok = cigar_ok_to_merge_tail(&cigar);
+        dump.cigar_ok = cigar_ok;
+        if !cigar_ok {
+            dump.reject_reason = Some("cigar_not_ok");
+            dump.java_merge_predicate = "cigarIsOkayToMerge(cigar, false, true) == false";
+            return dump;
+        }
+        let elements = &cigar.elements;
+        let last_ref_idx = cigar.reference_length().saturating_sub(1);
+        let last_el_len = elements
+            .last()
+            .filter(|e| e.operator == CigarOperator::Match)
+            .map(|e| e.length)
+            .unwrap_or(1);
+        dump.last_ref_idx = last_ref_idx;
+        dump.last_m_len = last_el_len;
+        let matching_suffix =
+            longest_suffix_match_java(&ref_bases, &alt_bases, last_ref_idx).min(last_el_len);
+        dump.matching_suffix = matching_suffix;
+        let min_match = params.min_matching_bases_to_dangling_end_recovery;
+        if min_match >= 0 {
+            if matching_suffix < min_match as usize {
+                dump.reject_reason = Some("matching_suffix_below_min");
+                dump.java_merge_predicate =
+                    "mergeDanglingTail: matchingSuffix < minMatchingBasesToDanglingEndRecovery";
+                return dump;
+            }
+        } else if matching_suffix == 0 {
+            dump.reject_reason = Some("matching_suffix_zero");
+            dump.java_merge_predicate =
+                "mergeDanglingTail: matchingSuffix == 0 (legacy minMatchingBases < 0)";
+            return dump;
+        }
+        let alt_index_to_merge = cigar.read_length().saturating_sub(matching_suffix + 1);
+        let first_is_del = elements
+            .first()
+            .is_some_and(|e| e.operator == CigarOperator::Deletion);
+        let first_del_len = elements
+            .first()
+            .filter(|e| e.operator == CigarOperator::Deletion)
+            .map(|e| e.length)
+            .unwrap_or(0);
+        let must_handle_leading_del =
+            first_is_del && first_del_len + matching_suffix == last_ref_idx + 1;
+        let ref_index_to_merge = match dangling_tail_ref_index_to_merge(
+            last_ref_idx,
+            matching_suffix,
+            must_handle_leading_del,
+        ) {
+            Ok(idx) => idx,
+            Err(reason) => {
+                dump.reject_reason = Some(reason);
+                dump.java_merge_predicate =
+                    "mergeDanglingTail: refIndexToMerge underflow (signed < 0)";
+                return dump;
+            }
+        };
+        dump.alt_index_to_merge = Some(alt_index_to_merge);
+        dump.ref_index_to_merge = Some(ref_index_to_merge);
+        if ref_index_to_merge == 0 {
+            dump.reject_reason = Some("ref_index_zero_cycle");
+            dump.java_merge_predicate =
+                "mergeDanglingTail: refIndexToMerge == 0 (would cycle to LCA)";
+            return dump;
+        }
+        if alt_index_to_merge >= alt_path.len() || ref_index_to_merge >= ref_path.len() {
+            dump.reject_reason = Some("merge_index_oob");
+            dump.java_merge_predicate = "Rust extra: merge index out of path bounds";
+            return dump;
+        }
+        let from = alt_path[alt_index_to_merge];
+        let to = ref_path[ref_index_to_merge];
+        dump.from = Some(from);
+        dump.to = Some(to);
+        dump.from_kmer = self.kmer_at(from).to_vec();
+        dump.to_kmer = self.kmer_at(to).to_vec();
+        dump.edge_exists_before = self.has_edge(from, to);
+        if dump.edge_exists_before {
+            dump.reject_reason = Some("edge_exists");
+            dump.java_merge_predicate =
+                "Java addEdge anyway; Rust treats existing edge as recovered";
+            return dump;
+        }
+        dump.java_merge_predicate =
+            "mergeDanglingTail addEdge(alt[altIndex], ref[refIndex], weight=1)";
+        dump
     }
 
     /// Per alt-sink failure reason after pruning (ASM-1 diagnostic).

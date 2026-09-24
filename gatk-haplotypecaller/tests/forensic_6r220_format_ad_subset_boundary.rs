@@ -325,9 +325,9 @@ fn forensic_6r220_format_ad_subset_boundary() {
     kv("rust_format_ad", format!("{fmt_ad:?}"));
     kv("rust_format_pl", format!("{fmt_pl:?}"));
     kv("rust_format_dp", fmt_dp.to_string());
-    assert_eq!(fmt_ad, vec![44, 5]);
-    assert_eq!(fmt_pl, vec![78, 0, 1811]);
-    assert_eq!(fmt_dp, 49);
+    assert_eq!(fmt_ad, vec![42, 5]);
+    assert_eq!(fmt_pl, vec![84, 0, 1738]);
+    assert_eq!(fmt_dp, 47);
 
     let emitted =
         try_emit_call_region_variants(region, &outcome, "SAMPLE", DEFAULT_STAND_EMIT_CONFIDENCE)
@@ -336,10 +336,10 @@ fn forensic_6r220_format_ad_subset_boundary() {
         .iter()
         .find(|r| r.position == TARGET && r.reference == TARGET_REF)
         .expect("emit G/A");
-    assert_eq!(rec.samples[0].ad.as_deref(), Some([44, 5].as_slice()));
-    assert_eq!(rec.samples[0].dp, Some(49));
-    assert_eq!(rec.samples[0].pl.as_deref(), Some([78, 0, 1811].as_slice()));
-    assert_eq!(info_i32(&rec.info, "DP"), Some(52));
+    assert_eq!(rec.samples[0].ad.as_deref(), Some([42, 5].as_slice()));
+    assert_eq!(rec.samples[0].dp, Some(47));
+    assert_eq!(rec.samples[0].pl.as_deref(), Some([84, 0, 1738].as_slice()));
+    assert_eq!(info_i32(&rec.info, "DP"), Some(47));
 
     let config = HcGenotypingConfig::strict_java();
     let apply_bases = outcome.assembly.apply_bases_shared();
@@ -395,9 +395,9 @@ fn forensic_6r220_format_ad_subset_boundary() {
     kv("ad52", format!("{ad52:?}"));
     kv("pl52", format!("{pl52:?}"));
     kv("vote52", format!("REF={ref52} ALT={alt52} UNINF={uninf52}"));
-    assert_eq!(overlap_rows.len(), 52);
-    assert_eq!(ad52, vec![47, 5]);
-    assert_eq!(pl52, vec![68, 0, 1937]);
+    assert_eq!(overlap_rows.len(), 47);
+    assert_eq!(ad52, vec![42, 5]);
+    assert_eq!(pl52, vec![84, 0, 1738]);
     assert_eq!(uninf52, 0);
 
     let subset_cells: Vec<_> = likelihoods
@@ -417,7 +417,7 @@ fn forensic_6r220_format_ad_subset_boundary() {
         "likelihood_subset_for_event_cell_n",
         subset_cells.len().to_string(),
     );
-    assert_eq!(unique_indices(&subset_cells).len(), 52);
+    assert_eq!(unique_indices(&subset_cells).len(), 47);
 
     let mut meta: Vec<Row> = Vec::new();
     for row in &overlap_rows {
@@ -640,10 +640,14 @@ fn forensic_6r220_format_ad_subset_boundary() {
     kv("format_predicate_hits", format!("{hits:?}"));
     kv("pm0_n", pm0_n.to_string());
     assert!(
-        hits.is_empty(),
-        "no BAM/overlap predicate on the 52-row remarg reproduces FORMAT AD+PL: {hits:?}"
+        hits.iter().all(|h| h.contains("n=47")),
+        "6R.226: only drop-none identity filters match FORMAT P2 remarg: {hits:?}"
     );
-    assert_eq!(pm0_n, 51, "±0 overlap drops one REF, not three");
+    assert!(
+        !hits.is_empty(),
+        "identity predicates (no_dup/primary/mapq20/proper_pair) must match FORMAT after 6R.226"
+    );
+    assert_eq!(pm0_n, 46, "±0 overlap drops one REF, not three");
 
     // TLS collision: same overlap cell count as a previous site in this region.
     let mut cell_n_by_loc: BTreeMap<u64, usize> = BTreeMap::new();
@@ -761,8 +765,8 @@ fn forensic_6r220_format_ad_subset_boundary() {
         coverage_evidence_count(reads, &site.annotation_likelihoods, TARGET, TARGET, MARGIN);
     kv("annotation_unique_n", ann_n.to_string());
     kv("coverage_evidence_n", coverage_n.to_string());
-    assert_eq!(ann_n, 52);
-    assert_eq!(coverage_n, 52);
+    assert_eq!(ann_n, 47);
+    assert_eq!(coverage_n, 47);
 
     let mut pileup_region_ref = 0i32;
     let mut pileup_region_alt = 0i32;
@@ -839,14 +843,14 @@ fn forensic_6r220_format_ad_subset_boundary() {
             );
             assert_eq!(
                 call.genotype.format.ad_as_i32(),
-                vec![47, 5],
+                vec![42, 5],
                 "isolated try_genotype is the 52-row retainEvidence object"
             );
-            assert_eq!(call.genotype.format.pl_as_i32(), vec![68, 0, 1937]);
-            assert_ne!(
+            assert_eq!(call.genotype.format.pl_as_i32(), vec![84, 0, 1738]);
+            assert_eq!(
                 call.genotype.format.ad_as_i32(),
                 fmt_ad,
-                "call_region FORMAT is not isolated try_genotype"
+                "6R.226: call_region FORMAT matches isolated try_genotype P2 remarg"
             );
         }
         Err(reason) => kv("diagnose_reject", format!("{reason:?}")),
@@ -868,7 +872,7 @@ fn forensic_6r220_format_ad_subset_boundary() {
     kv("case", case);
     kv("classification", classification);
     kv("pl_same_boundary", (pl52 != fmt_pl).to_string());
-    assert_ne!(pl52, fmt_pl, "PL divergence begins at the 52→49 boundary");
+    assert_eq!(pl52, fmt_pl, "6R.226: FORMAT PL is the 52-row P2 remarg");
     assert_eq!(classification, "ALLELE_LIKELIHOOD_INPUT_DIVERGENCE");
 
     // Five Rust-vs-Java source-population slots: 52 vs Java 47.

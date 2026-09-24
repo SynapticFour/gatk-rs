@@ -30,7 +30,7 @@ GATK 4.4 jar as an oracle; they do not ship Broad source (see [`NOTICE.md`](NOTI
 
 Authority: [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Canonical mid-B is one
 ActiveFull region ([`docs/PARITY.md`](docs/PARITY.md)), not a genome-wide product claim.
-Chr20_tiny 6R.130–6R.221 holdouts in that file are engineering discovery through
+Chr20_tiny 6R.130–6R.265 holdouts in that file are engineering discovery through
 default USE_PLS GT/PL/GQ, the first AD write, Class-A3 preservation of
 an assigned calculator genotype (not a `pl_gt == 0` guard), the
 hom-ref emission boundary (Java also does not VCF-emit that 0/0),
@@ -181,6 +181,126 @@ and the 6R.220 proof that the 52-row remarg is isolated
 and the 6R.221 proof that `assign_genotype_likelihoods_for_region`
 is that FORMAT object while production-arg `try_genotype` stays
 the 52-row state (production unchanged),
+and the 6R.222 proof that predecessor `20:29455375 T/A` REJECT
+poisons TLS region-likelihood rows so target SiteScore emits
+`AD 44,5` (production unchanged),
+and the 6R.223 proof that the first inner operation is
+`with_region_likelihood_rows` cache HIT (production unchanged),
+and the 6R.224 proof that the HIT is allocator reuse of a dropped
+2808-cell subset Vec (production unchanged),
+and the 6R.225 proof that the cache must memoize logical
+likelihood-row identity rather than a dropped Vec pointer
+(production unchanged),
+and the 6R.226 production change that keys the cache by exact
+sparse-cell identity + `n_haps`,
+and the 6R.227 proof that isolated and production loc-loop both
+consume P2 so remaining vs Java is the 52-row remarg (production
+unchanged),
+and the 6R.228 proof that Java's event-local object is 47 reads
+and the five extra Rust REF rows are absent from Java hap_ll
+(production unchanged),
+and the 6R.229 proof that the first Java drop of those five is
+`filterPoorlyModeledEvidence` (production unchanged),
+and the 6R.230 proof that those five already diverge at PairHMM
+read-sequence input (Rust clip to `29455355` vs Java padded-window
+bases; production unchanged),
+and the 6R.231 proof that the first clipping mutation is
+`hard_clip_to_region` on trim padded `29455355=29455375−20`
+versus Java `29455294=29455314−20` (production unchanged),
+and the 6R.232 proof that the missing `20:29455314 G>C` event is a
+Java-only assembled haplotype, not an EventMap drop (production
+unchanged),
+and the 6R.233 proof that that haplotype is a SeqGraph path both
+sides already have and that production k-best `K=128` is the first
+miss (Java rank 116 vs Rust rank 129 for FNV `c7acc50dfb9f9ecc`;
+production unchanged),
+and the 6R.234 proof that those ranks come from different k-best
+path states (Java 18 edges vs Rust 19; extra `log10(63/78)` sink
+split), not from the `K=128` cap itself (production unchanged),
+and the 6R.235 proof that the 30+8 vs 38 bp sink is SeqGraph
+topology (pre-zip join at `TGTTTCTT`; zip emits the 8 bp sink;
+production unchanged),
+and the 6R.236 proof that the join is dangling-tail
+`addEdge(971,428,weight=1)` onto the reference k-mer after prune
+(absent at raw thread; Java has no equivalent splice; production
+unchanged),
+and the 6R.237 proof that Java `mergeDanglingTail` rejects the same
+`3I9M` candidate (`refIndexToMerge=0`) while Rust `saturating_sub`
+yields 1 (production unchanged),
+and the 6R.238 proof that Java `0` is a path-index sentinel (LCA /
+no merge), not a graph vertex id, while Rust `saturating_sub` maps
+the underflow onto path index 1 (production unchanged),
+and the 6R.239 production fix that checked
+`(last_ref_idx + 1).checked_sub(matching_suffix)` preserves Java's
+path-index-0 no-splice sentinel (carrier rank 116 at unchanged
+`K=128`),
+and the 6R.240 proof that covering `20:29455314 G>C` is in both
+EventMaps and omitted by Java `stand-call-conf=30` while Rust
+emitted at `stand_emit=10` (production unchanged),
+and the 6R.241 production change that strict-Java emit uses
+Java `standardConfidenceForCalling=30` so covering G>C is omitted
+while GLs stay `PL 21,0,1461` QUAL ~13.63,
+and the 6R.242 proof that the next genuine remaining VCF split is
+common-site INFO DP at `20:29455649 T/TGTTTG` (Java 123 vs Rust 230;
+production unchanged),
+and the 6R.243 proof that empty annotation_likelihoods there is
+colocated-merge construction after retainEvidence n=123 already exists
+(production unchanged),
+and the 6R.244 proof that merge drops the in-scope 123-read `subset`
+instead of Java `prepareReadAlleleLikelihoodsForAnnotation` reuse
+(production unchanged),
+and the 6R.245 proof that the minimal Java-equivalent attach is
+`subset.into_owned()` onto the Call (production unchanged),
+and the 6R.246 production change that performs that attach so INFO DP
+at `20:29455649 T/TGTTTG` is 123,
+and the 6R.247 proof that remaining PL 3518 vs Java 3517 is calculator
+1/1 log10 GL divergence, not rounding (production unchanged),
+and the 6R.248 proof that the 1/1 GL is merged 2/2 (`TGTTTG/TGTTTG`)
+and the homozygous calculator is Java-equivalent; the 3517.5 crossing
+is already in the allele-row `L(read|TGTTTG)` column (production unchanged),
+and the 6R.249 proof that that column is `max` over five EventMap
+`T/TGTTTG` haplotypes matching Java `marginalize`; remaining inputs are
+the five PairHMM columns (production unchanged),
+and the 6R.250 proof that those columns share a Java-equivalent
+read/quality plane while the known GKL-float residual cannot cross
+3517.5 (production unchanged),
+and the 6R.251 proof that the five PairHMM 161-mers are EventMap-exact
+trim subsequences sharing insertion `GTTTG` (Java bytes unverified;
+production unchanged),
+and the 6R.252 proof that Java 4.4.0.0 assembleReads parents match
+while trim spans differ (`29455560-29455728` vs `29455569-29455724`;
+production unchanged),
+and the 6R.253 proof that the trim split is Java STR padding 84 on
+`A/AT` @ 29455644 versus Rust indel pad 75 (production unchanged),
+and the 6R.254 measurement that Java 174-mers on frozen Rust 123-read
+evidence move 2/2 *away* from 3517.5 (diagnostic PL 3519; production
+unchanged),
+and the 6R.255 measurement that Java-span hard-clip of those reads
+against Rust 161-mers moves 2/2 further away (diagnostic PL 4280;
+production unchanged),
+and the 6R.256 measurement that Java 174-mers **and** Java clip together
+still land at diagnostic PL 3519 (continuous 3519.157, above 3517.5;
+production unchanged),
+and the 6R.257 measurement that those joint primitive PairHMM arrays
+match Java 4.4 `modifyReadQualities`+GCP (remaining difference is
+kernel configuration, not trim/clip; production unchanged),
+and the 6R.258 measurement that the first backend value is GKL float
+`1/174` vs f64 `1/174` and is not PL-causal (production unchanged),
+and the 6R.259 measurement that the first remaining ph2pr-chain value
+is GKL float `q/10` vs f64 `q/10` and is not PL-causal (production
+unchanged),
+and the 6R.260 measurement that the first isolated `powf` split is Q=20
+(exponent −2.0 exact) and is not PL-causal (production unchanged),
+and the 6R.261 measurement that GKL float `1.f − ph2pr` at Q=20 is not
+PL-causal (production unchanged),
+and the 6R.262 measurement that GKL float `ph2pr / 3.f` at Q=20 is not
+PL-causal (production unchanged),
+and the 6R.263 measurement that GKL AVX distm blend is bit-preserving
+and not PL-causal (production unchanged),
+and the 6R.264 measurement that GKL AVX `M*distm` f32 multiply is not
+PL-causal (production unchanged),
+and the 6R.265 measurement that GKL AVX `X` first primitive
+`M_t_1 * pMX` f32 multiply is not PL-causal (production unchanged),
 not a new Yes row.
 Historical L6–L14 narratives live on `pre-cleanup-archive` only — not unqualified **Yes** rows here.
 

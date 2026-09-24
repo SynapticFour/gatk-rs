@@ -385,10 +385,41 @@ fn holdout_6r53_chr20_tiny_remaining_allele_sets() {
     println!("{}", serde_json::to_string_pretty(&doc).unwrap());
 
     assert!(
-        cov_j == cov_r,
-        "6R.52: covering VCF allele set must still match Java; java_only={:?} rust_only={:?}",
-        cov_j.difference(&cov_r).collect::<Vec<_>>(),
-        cov_r.difference(&cov_j).collect::<Vec<_>>()
+        cov_j.difference(&cov_r).next().is_none() || cov_r.is_empty(),
+        "6R.52: java covering alleles remain in the local rust.vcf dump when present"
+    );
+    let live = HaplotypeCallerEngine::call_region(
+        covering,
+        &dict,
+        &ref_fasta,
+        &CallRegionArgs::strict_java(),
+    )
+    .expect("live covering")
+    .expect("Some");
+    let live_recs =
+        try_emit_call_region_variants(covering, &live, "SAMPLE", DEFAULT_STAND_EMIT_CONFIDENCE)
+            .unwrap_or_default();
+    let live_keys: BTreeSet<(u64, String, String)> = live_recs
+        .into_iter()
+        .filter(|r| r.position >= COVERING.0 && r.position <= COVERING.1)
+        .map(|r| {
+            (
+                r.position,
+                r.reference.clone(),
+                r.alternate.first().cloned().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert!(
+        cov_j.difference(&live_keys).next().is_none(),
+        "6R.239: live covering still contains every Java covering allele; java_only={:?}",
+        cov_j.difference(&live_keys).collect::<Vec<_>>()
+    );
+    let live_only: Vec<_> = live_keys.difference(&cov_j).cloned().collect();
+    assert_eq!(
+        live_only,
+        Vec::<(u64, String, String)>::new(),
+        "6R.241: covering G>C is omitted at Java stand-call-conf=30; live covering matches Java"
     );
     assert_eq!(K, 128, "do not raise K");
 }

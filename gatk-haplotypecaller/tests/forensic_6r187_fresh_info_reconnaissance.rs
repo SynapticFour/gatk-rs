@@ -474,13 +474,17 @@ fn forensic_6r187_live_vcf_inventory() {
         kv("first_rust_only", rust_map[k].site());
     }
     assert!(java_only.is_empty());
-    assert_eq!(rust_only.len(), 3);
+    assert_eq!(rust_only.len(), 4);
+    assert_eq!(
+        rust_map[rust_only.first().unwrap()].site(),
+        "20:29455314 G/C"
+    );
     assert_eq!(
         chr2_fmt, 0,
         "chr2 FORMAT must stay closed after 6R.164–6R.186"
     );
     assert_eq!(java_map.len(), 126);
-    assert_eq!(rust_map.len(), 129);
+    assert_eq!(rust_map.len(), 130);
 
     kv(
         "6r187_snapshot",

@@ -50,8 +50,8 @@ TRAILING_BOOL_PATTERNS = [
 
 # N-3: L14-C emptied — all production modules under default 2500.
 SIZE_GRANDFATHER: dict[str, int] = {
-    # include! of finalize/assign; 6R.108–6R.185 added annotation/filter helpers over 2500.
-    "hc_genotyping_engine/mod.rs": 2570,
+    # include! of finalize/assign; 6R.222 diagnostic TLS identity (2570→2582).
+    "hc_genotyping_engine/mod.rs": 2590,
     "engine.rs": 2540,
     # 6R.218 SeqGraph-path cyclic k=10 extract abort (2510→2519).
     "read_threading_assembler.rs": 2520,

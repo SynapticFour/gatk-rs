@@ -1,0 +1,47 @@
+6R142	input	stage=untrimmed	maxMnpDistance=0	region=20:29455300-29455559	region_padded=20:29455200-29455659	fullRef_len=1460	fullRef_hash=4b4cbed7ad1d47bf	paddedRefLoc=20:29454700-29456159	refHap_len=460	refHap_hash=442d1a5b4b11b07e	refHap_alignStart=500	refHap_cigar=460M	hap_n=128
+6R142	union_n	stage=untrimmed	n=26
+6R142	union	stage=untrimmed	start=29455296	end=29455296	ref=T	alts=A
+6R142	union	stage=untrimmed	start=29455314	end=29455314	ref=G	alts=C
+6R142	union	stage=untrimmed	start=29455328	end=29455328	ref=T	alts=C
+6R142	union	stage=untrimmed	start=29455337	end=29455337	ref=T	alts=C
+6R142	union	stage=untrimmed	start=29455375	end=29455375	ref=T	alts=A
+6R142	union	stage=untrimmed	start=29455379	end=29455379	ref=G	alts=A
+6R142	union	stage=untrimmed	start=29455388	end=29455388	ref=C	alts=T
+6R142	union	stage=untrimmed	start=29455389	end=29455389	ref=G	alts=A
+6R142	union	stage=untrimmed	start=29455393	end=29455393	ref=C	alts=T
+6R142	union	stage=untrimmed	start=29455401	end=29455401	ref=A	alts=G
+6R142	union	stage=untrimmed	start=29455405	end=29455405	ref=G	alts=T
+6R142	union	stage=untrimmed	start=29455426	end=29455426	ref=G	alts=T
+6R142	union	stage=untrimmed	start=29455452	end=29455452	ref=G	alts=C
+6R142	union	stage=untrimmed	start=29455464	end=29455464	ref=C	alts=G
+6R142	union	stage=untrimmed	start=29455481	end=29455481	ref=T	alts=C
+6R142	union	stage=untrimmed	start=29455486	end=29455486	ref=C	alts=A
+6R142	union	stage=untrimmed	start=29455504	end=29455504	ref=T	alts=C
+6R142	union	stage=untrimmed	start=29455505	end=29455506	ref=AT	alts=A
+6R142	union	stage=untrimmed	start=29455512	end=29455512	ref=T	alts=G
+6R142	union	stage=untrimmed	start=29455521	end=29455521	ref=T	alts=G
+6R142	union	stage=untrimmed	start=29455523	end=29455523	ref=G	alts=A
+6R142	union	stage=untrimmed	start=29455590	end=29455590	ref=C	alts=A
+6R142	union	stage=untrimmed	start=29455601	end=29455601	ref=C	alts=T
+6R142	union	stage=untrimmed	start=29455607	end=29455607	ref=C	alts=T
+6R142	union	stage=untrimmed	start=29455615	end=29455615	ref=A	alts=G
+6R142	union	stage=untrimmed	start=29455621	end=29455621	ref=A	alts=T
+6R142	hap	stage=untrimmed	idx=115	hash=c7acc50dfb9f9ecc	isRef=false	len=460	alignStart=500	loc=20:29455200-29455659	cigar=460M	event_n=6
+6R142	event	stage=untrimmed	hash=c7acc50dfb9f9ecc	idx=115	evi=0	start=29455296	end=29455296	ref=T	alt=A	type=SNP
+6R142	event	stage=untrimmed	hash=c7acc50dfb9f9ecc	idx=115	evi=1	start=29455314	end=29455314	ref=G	alt=C	type=SNP
+6R142	event	stage=untrimmed	hash=c7acc50dfb9f9ecc	idx=115	evi=2	start=29455328	end=29455328	ref=T	alt=C	type=SNP
+6R142	event	stage=untrimmed	hash=c7acc50dfb9f9ecc	idx=115	evi=3	start=29455337	end=29455337	ref=T	alt=C	type=SNP
+6R142	event	stage=untrimmed	hash=c7acc50dfb9f9ecc	idx=115	evi=4	start=29455615	end=29455615	ref=A	alt=G	type=SNP
+6R142	event	stage=untrimmed	hash=c7acc50dfb9f9ecc	idx=115	evi=5	start=29455621	end=29455621	ref=A	alt=T	type=SNP
+6R142	hap	stage=untrimmed	idx=127	hash=442d1a5b4b11b07e	isRef=true	len=460	alignStart=500	loc=20:29455200-29455659	cigar=460M	event_n=0
+6R142	trim_variation_present	true
+6R142	trim_span	20:29455294-29455584
+6R142	variant_span	20:29455314-29455523
+6R142	input	stage=trimmed	maxMnpDistance=0	region=20:29455314-29455523	region_padded=20:29455294-29455584	fullRef_len=1460	fullRef_hash=4b4cbed7ad1d47bf	paddedRefLoc=20:29454700-29456159	refHap_len=291	refHap_hash=ccc0ef1bb6f3d12f	refHap_alignStart=594	refHap_cigar=291M	hap_n=60
+6R142	union_n	stage=trimmed	n=21
+6R142	hap	stage=trimmed	idx=10	hash=c8074b3fd2634582	isRef=false	len=291	alignStart=594	loc=20:29455294-29455584	cigar=291M	event_n=4
+6R142	event	stage=trimmed	hash=c8074b3fd2634582	idx=10	evi=0	start=29455296	end=29455296	ref=T	alt=A	type=SNP
+6R142	event	stage=trimmed	hash=c8074b3fd2634582	idx=10	evi=1	start=29455314	end=29455314	ref=G	alt=C	type=SNP
+6R142	event	stage=trimmed	hash=c8074b3fd2634582	idx=10	evi=2	start=29455328	end=29455328	ref=T	alt=C	type=SNP
+6R142	event	stage=trimmed	hash=c8074b3fd2634582	idx=10	evi=3	start=29455337	end=29455337	ref=T	alt=C	type=SNP
+6R142	hap	stage=trimmed	idx=31	hash=ccc0ef1bb6f3d12f	isRef=true	len=291	alignStart=594	loc=20:29455294-29455584	cigar=291M	event_n=0
