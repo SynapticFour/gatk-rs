@@ -30,7 +30,7 @@ pub mod assembly_region_trimmer;
 pub mod assembly_result_set;
 pub mod bio_ids;
 pub mod cigar;
-pub mod cigar_builder;
+pub(crate) mod cigar_builder;
 /// Multi-sample gVCF merge (GATK CombineGVCFs algorithm slice).
 pub mod combine_gvcfs;
 pub mod emit_gates;
