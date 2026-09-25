@@ -40,7 +40,7 @@ pub mod feature_context;
 pub mod genome_loc;
 /// Joint genotyping of combined gVCFs (GATK GenotypeGVCFs algorithm slice).
 pub mod genotype_gvcfs;
-pub mod genotype_site;
+pub(crate) mod genotype_site;
 pub mod genotyping;
 pub mod given_alleles;
 pub mod gvcf_writer;
