@@ -320,7 +320,6 @@ pub use activity_scoring::{
     AVERAGE_HQ_SOFTCLIPS_HQ_BASES_THRESHOLD, LOG10_ONE_THIRD, REF_MODEL_DELETION_QUAL,
 };
 pub use alignment::*;
-pub use alignment::{calculate_haplotype_cigar, Cigar, CigarOperator, SwParameters};
 pub use allele_downsample::{
     apply_contamination_to_pileup, select_allele_biased_evidence_indices, target_allele_counts,
 };
