@@ -79,7 +79,7 @@ pub mod read_threading_graph;
 pub mod read_transformer;
 pub mod read_validation;
 pub mod ref_confidence;
-pub mod ref_confidence_merger;
+pub(crate) mod ref_confidence_merger;
 pub mod reference_context;
 pub mod reference_vcf_emit;
 /// Leaf likelihood-row type (breaks engine ↔ genotyping module cycle).
