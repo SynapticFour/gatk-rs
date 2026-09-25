@@ -30,7 +30,7 @@ GATK 4.4 jar as an oracle; they do not ship Broad source (see [`NOTICE.md`](NOTI
 
 Authority: [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Canonical mid-B is one
 ActiveFull region ([`docs/PARITY.md`](docs/PARITY.md)), not a genome-wide product claim.
-Chr20_tiny 6R.130–6R.265 holdouts in that file are engineering discovery through
+Chr20_tiny 6R.130–6R.273 holdouts in that file are engineering discovery through
 default USE_PLS GT/PL/GQ, the first AD write, Class-A3 preservation of
 an assigned calculator genotype (not a `pl_gt == 0` guard), the
 hom-ref emission boundary (Java also does not VCF-emit that 0/0),
@@ -301,6 +301,22 @@ and the 6R.264 measurement that GKL AVX `M*distm` f32 multiply is not
 PL-causal (production unchanged),
 and the 6R.265 measurement that GKL AVX `X` first primitive
 `M_t_1 * pMX` f32 multiply is not PL-causal (production unchanged),
+and the 6R.266 measurement that GKL AVX `X` second primitive
+`X_t_1 * pXX` f32 multiply is not PL-causal (production unchanged),
+and the 6R.267 measurement that GKL AVX `X` third primitive
+`VEC_ADD` of the two X products is not PL-causal (production unchanged),
+and the 6R.268 measurement that GKL AVX `Y` first primitive
+`M_t_1_y * pMY` f32 multiply is not PL-causal (production unchanged),
+and the 6R.269 measurement that GKL AVX `Y` second primitive
+`Y_t_1 * pYY` f32 multiply is not PL-causal (production unchanged),
+and the 6R.270 measurement that GKL AVX `Y` third primitive
+`VEC_ADD` of the two Y products is not PL-causal (production unchanged),
+and the 6R.271 measurement that GKL AVX `M` first inner product
+`M_t_2 * pMM` f32 multiply is not PL-causal (production unchanged),
+and the 6R.272 measurement that GKL AVX `M` second inner product
+`X_t_2 * pGAPM` f32 multiply is not PL-causal (production unchanged),
+and the 6R.273 measurement that GKL AVX `M` third inner product
+`Y_t_2 * pGAPM` f32 multiply is not PL-causal (production unchanged),
 not a new Yes row.
 Historical L6–L14 narratives live on `pre-cleanup-archive` only — not unqualified **Yes** rows here.
 

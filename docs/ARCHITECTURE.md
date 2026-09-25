@@ -85,7 +85,7 @@ SeqGraph k-best **K** (completed paths) is separate from the live-frontier **res
 policy**. Production default remains `legacy_1024`. Experimental env
 `GATK_RS_EXPERIMENTAL_KBEST_POLICY` (`unbounded_diagnostic` / `byte_budget`) is not a
 product contract: [`parity/KBEST_RESOURCE_POLICY.md`](parity/KBEST_RESOURCE_POLICY.md).
-Chr20_tiny 6R.130–6R.265 (default USE_PLS GT/PL/GQ, first AD write after)
+Chr20_tiny 6R.130–6R.273 (default USE_PLS GT/PL/GQ, first AD write after)
 retainEvidence, Class-A3 skip of pileup GT replacement so an assigned
 calculator genotype is preserved; hom-ref calculator 0/0 is not
 VCF-emitted on either diagnostic path; `2:92316347` FORMAT AD/PL now
@@ -382,6 +382,30 @@ first-cell-only and all-M-multiply CFs leave integer PL 3519; production
 unchanged;
 6R.265 showed GKL AVX X-update first primitive is float
 `_mm256_mul_ps(M_t_1, pMX)`; first-meaningful-cell CF leaves integer PL
+3519; production unchanged;
+6R.266 showed GKL AVX X-update second primitive is float
+`_mm256_mul_ps(X_t_1, pXX)`; first-meaningful-cell CF leaves integer PL
+3519; production unchanged;
+6R.267 showed GKL AVX X-update third primitive is float
+`_mm256_add_ps` of the two X products; first-meaningful-cell CF leaves
+integer PL 3519; production unchanged;
+6R.268 showed GKL AVX Y-update first primitive is float
+`_mm256_mul_ps(M_t_1_y, pMY)`; first-meaningful-cell CF leaves integer PL
+3519; production unchanged;
+6R.269 showed GKL AVX Y-update second primitive is float
+`_mm256_mul_ps(Y_t_1, pYY)`; first-meaningful-cell CF leaves integer PL
+3519; production unchanged;
+6R.270 showed GKL AVX Y-update third primitive is float
+`_mm256_add_ps` of the two Y products; first-meaningful-cell CF leaves
+integer PL 3519; production unchanged;
+6R.271 showed GKL AVX M-update first inner product is float
+`_mm256_mul_ps(M_t_2, pMM)`; first-meaningful-cell CF leaves integer PL
+3519; production unchanged;
+6R.272 showed GKL AVX M-update second inner product is float
+`_mm256_mul_ps(X_t_2, pGAPM)`; first-meaningful-cell CF leaves integer PL
+3519; production unchanged;
+6R.273 showed GKL AVX M-update third inner product is float
+`_mm256_mul_ps(Y_t_2, pGAPM)`; first-meaningful-cell CF leaves integer PL
 3519; production unchanged).
 This is engineering
 discovery in [`PARITY.md`](PARITY.md), not a claim-matrix Yes row.

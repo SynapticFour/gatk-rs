@@ -64,7 +64,7 @@ Remaining **C** regions are predominantly Stage E haplotype-content differences 
 internal graph topology UNKNOWN) and Stage D/G/H cases where an allele exists in EventMap
 but is not emitted.
 
-## Independent chr20_tiny genotype-boundary holdouts (6R.130–6R.265)
+## Independent chr20_tiny genotype-boundary holdouts (6R.130–6R.273)
 
 Engineering discovery on `20:29455000-29456500` (target SNP `20:29456196 A/T`, HG001).
 **Not** a claim-matrix Yes row and **not** chr20 VCF allele-set closure.
@@ -1210,6 +1210,72 @@ bit-identical (integer PL 3519).
 `classification: PAIRHMM_X_UPDATE_DIVERGENCE_NOT_CAUSAL`.
 `production_change: NONE`.
 
+6R.266: measurement-only. Frozen 6R.257 inputs. GKL AVX X-update second
+primitive is `computeMXY` `VEC_MUL(X_t_1, pXX)` = `_mm256_mul_ps`
+(float, `pXX=ph2pr[gcp]`). At `(i=1,j=1)`/`(i=2,j=1)` the product is 0.
+First-meaningful-cell injection of the INITIAL-normalized f32 product
+leaves continuous PL bit-identical (integer PL 3519).
+`classification: PAIRHMM_X_XX_MUL_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.267: measurement-only. Frozen 6R.257 inputs. GKL AVX X-update third
+primitive is `computeMXY` `VEC_ADD` = `_mm256_add_ps` (float). At
+`(i=3,j=1)` one addend is 0. First both-nonzero-cell injection of the
+INITIAL-normalized f32 add leaves continuous PL bit-identical (integer
+PL 3519).
+`classification: PAIRHMM_X_ADD_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.268: measurement-only. Frozen 6R.257 inputs. GKL AVX Y-update first
+primitive is `computeMXY` `VEC_MUL(M_t_1_y, pMY)` = `_mm256_mul_ps`
+(float, `pMY=ph2pr[del]`). At `(i=1,j=1)` the product is 0.
+First-meaningful-cell injection of the INITIAL-normalized f32 product
+leaves continuous PL bit-identical (integer PL 3519).
+`classification: PAIRHMM_Y_MY_MUL_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.269: measurement-only. Frozen 6R.257 inputs. GKL AVX Y-update second
+primitive is `computeMXY` `VEC_MUL(Y_t_1, pYY)` = `_mm256_mul_ps`
+(float, `pYY=ph2pr[gcp]`). At `(i=1,j=1)`/`(i=1,j=2)` the product is 0.
+First-meaningful-cell injection of the INITIAL-normalized f32 product
+leaves continuous PL bit-identical (integer PL 3519).
+`classification: PAIRHMM_Y_YY_MUL_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.270: measurement-only. Frozen 6R.257 inputs. GKL AVX Y-update third
+primitive is `computeMXY` `VEC_ADD` of the two Y products = `_mm256_add_ps`
+(float, not FMA). At `(i=1,j=1)`/`(i=1,j=2)` the add is trivial.
+First-meaningful-cell injection of the INITIAL-normalized f32 add
+leaves continuous PL bit-identical (integer PL 3519).
+`classification: PAIRHMM_Y_ADD_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.271: measurement-only. Frozen 6R.257 inputs. GKL AVX M-update first
+inner product is `computeMXY` `VEC_MUL(M_t_2, pMM)` = `_mm256_mul_ps`
+(float, `pMM=set_mm_prob(ins,del)`). At `(i=1,j=1)`/`(i=2,j=1)` the product
+is 0. First-meaningful-cell injection of the INITIAL-normalized f32
+product moves continuous PL by 9.15e-8 toward Java (integer PL 3519).
+`classification: PAIRHMM_M_UPDATE_MM_MUL_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.272: measurement-only. Frozen 6R.257 inputs. GKL AVX M-update second
+inner product is `computeMXY` `VEC_MUL(X_t_2, pGAPM)` = `_mm256_mul_ps`
+(float, `pGAPM=1.0f-ph2pr[gcp]`). At `(i=1,j=1)`/`(i=2,j=1)`/`(i=2,j=2)`
+the product is 0. First-meaningful-cell injection of the
+INITIAL-normalized f32 product leaves continuous PL bit-identical
+(integer PL 3519).
+`classification: PAIRHMM_M_UPDATE_XGAPM_MUL_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.273: measurement-only. Frozen 6R.257 inputs. GKL AVX M-update third
+inner product is `computeMXY` `VEC_MUL(Y_t_2, pGAPM)` = `_mm256_mul_ps`
+(float, `pGAPM=ctx._(1.0)-ph2pr[gcp]`; stripe-0 `Y_t_2=VEC_SET_LSE(init_Y)`).
+First meaningful cell is `(i=1,j=1)`. First-meaningful-cell injection of
+the INITIAL-normalized f32 product moves continuous PL 3.23e-8 away from
+Java (integer PL 3519).
+`classification: PAIRHMM_M_UPDATE_YGAPM_MUL_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
 ```text
 HOLDOUT_6R158=1 GATK_RS_EXPERIMENTAL_KBEST_POLICY=unbounded_diagnostic \
   cargo test -p gatk-haplotypecaller --test holdout_6r158_class_a3_preserve -- --test-threads=1
@@ -1430,6 +1496,22 @@ cargo test -p gatk-haplotypecaller --test forensic_6r264_gkl_avx_m_update_distm_
 HOLDOUT_6R264=1 cargo test -p gatk-haplotypecaller --test holdout_6r264_gkl_avx_m_update_distm_mul -- --test-threads=1
 cargo test -p gatk-haplotypecaller --test forensic_6r265_gkl_avx_x_update -- --test-threads=1
 HOLDOUT_6R265=1 cargo test -p gatk-haplotypecaller --test holdout_6r265_gkl_avx_x_update -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r266_gkl_avx_x_update_xx_mul -- --test-threads=1
+HOLDOUT_6R266=1 cargo test -p gatk-haplotypecaller --test holdout_6r266_gkl_avx_x_update_xx_mul -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r267_gkl_avx_x_update_add -- --test-threads=1
+HOLDOUT_6R267=1 cargo test -p gatk-haplotypecaller --test holdout_6r267_gkl_avx_x_update_add -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r268_gkl_avx_y_update_my_mul -- --test-threads=1
+HOLDOUT_6R268=1 cargo test -p gatk-haplotypecaller --test holdout_6r268_gkl_avx_y_update_my_mul -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r269_gkl_avx_y_update_yy_mul -- --test-threads=1
+HOLDOUT_6R269=1 cargo test -p gatk-haplotypecaller --test holdout_6r269_gkl_avx_y_update_yy_mul -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r270_gkl_avx_y_update_add -- --test-threads=1
+HOLDOUT_6R270=1 cargo test -p gatk-haplotypecaller --test holdout_6r270_gkl_avx_y_update_add -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r271_gkl_avx_m_update_mm_mul -- --test-threads=1
+HOLDOUT_6R271=1 cargo test -p gatk-haplotypecaller --test holdout_6r271_gkl_avx_m_update_mm_mul -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r272_gkl_avx_m_update_xgapm_mul -- --test-threads=1
+HOLDOUT_6R272=1 cargo test -p gatk-haplotypecaller --test holdout_6r272_gkl_avx_m_update_xgapm_mul -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r273_gkl_avx_m_update_ygapm_mul -- --test-threads=1
+HOLDOUT_6R273=1 cargo test -p gatk-haplotypecaller --test holdout_6r273_gkl_avx_m_update_ygapm_mul -- --test-threads=1
 ```
 
 ## How parity is established

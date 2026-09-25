@@ -348,7 +348,23 @@ unchanged),
 and the 6R.264 measurement that GKL AVX `M*distm` `_mm256_mul_ps` is
 not PL-causal (production unchanged),
 and the 6R.265 measurement that GKL AVX `X` first primitive
-`VEC_MUL(M_t_1, pMX)` is not PL-causal (production unchanged).
+`VEC_MUL(M_t_1, pMX)` is not PL-causal (production unchanged),
+and the 6R.266 measurement that GKL AVX `X` second primitive
+`VEC_MUL(X_t_1, pXX)` is not PL-causal (production unchanged),
+and the 6R.267 measurement that GKL AVX `X` third primitive
+`VEC_ADD` of the two X products is not PL-causal (production unchanged),
+and the 6R.268 measurement that GKL AVX `Y` first primitive
+`VEC_MUL(M_t_1_y, pMY)` is not PL-causal (production unchanged),
+and the 6R.269 measurement that GKL AVX `Y` second primitive
+`VEC_MUL(Y_t_1, pYY)` is not PL-causal (production unchanged),
+and the 6R.270 measurement that GKL AVX `Y` third primitive
+`VEC_ADD` of the two Y products is not PL-causal (production unchanged),
+and the 6R.271 measurement that GKL AVX `M` first inner product
+`VEC_MUL(M_t_2, pMM)` is not PL-causal (production unchanged),
+and the 6R.272 measurement that GKL AVX `M` second inner product
+`VEC_MUL(X_t_2, pGAPM)` is not PL-causal (production unchanged),
+and the 6R.273 measurement that GKL AVX `M` third inner product
+`VEC_MUL(Y_t_2, pGAPM)` is not PL-causal (production unchanged).
 It is **not** a
 claim-matrix Yes row and does not
 establish chr20 VCF allele-set closure.
