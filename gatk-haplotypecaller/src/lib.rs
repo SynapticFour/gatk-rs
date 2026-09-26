@@ -21,7 +21,7 @@ pub mod allele_filtering;
 pub mod assembly;
 pub mod assembly_based_caller;
 pub mod assembly_dangling_recovery;
-pub mod assembly_pipeline_stages;
+pub(crate) mod assembly_pipeline_stages;
 pub mod assembly_pruning;
 pub mod assembly_region_evaluator;
 pub mod assembly_region_finalize;
@@ -337,9 +337,6 @@ pub use assembly::{AssemblyGraphPruningParams, AssemblyGraphSummary};
 pub use assembly_based_caller::{
     assemble_reads, assemble_reads_with_finalized, call_region_assemble, AssembleReadsArgs,
     AssembledRegion,
-};
-pub use assembly_pipeline_stages::{
-    CallRegionAssemblyStage, EVENT_MAP_SYNC_AROUND_FILTER_RATIONALE,
 };
 pub use assembly_region_evaluator::{add_locus_for_smoothed_activity, evaluate_hc_activity_state};
 pub use assembly_region_iterator::{
