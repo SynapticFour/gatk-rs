@@ -51,7 +51,7 @@ pub mod hc_emit_policy;
 pub mod hc_genotyping_engine;
 /// Observe-only production HC profiler (`GATK_RS_HC_PROFILE`).
 pub(crate) mod hc_profile;
-pub mod hq_soft_clip;
+pub(crate) mod hq_soft_clip;
 pub(crate) mod junction_kbest;
 pub(crate) mod junction_tree_graph;
 pub mod kbest_haplotype;
@@ -397,10 +397,6 @@ pub use hc_genotyping_engine::{
 };
 #[cfg(feature = "dev-dumps")]
 pub use hc_genotyping_engine::{format_locus_genotype_pl_dump, pairhmm_locus_trace_dump};
-pub use hq_soft_clip::{
-    count_high_quality_soft_clip_bases_rcm, hq_soft_clip_running_mean_at_locus,
-    max_hq_soft_clip_bases, RCM_HQ_SOFT_CLIP_QUAL_THRESHOLD,
-};
 pub use kbest_haplotype::{
     find_best_haplotypes, find_best_haplotypes_for_assembly,
     find_best_haplotypes_preserving_cycles, KBestPath,
