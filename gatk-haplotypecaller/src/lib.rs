@@ -52,8 +52,8 @@ pub mod hc_genotyping_engine;
 /// Observe-only production HC profiler (`GATK_RS_HC_PROFILE`).
 pub(crate) mod hc_profile;
 pub mod hq_soft_clip;
-pub mod junction_kbest;
-pub mod junction_tree_graph;
+pub(crate) mod junction_kbest;
+pub(crate) mod junction_tree_graph;
 pub mod kbest_haplotype;
 pub mod kmer_key;
 pub mod likelihood_engine;
@@ -404,8 +404,6 @@ pub use hq_soft_clip::{
     count_high_quality_soft_clip_bases_rcm, hq_soft_clip_running_mean_at_locus,
     max_hq_soft_clip_bases, RCM_HQ_SOFT_CLIP_QUAL_THRESHOLD,
 };
-pub use junction_kbest::{find_junction_best_haplotypes, JunctionKBestPath};
-pub use junction_tree_graph::build_junction_tree_graph_from_ref_and_reads;
 pub use kbest_haplotype::{
     find_best_haplotypes, find_best_haplotypes_for_assembly,
     find_best_haplotypes_preserving_cycles, KBestPath,
