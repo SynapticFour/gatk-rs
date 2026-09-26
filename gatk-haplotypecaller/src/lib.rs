@@ -23,7 +23,7 @@ pub mod assembly_based_caller;
 pub mod assembly_dangling_recovery;
 pub(crate) mod assembly_pipeline_stages;
 pub mod assembly_pruning;
-pub mod assembly_region_evaluator;
+pub(crate) mod assembly_region_evaluator;
 pub mod assembly_region_finalize;
 pub mod assembly_region_iterator;
 pub mod assembly_region_trimmer;
@@ -338,7 +338,6 @@ pub use assembly_based_caller::{
     assemble_reads, assemble_reads_with_finalized, call_region_assemble, AssembleReadsArgs,
     AssembledRegion,
 };
-pub use assembly_region_evaluator::{add_locus_for_smoothed_activity, evaluate_hc_activity_state};
 pub use assembly_region_iterator::{
     load_all_records_for_contig, load_all_records_for_contig_raw, load_records_for_shard_raw,
     refuse_oversized_assembly_region_reads, sync_read_qnames, AssemblyRegion,
