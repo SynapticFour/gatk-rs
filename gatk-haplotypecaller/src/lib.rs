@@ -50,7 +50,7 @@ pub mod hc_allele_mapping;
 pub mod hc_emit_policy;
 pub mod hc_genotyping_engine;
 /// Observe-only production HC profiler (`GATK_RS_HC_PROFILE`).
-pub mod hc_profile;
+pub(crate) mod hc_profile;
 pub mod hq_soft_clip;
 pub mod junction_kbest;
 pub mod junction_tree_graph;
