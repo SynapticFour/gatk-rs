@@ -58,7 +58,7 @@ pub mod kbest_haplotype;
 pub mod kmer_key;
 pub mod likelihood_engine;
 pub mod locus_iterator;
-pub mod minimal_genotyping;
+pub(crate) mod minimal_genotyping;
 pub mod multiallelic_emit;
 pub mod pairhmm;
 pub mod pairhmm_log10;
@@ -406,10 +406,6 @@ pub use likelihood_engine::{
     HcLikelihoodEngineConfig, HcLikelihoodImplementation,
 };
 pub use locus_iterator::{IntervalLocusIterator, LocusPileupState, LocusPileupWalker};
-pub use minimal_genotyping::{
-    calculate_single_sample_ref_vs_any_active_state_profile_value,
-    haplotype_caller_activity_profile_state_minimal_genotyping,
-};
 pub use pairhmm::{
     pairhmm_fp_eq, pairhmm_log10_likelihood, pairhmm_log10_likelihood_slices,
     pairhmm_log10_likelihoods_vectorized, pairhmm_log10_likelihoods_vectorized_slices,
