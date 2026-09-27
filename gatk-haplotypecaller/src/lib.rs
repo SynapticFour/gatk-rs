@@ -460,10 +460,6 @@ pub use read_threading_graph::{
     assembly_graph_from_ref_and_reads_threading_with_summary, reference_has_non_unique_kmers,
     threading_non_unique_summary, ThreadingNonUniqueSummary,
 };
-pub use read_transformer::{
-    apply_iupac_strict_transform, apply_shard_read_pipeline, load_contig_records_hc_production,
-    ShardReadPipelineConfig,
-};
 pub use read_validation::validate_mapped_read_sanity;
 pub use ref_confidence::{
     calc_genotype_likelihoods_of_ref_vs_any, reference_gq_from_log10_gl,
