@@ -43,7 +43,7 @@ pub mod genotype_gvcfs;
 pub(crate) mod genotype_site;
 pub mod genotyping;
 pub mod given_alleles;
-pub mod gvcf_writer;
+pub(crate) mod gvcf_writer;
 pub mod haplotype;
 pub mod haplotype_cigar;
 pub mod hc_allele_mapping;
@@ -375,9 +375,6 @@ pub use genome_loc::{GenomeLoc, GenomePosition};
 pub use genotype_gvcfs::{run_genotype_gvcfs, GenotypeGvcfsArgs, DEFAULT_STAND_CALL_CONF};
 pub use genotyping::*;
 pub use given_alleles::{merge_given_alleles_into_assembly, GatkGivenAllele};
-pub use gvcf_writer::{
-    gatk_hc_gvcf_header_lines, GvcfWriter, GvcfWriterConfig, GATK_HC_DEFAULT_GQB,
-};
 pub use haplotype::Haplotype;
 pub use hc_genotyping_engine::{
     audit_colocated_snp_indel_merge_numerics, biallelic_genotype_log10_likelihoods_gatk,
