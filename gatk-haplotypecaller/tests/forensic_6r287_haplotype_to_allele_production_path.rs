@@ -137,12 +137,16 @@ fn forensic_6r287_haplotype_to_allele_production_path() {
 
     let root = repo_root();
     let java_vcf = root.join(JAVA_VCF_REL);
+    let ref_fasta = root.join(REF_REL);
+    let bam = root.join(BAM_REL);
+    if !java_vcf.is_file() || !ref_fasta.is_file() || !bam.is_file() {
+        eprintln!("skip: missing chr20_tiny BAM/REF");
+        return;
+    }
     assert!(vcf_has(&java_vcf, TARGET, TARGET_REF, TARGET_ALT));
     assert!(!vcf_has(&java_vcf, CLOSED_GC, "G", "C"));
 
     let java_haps: Vec<Vec<u8>> = JAVA_FNV.iter().map(|h| java_seq(h)).collect();
-    let ref_fasta = root.join(REF_REL);
-    let bam = root.join(BAM_REL);
     let dict = SequenceDictionary::from_fasta_path(&ref_fasta).expect("dict");
     let specs = parse_intervals_cli_string(&dict, INTERVAL).expect("interval");
     begin_hap_list_observe();

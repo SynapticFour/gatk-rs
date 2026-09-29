@@ -412,6 +412,10 @@ fn forensic_6r312_java_read_ordering_production_patch() {
         assert_eq!(fmt_f(java_gl[i]), JAVA_GL[i]);
         assert_eq!(fmt_f(java_pl[i]), JAVA_PL[i]);
     }
+    if !root.join(REF_REL).is_file() || !root.join(BAM_REL).is_file() {
+        eprintln!("skip: missing chr20_tiny BAM/REF");
+        return;
+    }
 
     let old = one_pass(&root, false);
     let production = one_pass(&root, true);

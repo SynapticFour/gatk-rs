@@ -205,6 +205,13 @@ fn forensic_6r247_first_pl_divergence_at_canonical_site() {
     kv("target", "20:29455649 T/TGTTTG");
 
     let root = repo_root();
+    if !root.join(JAVA_VCF_REL).is_file()
+        || !root.join(REF_REL).is_file()
+        || !root.join(BAM_REL).is_file()
+    {
+        eprintln!("skip: missing chr20_tiny BAM/REF");
+        return;
+    }
     let java_vcf = fs::read_to_string(root.join(JAVA_VCF_REL)).expect("java.vcf");
     let java_line = java_vcf
         .lines()
@@ -218,6 +225,10 @@ fn forensic_6r247_first_pl_divergence_at_canonical_site() {
 
     let ref_fasta = root.join(REF_REL);
     let bam = root.join(BAM_REL);
+    if !ref_fasta.is_file() || !bam.is_file() {
+        eprintln!("skip: missing chr20_tiny BAM/REF");
+        return;
+    }
     let dict = SequenceDictionary::from_fasta_path(&ref_fasta).expect("dict");
     let specs = parse_intervals_cli_string(&dict, INTERVAL).expect("interval");
     let walk = traverse_assembly_region_walker(

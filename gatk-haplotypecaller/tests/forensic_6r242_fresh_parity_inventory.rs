@@ -281,6 +281,10 @@ fn forensic_6r242_dump_inventory() {
 
     let root = repo_root();
     let reports = root.join("parity/reports/6r43");
+    if !reports.join("chr20_tiny").join("java.vcf").is_file() {
+        eprintln!("skip: missing parity/reports/6r43");
+        return;
+    }
     for id in STALE_MISSING_BAM {
         kv(
             "excluded_stale_bam",
@@ -513,6 +517,10 @@ fn forensic_6r242_first_common_live_layers() {
     kv("production_change", "NONE");
     let root = repo_root();
     let java_vcf = root.join(JAVA_VCF_REL);
+    if !java_vcf.is_file() {
+        eprintln!("skip: missing pinned Java covering VCF");
+        return;
+    }
     let java_recs = parse_vcf(&java_vcf);
     let neigh: Vec<_> = java_recs
         .iter()
@@ -585,7 +593,10 @@ fn forensic_6r242_first_common_live_layers() {
 
     let ref_fasta = root.join(REF_REL);
     let bam = root.join(CHR20_BAM_REL);
-    assert!(ref_fasta.is_file() && bam.is_file());
+    if !ref_fasta.is_file() || !bam.is_file() {
+        eprintln!("skip: missing chr20_tiny BAM/REF");
+        return;
+    }
     let dict = SequenceDictionary::from_fasta_path(&ref_fasta).expect("dict");
     let specs = parse_intervals_cli_string(&dict, CHR20_INTERVAL).expect("interval");
     let walk = traverse_assembly_region_walker(

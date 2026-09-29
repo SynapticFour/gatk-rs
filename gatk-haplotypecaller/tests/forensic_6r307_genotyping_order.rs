@@ -240,6 +240,10 @@ fn forensic_6r307_genotyping_order() {
     let java_set: HashSet<Key> = java.iter().cloned().collect();
     assert_eq!(java_set.len(), 122);
     assert_eq!(dup_count(&java), 0);
+    if !root.join(REF_REL).is_file() || !root.join(BAM_REL).is_file() {
+        eprintln!("skip: missing chr20_tiny BAM/REF");
+        return;
+    }
 
     let a = one_pass(&root);
     let b = one_pass(&root);

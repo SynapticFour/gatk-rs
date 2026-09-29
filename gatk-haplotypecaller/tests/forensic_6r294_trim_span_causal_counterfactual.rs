@@ -228,6 +228,11 @@ fn measure(span_override: Option<(u64, u64)>) -> Measured {
 
 #[test]
 fn forensic_6r294_trim_span_causal_counterfactual() {
+    let root = repo_root();
+    if !root.join(REF_REL).is_file() || !root.join(BAM_REL).is_file() {
+        eprintln!("skip: missing chr20_tiny BAM/REF");
+        return;
+    }
     let baseline = measure(None);
     let cf = measure(Some(JAVA_SPAN));
 

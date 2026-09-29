@@ -214,7 +214,10 @@ fn forensic_6r240_covering_gc_first_divergence() {
 
     let root = repo_root();
     let java_vcf = root.join(JAVA_VCF_REL);
-    assert!(java_vcf.is_file(), "missing pinned Java covering VCF");
+    if !java_vcf.is_file() {
+        eprintln!("skip: missing pinned Java covering VCF");
+        return;
+    }
     let java_vcf_has = vcf_has_gc(&java_vcf);
     kv(
         "java_covering_vcf",
@@ -228,7 +231,10 @@ fn forensic_6r240_covering_gc_first_divergence() {
 
     let ref_fasta = root.join(REF_REL);
     let bam = root.join(BAM_REL);
-    assert!(ref_fasta.is_file() && bam.is_file(), "missing BAM/REF");
+    if !ref_fasta.is_file() || !bam.is_file() {
+        eprintln!("skip: missing chr20_tiny BAM/REF");
+        return;
+    }
     let dict = SequenceDictionary::from_fasta_path(&ref_fasta).expect("dict");
     let specs = parse_intervals_cli_string(&dict, INTERVAL).expect("interval");
     let walk = traverse_assembly_region_walker(

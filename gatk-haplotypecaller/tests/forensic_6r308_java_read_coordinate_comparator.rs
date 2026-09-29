@@ -399,6 +399,10 @@ fn forensic_6r308_java_read_coordinate_comparator() {
     let java_gl = field_cells(&text, "java_gl_vector");
     let java_pl = field_cells(&text, "java_continuous_pl_vector");
     assert_eq!(java.len(), 122);
+    if !root.join(REF_REL).is_file() || !root.join(BAM_REL).is_file() {
+        eprintln!("skip: missing chr20_tiny BAM/REF");
+        return;
+    }
 
     let a = one_pass(&root, true);
     let b = one_pass(&root, false);

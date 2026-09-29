@@ -65,6 +65,10 @@ fn forensic_6r292_str_repeat_count() {
 
     let root = repo_root();
     let ref_fasta = root.join(REF_REL);
+    if !ref_fasta.is_file() {
+        eprintln!("skip: missing chr20_tiny BAM/REF");
+        return;
+    }
     let dict = SequenceDictionary::from_fasta_path(&ref_fasta).expect("dict");
     let mut cache = ReferenceWindowCache::new(&ref_fasta, 4);
     let ctx = ReferenceContext::from_interval(&dict, &mut cache, "20", WINDOW_START, WINDOW_END)

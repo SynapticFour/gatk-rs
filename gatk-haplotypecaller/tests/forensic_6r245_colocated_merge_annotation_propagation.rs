@@ -204,6 +204,13 @@ fn forensic_6r245_live_subset_is_sufficient_for_info_dp_123() {
     kv("java_pin", JAVA_PIN);
     kv("production_change", "NONE");
     let root = repo_root();
+    if !root.join(JAVA_VCF_REL).is_file()
+        || !root.join(REF_REL).is_file()
+        || !root.join(BAM_REL).is_file()
+    {
+        eprintln!("skip: missing chr20_tiny BAM/REF");
+        return;
+    }
     let java_line = fs::read_to_string(root.join(JAVA_VCF_REL))
         .unwrap()
         .lines()
@@ -221,6 +228,10 @@ fn forensic_6r245_live_subset_is_sufficient_for_info_dp_123() {
 
     let ref_fasta = root.join(REF_REL);
     let bam = root.join(BAM_REL);
+    if !ref_fasta.is_file() || !bam.is_file() {
+        eprintln!("skip: missing chr20_tiny BAM/REF");
+        return;
+    }
     let dict = SequenceDictionary::from_fasta_path(&ref_fasta).expect("dict");
     let specs = parse_intervals_cli_string(&dict, INTERVAL).expect("interval");
     let walk = traverse_assembly_region_walker(

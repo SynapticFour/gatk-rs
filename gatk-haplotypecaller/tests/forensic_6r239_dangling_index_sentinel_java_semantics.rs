@@ -150,7 +150,10 @@ fn forensic_6r239_dangling_index_sentinel_java_semantics() {
     let root = repo_root();
     let bam = root.join(BAM_REL);
     let ref_fasta = root.join(REF_REL);
-    assert!(bam.is_file() && ref_fasta.is_file());
+    if !ref_fasta.is_file() || !bam.is_file() {
+        eprintln!("skip: missing chr20_tiny BAM/REF");
+        return;
+    }
     let dict = SequenceDictionary::from_fasta_path(&ref_fasta).expect("dict");
     let specs = parse_intervals_cli_string(&dict, INTERVAL).expect("interval");
     let walked = traverse_assembly_region_walker(

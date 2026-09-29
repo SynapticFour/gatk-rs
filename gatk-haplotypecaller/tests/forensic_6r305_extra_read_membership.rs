@@ -62,6 +62,11 @@ fn target_cells<'a>(cells: &'a [LikelihoodPipelineCell]) -> Vec<&'a LikelihoodPi
 fn forensic_6r305_extra_read_membership() {
     let root = repo_root();
     let bam_path = root.join(BAM_REL);
+    let ref_fasta_early = root.join(REF_REL);
+    if !ref_fasta_early.is_file() || !bam_path.is_file() {
+        eprintln!("skip: missing chr20_tiny BAM/REF");
+        return;
+    }
     let mut bam = bam::Reader::from_path(&bam_path).expect("bam");
     let header = bam::Header::from_template(bam.header());
     let text = header.to_hashmap();

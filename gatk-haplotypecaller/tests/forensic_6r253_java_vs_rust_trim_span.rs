@@ -159,6 +159,10 @@ fn forensic_6r253_java_vs_rust_trim_span() {
     let root = repo_root();
     let ref_fasta = root.join(REF_REL);
     let bam = root.join(BAM_REL);
+    if !ref_fasta.is_file() || !bam.is_file() {
+        eprintln!("skip: missing chr20_tiny BAM/REF");
+        return;
+    }
     let dict = SequenceDictionary::from_fasta_path(&ref_fasta).expect("dict");
     let specs = parse_intervals_cli_string(&dict, INTERVAL).expect("interval");
     let walk = traverse_assembly_region_walker(
