@@ -1,0 +1,15 @@
+6R292	window	20:29455460-29455844
+6R292	anchor_base	A
+6R292	ref_at_event_and_after	ATTTTTTTTGTTTCTT
+6R292	start_index	185
+6R292	java_context_start	29455645
+6R292	java_remaining_prefix	TTTTTTTTGTTTCTTC
+6R292	ref_allele	A
+6R292	alt_allele	AT
+6R292	ref_allele_after_anchor	
+6R292	alt_after_anchor	T
+6R292	repeat_unit	T
+6R292	repeat_unit_len	1
+6R292	repeat_counts	[8, 9]
+6R292	repeat_count_max	9
+6R292	str_addition	9

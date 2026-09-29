@@ -77,6 +77,8 @@ pub fn given_alleles_to_trim_variants(
                 start: site.start_1based,
                 end,
                 is_indel,
+                ref_allele: site.ref_allele.clone(),
+                alt_allele: alt.clone(),
             });
         }
     }

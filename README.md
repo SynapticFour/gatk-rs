@@ -30,7 +30,7 @@ GATK 4.4 jar as an oracle; they do not ship Broad source (see [`NOTICE.md`](NOTI
 
 Authority: [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Canonical mid-B is one
 ActiveFull region ([`docs/PARITY.md`](docs/PARITY.md)), not a genome-wide product claim.
-Chr20_tiny 6R.130–6R.273 holdouts in that file are engineering discovery through
+Chr20_tiny 6R.130–6R.312 holdouts in that file are engineering discovery through
 default USE_PLS GT/PL/GQ, the first AD write, Class-A3 preservation of
 an assigned calculator genotype (not a `pl_gt == 0` guard), the
 hom-ref emission boundary (Java also does not VCF-emit that 0/0),
@@ -317,6 +317,106 @@ and the 6R.272 measurement that GKL AVX `M` second inner product
 `X_t_2 * pGAPM` f32 multiply is not PL-causal (production unchanged),
 and the 6R.273 measurement that GKL AVX `M` third inner product
 `Y_t_2 * pGAPM` f32 multiply is not PL-causal (production unchanged),
+and the 6R.274 measurement that GKL AVX `M` first inner add
+`VEC_ADD(M*pMM, X*pGAPM)` f32 add is not PL-causal (production unchanged),
+and the 6R.275 measurement that GKL AVX `M` second inner add
+`VEC_ADD(partial_M, Y*pGAPM)` f32 add is not PL-causal (production unchanged),
+and the 6R.276 measurement that GKL AVX `M` outer multiply
+`VEC_MUL(closed_6R275_f32_inner_sum, distmSel)` f32 multiply is not
+PL-causal (production unchanged),
+and the 6R.277 measurement that GKL AVX last-stripe
+`sumM = VEC_ADD(sumM, M_t.d)` f32 add is not PL-causal (production unchanged),
+and the 6R.278 measurement that GKL AVX last-stripe
+`sumX = VEC_ADD(sumX, X_t.d)` f32 add is not PL-causal (production unchanged),
+and the 6R.279 measurement that GKL AVX last-stripe
+`sumMX.d = VEC_ADD(sumM, sumX)` f32 add is not PL-causal (production unchanged),
+and the 6R.280 measurement that GKL AVX last-stripe
+`result_avx2 = sumMX.f[remainingRows-1]` is a bit-preserving f32 lane
+read and is not PL-causal (production unchanged),
+and the 6R.281 measurement that GKL `result_float < MIN_ACCEPTED`
+(`1e-28f`) is not PL-causal (production unchanged),
+and the 6R.282 measurement that GKL `log10f(result_float)` is not
+PL-causal (production unchanged),
+and the 6R.283 measurement that scale-matched GKL and Rust haplotype
+scores do not move continuous PL by a material fraction of the remaining
+gap (production unchanged),
+and the 6R.284 measurement that the live x86_64 GKL likelihood matrix
+does not move continuous PL by a material fraction of the remaining gap
+(production unchanged),
+and the 6R.285 measurement that the live Java per-read allele
+likelihoods carry the remaining continuous-PL gap
+(production unchanged),
+and the 6R.286 measurement that Java's haplotype-to-allele max after
+the best−4.5 floor accounts for that gap
+(production unchanged),
+and the 6R.287 measurement that the same reduction on Rust's live
+haplotype matrix leaves emitted PL at 3518
+(production unchanged),
+and the 6R.288 measurement that this read's haplotype-likelihood
+difference is already the PairHMM return and does not move emitted PL
+(production unchanged),
+and the 6R.289 measurement that the first PairHMM input difference
+for this read is the read-base window
+(production unchanged),
+and the 6R.290 measurement that this window is the trimmed-span hard clip
+(production unchanged),
+and the 6R.291 measurement that this span split is the STR padding on
+the indel at 29455644
+(production unchanged),
+and the 6R.292 measurement that Java's count of 9 is the alt suffix `T`
+plus eight reference `T`s starting at 29455645, while Rust inspects only
+the one-base event span `A` and returns no repeat
+(production unchanged),
+and the 6R.293 coordinate counterfactual that adding that 9 to this
+event's padding makes Rust's trimmed span `29455560-29455728`
+(production unchanged),
+and the 6R.294 measurement that forcing that span moves the live
+hom-alt PL from 3517.51626740832807627 to 3517.46541826365864836
+(production unchanged),
+and the 6R.295 measurement that the remaining `5.013e-5` is already
+present in the PairHMM outputs on that span
+(production unchanged),
+and the 6R.296 audit that the Java capture stores only haplotype
+columns 19–23, so the cited haplotype-5 / allele-T cell is not a
+Java PairHMM comparison
+(production unchanged),
+and the 6R.297 measurement that the runnable Java LOGLESS 24-column
+post-normalization matrix matches the span-forced Rust matrix on all
+2928 cells, while AVX columns 0–18 remain uncaptured
+(production unchanged),
+and the 6R.298 finding that the stored AVX allele-T file cannot be
+reproduced here because the AVX native library is x86_64-only
+(production unchanged),
+and the 6R.299 measurement that the LOGLESS allele matrix matches
+Rust while the six genotype likelihoods do not
+(production unchanged),
+and the 6R.300 measurement that the heterozygote per-read combine is
+the first genotype-likelihood divergence
+(production unchanged),
+and the 6R.301 measurement that this combine is Java's Jacobian table
+versus Rust's analytic log10 sum
+(production unchanged),
+and the 6R.302 design measurement that the existing Jacobian helper
+reproduces the canonical Java vectors
+(production unchanged),
+and the 6R.303 production change that the heterozygote genotype
+combine calls that helper,
+and the 6R.304 composition measurement that the Java trim span plus
+that combine matches the shared allele cells and still genotypes one
+extra all-zero read
+(production unchanged),
+and the 6R.305 localization that Java's mate-contig filter removes
+that read while Rust reinserts it with zero likelihoods
+(production unchanged),
+and the 6R.310 production change that indel trim padding uses Java's
+anchored tandem-repeat count,
+and the 6R.311 production change that a paired read whose mapped mate
+is on another contig is absent from PairHMM and genotyping evidence,
+and the 6R.312 production change that clipped PairHMM reads use Java's
+read-coordinate order.
+The frozen witness `20:29455649 T/TGTTTG` matches the GATK 4.4.0.0
+genotype likelihoods and PLs bit for bit. That is one checkpoint,
+not GATK-wide parity,
 not a new Yes row.
 Historical L6–L14 narratives live on `pre-cleanup-archive` only — not unqualified **Yes** rows here.
 

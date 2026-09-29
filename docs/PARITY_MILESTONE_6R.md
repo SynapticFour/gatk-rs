@@ -364,7 +364,108 @@ and the 6R.271 measurement that GKL AVX `M` first inner product
 and the 6R.272 measurement that GKL AVX `M` second inner product
 `VEC_MUL(X_t_2, pGAPM)` is not PL-causal (production unchanged),
 and the 6R.273 measurement that GKL AVX `M` third inner product
-`VEC_MUL(Y_t_2, pGAPM)` is not PL-causal (production unchanged).
+`VEC_MUL(Y_t_2, pGAPM)` is not PL-causal (production unchanged),
+and the 6R.274 measurement that GKL AVX `M` first inner add
+`VEC_ADD(M*pMM, X*pGAPM)` is not PL-causal (production unchanged),
+and the 6R.275 measurement that GKL AVX `M` second inner add
+`VEC_ADD(partial_M, Y*pGAPM)` is not PL-causal (production unchanged),
+and the 6R.276 measurement that GKL AVX `M` outer multiply
+`VEC_MUL(closed_6R275_f32_inner_sum, distmSel)` is not PL-causal
+(production unchanged),
+and the 6R.277 measurement that GKL AVX last-stripe `sumM = VEC_ADD(sumM, M_t.d)`
+is not PL-causal (production unchanged),
+and the 6R.278 measurement that GKL AVX last-stripe `sumX = VEC_ADD(sumX, X_t.d)`
+is not PL-causal (production unchanged),
+and the 6R.279 measurement that GKL AVX last-stripe `sumMX.d = VEC_ADD(sumM, sumX)`
+is not PL-causal (production unchanged),
+and the 6R.280 measurement that GKL AVX last-stripe
+`result_avx2 = sumMX.f[remainingRows-1]` is not PL-causal
+(production unchanged),
+and the 6R.281 measurement that GKL `result_float < MIN_ACCEPTED`
+(`1e-28f`) is not PL-causal (production unchanged),
+and the 6R.282 measurement that GKL `log10f(result_float)` is not
+PL-causal (production unchanged),
+and the 6R.283 measurement that scale-matched GKL and Rust haplotype
+scores, their aggregate, and the genotype likelihoods do not move
+continuous PL by a material fraction of the remaining gap
+(production unchanged),
+and the 6R.284 measurement that the live x86_64 GKL likelihood matrix
+does not move continuous PL by a material fraction of the remaining gap
+(production unchanged),
+and the 6R.285 measurement that the live Java per-read allele
+likelihoods, not PairHMM and not PL rounding, carry the remaining
+continuous-PL gap (production unchanged),
+and the 6R.286 measurement that Java's haplotype-to-allele max after
+the best−4.5 floor accounts for that gap (production unchanged),
+and the 6R.287 measurement that the same reduction on Rust's live
+haplotype matrix leaves emitted PL at 3518 (production unchanged),
+and the 6R.288 measurement that this read's H0/H1 difference is
+already the PairHMM return and leaves emitted PL at 3518
+(production unchanged),
+and the 6R.289 measurement that the first PairHMM input difference
+for this read is the read-base window (`51H97M` versus `60H88M`)
+(production unchanged),
+and the 6R.290 measurement that this window is the trimmed-span hard
+clip (`29455560-29455728` versus `29455569-29455724`)
+(production unchanged),
+and the 6R.291 measurement that this span split is the STR padding on
+the indel at 29455644 (Java 84 versus Rust 75)
+(production unchanged),
+and the 6R.292 measurement that Java's repeat count 9 is alt `T` plus
+eight reference `T`s from 29455645, while Rust's one-base slice `A`
+returns no repeat
+(production unchanged),
+and the 6R.293 coordinate counterfactual that adding that 9 reproduces
+Java's trimmed span `29455560-29455728`
+(production unchanged),
+and the 6R.294 measurement that forcing that span moves live hom-alt
+PL from `3517.51626740832807627` to `3517.46541826365864836`
+(production unchanged),
+and the 6R.295 measurement that the remaining `5.013e-5` is already
+in the PairHMM outputs on that span
+(production unchanged),
+and the 6R.296 audit that Java haplotype columns 0–18 were not
+captured, so the cited haplotype-5 cell is not a Java PairHMM
+comparison
+(production unchanged),
+and the 6R.297 measurement that the LOGLESS 24-column matrix matches
+Rust on all 2928 cells, while AVX columns 0–18 remain uncaptured
+(production unchanged),
+and the 6R.298 finding that the stored AVX capture cannot be rerun
+on this host
+(production unchanged),
+and the 6R.299 measurement that the LOGLESS allele matrix matches
+while the genotype likelihoods differ
+(production unchanged),
+and the 6R.300 measurement that the first genotype-likelihood
+divergence is the heterozygote per-read combine
+(production unchanged),
+and the 6R.301 measurement that the heterozygote combine is Java's
+Jacobian table versus Rust's analytic log10 sum
+(production unchanged),
+and the 6R.302 design measurement that the existing Jacobian helper
+reproduces the canonical Java GL and PL vectors
+(production unchanged),
+and the 6R.303 production change that the diploid and biallelic
+heterozygote combines call that helper,
+and the 6R.304 composition measurement that the Java trim span plus
+that combine matches the shared 122×3 allele cells and still genotypes
+one extra all-zero read
+(production unchanged),
+and the 6R.305 localization that Java's mate-contig filter removes
+that read while Rust reinserts it with zero likelihoods
+(production unchanged),
+and the 6R.310 production change that indel trim padding uses Java's
+anchored tandem-repeat count, so `20:29455644 A>AT` pads to
+`29455560-29455728`,
+and the 6R.311 production change that a paired read whose mapped mate
+is on another contig is absent from PairHMM and genotyping evidence,
+and the 6R.312 production change that clipped PairHMM reads use Java's
+`ReadCoordinateComparator`, so the 122 genotyping rows accumulate in
+Java's order.
+The frozen witness `20:29455649 T/TGTTTG` matches GATK 4.4.0.0 genotype
+likelihoods and PLs bit for bit. That is one checkpoint, not GATK-wide
+parity. See [`docs/parity/6R.312_FINAL_CLOSURE.md`](parity/6R.312_FINAL_CLOSURE.md).
 It is **not** a
 claim-matrix Yes row and does not
 establish chr20 VCF allele-set closure.

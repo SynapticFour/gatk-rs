@@ -457,6 +457,8 @@ fn forensic_6r232_missing_variation_event_boundary() {
             start: e.start_1based.get(),
             end: e.end_1based.get(),
             is_indel: e.is_indel(),
+            ref_allele: e.ref_allele.clone(),
+            alt_allele: e.alt_allele.clone(),
         })
         .collect();
     let overlapping: Vec<&TrimVariant> = trim_variants
@@ -518,6 +520,8 @@ fn forensic_6r232_missing_variation_event_boundary() {
         start: EVENT_POS,
         end: EVENT_POS,
         is_indel: false,
+        ref_allele: String::new(),
+        alt_allele: String::new(),
     });
     let plus = trimmer.trim(region, &rust_plus_314, Some(&ref_ctx));
     kv(
@@ -534,6 +538,8 @@ fn forensic_6r232_missing_variation_event_boundary() {
             start: *s,
             end: *e,
             is_indel: r.len() != a.len() || s != e,
+            ref_allele: r.clone(),
+            alt_allele: a.clone(),
         })
         .collect();
     let java_full = trimmer.trim(region, &java_overlapping, Some(&ref_ctx));

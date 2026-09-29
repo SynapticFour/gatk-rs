@@ -44,6 +44,34 @@ QUAL 78.32 (Rust 78.323 before VCF 2-decimal print), and QD 25.36 / 28.73 / 30.9
 
 **Whole-codebase GATK 4.4 HaplotypeCaller parity: NOT YET ESTABLISHED.**
 
+## Frozen 6R canonical checkpoint
+
+One witness is closed. It is not GATK-wide parity, not every region, not every
+HaplotypeCaller mode, and not every GATK version.
+
+Witness: `20:29455649 T/TGTTTG`, GATK 4.4.0.0, Java source SHA
+`2dbc025821bc5f686c423ff332a41e6cef892a77`.
+
+Rust matches that Java genotype-likelihood vector and the continuous PL vector
+bit for bit. Emitted integer PL is `570,148,3485,0,2762,3517`, and the
+biallelic subset is `570,0,3517`.
+
+Production semantics on this path:
+
+- anchored, alternate-aware tandem-repeat trim padding (`29455560–29455728` for `20:29455644 A>AT`);
+- failed-mate reads are absent from PairHMM and genotyping evidence;
+- clipped reads use Java `ReadCoordinateComparator`;
+- heterozygote genotype combination uses the Java-compatible Jacobian helper.
+
+The 122×3 allele matrix is bit-identical to Java, and the 122 genotyping reads
+are an identity permutation of Java's order. Forcing the pre-6R.312
+`(tid, pos, qname)` sort leaves that matrix unchanged and recreates the
+historical GL gaps of 2 ULP and 1 ULP. Java order removes those gaps. No
+tolerance or rounding workaround is used.
+
+Cumulative 6R gates through 6R.312: 182. `HOLDOUT_6R243` was not run.
+Details: [`parity/6R.312_FINAL_CLOSURE.md`](parity/6R.312_FINAL_CLOSURE.md).
+
 This is not genome-wide equivalence, not a clinical drop-in, and not a claim that every
 interval, sample, or annotation matches Java. Signed product scopes remain P12 / L2 /
 synthetic joint gates in the claim matrix.
@@ -64,7 +92,7 @@ Remaining **C** regions are predominantly Stage E haplotype-content differences 
 internal graph topology UNKNOWN) and Stage D/G/H cases where an allele exists in EventMap
 but is not emitted.
 
-## Independent chr20_tiny genotype-boundary holdouts (6R.130–6R.273)
+## Independent chr20_tiny genotype-boundary holdouts (6R.130–6R.312)
 
 Engineering discovery on `20:29455000-29456500` (target SNP `20:29456196 A/T`, HG001).
 **Not** a claim-matrix Yes row and **not** chr20 VCF allele-set closure.
@@ -1276,6 +1304,352 @@ Java (integer PL 3519).
 `classification: PAIRHMM_M_UPDATE_YGAPM_MUL_DIVERGENCE_NOT_CAUSAL`.
 `production_change: NONE`.
 
+6R.274: measurement-only. Frozen 6R.257 inputs. GKL AVX M-update first
+inner add is `computeMXY` `VEC_ADD(M*pMM, X*pGAPM)` = `_mm256_add_ps`
+(float, not FMA). At `(i=1,j=1)`/`(i=2,j=2)`/`(i=3,j=2)` the add is
+trivial. First both-nonzero-cell injection of the INITIAL-normalized
+f32 add moves continuous PL 2.75e-7 away from Java (integer PL 3519).
+`classification: PAIRHMM_M_UPDATE_MM_XGAPM_ADD_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.275: measurement-only. Frozen 6R.257 inputs. GKL AVX M-update second
+inner add is `computeMXY` `VEC_ADD(partial_M, Y*pGAPM)` = `_mm256_add_ps`
+(float, not FMA; left-assoc `(MM+XGAPM)+YGAPM`). At `(i=1,j=1)`/
+`(i=2,j=2)`/`(i=3,j=3)` the add is trivial. First both-nonzero cell is
+`(i=2,j=3)`. Y is not sub-ULP of the M partial. First-both-nonzero-cell
+injection of the INITIAL-normalized f32 add moves continuous PL
+1.36e-12 toward Java (integer PL 3519).
+`classification: PAIRHMM_M_UPDATE_MXGAP_YGAPM_ADD_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.276: measurement-only. Frozen 6R.257 inputs. GKL AVX M-update outer
+multiply is `computeMXY` `VEC_MUL(closed_6R275_f32_inner_sum, distmSel)`
+= `_mm256_mul_ps` (float, not FMA). The left operand is the exact 6R.275
+f32 inner sum. First nonzero cell is `(i=1,j=1)` (Q=32 match).
+First-nonzero-cell injection moves continuous PL 4.60e-8 toward Java
+(integer PL 3519).
+`classification: PAIRHMM_M_UPDATE_SUM_DISTM_MUL_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.277: measurement-only. Frozen 6R.257 inputs. GKL AVX last-stripe
+accumulation is `compute_full_prob` `sumM = VEC_ADD(sumM, M_t.d)` =
+`_mm256_add_ps` (float, not FMA). The first both-nonzero result-lane add
+is read 0, haplotype 0, column 116 (prior nonzero column 115); both
+operands are subnormal and the f32 add is exact. First-both-nonzero
+injection moves continuous PL 0 toward Java (integer PL 3519).
+`classification: PAIRHMM_LAST_STRIPE_SUMM_ADD_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.278: measurement-only. Frozen 6R.257 inputs. GKL AVX last-stripe
+accumulation is `compute_full_prob` `sumX = VEC_ADD(sumX, X_t.d)` =
+`_mm256_add_ps` (float, not FMA). The first both-nonzero result-lane add
+is read 0, haplotype 0, column 116 (prior nonzero column 115); both
+operands are subnormal and the f32 add is exact. First-both-nonzero
+injection moves continuous PL 0 toward Java (integer PL 3519).
+`classification: PAIRHMM_LAST_STRIPE_SUMX_ADD_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.279: measurement-only. Frozen 6R.257 inputs. GKL AVX last-stripe
+final add is `compute_full_prob` `sumMX.d = VEC_ADD(sumM, sumX)` =
+`_mm256_add_ps` (float, not FMA). The first both-nonzero result lane is
+read 0, haplotype 0 (read length 122, `remainingRows = 2`, lane 1). Both
+operands are normal f32. The isolated f32 add differs from the f64 add of
+the same widened operands by 41484288 ULP and moves continuous PL
+5.06e-7 away from Java (integer PL 3519).
+`classification: PAIRHMM_LAST_STRIPE_SUMMX_ADD_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.280: measurement-only. Frozen 6R.257 inputs. GKL AVX last-stripe
+lane extract is `compute_full_prob` `result_avx2 = sumMX.f[remainingRows-1]`.
+For read length 122, `remainingRows = 2` and the extracted lane is 1.
+The read copies f32 bits `0x0cea27f6` with no arithmetic, conversion,
+rounding, or narrowing. Substituting that exact lane moves continuous PL
+5.06e-7 away from Java (integer PL 3519).
+`classification: PAIRHMM_LAST_STRIPE_SUMMX_LANE_EXTRACT_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.281: measurement-only. Frozen 6R.257 inputs. GKL compares the
+extracted f32 `0x0cea27f6` with `MIN_ACCEPTED` `1e-28f` (`0x10fd87b6`)
+by `if (result_float < MIN_ACCEPTED)`. Both operands stay f32. The
+boolean is true, and the same predicate on the Rust f64 ratio is true
+on all 610 matrices. Forcing that decision without replacing the
+likelihood moves continuous PL 0 (integer PL 3519).
+`classification: PAIRHMM_RESULT_FLOAT_MIN_ACCEPTED_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.282: measurement-only. Frozen 6R.257 inputs. The first accepted
+`result_float` is retain 0, haplotype 1, bits `0x12d79844`
+(`result_float < 1e-28f` is false). GKL calls `log10f` from `<math.h>`.
+On the GATK 4.4 Ubuntu 18.04 oracle that is glibc 2.27
+`__ieee754_log10f`, not this host's libm. For this input the SSE2 and
+FMA-contracted forms both return `0xc1d6ee20`. Injecting only that
+logarithm's difference from `f64::log10` of the same bits moves
+continuous PL `4.72e-7` toward Java (integer PL 3519).
+`classification: PAIRHMM_RESULT_FLOAT_LOG10F_DIVERGENCE_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.283: measurement-only. Frozen 6R.257 inputs. Coarse checkpoints
+compare scale-matched GKL `log10f(result_float)` with the Rust log10
+likelihood for all five TGTTTG haplotypes, then the floor-max aggregate,
+the biallelic genotype likelihoods, and continuous PL. Injecting the
+GKL vector into the existing Rust downstream path moves continuous PL
+`3.40e-8` away from Java (integer PL 3519). `log10(2^120)` is not
+subtracted: the reconstructed f32 is already probability-scale.
+`classification: PAIRHMM_COARSE_CHECKPOINT_PAIRHMM_SCORES_NOT_MATERIAL`.
+`production_change: NONE`.
+
+6R.284: measurement-only. Frozen 6R.257 inputs were scored by the stock
+`libgkl_pairhmm.so` inside `broadinstitute/gatk:4.4.0.0` on
+`--platform linux/amd64` (glibc 2.27, AVX, `useDoublePrecision=false`,
+1 thread). All 610 scored matrices took the float branch
+(`result_float < 1e-28f` was false). Injecting that matrix into the
+existing Rust downstream moves continuous PL `2.46e-6` away from the
+pinned Java VCF boundary (integer PL 3519).
+`classification: PAIRHMM_LIVE_GKL_LIKELIHOOD_BOUNDARY_NOT_MATERIAL`.
+`production_change: NONE`.
+
+6R.285: measurement-only. One GATK 4.4.0.0 genotyping pass on the frozen
+locus. The five TGTTTG haplotypes are indices 19–23. The event is
+`T/TTTG/TGTTTG`. Continuous hom-alt PL before `Math.round` is
+`3517.46536813194416027`, and the integer vector is
+`570,148,3485,0,2762,3517`. Injecting the live GKL matrix still moves
+the Rust diagnostic by `2.46e-6`. Injecting Java's per-read `T` and
+`TGTTTG` allele likelihoods into the Rust genotype calculator reproduces
+Java's continuous hom-alt PL within `7e-5`.
+`classification: DOWNSTREAM_PER_READ_ALLELE_LIKELIHOOD_MATERIAL`.
+`production_change: NONE`.
+
+6R.286: measurement-only. `createAlleleMapper` assigns haplotypes
+0–13 to `T` (index 4 is the reference haplotype), 14–18 to `TTTG`,
+and 19–23 to `TGTTTG`. Each allele likelihood is the max in that
+group after the per-read `best - 4.5` floor. Replaying that map in
+the Rust genotype calculator moves continuous hom-alt PL from
+`3519.15718129777269496` to `3517.46544109771957665`.
+`classification: DOWNSTREAM_HAPLOTYPE_TO_ALLELE_NORMALIZATION_CAUSAL`.
+`production_change: NONE`.
+
+6R.287: the same floor-then-max, using Rust's live `createAlleleMapper`
+pools, was applied inside `try_genotype_colocated_snp_indel_merge`.
+Zero haplotype values changed. Emitted PL stayed `570,0,3518`.
+Continuous hom-alt at the emitter is `3517.51626740832807627`.
+The allele columns still differ from the Java matrix by up to
+`1.11985680133244614` per read.
+`classification: DOWNSTREAM_HAPLOTYPE_TO_ALLELE_PRODUCTION_PATH_NOT_JAVA_PL`.
+`production_change: NONE`.
+
+6R.288: measurement-only. For read
+`HISEQ1:11:H8GV6ADXX:1:2116:18670:99941` flags 99, Rust H0 and H1 are
+already `-2.58310416668513199` at the PairHMM return. Normalize and
+the merge copy that value. Java's corresponding best is
+`-3.70296096801757812`. Substituting Java's 24 haplotype values for
+this read leaves continuous hom-alt PL at `3517.51626740832716678`
+and integer PL at 3518.
+`classification: HAPLOTYPE_LIKELIHOOD_PAIRHMM_RETURN_NOT_CAUSAL`.
+`production_change: NONE`.
+
+6R.289: measurement-only. The same read enters PairHMM with different
+bases. Java's evidence read is `51H97M` at 29455560 (97 bp). Rust's
+scored read is `60H88M` at 29455569 (88 bp). Both are suffixes of the
+raw `148M` record at 29455509. Java bases `[9..]` equal the Rust
+bases. The 9 bp Java includes and Rust omits are `CAAAGAGGA`.
+Base qualities, indel qualities, gap continuation, and haplotype 0
+were not the first difference. No counterfactual: the base vectors
+have different lengths.
+`classification: PAIRHMM_INPUT_READ_BASES`.
+`production_change: NONE`.
+
+6R.290: measurement-only. The same read is still `148M` at 29455509 after
+`finalizeRegion` on padded span `20:29455460-29455844`. The next clip,
+`hardClipToRegion` on the trimmed padded span, produces Java `51H97M`
+at 29455560 (span `20:29455560-29455728`) and Rust `60H88M` at
+29455569 (span `20:29455569-29455724`). Java keeps raw offsets 51–59
+(`CAAAGAGGA`). Rust removes them. No PL counterfactual.
+`classification: READ_HARDCLIP_TRIMMED_SPAN_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.291: measurement-only. The 13 overlapping trim events match, including
+the indel `A>AT` at 29455644. Java `TandemRepeat` sets that event's
+padding to `75 + 9 = 84`, so the running span becomes
+`29455560-29455728`. Rust keeps indel padding 75 because the one-base
+event span does not enter the STR helper, so that step yields
+`29455569-29455719`. The shared indel at 29455649 then sets Rust's
+right edge to `29455724`. No PL counterfactual.
+`classification: TRIM_STR_PADDING_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.292: measurement-only. For `A>AT` at 29455644 both sides use reference
+window `20:29455460-29455844`. Java drops the anchor and searches from
+29455645 (`TTTTTTTT…`) with alt suffix `T`, so the counts are `[8, 9]`
+and the STR addition is 9. Rust's helper inspects only
+`[29455644, 29455644]` (`A`) and returns `None` because that slice is
+shorter than 2. The reference run is `T`, not `A`. No PL
+counterfactual.
+`classification: STR_REPEAT_SLICE_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.293: coordinate-only counterfactual. Replaying the live trim loop with
+padding 84 on `A>AT` at 29455644, and every other event unchanged,
+yields `29455560-29455728` after that event, after `T>TGTTTG` at
+29455649, and at the end of the loop. Production trim is unchanged.
+`classification: STR_PADDING_COUNTERFACTUAL_REPRODUCES_JAVA_SPAN`.
+`production_change: NONE`.
+
+6R.294: the live path is run twice. The second run forces only the
+trimmed padded span to `29455560-29455728`. `trim_modern` still returns
+`29455569-29455724`. The diagnostic read becomes `51H97M` at 29455560.
+Reference haplotypes become 169 bp on that span. Live continuous
+hom-alt PL moves from `3517.51626740832807627` to
+`3517.46541826365864836` (Java `3517.46536813194416027`). Integer
+hom-alt PL moves from 3518 to 3517. Emitted PL moves from `570,0,3518`
+to `570,0,3517`. Production remains `570,0,3518`.
+`classification: TRIM_SPAN_CAUSAL_FOR_REMAINING_PL`.
+`production_change: NONE`.
+
+6R.295: the Java trim span stays forced. Against the AVX Java capture,
+unfloored haplotype cells differ by at most `2.12153372559e-6`
+(hap 20 of `HISEQ1:9:H8962ADXX:1:2216:7791:64678`). The largest allele
+cell is haplotype 5, allele `T`, delta `2.38641348460e-6`. The sum of
+the allele deltas is `5.005406882219e-5`, which is the remaining
+continuous-PL residual. Production remains `570,0,3518`.
+`classification: RESIDUAL_AT_PAIRHMM_OUTPUT`.
+`production_change: NONE`.
+
+6R.296: provenance only. Rust `post_kernel` is 251 reads × 24 raw
+haplotype columns. Java `6r285_java_genotyping.tsv` `hap_ll` is 248
+reads × columns 19–23, post-normalization, from
+`Downstream285.dumpFrozenColumns`. Columns 0–18 are not in that file.
+The 73-cell and 610-cell comparisons use only those five columns on
+the 122 `allele_ll` reads. The cited haplotype 5 is the last of four
+tied Rust T-pool maxima (haplotypes 2–5); Java has no haplotype index
+for that allele. The allele sum `0.00005005406882219` is 366
+reconstructed Rust pool maxima minus stored `allele_ll` cells.
+`classification: CAPTURE_SCOPE_EVIDENCE_GAP`.
+`production_change: NONE`.
+
+6R.297: `Capture297` dumps all 24 post-normalization haplotype columns
+at `assignGenotypeLikelihoods`. The kernel is `LOGLESS_CACHING`
+because AVX does not run on this host. All 122 genotyping reads
+match. All 2928 floored Rust cells equal the Java cells. Haplotypes
+2, 3, 4, and 5 tie for the diagnostic read's T maximum, and the
+same-run allele T equals that maximum. The stored AVX allele T does
+not. Columns 19–23 versus the AVX file still have maximum absolute
+delta `2.38641348460e-6`. AVX columns 0–18 remain uncaptured.
+`classification: LOGLESS_24_COLUMN_MATRIX_IDENTICAL_AVX_0_18_UNCAPTURED`.
+`production_change: NONE`.
+
+6R.298: `6r285_java_genotyping.tsv` is produced by `Downstream285`.
+`allele_ll` is `dumpEvent` at lines 311–320. The backend is
+`AVX_LOGLESS_CACHING` with `useDoublePrecision=false`, not
+`FASTEST_AVAILABLE`. Every stored likelihood cell is an exact
+binary32 value. Haplotypes 0–13 are absent. On this arm64 host,
+constructing that backend throws `Machine does not support AVX PairHMM`
+because `libgkl_utils.dylib` is x86_64. No same-input AVX matrix was
+produced.
+`classification: JAVA_AVX_CAPTURE_NOT_REPRODUCIBLE`.
+`production_change: NONE`.
+
+6R.299: the LOGLESS `allele_ll` in `6r297_java_hap_ll.tsv` is 122×3
+and equals the per-allele maximum of the 24 haplotype columns.
+The span-forced Rust allele matrix matches those 366 cells. The
+six genotype likelihoods differ. Integer PL is `570,148,3485,0,2762,3517`
+on both sides. Rust continuous hom-alt remains
+`3517.46541826365864836`; Java LOGLESS continuous hom-alt is
+`3517.46534871093535912`.
+`classification: CANONICAL_LOGLESS_DOWNSTREAM_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.300: both sides use the 122×3 LOGLESS `allele_ll` matrix.
+Homozygote per-read contributions match. Heterozygote per-read
+contributions differ. The largest T/TTTG per-read delta is
+`-0.00002069939267679` on
+`HWI-D00360:8:H88U0ADXX:1:2101:19764:71575` flags 83.
+Java uses `MathUtils.approximateLog10SumLog10`; Rust uses exact
+`log10_sum_log10`.
+`classification: GENOTYPE_LIKELIHOOD_PER_READ_OPERATION_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.301: Java `approximateLog10SumLog10(double, double)` adds
+`JacobianLogTable.get(larger - smaller)` when that difference is below 8.
+Rust production `log10_sum_log10` adds the analytic
+`log10(1 + 10^(other - max))`. The existing
+`approximate_log10_sum_log10_pair` helper matches the Java result bits
+on every heterozygote pair. Replacing only that combine on the
+canonical allele matrix reproduces the Java continuous GL and PL
+vectors. Production code is unchanged.
+`classification: JAVA_JACOBIAN_TABLE_VS_RUST_ANALYTIC_COMBINE`.
+`production_change: NONE`.
+
+6R.302: the existing `approximate_log10_sum_log10_pair` helper is
+already the production activity-profile implementation of Java
+`approximateLog10SumLog10(double, double)`. Calling it for the
+heterozygote arm reproduces the canonical Java GL and PL vectors.
+Eleven canonical table lookups differ by one ulp from a Rust
+`powf`/`log10` reconstruction; those ulps do not change the combined
+result. Production code is unchanged.
+`classification: JAVA_COMPATIBLE_JACOBIAN_DESIGN_CONFIRMED`.
+`production_change: NONE`.
+
+6R.303: the diploid and biallelic heterozygote genotype combines call
+`approximate_log10_sum_log10_pair`. On the canonical LOGLESS allele
+matrix the six continuous GLs and PLs match Java, and the production
+PL conversion emits `570,0,3517`. The live call on the production trim
+span still emits `570,0,3518`. `log10_sum_log10` is unchanged.
+`classification: JAVA_COMPATIBLE_JACOBIAN_PRODUCTION_FIX_VALIDATED`.
+
+6R.304: the Java trim span `29455560-29455728` composed with the
+production Jacobian heterozygote combine reproduces the Java trim
+geometry and the shared 122×3 allele cells. Rust also genotypes
+`HISEQ1:11:H8GV6ADXX:2:1103:14252:55237` flags 97, whose three allele
+likelihoods are 0. Dropping that row and replaying the 122 shared
+rows matches the Java GL vector. The live 123-row continuous GL and
+PL still differ. Integer PL on this counterfactual is
+`570,148,3485,0,2762,3517`. The unforced call remains `570,0,3518`.
+`classification: COMPOSED_COUNTERFACTUAL_MATRIX_DIVERGENCE`.
+`production_change: NONE`.
+
+6R.305: `HISEQ1:11:H8GV6ADXX:2:1103:14252:55237` flags 97 is paired,
+mapped on contig 20, with its mate mapped on contig 7. Java
+`filterNonPassingReads` removes it because
+`MATE_ON_SAME_CONTIG_OR_NO_MAPPED_MATE` fails, and the
+`calculateGLs` matrix does not contain it. Rust's assembly-region
+filter fails the same predicate, then
+`score_pairhmm_from_records_java_mate_contig` puts the read back
+into the genotyping matrix with likelihood 0 on every haplotype.
+`classification: READ_MEMBERSHIP_JAVA_EXCLUDES_RUST_RETAINS`.
+`production_change: NONE`.
+
+6R.310: production. Indel trim padding uses
+`tandem_repeat_at_event`, the Java anchored tandem-repeat count.
+The scan starts one base after the event anchor, and the alternate
+allele participates. For `20:29455644 A>AT` the count is 9 and the
+padded span is `29455560-29455728`. SNP padding and non-repeat indels
+stay on their previous widths. Failed-mate membership and clipped-read
+order are unchanged, so the emitted PL is not yet the Java vector.
+`classification: STR_PRODUCTION_PATCH_REPRODUCES_JAVA_GEOMETRY`.
+`production_change: YES`.
+
+6R.311: production. A paired read whose mapped mate is on another
+contig is omitted from PairHMM and genotyping evidence. The existing
+`passes_mate_on_same_contig_or_no_mapped_mate` predicate is unchanged.
+Length, mapping-quality, and read-group failures still receive a zero
+likelihood row. On `20:29455649` the failed-mate read is absent, the
+genotyping matrix is the Java 122×3 allele matrix, and clipped-read
+order is still the pre-6R.308 order, so the live GL is not yet
+bit-identical to Java.
+`classification: FAILED_MATE_PRODUCTION_PATCH_REPRODUCES_JAVA_MEMBERSHIP`.
+`production_change: YES`.
+
+6R.312: production. Clipped reads that enter PairHMM are ordered with
+`java_read_coordinate_compare`, Java's `ReadCoordinateComparator`.
+At one clipped start a forward read precedes a reverse read. On
+`20:29455649` the 122 genotyping reads match Java's order, the
+122×3 allele matrix is unchanged, and the six genotype likelihoods
+and continuous PL values match the Java bits. The pre-6R.312
+name sort remains only as a diagnostic counterfactual: it still
+moves GL index 3 by 2 ULP and index 5 by 1 ULP.
+`classification: JAVA_READ_ORDERING_PRODUCTION_PATCH_REPRODUCES_JAVA`.
+`production_change: YES`.
+
 ```text
 HOLDOUT_6R158=1 GATK_RS_EXPERIMENTAL_KBEST_POLICY=unbounded_diagnostic \
   cargo test -p gatk-haplotypecaller --test holdout_6r158_class_a3_preserve -- --test-threads=1
@@ -1512,6 +1886,24 @@ cargo test -p gatk-haplotypecaller --test forensic_6r272_gkl_avx_m_update_xgapm_
 HOLDOUT_6R272=1 cargo test -p gatk-haplotypecaller --test holdout_6r272_gkl_avx_m_update_xgapm_mul -- --test-threads=1
 cargo test -p gatk-haplotypecaller --test forensic_6r273_gkl_avx_m_update_ygapm_mul -- --test-threads=1
 HOLDOUT_6R273=1 cargo test -p gatk-haplotypecaller --test holdout_6r273_gkl_avx_m_update_ygapm_mul -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r274_gkl_avx_m_update_mm_xgapm_add -- --test-threads=1
+HOLDOUT_6R274=1 cargo test -p gatk-haplotypecaller --test holdout_6r274_gkl_avx_m_update_mm_xgapm_add -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r275_gkl_avx_m_update_mxgap_ygapm_add -- --test-threads=1
+HOLDOUT_6R275=1 cargo test -p gatk-haplotypecaller --test holdout_6r275_gkl_avx_m_update_mxgap_ygapm_add -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r276_gkl_avx_m_update_sum_distm_mul -- --test-threads=1
+HOLDOUT_6R276=1 cargo test -p gatk-haplotypecaller --test holdout_6r276_gkl_avx_m_update_sum_distm_mul -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r277_gkl_avx_last_stripe_summ_add -- --test-threads=1
+HOLDOUT_6R277=1 cargo test -p gatk-haplotypecaller --test holdout_6r277_gkl_avx_last_stripe_summ_add -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r278_gkl_avx_last_stripe_sumx_add -- --test-threads=1
+HOLDOUT_6R278=1 cargo test -p gatk-haplotypecaller --test holdout_6r278_gkl_avx_last_stripe_sumx_add -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r279_gkl_avx_last_stripe_summx_add -- --test-threads=1
+HOLDOUT_6R279=1 cargo test -p gatk-haplotypecaller --test holdout_6r279_gkl_avx_last_stripe_summx_add -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r280_gkl_avx_last_stripe_summx_lane_extract -- --test-threads=1
+HOLDOUT_6R280=1 cargo test -p gatk-haplotypecaller --test holdout_6r280_gkl_avx_last_stripe_summx_lane_extract -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r281_gkl_result_float_min_accepted -- --test-threads=1
+HOLDOUT_6R281=1 cargo test -p gatk-haplotypecaller --test holdout_6r281_gkl_result_float_min_accepted -- --test-threads=1
+cargo test -p gatk-haplotypecaller --test forensic_6r282_gkl_result_float_log10f -- --test-threads=1
+HOLDOUT_6R282=1 cargo test -p gatk-haplotypecaller --test holdout_6r282_gkl_result_float_log10f -- --test-threads=1
 ```
 
 ## How parity is established

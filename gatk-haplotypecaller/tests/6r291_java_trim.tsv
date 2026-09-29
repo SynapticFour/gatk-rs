@@ -1,0 +1,46 @@
+6R291	active_span	20:29455560-29455744
+6R291	padded_span	20:29455460-29455844
+6R291	min_base_qual	10
+6R291	dont_use_soft_clipped_bases	false
+6R291	soft_clip_low_qual_ends	false
+6R291	iterator	qname=HISEQ1:11:H8GV6ADXX:1:2116:18670:99941	flags=99	cigar=148M	start=29455509	end=29455656	len=148	reverse=false	bases=CAGGGATTTTTAGAGTAATGACTTTGCTTATTTTATAAAAATACTTCATGCCAAAGAGGACAAAGAAAACAAAATAAATCAACCCAAATTTTTAGAAACAACCAATGTTAACTGTTGGTGGAATTCATTTGGGTGATTTTTTTTGTTT
+6R291	after_finalize	qname=HISEQ1:11:H8GV6ADXX:1:2116:18670:99941	flags=99	cigar=148M	start=29455509	end=29455656	len=148	reverse=false	bases=CAGGGATTTTTAGAGTAATGACTTTGCTTATTTTATAAAAATACTTCATGCCAAAGAGGACAAAGAAAACAAAATAAATCAACCCAAATTTTTAGAAACAACCAATGTTAACTGTTGGTGGAATTCATTTGGGTGATTTTTTTTGTTT
+6R291	after_assemble_finalize	qname=HISEQ1:11:H8GV6ADXX:1:2116:18670:99941	flags=99	cigar=148M	start=29455509	end=29455656	len=148	reverse=false	bases=CAGGGATTTTTAGAGTAATGACTTTGCTTATTTTATAAAAATACTTCATGCCAAAGAGGACAAAGAAAACAAAATAAATCAACCCAAATTTTTAGAAACAACCAATGTTAACTGTTGGTGGAATTCATTTGGGTGATTTTTTTTGTTT
+6R291	n_events	24
+6R291	leftmost_event	20:29455504-29455504 T>C indel=false
+6R291	snp_padding	20
+6R291	indel_padding	75
+6R291	str_padding	75
+6R291	legacy	false
+6R291	event_outside	20:29455504-29455504 T>C
+6R291	event_outside	20:29455505-29455506 AT>A
+6R291	event_outside	20:29455512-29455512 T>G
+6R291	event_outside	20:29455521-29455521 T>G
+6R291	event_outside	20:29455523-29455523 G>A
+6R291	event_outside	20:29455769-29455769 G>A
+6R291	event_outside	20:29455780-29455780 G>T
+6R291	event_outside	20:29455785-29455785 T>TA
+6R291	event_outside	20:29455804-29455806 TGA>T
+6R291	event_outside	20:29455811-29455811 G>T
+6R291	event_outside	20:29455836-29455836 A>C
+6R291	n_overlap	13
+6R291	raw_min_start	29455590
+6R291	raw_max_end	29455703
+6R291	event	i=0	start=29455590	end=29455590	ref=C	alt=A	indel=false	padding=20	str=.	left=29455570	right=29455610	run_min=29455570	run_max=29455703
+6R291	event	i=1	start=29455601	end=29455601	ref=C	alt=T	indel=false	padding=20	str=.	left=29455581	right=29455621	run_min=29455570	run_max=29455703
+6R291	event	i=2	start=29455607	end=29455607	ref=C	alt=T	indel=false	padding=20	str=.	left=29455587	right=29455627	run_min=29455570	run_max=29455703
+6R291	event	i=3	start=29455615	end=29455615	ref=A	alt=G	indel=false	padding=20	str=.	left=29455595	right=29455635	run_min=29455570	run_max=29455703
+6R291	event	i=4	start=29455621	end=29455621	ref=A	alt=T	indel=false	padding=20	str=.	left=29455601	right=29455641	run_min=29455570	run_max=29455703
+6R291	event	i=5	start=29455630	end=29455630	ref=A	alt=T	indel=false	padding=20	str=.	left=29455610	right=29455650	run_min=29455570	run_max=29455703
+6R291	event	i=6	start=29455644	end=29455644	ref=A	alt=AT	indel=true	padding=84	str=unit=1 repeats=9 longest=9	left=29455560	right=29455728	run_min=29455560	run_max=29455728
+6R291	event	i=7	start=29455649	end=29455649	ref=T	alt=TGTTTG	indel=true	padding=75	str=.	left=29455574	right=29455724	run_min=29455560	run_max=29455728
+6R291	event	i=8	start=29455649	end=29455649	ref=T	alt=TTTG	indel=true	padding=75	str=.	left=29455574	right=29455724	run_min=29455560	run_max=29455728
+6R291	event	i=9	start=29455674	end=29455674	ref=G	alt=A	indel=false	padding=20	str=.	left=29455654	right=29455694	run_min=29455560	run_max=29455728
+6R291	event	i=10	start=29455674	end=29455674	ref=G	alt=C	indel=false	padding=20	str=.	left=29455654	right=29455694	run_min=29455560	run_max=29455728
+6R291	event	i=11	start=29455701	end=29455701	ref=C	alt=T	indel=false	padding=20	str=.	left=29455681	right=29455721	run_min=29455560	run_max=29455728
+6R291	event	i=12	start=29455703	end=29455703	ref=C	alt=G	indel=false	padding=20	str=.	left=29455683	right=29455723	run_min=29455560	run_max=29455728
+6R291	padded_before_intersect	29455560-29455728
+6R291	trim_variation_present	true
+6R291	variant_span	20:29455590-29455703
+6R291	variant_padded_span	20:29455560-29455728
+6R291	after_trim_hardclip	qname=HISEQ1:11:H8GV6ADXX:1:2116:18670:99941	flags=99	cigar=51H97M	start=29455560	end=29455656	len=97	reverse=false	bases=CAAAGAGGACAAAGAAAACAAAATAAATCAACCCAAATTTTTAGAAACAACCAATGTTAACTGTTGGTGGAATTCATTTGGGTGATTTTTTTTGTTT

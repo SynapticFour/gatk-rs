@@ -59,7 +59,7 @@ pub fn l9_may_overwrite_pairhmm_gls_after_emit_fail(
 }
 
 use crate::activity_scoring::{
-    genotype_log10_likelihoods_after_java_genotype_pl_roundtrip, log10_sum_log10,
+    approximate_log10_sum_log10_pair, genotype_log10_likelihoods_after_java_genotype_pl_roundtrip,
 };
 use crate::af_calc::{
     calculate_biallelic_af_em, diploid_af_log10_prob_only_ref_allele_exists, AfCalculatorConfig,
@@ -420,11 +420,11 @@ pub fn biallelic_genotype_log10_likelihoods_gatk(
         } else {
             MARGINALIZE_EMPTY_POOL_LOG10
         };
-        // GATK `GenotypeLikelihoodCalculator`: hom-ref/hom-alt add log10(copy count) per read;
-        // het sums log10 L(read|allele) for each allele copy via log10Sum.
+        // GATK `GenotypeLikelihoodCalculator`: hom-ref/hom-alt add log10(copy count) per read.
+        // The heterozygote is `approximateLog10SumLog10`, not analytic `log10sumLog10`.
         g0 += lr + log10_ploidy;
         g2 += la + log10_ploidy;
-        g1 += log10_sum_log10(&[lr, la]);
+        g1 += approximate_log10_sum_log10_pair(lr, la);
     }
     vec![g0 - denominator, g1 - denominator, g2 - denominator]
 }
@@ -469,7 +469,7 @@ pub fn diploid_genotype_log10_likelihoods_from_allele_rows(
                 gls[k] += if i == j {
                     allele_ll[i] + log10_ploidy
                 } else {
-                    log10_sum_log10(&[allele_ll[i], allele_ll[j]])
+                    approximate_log10_sum_log10_pair(allele_ll[i], allele_ll[j])
                 };
                 k += 1;
             }

@@ -20,8 +20,24 @@ fn biallelic_gl_gatk_single_read() {
     let log10_ploidy = 2.0_f64.log10();
     let denom = log10_ploidy;
     assert!((gls[0] - (-0.1)).abs() < 1e-9);
-    assert!((gls[1] - (log10_sum_log10(&[-0.1, -2.0]) - denom)).abs() < 1e-9);
+    assert_eq!(
+        gls[1].to_bits(),
+        (crate::approximate_log10_sum_log10_pair(-0.1, -2.0) - denom).to_bits()
+    );
     assert!((gls[2] - (-2.0)).abs() < 1e-9);
+    let shifted = biallelic_genotype_log10_likelihoods_gatk(
+        &[ReadLikelihoodRow {
+            read_index: 0,
+            read_id: "shift".into(),
+            haplotype_log10_likelihoods: vec![0.0, 1e-9],
+        }],
+        0,
+        1,
+    );
+    assert_ne!(
+        shifted[1].to_bits(),
+        (crate::log10_sum_log10(&[0.0, 1e-9]) - denom).to_bits()
+    );
 }
 
 #[test]

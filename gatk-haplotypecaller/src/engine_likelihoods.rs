@@ -13,8 +13,9 @@ use crate::likelihood_engine::score_read_against_haplotypes;
 /// ↔ `valuesBySampleIndex[a][i]`). Callers must keep the returned reads as the filter /
 /// realign / genotyping evidence list.
 ///
-/// PairHMM membership applies Java `MATE_ON_SAME_CONTIG_OR_NO_MAPPED_MATE` (6R.176):
-/// failing reads stay in the returned evidence list with `addEvidence(..., 0)` cells.
+/// PairHMM membership applies Java `MATE_ON_SAME_CONTIG_OR_NO_MAPPED_MATE` (6R.311):
+/// a paired read whose mapped mate is on another contig is omitted. Other
+/// filtered reads still receive `addEvidence(..., 0)` cells.
 pub(super) fn compute_region_read_likelihoods(
     region: &AssemblyRegion,
     haplotypes: &[Haplotype],
@@ -43,6 +44,15 @@ pub(super) fn compute_region_read_likelihoods(
     };
     // Java `callRegion` drops these stubs on `regionForGenotyping` before PairHMM.
     finalized.retain(|r| unclipped_read_length(r) >= GATK_MINIMUM_READ_LENGTH_AFTER_TRIMMING);
+    // Mate contig lives on the pre-filter originals. Clipped copies have no `mtid`.
+    finalized.retain(|r| {
+        if !super::production_failed_mate_key(r.qname(), r.flags()) {
+            return true;
+        }
+        super::note_production_failed_mate_exclusion(r.qname(), r.flags());
+        false
+    });
+    super::note_forensic_6r307_records("pairhmm_input", &finalized);
     let active_span = Some((region.start.get(), region.end.get()));
     // Trim/hard-clip can drop sparse-BAM reads that still overlap the active locus.
     if finalized.is_empty() && !region.reads.is_empty() {
@@ -80,11 +90,10 @@ pub(super) fn compute_region_read_likelihoods(
 
 /// GATK `filterNonPassingReads` mate-contig membership at PairHMM construction.
 ///
-/// Java removes `!MATE_ON_SAME_CONTIG_OR_NO_MAPPED_MATE` reads from the scored
-/// `regionForGenotyping` list, then `prepareReadAlleleLikelihoodsForAnnotation`
-/// `addEvidence(overlappingFilteredReads, 0)`. Rust keeps those reads in the
-/// returned evidence vector (Coverage / INFO DP) and emits 0-likelihood cells
-/// instead of running PairHMM.
+/// Java removes `!MATE_ON_SAME_CONTIG_OR_NO_MAPPED_MATE` reads before
+/// `computeReadLikelihoods`. Those reads are dropped from this evidence vector
+/// and do not receive a likelihood row. Length, mapping-quality, and read-group
+/// removals still receive `addEvidence(..., 0)` cells.
 ///
 /// Mate contig is taken from the original BAM evidence (`mate_originals`), not
 /// the clipped PairHMM copy: `hard_clip` rebuilds records without `mtid`.
@@ -152,6 +161,10 @@ fn score_pairhmm_from_records_java_mate_contig<
         if *ok {
             continue;
         }
+        let rec = reads[i].borrow();
+        if super::forensic_6r306_exclude_zero_row(rec.qname(), rec.flags()) {
+            continue;
+        }
         for &hi in &eligible {
             out.push(RegionReadLikelihood {
                 read_index: crate::bio_ids::ReadIndex::new(i),
@@ -198,7 +211,8 @@ fn score_pairhmm_from_records<R: std::borrow::Borrow<rust_htslib::bam::Record> +
     // Keep dump row-groups contiguous (Java processedReads order) when capturing inputs.
     let parallel = rayon::current_num_threads() > 1
         && reads.len() >= 8
-        && crate::runtime_config::pairhmm_input_dump_path().is_none();
+        && crate::runtime_config::pairhmm_input_dump_path().is_none()
+        && !crate::likelihood_engine::forensic_6r289_active();
     let out = if !parallel {
         let mut out = Vec::with_capacity(reads.len() * eligible.len());
         for (ri, rec) in reads.iter().enumerate() {
@@ -206,6 +220,15 @@ fn score_pairhmm_from_records<R: std::borrow::Borrow<rust_htslib::bam::Record> +
             let bases = rec.seq().as_bytes();
             let ins_tag = bam_bqsr_indel_quals_phred(rec, b"BI");
             let del_tag = bam_bqsr_indel_quals_phred(rec, b"BD");
+            if crate::likelihood_engine::forensic_6r289_matches(rec.qname(), rec.flags()) {
+                let slot = eligible.iter().position(|&hi| hi == 0).unwrap_or(0);
+                crate::likelihood_engine::forensic_6r289_arm(
+                    rec.mapq(),
+                    rec.pos() + 1,
+                    format!("{}", rec.cigar()),
+                    slot,
+                );
+            }
             let scores = score_read_against_haplotypes(
                 config,
                 &bases,

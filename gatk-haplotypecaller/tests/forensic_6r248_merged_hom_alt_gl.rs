@@ -27,7 +27,9 @@ const REF_REL: &str = "parity/realworld/assets/hs37d5.simple.fa";
 const TARGET: u64 = 29_455_649;
 const TARGET_REF: &str = "T";
 const TARGET_ALT: &str = "TGTTTG";
-const RUST_EMITTED_HOM_ALT_GL: f64 = -351.75162674083281900;
+/// Biallelic hom-alt GL is `GL(2/2) - GL(0/2)`. 6R.303 changed the
+/// heterozygote `GL(0/2)` to the Jacobian combine, so this constant moved.
+const RUST_EMITTED_HOM_ALT_GL: f64 = -351.75161700572289192;
 const RUST_MERGED_22_GL_BITS: u64 = 0xc0892e4258f54a90;
 const EMPTY_POOL: f64 = -50.0;
 const FLOOR_CAP: f64 = -4.5;
@@ -83,8 +85,8 @@ fn forensic_6r248_source_homozygous_gl_formulas_match() {
         "then subtract n_reads * log10(2)"
     );
     assert!(
-        body.contains("log10_sum_log10(&[allele_ll[i], allele_ll[j]])"),
-        "het uses log10Sum, not the 2/2 path"
+        body.contains("approximate_log10_sum_log10_pair(allele_ll[i], allele_ll[j])"),
+        "het uses approximateLog10SumLog10, not the homozygote path"
     );
 
     let assign = fs::read_to_string(

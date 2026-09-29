@@ -49,21 +49,15 @@ pub use call_region_audit::{
 };
 
 #[path = "engine_observe.rs"]
-mod engine_observe;
-pub use engine_observe::{
-    begin_hap_list_observe, begin_likelihood_pipeline_observe, begin_poorly_modeled_observe,
-    begin_realign_observe, observe_poorly_modeled_haplotypes, take_hap_list_snaps,
-    take_hap_list_trim_span, take_likelihood_pipeline_cells, take_likelihood_pipeline_snaps,
-    take_poorly_modeled_cells, take_poorly_modeled_haplotypes, take_poorly_modeled_observe,
-    take_realign_observe, HapListColumn, HapListSnap, HapListTrimSpan, LikelihoodPipelineCell,
-    LikelihoodPipelineSnap, PoorlyModeledHapColumn, PoorlyModeledObserveCell,
-    PoorlyModeledObserveRow, RealignObserveRow,
-};
+pub(crate) mod engine_observe;
 use engine_observe::{
-    capture_hap_list_stage, capture_hap_list_trim_span, capture_likelihood_pipeline_stage,
-    capture_scored_likelihood_pipeline, realign_observe_on, record_poorly_modeled_filter_read,
-    record_poorly_modeled_hap_columns, record_realign_observe, snapshot_realign_orig,
-    start_poorly_modeled_filter_pass,
+    apply_forensic_6r294_padded_span, capture_hap_list_stage, capture_hap_list_trim_span,
+    capture_likelihood_pipeline_stage, capture_scored_likelihood_pipeline, capture_trim_calc,
+    forensic_6r306_exclude_zero_row, forensic_6r306_note_pre_filter_reads,
+    note_forensic_6r307_records, note_production_failed_mate_exclusion,
+    observe_poorly_modeled_haplotypes, production_failed_mate_key, realign_observe_on,
+    record_poorly_modeled_filter_read, record_poorly_modeled_hap_columns, record_realign_observe,
+    snapshot_realign_orig, start_poorly_modeled_filter_pass,
 };
 
 /// Engine state after resolving intervals into traversal tiles.
@@ -587,6 +581,8 @@ impl HaplotypeCallerEngine {
                 start: e.start_1based.get(),
                 end: e.end_1based.get(),
                 is_indel: e.is_indel(),
+                ref_allele: e.ref_allele.clone(),
+                alt_allele: e.alt_allele.clone(),
             })
             .collect();
         given_alleles_to_trim_variants(&args.given_alleles, &region.contig, &mut trim_variants);
@@ -620,6 +616,8 @@ impl HaplotypeCallerEngine {
                     start: e.start_1based.get(),
                     end: e.end_1based.get(),
                     is_indel: false,
+                    ref_allele: e.ref_allele.clone(),
+                    alt_allele: e.alt_allele.clone(),
                 });
             }
         }
@@ -637,6 +635,8 @@ impl HaplotypeCallerEngine {
         );
 
         let trim_result = trimmer.trim(region, &trim_variants, Some(&ref_ctx));
+        #[rustfmt::skip]
+        capture_trim_calc(region, untrimmed.variation_events(), &trim_variants, &trim_result);
         #[cfg(test)]
         call_region_audit::record_after_trim(
             &untrimmed,
@@ -680,6 +680,7 @@ impl HaplotypeCallerEngine {
             }
         }
         let mut region_for_genotyping = AssemblyRegionTrimmer::apply_trim(region, &trim_result);
+        apply_forensic_6r294_padded_span(&mut region_for_genotyping);
         remove_read_stubs_after_trim(&mut region_for_genotyping);
         capture_hap_list_stage("before_trim", &untrimmed.haplotypes);
         capture_hap_list_trim_span(region, &region_for_genotyping);
@@ -868,7 +869,10 @@ impl HaplotypeCallerEngine {
             }
         }
 
+        note_forensic_6r307_records("post_trim", &region_for_genotyping.reads);
+        forensic_6r306_note_pre_filter_reads(&region_for_genotyping.reads);
         filter_non_passing_reads(&mut region_for_genotyping, &args.read_filter);
+        note_forensic_6r307_records("post_filter", &region_for_genotyping.reads);
         #[cfg(test)]
         call_region_audit::record_after_read_filter(&assembly, region_for_genotyping.reads.len());
         if region_for_genotyping.reads.is_empty() && !args.disable_optimizations {

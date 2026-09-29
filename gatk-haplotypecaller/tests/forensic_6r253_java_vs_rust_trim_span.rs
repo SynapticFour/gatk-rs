@@ -217,6 +217,8 @@ fn forensic_6r253_java_vs_rust_trim_span() {
             start: e.start_1based.get(),
             end: e.end_1based.get(),
             is_indel: e.is_indel(),
+            ref_allele: e.ref_allele.clone(),
+            alt_allele: e.alt_allele.clone(),
         })
         .collect();
     let overlapping: Vec<&TrimVariant> = trim_variants

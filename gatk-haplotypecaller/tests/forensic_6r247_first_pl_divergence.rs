@@ -420,9 +420,12 @@ fn forensic_6r247_first_pl_divergence_at_canonical_site() {
             )
         };
 
+    // 6R.303 moves the heterozygote combine. Emitted GLs are differences
+    // against that heterozygote, so these bits and the continuous hom-alt
+    // move with it. The integer PL remains 3518.
     assert_eq!(
         subset_gls[0].to_bits(),
-        0xc04c7d8d4e52f190,
+        0xc04c7d8cfca8f448,
         "lock 0/0 GL bits"
     );
     assert_eq!(
@@ -432,11 +435,11 @@ fn forensic_6r247_first_pl_divergence_at_canonical_site() {
     );
     assert_eq!(
         subset_gls[2].to_bits(),
-        0xc075fc06a9c2ead1,
+        0xc075fc069f8dab28,
         "lock 1/1 GL bits"
     );
     assert!(
-        (hom_alt_cont - 3517.516267408328).abs() < 1e-12,
+        (hom_alt_cont - 3517.51617005722891918).abs() < 1e-12,
         "Rust 1/1 continuous PL is 3517.516…; got {hom_alt_cont:.17}"
     );
     assert!(

@@ -70,6 +70,8 @@ mod traces {
                 start: e.start,
                 end: end_of(e),
                 is_indel: e.is_indel,
+                ref_allele: e.ref_al.clone(),
+                alt_allele: e.alt_al.clone(),
             })
             .collect()
     }

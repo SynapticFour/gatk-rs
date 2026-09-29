@@ -85,7 +85,7 @@ SeqGraph k-best **K** (completed paths) is separate from the live-frontier **res
 policy**. Production default remains `legacy_1024`. Experimental env
 `GATK_RS_EXPERIMENTAL_KBEST_POLICY` (`unbounded_diagnostic` / `byte_budget`) is not a
 product contract: [`parity/KBEST_RESOURCE_POLICY.md`](parity/KBEST_RESOURCE_POLICY.md).
-Chr20_tiny 6R.130–6R.273 (default USE_PLS GT/PL/GQ, first AD write after)
+Chr20_tiny 6R.130–6R.305 (default USE_PLS GT/PL/GQ, first AD write after)
 retainEvidence, Class-A3 skip of pileup GT replacement so an assigned
 calculator genotype is preserved; hom-ref calculator 0/0 is not
 VCF-emitted on either diagnostic path; `2:92316347` FORMAT AD/PL now
@@ -406,6 +406,89 @@ integer PL 3519; production unchanged;
 3519; production unchanged;
 6R.273 showed GKL AVX M-update third inner product is float
 `_mm256_mul_ps(Y_t_2, pGAPM)`; first-meaningful-cell CF leaves integer PL
-3519; production unchanged).
+3519; production unchanged;
+6R.274 showed GKL AVX M-update first inner add is float
+`_mm256_add_ps(M*pMM, X*pGAPM)`; first-both-nonzero-cell CF leaves integer
+PL 3519; production unchanged;
+6R.275 showed GKL AVX M-update second inner add is float
+`_mm256_add_ps(partial_M, Y*pGAPM)`; first-both-nonzero-cell CF leaves
+integer PL 3519; production unchanged;
+6R.276 showed GKL AVX M-update outer multiply is float
+`_mm256_mul_ps(closed_6R275_f32_inner_sum, distmSel)`; first-nonzero-cell
+CF leaves integer PL 3519; production unchanged;
+6R.277 showed GKL AVX last-stripe sumM add is float
+`_mm256_add_ps(sumM, M_t)`; first-both-nonzero-lane CF leaves integer PL
+3519; production unchanged;
+6R.278 showed GKL AVX last-stripe sumX add is float
+`_mm256_add_ps(sumX, X_t)`; first-both-nonzero-lane CF leaves integer PL
+3519; production unchanged;
+6R.279 showed GKL AVX last-stripe sumMX add is float
+`_mm256_add_ps(sumM, sumX)`; both-nonzero-lane CF leaves integer PL
+3519; production unchanged;
+6R.280 showed GKL AVX last-stripe sumMX lane extract is
+`sumMX.f[remainingRows-1]`; the bit-preserving read leaves integer PL
+3519; production unchanged;
+6R.281 showed the extracted f32 is compared with `MIN_ACCEPTED` by
+`result_float < 1e-28f`; the identical threshold decision leaves integer
+PL 3519; production unchanged;
+6R.282 showed accepted `log10f(result_float)` is glibc 2.27
+`__ieee754_log10f`; injecting that logarithm leaves integer PL 3519;
+production unchanged;
+6R.283 showed scale-matched GKL and Rust haplotype scores, the
+floor-max aggregate, and the biallelic genotype likelihoods leave
+integer PL 3519; production unchanged;
+6R.284 showed the live x86_64 GKL likelihood matrix leaves integer PL
+3519; production unchanged;
+6R.285 showed the live Java per-read allele likelihoods carry the
+remaining continuous-PL gap; production unchanged;
+6R.286 showed Java's haplotype-to-allele max after the best−4.5 floor
+accounts for that gap; production unchanged;
+6R.287 showed that reduction on Rust's live haplotype matrix leaves
+emitted PL at 3518; production unchanged;
+6R.288 showed this read's H0/H1 difference is already the PairHMM
+return and leaves emitted PL at 3518; production unchanged;
+6R.289 showed the first PairHMM input difference for this read is the
+read-base window, Java `51H97M` at 29455560 versus Rust `60H88M` at
+29455569; production unchanged;
+6R.290 showed that window is the trimmed-span hard clip, Java
+`29455560-29455728` versus Rust `29455569-29455724`; production unchanged;
+6R.291 showed that span split is the STR padding on the indel at
+29455644, Java 84 versus Rust 75; production unchanged;
+6R.292 showed Java's count of 9 is alt `T` plus eight reference `T`s
+from 29455645, while Rust inspected only the one-base event `A` and
+returned no repeat; production unchanged;
+6R.293 showed that adding that 9 on this event alone reproduces Java's
+trimmed span `29455560-29455728`; production unchanged;
+6R.294 showed that forcing that span moves live hom-alt PL from
+`3517.51626740832807627` to `3517.46541826365864836` and the integer
+from 3518 to 3517; production unchanged;
+6R.295 showed the remaining `5.013e-5` is already in the PairHMM
+outputs on that span; production unchanged;
+6R.296 showed that Java columns 0–18 were not captured, so that
+haplotype-5 citation is not a Java PairHMM comparison; production
+unchanged;
+6R.297 showed the LOGLESS 24-column post-normalization matrix matches
+the span-forced Rust matrix on all 2928 cells, while AVX columns 0–18
+remain uncaptured; production unchanged;
+6R.298 showed the stored AVX capture cannot be rerun here because the
+native library is x86_64-only; production unchanged;
+6R.299 showed the LOGLESS allele matrix matches the span-forced Rust
+matrix while the six genotype likelihoods differ; production unchanged;
+6R.300 showed the heterozygote per-read combine is the first
+genotype-likelihood divergence; production unchanged;
+6R.301 showed that combine is Java's Jacobian table versus Rust's
+analytic log10 sum; production unchanged;
+6R.302 confirmed the existing Jacobian helper is the production
+primitive for that combine; production unchanged;
+6R.303 calls that helper from the diploid and biallelic heterozygote
+genotype combines;
+6R.310 makes indel trim padding use Java's anchored tandem-repeat
+count, so `20:29455644 A>AT` pads to `29455560-29455728`;
+6R.311 omits a paired read whose mapped mate is on another contig
+from PairHMM and genotyping evidence;
+6R.312 orders those clipped reads with Java's
+`ReadCoordinateComparator`. The frozen witness `20:29455649 T/TGTTTG`
+matches the GATK 4.4.0.0 genotype likelihoods and PLs bit for bit;
+that is one checkpoint, not GATK-wide parity).
 This is engineering
 discovery in [`PARITY.md`](PARITY.md), not a claim-matrix Yes row.

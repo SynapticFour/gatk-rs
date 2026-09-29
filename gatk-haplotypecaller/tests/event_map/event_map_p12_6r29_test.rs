@@ -669,6 +669,8 @@ mod traces {
                 start: e.start_1based.get(),
                 end: e.end_1based.get(),
                 is_indel: e.is_indel(),
+                ref_allele: e.ref_allele.clone(),
+                alt_allele: e.alt_allele.clone(),
             })
             .collect();
         let rust_trim = trimmer.trim(&region, &all_vars, Some(&region.reference));
@@ -684,6 +686,8 @@ mod traces {
                 start: e.start_1based.get(),
                 end: e.end_1based.get(),
                 is_indel: e.is_indel(),
+                ref_allele: e.ref_allele.clone(),
+                alt_allele: e.alt_allele.clone(),
             })
             .collect();
         let oracle_trim = trimmer.trim(&region, &oracle_vars, Some(&region.reference));

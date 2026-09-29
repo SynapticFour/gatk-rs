@@ -168,6 +168,104 @@ pub fn clip_finalized_reads_to_region(
     owned
 }
 
+thread_local! {
+    /// Production default is Java `ReadCoordinateComparator`.
+    /// `false` restores the pre-6R.312 `(tid, pos, qname)` sort.
+    static FORENSIC_6R308_JAVA_ORDER: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+/// Production clipped-read order is Java `ReadCoordinateComparator`.
+/// Pass `false` only to restore the pre-6R.312 `(tid, pos, qname)` sort.
+pub fn set_forensic_6r308_java_read_coordinate_order(enabled: bool) {
+    FORENSIC_6R308_JAVA_ORDER.with(|c| c.set(enabled));
+}
+
+fn java_int_cmp(a: i32, b: i32) -> i32 {
+    match a.cmp(&b) {
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Greater => 1,
+        std::cmp::Ordering::Equal => 0,
+    }
+}
+
+fn java_name_cmp(a: &[u8], b: &[u8]) -> i32 {
+    let n = a.len().min(b.len());
+    for i in 0..n {
+        let d = i32::from(a[i]) - i32::from(b[i]);
+        if d != 0 {
+            return d;
+        }
+    }
+    a.len() as i32 - b.len() as i32
+}
+
+/// Java `ReadCoordinateComparator.compare` (`ReadCoordinateComparator.java` 35–61).
+///
+/// Reference index, then assigned start, then forward before reverse, then name,
+/// flags, mapping quality, mate reference and mate start when both reads are paired,
+/// then fragment length.
+pub fn java_read_coordinate_compare(first: &bam::Record, second: &bam::Record) -> i32 {
+    let coord = java_compare_coordinates(first, second);
+    if coord != 0 {
+        return coord;
+    }
+    if first.is_reverse() != second.is_reverse() {
+        return if first.is_reverse() { 1 } else { -1 };
+    }
+    let an = first.qname();
+    let bn = second.qname();
+    if !an.is_empty() && !bn.is_empty() {
+        let name = java_name_cmp(an, bn);
+        if name != 0 {
+            return name;
+        }
+    }
+    let flags = java_int_cmp(i32::from(first.flags()), i32::from(second.flags()));
+    if flags != 0 {
+        return flags;
+    }
+    let mapq = java_int_cmp(i32::from(first.mapq()), i32::from(second.mapq()));
+    if mapq != 0 {
+        return mapq;
+    }
+    if first.is_paired() && second.is_paired() {
+        let mate_ref = java_int_cmp(first.mtid(), second.mtid());
+        if mate_ref != 0 {
+            return mate_ref;
+        }
+        let mate_start = java_int_cmp(java_mate_start(first), java_mate_start(second));
+        if mate_start != 0 {
+            return mate_start;
+        }
+    }
+    java_int_cmp(first.insert_size() as i32, second.insert_size() as i32)
+}
+
+fn java_mate_start(rec: &bam::Record) -> i32 {
+    if rec.mpos() < 0 {
+        0
+    } else {
+        (rec.mpos() + 1) as i32
+    }
+}
+
+/// Java `ReadCoordinateComparator.compareCoordinates` (lines 65–67).
+fn java_compare_coordinates(first: &bam::Record, second: &bam::Record) -> i32 {
+    let a_ref = if first.tid() < 0 { -1 } else { first.tid() };
+    let b_ref = if second.tid() < 0 { -1 } else { second.tid() };
+    if a_ref == -1 {
+        return if b_ref == -1 { 0 } else { 1 };
+    }
+    if b_ref == -1 {
+        return -1;
+    }
+    let ref_diff = a_ref - b_ref;
+    if ref_diff != 0 {
+        return ref_diff;
+    }
+    java_int_cmp((first.pos() + 1) as i32, (second.pos() + 1) as i32)
+}
+
 /// Consume-and-clip path for the assemble `finalizeRegion` buffer (no second full copy when
 /// most reads already lie inside the genotyping/padded span).
 pub fn clip_finalized_reads_in_place(reads: &mut Vec<bam::Record>, region: &AssemblyRegion) {
@@ -198,12 +296,17 @@ pub fn clip_finalized_reads_in_place(reads: &mut Vec<bam::Record>, region: &Asse
         normalize_record_cigar(original);
         true
     });
-    reads.sort_by(|a, b| {
-        a.tid()
-            .cmp(&b.tid())
-            .then_with(|| a.pos().cmp(&b.pos()))
-            .then_with(|| a.qname().cmp(b.qname()))
-    });
+    if FORENSIC_6R308_JAVA_ORDER.with(|c| c.get()) {
+        reads.sort_by(|a, b| java_read_coordinate_compare(a, b).cmp(&0));
+    } else {
+        // Pre-6R.312 counterfactual. Not the production order.
+        reads.sort_by(|a, b| {
+            a.tid()
+                .cmp(&b.tid())
+                .then_with(|| a.pos().cmp(&b.pos()))
+                .then_with(|| a.qname().cmp(b.qname()))
+        });
+    }
     // Java `HaplotypeCallerEngine.callRegion`: remove read stubs after trim
     // (`unclippedReadLength < MINIMUM_READ_LENGTH_AFTER_TRIMMING`) before PairHMM.
     reads.retain(|r| {

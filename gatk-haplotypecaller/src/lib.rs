@@ -131,6 +131,7 @@ pub(crate) mod read_error_correction;
 pub(crate) mod read_optional_tags;
 pub(crate) mod read_pre_len;
 pub(crate) mod read_pre_mate;
+pub use read_pre_mate::passes_mate_on_same_contig_or_no_mapped_mate;
 pub(crate) mod read_pre_mq;
 pub mod read_unclip;
 pub(crate) mod region_pileup;
@@ -344,8 +345,9 @@ pub use assembly_region_iterator::{
     AssemblyRegionIterator, AssemblyRegionIteratorConfig, MAX_READS_PER_ASSEMBLY_REGION,
 };
 pub use assembly_region_trimmer::{
-    load_trim_variants_tsv, trim_assembly_region, AssemblyRegionTrimResult, AssemblyRegionTrimmer,
-    AssemblyRegionTrimmerConfig, TrimVariant,
+    load_trim_variants_tsv, longest_str_len_at_variant, tandem_repeat_at_event,
+    trim_assembly_region, AssemblyRegionTrimResult, AssemblyRegionTrimmer,
+    AssemblyRegionTrimmerConfig, TandemRepeatAtEvent, TrimVariant,
 };
 /// CLI diagnostic (`gatk-cli DumpSmoothedActivity`) — requires `dev-dumps`.
 #[cfg(feature = "dev-dumps")]
@@ -358,16 +360,21 @@ pub use bio_ids::{
     ReferenceCoordinate, SampleIndex,
 };
 pub use combine_gvcfs::{run_combine_gvcfs, CombineGvcfsArgs};
-pub use engine::{
-    begin_hap_list_observe, begin_likelihood_pipeline_observe, begin_poorly_modeled_observe,
-    begin_realign_observe, observe_poorly_modeled_haplotypes, take_hap_list_snaps,
-    take_hap_list_trim_span, take_likelihood_pipeline_cells, take_likelihood_pipeline_snaps,
-    take_poorly_modeled_cells, take_poorly_modeled_haplotypes, take_poorly_modeled_observe,
-    take_realign_observe, CallRegionArgs, CallRegionMode, CallRegionOutcome, HapListColumn,
-    HapListSnap, HapListTrimSpan, HaplotypeCallerEngine, LikelihoodPipelineCell,
-    LikelihoodPipelineSnap, PoorlyModeledHapColumn, PoorlyModeledObserveCell,
-    PoorlyModeledObserveRow, RealignObserveRow,
+pub use engine::engine_observe::{
+    begin_forensic_6r307_order_observe, begin_hap_list_observe, begin_likelihood_pipeline_observe,
+    begin_poorly_modeled_observe, begin_realign_observe, begin_trim_calc_observe,
+    failed_mate_evidence_keys, failed_mate_key_of, forensic_6r306_excluded_count,
+    forensic_6r306_mate_fail_noted, observe_poorly_modeled_haplotypes,
+    set_forensic_6r294_padded_span, set_forensic_6r306_exclude_failed_mate,
+    take_forensic_6r307_order, take_hap_list_snaps, take_hap_list_trim_span,
+    take_likelihood_pipeline_cells, take_likelihood_pipeline_snaps, take_poorly_modeled_cells,
+    take_poorly_modeled_haplotypes, take_poorly_modeled_observe, take_realign_observe,
+    take_trim_calc_snap, Forensic6r307Read, HapListColumn, HapListSnap, HapListTrimSpan,
+    LikelihoodPipelineCell, LikelihoodPipelineSnap, PoorlyModeledHapColumn,
+    PoorlyModeledObserveCell, PoorlyModeledObserveRow, RealignObserveRow, TrimCalcSnap,
+    TrimCalcVar,
 };
+pub use engine::{CallRegionArgs, CallRegionMode, CallRegionOutcome, HaplotypeCallerEngine};
 pub use event_map::{AlleleBytes, Event, EventMap, IndelSpan};
 pub use feature_context::{FeatureContext, FeatureDataSources, FeatureLocatable};
 pub use gatk_well_rng::{Well19937c, GATK_WELL19937C_SEED};
@@ -440,10 +447,7 @@ pub use read_model::{
     FLAG_VENDOR_QUALITY_FAILED, GATK_HC_DEFAULT_MIN_MAPPING_QUALITY, MAPPING_QUALITY_UNAVAILABLE,
     STANDARD_HC_READ_FILTER_JAVA_NAMES,
 };
-pub use read_projection::{
-    cigar_hard_clip_length, cigar_soft_clip_ends, query_index_at_reference_position,
-    reference_position_at_query_index,
-};
+pub use read_projection::{query_index_at_reference_position, reference_position_at_query_index};
 pub use read_threading_assembler::{
     assemble_from_ref_and_reads, audit_threading_dangling_recovery,
     diagnostic_rt_first_skip_seq_graph_kmer, AssemblyResult as ThreadingAssemblyResult,
