@@ -2,6 +2,10 @@
 # Versioned pre-commit hook for gatk-rs (enable via scripts/dev/install-hooks.sh).
 # Compatible with macOS Bash 3.2 (no mapfile / namerefs).
 set -euo pipefail
+# macOS 27: ld-1267 cannot read arm64e.x1 in the CLT SDK. See macos-sdk.sh.
+# shellcheck disable=SC1091
+source "$(git rev-parse --show-toplevel)/scripts/hooks/macos-sdk.sh"
+use_linkable_macos_sdk
 
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
