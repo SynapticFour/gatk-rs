@@ -465,7 +465,10 @@ and the 6R.312 production change that clipped PairHMM reads use Java's
 Java's order.
 The frozen witness `20:29455649 T/TGTTTG` matches GATK 4.4.0.0 genotype
 likelihoods and PLs bit for bit. That is one checkpoint, not GATK-wide
-parity. See [`docs/parity/6R.312_FINAL_CLOSURE.md`](parity/6R.312_FINAL_CLOSURE.md).
+parity. 6R.314 holds those four production semantics out on other synthetic
+events and reads; all five executed holdouts passed, and production
+behavior was not changed. See [`docs/parity/6R.314_HOLDOUT.md`](parity/6R.314_HOLDOUT.md).
+See [`docs/parity/6R.312_FINAL_CLOSURE.md`](parity/6R.312_FINAL_CLOSURE.md).
 It is **not** a
 claim-matrix Yes row and does not
 establish chr20 VCF allele-set closure.
