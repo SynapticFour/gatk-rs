@@ -150,5 +150,24 @@ if [[ "$has_rs" -eq 1 ]]; then
   cargo test --workspace --lib
 fi
 
+# 8) HaplotypeCaller source-contract integration tests.
+# `cargo test --lib` does not compile gatk-haplotypecaller/tests/*.rs, so a
+# green lib suite still lets CI fail on the next forensic_*_source check.
+# Only those source functions run here. Live chr20/P12 bodies stay out: a
+# name filter of `_source_` also matches live tests such as
+# read_pos_rank_sum_source_arrow, which need local fixtures CI does not have.
+if echo " $crates " | grep -q " gatk-haplotypecaller "; then
+  echo "[pre-commit] haplotypecaller source-contract tests"
+  source_bins=$(grep -lE 'fn forensic_6r[0-9]+_source' gatk-haplotypecaller/tests/*.rs || true)
+  while IFS= read -r src; do
+    [[ -z "$src" ]] && continue
+    bin=$(basename "$src" .rs)
+    echo "[pre-commit] source contract: ${bin}"
+    cargo test -p gatk-haplotypecaller --test "$bin" _source -- --test-threads=8 --skip live
+  done <<EOF
+${source_bins}
+EOF
+fi
+
 echo "[pre-commit] ok"
 exit 0

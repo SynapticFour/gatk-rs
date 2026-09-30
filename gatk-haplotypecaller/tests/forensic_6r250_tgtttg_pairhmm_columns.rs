@@ -25,7 +25,7 @@ use gatk_haplotypecaller::{
     region_likelihoods_to_rows, take_hap_list_snaps, take_hap_list_trim_span,
     take_likelihood_pipeline_cells, traverse_assembly_region_walker, AssemblyRegionCallDisposition,
     CallRegionArgs, GenomePosition, Haplotype, HaplotypeCallerEngine, HcLikelihoodEngineConfig,
-    PairHmmBackend, ReadFilterParams, WalkerTraversalConfig, GATK_PARITY_DEFAULT_GCP,
+    ReadFilterParams, WalkerTraversalConfig, GATK_PARITY_DEFAULT_GCP,
 };
 use rust_htslib::bam::record::Aux;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -196,9 +196,18 @@ fn forensic_6r250_source_pairhmm_lifecycle() {
     assert!(score.contains("apply_pcr_error_model"));
     assert!(score.contains("fill_indel_gop_from_optional_tag"));
     assert!(score.contains("scratch.gcp[..n].fill(GATK_PARITY_DEFAULT_GCP)"));
+    let prepared = fn_body(&ll_eng, "fn score_prepared");
     assert!(
-        !score.contains("cigar"),
+        prepared.contains("haplotype_bases"),
         "PairHMM kernel takes haplotype bases, not CIGAR"
+    );
+    assert!(
+        !prepared.contains("cigar"),
+        "PairHMM kernel takes haplotype bases, not CIGAR"
+    );
+    assert!(
+        score.contains("state.cigar.clone()"),
+        "CIGAR in score_read_against_haplotypes is the 6R.289 snapshot field, not a kernel argument"
     );
     kv(
         "rust_pairhmm_prep",
@@ -229,8 +238,8 @@ fn forensic_6r250_source_pairhmm_lifecycle() {
     );
     assert_eq!(
         cfg.resolved_pair_hmm_backend(),
-        PairHmmBackend::NeonF64,
-        "this host is aarch64 NEON f64"
+        gatk_haplotypecaller::best_simd_backend(),
+        "production FastestAvailable resolves to this host's SIMD backend"
     );
 }
 
