@@ -1,8 +1,8 @@
-//! 6R.243: proof-only. Why `annotation_likelihoods` is empty at
-//! `20:29455649 T/TGTTTG` while Java Coverage INFO DP is 123.
+//! 6R.243 located the empty merge constructor at `20:29455649 T/TGTTTG`.
+//! 6R.246 replaced it with `annotation_likelihoods: subset.into_owned()`.
+//! This file locks that closed contract. Do not retune PL.
 //!
 //! Frozen Java 4.4.0.0 SHA `2dbc025821bc5f686c423ff332a41e6cef892a77`.
-//! PRODUCTION CHANGE: NONE. Do not attach, force DP, or retune PL.
 //!
 //! ```text
 //! cargo test -p gatk-haplotypecaller --test forensic_6r243_annotation_likelihood_lifecycle -- --nocapture --test-threads=1
@@ -75,30 +75,40 @@ fn src_contains(rel: &str, needle: &str) -> bool {
 #[test]
 fn forensic_6r243_source_lifecycle_is_merge_empty_attach() {
     kv("java_pin", JAVA_PIN);
-    kv("production_change", "NONE");
+    kv(
+        "production_change",
+        "6R.246 annotation_likelihoods: subset.into_owned()",
+    );
     assert_eq!(DEFAULT_NUM_BEST_HAPLOTYPES_PER_GRAPH, 128);
 
     let assign = fs::read_to_string(
         repo_root().join("gatk-haplotypecaller/src/hc_genotyping_engine/genotype_assign.rs"),
     )
     .unwrap();
+    let merge_at = assign
+        .find("fn try_genotype_colocated_snp_indel_merge")
+        .expect("merge fn");
+    let merge_rest = &assign[merge_at..];
+    let merge_end = merge_rest[1..]
+        .find("\nfn ")
+        .map(|i| i + 1)
+        .unwrap_or(merge_rest.len());
+    let merge = &merge_rest[..merge_end];
     kv(
-        "merge_constructs_empty_annotation",
-        format!(
-            "{}",
-            assign.contains("annotation_likelihoods: Vec::new()")
-                && assign.contains("fn try_genotype_colocated_snp_indel_merge")
-                && assign.contains("ColocatedMergeGenotype::Call(GenotypedSiteCall")
-                && !assign.contains("with_annotation_likelihoods")
-        ),
+        "merge_annotation_field",
+        "annotation_likelihoods: subset.into_owned()",
     );
     assert!(
-        assign.contains("annotation_likelihoods: Vec::new()"),
-        "colocated merge constructs GenotypedSiteCall with empty annotation_likelihoods"
+        merge.contains("annotation_likelihoods: subset.into_owned()"),
+        "6R.246 attaches retainEvidence; colocated merge does not construct an empty annotation object"
     );
     assert!(
-        !assign.contains("with_annotation_likelihoods"),
-        "merge path never calls with_annotation_likelihoods"
+        !merge.contains("annotation_likelihoods: Vec::new()"),
+        "empty annotation_likelihoods is not the live merge constructor"
+    );
+    assert!(
+        !merge.contains("with_annotation_likelihoods"),
+        "merge path writes the struct field; it does not call with_annotation_likelihoods"
     );
     assert!(
         assign.contains("merged_handled_locs.insert(loc)"),
@@ -149,6 +159,10 @@ fn forensic_6r243_source_lifecycle_is_merge_empty_attach() {
 
 #[test]
 fn forensic_6r243_live_empty_is_merge_skip_not_retain_zero() {
+    if std::env::var("FORENSIC_6R243_LIVE").ok().as_deref() != Some("1") {
+        eprintln!("skip: pre-6R.246 live empty-attach counterfactual");
+        return;
+    }
     kv("java_pin", JAVA_PIN);
     kv("production_change", "NONE");
     let root = repo_root();

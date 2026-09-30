@@ -1,10 +1,9 @@
-//! 6R.244: proof-only. Why colocated SNP/indel merge does not attach the
-//! already-available 123-read annotation likelihood object at
-//! `20:29455649 T/TGTTTG`.
+//! 6R.244 showed the 123-read subset was in scope and not attached at
+//! `20:29455649 T/TGTTTG`. 6R.246 attaches it with
+//! `annotation_likelihoods: subset.into_owned()`. This file locks that
+//! closed contract. Do not retune PL.
 //!
 //! Frozen Java 4.4.0.0 SHA `2dbc025821bc5f686c423ff332a41e6cef892a77`.
-//! PRODUCTION CHANGE: NONE. Do not attach the 123-read object, alter
-//! `merged_handled_locs`, Coverage, INFO DP, PL, or emission.
 //!
 //! ```text
 //! cargo test -p gatk-haplotypecaller --test forensic_6r244_colocated_merge_annotation_lifecycle -- --nocapture --test-threads=1
@@ -84,7 +83,10 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> &'a str {
 #[test]
 fn forensic_6r244_source_merge_drops_in_scope_subset() {
     kv("java_pin", JAVA_PIN);
-    kv("production_change", "NONE");
+    kv(
+        "production_change",
+        "6R.246 annotation_likelihoods: subset.into_owned()",
+    );
     assert_eq!(DEFAULT_NUM_BEST_HAPLOTYPES_PER_GRAPH, 128);
 
     let assign = fs::read_to_string(
@@ -100,8 +102,11 @@ fn forensic_6r244_source_merge_drops_in_scope_subset() {
         ),
     );
     kv(
-        "merge_fn_empty_annotation",
-        format!("{}", merge.contains("annotation_likelihoods: Vec::new()")),
+        "merge_fn_annotation",
+        format!(
+            "{}",
+            merge.contains("annotation_likelihoods: subset.into_owned()")
+        ),
     );
     kv(
         "merge_fn_with_annotation",
@@ -119,29 +124,35 @@ fn forensic_6r244_source_merge_drops_in_scope_subset() {
     let subset_pos = merge
         .find("let subset = likelihood_subset_for_event")
         .expect("subset");
-    let empty_pos = merge
-        .find("annotation_likelihoods: Vec::new()")
-        .expect("empty annotation field");
+    let owned_pos = merge
+        .find("annotation_likelihoods: subset.into_owned()")
+        .expect("into_owned");
     assert!(
-        subset_pos < empty_pos,
-        "123-read subset is still in scope when the Call is constructed empty"
+        subset_pos < owned_pos,
+        "123-read subset is in scope when the Call attaches it"
     );
     assert!(
         !merge.contains("with_annotation_likelihoods"),
         "merge never calls GenotypedSiteCall::with_annotation_likelihoods"
     );
     assert_eq!(
-        merge.matches("annotation_likelihoods: Vec::new()").count(),
+        merge
+            .matches("annotation_likelihoods: subset.into_owned()")
+            .count(),
         1,
-        "every successful colocated merge Call uses the same empty field; not a site-specific branch"
+        "every successful colocated merge Call attaches the same subset"
+    );
+    assert!(
+        !merge.contains("annotation_likelihoods: Vec::new()"),
+        "empty sentinel must not remain on the Call constructor"
     );
     assert!(
         merge.contains("ColocatedMergeGenotype::Call(GenotypedSiteCall"),
         "result type is GenotypedSiteCall, which can carry annotation_likelihoods"
     );
     assert!(
-        !merge.contains("subset.clone()") && !merge.contains("annotation_likelihoods: subset"),
-        "subset is not assigned onto the Call"
+        !merge.contains("subset.clone()"),
+        "into_owned moves the Cow; it does not clone the matrix"
     );
 
     let walker = fn_body(&assign, "pub fn assign_genotype_likelihoods_for_region");
@@ -252,8 +263,15 @@ fn forensic_6r244_java_lifecycle_reuses_genotyping_object() {
 
 #[test]
 fn forensic_6r244_live_merge_result_loses_123_then_handled_locs_skip_sitescore() {
+    if std::env::var("FORENSIC_6R244_LIVE").ok().as_deref() != Some("1") {
+        eprintln!("skip: pre-6R.246 live empty-attach counterfactual");
+        return;
+    }
     kv("java_pin", JAVA_PIN);
-    kv("production_change", "NONE");
+    kv(
+        "production_change",
+        "6R.246 annotation_likelihoods: subset.into_owned()",
+    );
     let root = repo_root();
     let java_vcf = root.join(JAVA_VCF_REL);
     if !java_vcf.is_file() || !root.join(REF_REL).is_file() || !root.join(BAM_REL).is_file() {

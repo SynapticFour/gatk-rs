@@ -1,8 +1,8 @@
-//! 6R.245: proof-only. Minimal Java-equivalent annotation propagation
-//! contract for colocated merge at `20:29455649 T/TGTTTG`.
+//! 6R.245 specified the propagation contract at `20:29455649 T/TGTTTG`.
+//! 6R.246 implements it: `annotation_likelihoods: subset.into_owned()` after
+//! `hap_rows`. This file locks that closed contract. Do not retune PL.
 //!
 //! Frozen Java 4.4.0.0 SHA `2dbc025821bc5f686c423ff332a41e6cef892a77`.
-//! PRODUCTION CHANGE: NONE. Do not attach `subset` onto the Call.
 //!
 //! ```text
 //! cargo test -p gatk-haplotypecaller --test forensic_6r245_colocated_merge_annotation_propagation -- --nocapture --test-threads=1
@@ -75,7 +75,10 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> &'a str {
 #[test]
 fn forensic_6r245_source_propagation_contract() {
     kv("java_pin", JAVA_PIN);
-    kv("production_change", "NONE");
+    kv(
+        "production_change",
+        "6R.246 annotation_likelihoods: subset.into_owned()",
+    );
     assert_eq!(DEFAULT_NUM_BEST_HAPLOTYPES_PER_GRAPH, 128);
 
     let assign = fs::read_to_string(
@@ -91,31 +94,35 @@ fn forensic_6r245_source_propagation_contract() {
         "exactly one successful Call constructor"
     );
     assert_eq!(
-        merge.matches("annotation_likelihoods: Vec::new()").count(),
+        merge
+            .matches("annotation_likelihoods: subset.into_owned()")
+            .count(),
         1
+    );
+    assert!(
+        !merge.contains("annotation_likelihoods: Vec::new()"),
+        "empty sentinel must not remain on the Call constructor"
     );
     assert!(merge.contains("let subset = likelihood_subset_for_event"));
     assert!(merge.contains("let hap_rows = region_likelihoods_to_rows(subset.as_ref()"));
     let hap_rows_pos = merge
         .find("let hap_rows = region_likelihoods_to_rows(subset.as_ref()")
         .expect("hap_rows");
-    let empty_pos = merge
-        .find("annotation_likelihoods: Vec::new()")
-        .expect("empty");
+    let owned_pos = merge
+        .find("annotation_likelihoods: subset.into_owned()")
+        .expect("into_owned");
     assert!(
-        hap_rows_pos < empty_pos,
-        "hap_rows is built from subset.as_ref() before Call; subset is then unused"
+        hap_rows_pos < owned_pos,
+        "hap_rows borrows subset.as_ref() before into_owned moves it"
     );
     let hap_line_end = hap_rows_pos
         + merge[hap_rows_pos..]
             .find('\n')
             .expect("hap_rows statement");
-    let after_hap = &merge[hap_line_end..empty_pos];
+    let after_hap = &merge[hap_line_end..owned_pos];
     assert!(
-        !after_hap.contains("subset.as_ref")
-            && !after_hap.contains("subset.into_owned")
-            && !after_hap.contains("let subset"),
-        "GL/AD/QUAL consume hap_rows/marg; local subset is unused after hap_rows"
+        !after_hap.contains("subset.as_ref()") && !after_hap.contains("let subset ="),
+        "GL/AD/QUAL consume hap_rows; into_owned is the next use of subset"
     );
     assert!(merge.contains("return Ok(ColocatedMergeGenotype::NotApplicable)"));
     assert!(merge.contains("return Ok(ColocatedMergeGenotype::MergedNoEmit)"));
@@ -125,7 +132,7 @@ fn forensic_6r245_source_propagation_contract() {
     );
     kv(
         "call_constructors",
-        "one Call(GenotypedSiteCall { … Vec::new() }); NotApplicable and MergedNoEmit do not produce a Call",
+        "one Call(GenotypedSiteCall { … subset.into_owned() }); NotApplicable and MergedNoEmit do not produce a Call",
     );
 
     let subset_fn = fs::read_to_string(
@@ -201,8 +208,15 @@ fn forensic_6r245_source_propagation_contract() {
 
 #[test]
 fn forensic_6r245_live_subset_is_sufficient_for_info_dp_123() {
+    if std::env::var("FORENSIC_6R245_LIVE").ok().as_deref() != Some("1") {
+        eprintln!("skip: pre-6R.246 live empty-attach counterfactual");
+        return;
+    }
     kv("java_pin", JAVA_PIN);
-    kv("production_change", "NONE");
+    kv(
+        "production_change",
+        "6R.246 annotation_likelihoods: subset.into_owned()",
+    );
     let root = repo_root();
     if !root.join(JAVA_VCF_REL).is_file()
         || !root.join(REF_REL).is_file()
