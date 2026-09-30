@@ -169,5 +169,42 @@ ${source_bins}
 EOF
 fi
 
+# 9) Forensic tests CI cannot skip. They carry committed tables and do not
+# return when the chr20 BAM is absent, so a *_source-only gate never sees them.
+if echo " $crates " | grep -q " gatk-haplotypecaller "; then
+  echo "[pre-commit] haplotypecaller always-on forensic tests"
+  always_on=$(python3 - <<'PY'
+import pathlib, re
+root = pathlib.Path("gatk-haplotypecaller/tests")
+for path in sorted(root.glob("forensic_6r*.rs")):
+    number = re.search(r"forensic_6r(\d+)", path.name)
+    if not number or int(number.group(1)) < 284:
+        continue
+    text = path.read_text(encoding="utf-8", errors="replace")
+    parts = re.split(r"\n#\[test\]\n", text)
+    for part in parts[1:]:
+        match = re.match(r"fn\s+(\w+)", part)
+        if not match:
+            continue
+        body = part.split("\n#[test]\n", 1)[0]
+        if "is_file()" in body or 'env::var("HOLDOUT' in body or 'env::var("FORENSIC_' in body:
+            continue
+        print(f"{path.stem} {match.group(1)}")
+PY
+)
+  while IFS= read -r row; do
+    [[ -z "$row" ]] && continue
+    bin=${row%% *}
+    fn=${row#* }
+    echo "[pre-commit] always-on: ${fn}"
+    cargo test -p gatk-haplotypecaller --test "$bin" "$fn" -- --test-threads=8
+  done <<EOF
+${always_on}
+EOF
+  # 6R.298 keeps its TSV asserts on CI and skips the Homebrew JDK probe.
+  echo "[pre-commit] always-on: forensic_6r298_java_avx_vs_logless"
+  cargo test -p gatk-haplotypecaller --test forensic_6r298_java_avx_vs_logless -- --test-threads=8
+fi
+
 echo "[pre-commit] ok"
 exit 0

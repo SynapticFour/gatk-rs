@@ -10,9 +10,7 @@
 //! cargo test -p gatk-haplotypecaller --test forensic_6r285_downstream_checkpoint_localization -- --nocapture --test-threads=1
 //! ```
 
-use gatk_haplotypecaller::{
-    biallelic_genotype_log10_likelihoods_gatk, logless_pairhmm_likelihood, ReadLikelihoodRow,
-};
+use gatk_haplotypecaller::{log10_sum_log10, logless_pairhmm_likelihood, ReadLikelihoodRow};
 use std::collections::HashMap;
 
 const FLOOR: f64 = -4.5;
@@ -98,7 +96,24 @@ fn biallelic_gls(l0: &[f64], l2: &[f64], floor: bool) -> Vec<f64> {
             }
         })
         .collect();
-    biallelic_genotype_log10_likelihoods_gatk(&rows, 0, 1)
+    // Pinned baseline is the analytic heterozygote from before 6R.303.
+    analytic_biallelic_gls(&rows)
+}
+
+fn analytic_biallelic_gls(rows: &[ReadLikelihoodRow]) -> Vec<f64> {
+    let log10_ploidy = 2.0_f64.log10();
+    let denominator = rows.len() as f64 * log10_ploidy;
+    let mut g0 = 0.0;
+    let mut g1 = 0.0;
+    let mut g2 = 0.0;
+    for row in rows {
+        let lr = row.haplotype_log10_likelihoods[0];
+        let la = row.haplotype_log10_likelihoods[1];
+        g0 += lr + log10_ploidy;
+        g2 += la + log10_ploidy;
+        g1 += log10_sum_log10(&[lr, la]);
+    }
+    vec![g0 - denominator, g1 - denominator, g2 - denominator]
 }
 
 fn emitted_hom_alt(gls: &[f64]) -> (f64, i32) {

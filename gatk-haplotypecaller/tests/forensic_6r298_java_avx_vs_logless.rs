@@ -142,6 +142,16 @@ fn forensic_6r298_java_avx_vs_logless() {
     assert!(avx_cells > 0);
     assert_eq!(avx_f32, avx_cells);
 
+    let java = "/opt/homebrew/opt/openjdk/bin/java";
+    let javac = "/opt/homebrew/opt/openjdk/bin/javac";
+    let jar = "/tmp/gatk440/gatk-package-4.4.0.0-local.jar";
+    if !Path::new(java).is_file() || !Path::new(javac).is_file() || !Path::new(jar).is_file() {
+        eprintln!("skip: local GATK jar / Homebrew JDK absent");
+        kv("avx_on_this_host", "probe skipped");
+        kv("classification", "JAVA_AVX_CAPTURE_NOT_REPRODUCIBLE");
+        kv("production_change", "NONE");
+        return;
+    }
     let probe = avx_probe();
     assert!(probe.contains("AVX_UNAVAILABLE"), "probe output: {probe}");
     assert!(probe.contains("Machine does not support AVX PairHMM."));
