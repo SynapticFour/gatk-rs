@@ -291,3 +291,116 @@ fn score_pairhmm_from_records<R: std::borrow::Borrow<rust_htslib::bam::Record> +
     }
     Ok(out)
 }
+
+#[cfg(test)]
+mod holdout_6r314 {
+    use super::super::forensic_6r306_note_pre_filter_reads;
+    use super::score_pairhmm_from_records_java_mate_contig;
+
+    fn holdout_6r314_rec(
+        qname: &str,
+        paired: bool,
+        unmapped: bool,
+        mate_unmapped: bool,
+        mtid: i32,
+        mapq: u8,
+    ) -> rust_htslib::bam::Record {
+        use rust_htslib::bam::record::{Cigar, CigarString};
+        use rust_htslib::bam::{HeaderView, Record};
+        use std::sync::Arc;
+        let mut r = Record::new();
+        r.set_header(Arc::new(HeaderView::from_bytes(
+            b"@HD\tVN:1.0\n@SQ\tSN:hold-a\tLN:1000\n@SQ\tSN:hold-b\tLN:1000\n",
+        )));
+        r.set(
+            qname.as_bytes(),
+            Some(&CigarString::from(vec![Cigar::Match(16)])),
+            b"ACGTACGTACGTACGT",
+            &vec![30u8; 16],
+        );
+        r.set_tid(0);
+        r.set_pos(100);
+        r.set_mtid(mtid);
+        r.set_mapq(mapq);
+        if paired {
+            r.set_paired();
+        }
+        if unmapped {
+            r.set_unmapped();
+        } else {
+            r.unset_unmapped();
+        }
+        if mate_unmapped {
+            r.set_mate_unmapped();
+        } else {
+            r.unset_mate_unmapped();
+        }
+        r
+    }
+
+    /// 6R.314 failed-mate checkpoint: mate-fail reads get no likelihood row.
+    /// A read absent from the pre-filter originals (length / MAPQ / read-group)
+    /// still receives `0.0` cells. Runs in the lib suite; `src/` cannot read
+    /// `HOLDOUT_6R314` (`std::env::var` is allowlisted).
+    #[test]
+    fn holdout_6r314_failed_mate_zero_row() {
+        use crate::haplotype::Haplotype;
+        use crate::likelihood_engine::HcLikelihoodEngineConfig;
+        use crate::shared_bam::share_record;
+
+        let keeper = holdout_6r314_rec("hold314-same", true, false, false, 0, 20);
+        let low_mapq = holdout_6r314_rec("hold314-low-mapq", true, false, false, 0, 1);
+        let cross = holdout_6r314_rec("hold314-cross", true, false, false, 1, 20);
+        let ghost = holdout_6r314_rec("hold314-length-absent", true, false, false, 0, 20);
+        let originals = [
+            share_record(keeper.clone()),
+            share_record(low_mapq.clone()),
+            share_record(cross.clone()),
+        ];
+        forensic_6r306_note_pre_filter_reads(&originals);
+        let hap = Haplotype::new(b"ACGTACGTACGTACGT".to_vec(), true);
+        let scored = [
+            keeper.clone(),
+            low_mapq.clone(),
+            cross.clone(),
+            ghost.clone(),
+        ];
+        let out = score_pairhmm_from_records_java_mate_contig(
+            &scored,
+            &[hap],
+            &HcLikelihoodEngineConfig::gatk_haplotype_caller_production(),
+            &originals,
+        )
+        .expect("pairhmm");
+        let rows = |idx: usize| -> Vec<f64> {
+            out.iter()
+                .filter(|c| c.read_index.get() == idx)
+                .map(|c| c.log10_likelihood)
+                .collect()
+        };
+        let keeper_rows = rows(0);
+        let mapq_rows = rows(1);
+        let cross_rows = rows(2);
+        let ghost_rows = rows(3);
+        assert!(!keeper_rows.is_empty(), "same-contig read stays in PairHMM");
+        assert!(
+            keeper_rows.iter().any(|v| *v != 0.0),
+            "same-contig row is a PairHMM score, not an inserted zero"
+        );
+        assert!(!mapq_rows.is_empty(), "low MAPQ is not a mate exclusion");
+        assert!(
+            cross_rows.is_empty(),
+            "different-contig mate has no zero row"
+        );
+        assert!(
+            !ghost_rows.is_empty(),
+            "length/MQ/RG-style miss still has cells"
+        );
+        assert!(
+            ghost_rows.iter().all(|v| *v == 0.0),
+            "absent original receives 0.0 cells, got {ghost_rows:?}"
+        );
+        forensic_6r306_note_pre_filter_reads(&[]);
+        println!("6R314\tcheckpoint\tzero_row\tPASS");
+    }
+}

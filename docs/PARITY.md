@@ -72,6 +72,11 @@ tolerance or rounding workaround is used.
 Cumulative 6R gates through 6R.312: 182. `HOLDOUT_6R243` was not run.
 Details: [`parity/6R.312_FINAL_CLOSURE.md`](parity/6R.312_FINAL_CLOSURE.md).
 
+6R.314 holds out the four production semantics on synthetic inputs that are
+not `20:29455649 T/TGTTTG` and not `20:29455644 A>AT`. All five executed
+holdouts passed. Cumulative 6R gates through 6R.314: 187. `HOLDOUT_6R243`
+was not run. Details: [`parity/6R.314_HOLDOUT.md`](parity/6R.314_HOLDOUT.md).
+
 This is not genome-wide equivalence, not a clinical drop-in, and not a claim that every
 interval, sample, or annotation matches Java. Signed product scopes remain P12 / L2 /
 synthetic joint gates in the claim matrix.
@@ -1649,6 +1654,22 @@ name sort remains only as a diagnostic counterfactual: it still
 moves GL index 3 by 2 ULP and index 5 by 1 ULP.
 `classification: JAVA_READ_ORDERING_PRODUCTION_PATCH_REPRODUCES_JAVA`.
 `production_change: YES`.
+
+6R.314: holdout. The four production semantics are checked on synthetic
+inputs other than `20:29455649 T/TGTTTG` and `20:29455644 A>AT`.
+Tandem-repeat trim, failed-mate membership, clipped-read order, and
+the Jacobian heterozygote combine each pass, and one composite on
+`chrHold:4500 G>GCAG` passes those checkpoints in that order.
+`classification: STR_HOLDOUT_PASS`, `FAILED_MATE_HOLDOUT_PASS`,
+`READ_ORDER_HOLDOUT_PASS`, `JACOBIAN_HOLDOUT_PASS`,
+`COMPOSITE_HOLDOUT_PASS`.
+`production_change: NONE`.
+`HOLDOUT_6R243` was not run.
+
+```text
+HOLDOUT_6R314=1 cargo test -p gatk-haplotypecaller --test holdout_6r314_post_milestone_generalization -- --test-threads=1
+cargo test -p gatk-haplotypecaller --lib holdout_6r314_failed_mate_zero_row -- --test-threads=1
+```
 
 ```text
 HOLDOUT_6R158=1 GATK_RS_EXPERIMENTAL_KBEST_POLICY=unbounded_diagnostic \
