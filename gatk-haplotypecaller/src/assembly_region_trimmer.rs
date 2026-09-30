@@ -28,6 +28,10 @@ pub struct TrimVariant {
     pub start: u64,
     pub end: u64,
     pub is_indel: bool,
+    /// Full reference allele, including the shared anchor base.
+    pub ref_allele: String,
+    /// Full alternate allele, including the shared anchor base.
+    pub alt_allele: String,
 }
 
 impl TrimVariant {
@@ -184,11 +188,17 @@ impl AssemblyRegionTrimmer {
             };
             if v.is_indel {
                 if let Some(ref_ctx) = reference {
-                    if let Some(longest_str) = longest_str_len_at_variant(ref_ctx, v.start, v.end) {
+                    if let Some(repeat) = tandem_repeat_at_event(
+                        ref_ctx.window_start,
+                        ref_ctx.bases.as_slice(),
+                        v.start,
+                        v.ref_allele.as_bytes(),
+                        v.alt_allele.as_bytes(),
+                    ) {
                         padding = self
                             .cfg
                             .str_padding_for_genotyping
-                            .saturating_add(longest_str as u32);
+                            .saturating_add(repeat.padding_bases() as u32);
                     }
                 }
             }
@@ -333,8 +343,125 @@ fn merge_with_contiguous(a_start: u64, a_end: u64, b_start: u64, b_end: u64) -> 
     (min(a_start, b_start), max(a_end, b_end))
 }
 
-/// Simplified STR detection: longest homopolymer/run in ref window at variant (parity with small fixtures).
-fn longest_str_len_at_variant(ref_ctx: &ReferenceContext, start: u64, end: u64) -> Option<usize> {
+/// Repeat unit and per-allele unit counts for one indel.
+///
+/// GATK `TandemRepeat.getNumTandemRepeatUnits` (SHA `2dbc0258`): the reference
+/// scan starts at `event_start + 1 - window_start`, so the anchor base is not
+/// part of the repeat. The longer of the anchor-stripped ref and alt alleles
+/// supplies the unit. Counts are the leading copies of that unit on the
+/// reference allele and on the alternate allele, each continued into the
+/// reference bases after the anchor. `None` when Java returns null.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TandemRepeatAtEvent {
+    pub unit: Vec<u8>,
+    /// `[reference count, alternate count]`, Java list order.
+    pub counts: Vec<usize>,
+}
+
+impl TandemRepeatAtEvent {
+    /// Bases added to `str_padding_for_genotyping`: max count times unit length.
+    pub fn padding_bases(&self) -> usize {
+        self.counts.iter().copied().max().unwrap_or(0) * self.unit.len()
+    }
+}
+
+/// Java `GATKVariantContextUtils.getNumTandemRepeatUnits` for one alternate allele.
+pub fn tandem_repeat_at_event(
+    window_start: u64,
+    ref_bases: &[u8],
+    event_start: u64,
+    ref_allele: &[u8],
+    alt_allele: &[u8],
+) -> Option<TandemRepeatAtEvent> {
+    if ref_allele.is_empty() || alt_allele.is_empty() {
+        return None;
+    }
+    if ref_allele.len() == alt_allele.len() {
+        return None;
+    }
+    let start_index = event_start.checked_add(1)?.checked_sub(window_start)? as usize;
+    if start_index > ref_bases.len() {
+        return None;
+    }
+    let remaining = &ref_bases[start_index..];
+    let ref_after = &ref_allele[1..];
+    let alt_after = &alt_allele[1..];
+    let long_bases = if alt_after.len() > ref_after.len() {
+        alt_after
+    } else {
+        ref_after
+    };
+    if long_bases.is_empty() {
+        return None;
+    }
+    let unit_len = find_repeated_substring(long_bases);
+    let unit = long_bases[..unit_len].to_vec();
+    let repetitions_in_ref = leading_repeat_count(&unit, ref_after);
+    let ref_count = leading_repeat_count(&unit, &concat(ref_after, remaining));
+    let alt_count = leading_repeat_count(&unit, &concat(alt_after, remaining));
+    let ref_count = ref_count.checked_sub(repetitions_in_ref)?;
+    let alt_count = alt_count.checked_sub(repetitions_in_ref)?;
+    if ref_count == 0 || alt_count == 0 {
+        return None;
+    }
+    Some(TandemRepeatAtEvent {
+        unit,
+        counts: vec![ref_count, alt_count],
+    })
+}
+
+fn concat(left: &[u8], right: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(left.len() + right.len());
+    out.extend_from_slice(left);
+    out.extend_from_slice(right);
+    out
+}
+
+/// Java `findRepeatedSubstring`. A string that is not a pure tandem returns its own length.
+fn find_repeated_substring(bases: &[u8]) -> usize {
+    for rep_len in 1..=bases.len() {
+        let unit = &bases[..rep_len];
+        let mut start = rep_len;
+        let mut all_match = true;
+        while start < bases.len() {
+            let end = start + rep_len;
+            if end > bases.len() || &bases[start..end] != unit {
+                all_match = false;
+                break;
+            }
+            start += rep_len;
+        }
+        if all_match {
+            return rep_len;
+        }
+    }
+    bases.len()
+}
+
+/// Java `findNumberOfRepetitions(..., leadingRepeats = true)`.
+fn leading_repeat_count(unit: &[u8], test: &[u8]) -> usize {
+    if unit.is_empty() || test.len() < unit.len() {
+        return 0;
+    }
+    let mut count = 0usize;
+    let mut start = 0usize;
+    while start + unit.len() <= test.len() {
+        if &test[start..start + unit.len()] != unit {
+            break;
+        }
+        count += 1;
+        start += unit.len();
+    }
+    count
+}
+
+/// Inclusive-span homopolymer used before 6R.310. Not the trim-padding contract.
+/// 6R.292 locks that this returns `None` for a one-base event span.
+pub fn longest_str_len_at_variant(
+    ref_ctx: &ReferenceContext,
+    start: u64,
+    end: u64,
+) -> Option<usize> {
     let bases = ref_ctx.bases.as_slice();
     if bases.is_empty() {
         return None;
@@ -394,6 +521,8 @@ pub fn load_trim_variants_tsv(path: &Path) -> Result<Vec<TrimVariant>, String> {
             start,
             end,
             is_indel,
+            ref_allele: String::new(),
+            alt_allele: String::new(),
         });
     }
     Ok(out)
@@ -500,6 +629,8 @@ mod tests {
             start: 10,
             end: 10,
             is_indel: false,
+            ref_allele: String::new(),
+            alt_allele: String::new(),
         }];
         let res = trimmer.trim(&r, &vars, None);
         assert!(res.variation_present);
@@ -542,18 +673,24 @@ mod tests {
                 start: 92_317_399,
                 end: 92_317_399,
                 is_indel: false,
+                ref_allele: String::new(),
+                alt_allele: String::new(),
             },
             TrimVariant {
                 contig: "2".into(),
                 start: 92_317_407,
                 end: 92_317_407,
                 is_indel: false,
+                ref_allele: String::new(),
+                alt_allele: String::new(),
             },
             TrimVariant {
                 contig: "2".into(),
                 start: 92_317_412,
                 end: 92_317_412,
                 is_indel: false,
+                ref_allele: String::new(),
+                alt_allele: String::new(),
             },
         ];
         let res = trimmer.trim(&r, &vars, None);
@@ -601,24 +738,32 @@ mod tests {
                 start: 211,
                 end: 211,
                 is_indel: false,
+                ref_allele: String::new(),
+                alt_allele: String::new(),
             },
             TrimVariant {
                 contig: "chr1".into(),
                 start: 212,
                 end: 212,
                 is_indel: false,
+                ref_allele: String::new(),
+                alt_allele: String::new(),
             },
             TrimVariant {
                 contig: "chr1".into(),
                 start: 230,
                 end: 230,
                 is_indel: false,
+                ref_allele: String::new(),
+                alt_allele: String::new(),
             },
             TrimVariant {
                 contig: "chr1".into(),
                 start: 247,
                 end: 247,
                 is_indel: false,
+                ref_allele: String::new(),
+                alt_allele: String::new(),
             },
         ];
         let snp_only = trimmer.trim(&r, &snps, None);
@@ -633,11 +778,91 @@ mod tests {
                 start: 28,
                 end: 199,
                 is_indel: true,
+                ref_allele: String::new(),
+                alt_allele: String::new(),
             },
         );
         let with = trimmer.trim(&r, &with_del, None);
         assert_eq!(with.padded_variant_start, Some(1));
         assert_eq!(with.padded_variant_end, Some(274));
         assert_eq!(274, 28 + 171 + 75);
+    }
+
+    fn ref_at(start: u64, bases: &[u8]) -> ReferenceContext {
+        ReferenceContext {
+            contig: "chr1".into(),
+            start,
+            end: start + bases.len() as u64 - 1,
+            window_start: start,
+            window_end: start + bases.len() as u64 - 1,
+            bases: crate::reference_context::SharedBases::from_slice(bases),
+        }
+    }
+
+    /// Anchor `A` is not part of the following `T` run.
+    #[test]
+    fn tandem_repeat_excludes_anchor() {
+        let rep = tandem_repeat_at_event(100, b"CATTTTT", 101, b"A", b"AT").expect("repeat");
+        assert_eq!(rep.unit, b"T");
+        assert_eq!(rep.counts, vec![5, 6]);
+        assert_ne!(rep.unit, b"A");
+    }
+
+    /// The inserted bases extend the repeat past the reference run.
+    #[test]
+    fn tandem_repeat_counts_alternate_allele() {
+        let rep = tandem_repeat_at_event(100, b"CATTT", 101, b"A", b"ATTT").expect("repeat");
+        assert_eq!(rep.unit, b"T");
+        assert_eq!(rep.counts, vec![3, 6]);
+        assert_eq!(rep.padding_bases(), 6);
+    }
+
+    #[test]
+    fn non_str_indel_keeps_indel_padding() {
+        assert!(tandem_repeat_at_event(100, b"CATGC", 101, b"A", b"AG").is_none());
+        let mut dict = SequenceDictionary::new();
+        dict.add_contig("chr1".into(), 400);
+        let trimmer =
+            AssemblyRegionTrimmer::new(AssemblyRegionTrimmerConfig::gatk_defaults(), &dict, "chr1");
+        let mut r = region();
+        r.start = GenomePosition::new_1based(90);
+        r.end = GenomePosition::new_1based(120);
+        r.extended_start = GenomePosition::new_1based(1);
+        r.extended_end = GenomePosition::new_1based(400);
+        let vars = vec![TrimVariant {
+            contig: "chr1".into(),
+            start: 101,
+            end: 101,
+            is_indel: true,
+            ref_allele: "A".into(),
+            alt_allele: "AG".into(),
+        }];
+        let res = trimmer.trim(&r, &vars, Some(&ref_at(100, b"CATGC")));
+        assert_eq!(res.padded_variant_start, Some(101 - 75));
+        assert_eq!(res.padded_variant_end, Some(101 + 75));
+    }
+
+    #[test]
+    fn snp_padding_ignores_following_repeat() {
+        let mut dict = SequenceDictionary::new();
+        dict.add_contig("chr1".into(), 400);
+        let trimmer =
+            AssemblyRegionTrimmer::new(AssemblyRegionTrimmerConfig::gatk_defaults(), &dict, "chr1");
+        let mut r = region();
+        r.start = GenomePosition::new_1based(50);
+        r.end = GenomePosition::new_1based(200);
+        r.extended_start = GenomePosition::new_1based(1);
+        r.extended_end = GenomePosition::new_1based(400);
+        let vars = vec![TrimVariant {
+            contig: "chr1".into(),
+            start: 101,
+            end: 101,
+            is_indel: false,
+            ref_allele: "A".into(),
+            alt_allele: "G".into(),
+        }];
+        let res = trimmer.trim(&r, &vars, Some(&ref_at(100, b"CATTTTTTTTT")));
+        assert_eq!(res.padded_variant_start, Some(81));
+        assert_eq!(res.padded_variant_end, Some(121));
     }
 }

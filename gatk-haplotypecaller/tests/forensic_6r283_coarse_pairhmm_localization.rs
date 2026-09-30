@@ -1,0 +1,1352 @@
+//! 6R.283: coarse localization of the continuous-PL gap at
+//! `20:29455649 T/TGTTTG`. PRODUCTION CHANGE: NONE.
+//!
+//! The input is an accepted f32 (`result_float < MIN_ACCEPTED` is false).
+//! The logarithm is glibc 2.27 `__ieee754_log10f`, not the host libm.
+//! Native AVX GKL is not executed (oracle x86_64; this host aarch64).
+//!
+//! ```text
+//! cargo test -p gatk-haplotypecaller --test forensic_6r283_coarse_pairhmm_localization -- --nocapture --test-threads=1
+//! HOLDOUT_6R283=1 cargo test -p gatk-haplotypecaller --test holdout_6r283_coarse_pairhmm_localization -- --nocapture --test-threads=1
+//! ```
+
+use gatk_core::reference::{parse_intervals_cli_string, SequenceDictionary};
+use gatk_haplotypecaller::assembly_region_finalize::{
+    clip_finalized_reads_to_region, finalize_region_reads_for_assembly,
+    gatk_min_tail_quality_for_assembly,
+};
+use gatk_haplotypecaller::hc_genotyping_engine::take_colocated_merge_numerics;
+use gatk_haplotypecaller::pairhmm_log10::GATK_PARITY_DEFAULT_GCP;
+use gatk_haplotypecaller::pcr_error_model::apply_pcr_error_model;
+use gatk_haplotypecaller::read_threading_assembler::DEFAULT_NUM_BEST_HAPLOTYPES_PER_GRAPH;
+use gatk_haplotypecaller::{
+    begin_hap_list_observe, biallelic_genotype_log10_likelihoods_gatk, call_disposition,
+    flatten_assembly_regions, indel_gop_from_optional_tag, logless_pairhmm_likelihood,
+    prepare_read_quals_for_pairhmm_inplace, region_likelihoods_to_rows,
+    score_read_against_haplotypes, take_hap_list_trim_span, traverse_assembly_region_walker,
+    AssemblyRegionCallDisposition, CallRegionArgs, GenomePosition, HaplotypeCallerEngine,
+    HcLikelihoodEngineConfig, PairHmmBackend, ReadFilterParams, ReadLikelihoodRow,
+    WalkerTraversalConfig, INITIAL_CONDITION, INITIAL_CONDITION_LOG10,
+};
+use rust_htslib::bam::record::Aux;
+use std::cell::RefCell;
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+const JAVA_PIN: &str = "4.4.0.0 / 2dbc025821bc5f686c423ff332a41e6cef892a77";
+const GKL_PIN: &str =
+    "0.8.8 IntelLabs/GKL IntelPairHmm.cc:164 log10f(result_float); glibc 2.27 __ieee754_log10f";
+const MIN_ACCEPTED_F32: f32 = 1e-28;
+const GKL_INITIAL_F32: f32 = f32::from_bits((127 + 120) << 23);
+const Q20_GKL_PH2PR_F32: u32 = 0x3c23d70a;
+const Q20_GKL_MATCH_F32: u32 = 0x3f7d70a4;
+const Q20_GKL_MISMATCH_F32: u32 = 0x3b5a740d;
+const INTERVAL: &str = "20:29455000-29456500";
+const BAM_REL: &str = "parity/giab/runs/local-pairhmm-diff/HG001.20-29455000-29456500.bam";
+const REF_REL: &str = "parity/realworld/assets/hs37d5.simple.fa";
+const TARGET: u64 = 29_455_649;
+const TARGET_REF: &str = "T";
+const TARGET_ALT: &str = "TGTTTG";
+const FROZEN_IDX: [usize; 5] = [19, 20, 21, 22, 23];
+const RUST_FNV: [&str; 5] = [
+    "55012fcf3b430591",
+    "341b2e070ccb5846",
+    "6a65e4c02733c2ed",
+    "fa07750bf228b3c2",
+    "79451c576721a729",
+];
+const JAVA_FNV: [&str; 5] = [
+    "fcd72c6ce600dd16",
+    "c1a4e8204522f645",
+    "eb03271fa7548f26",
+    "7dc2a8ae5da116e1",
+    "343e7c443c1d9732",
+];
+const JAVA_PREFIX: &[u8] = b"CAAAGAGTA";
+const JAVA_SUFFIX: &[u8] = b"TAAA";
+const FLOOR: f64 = -4.5;
+const JOINT_GL: f64 = -351.91571812977724676;
+const JAVA_CLIP: (u64, u64) = (29_455_560, 29_455_728);
+const RUST_CLIP: (u64, u64) = (29_455_569, 29_455_724);
+const JAVA_TSV: &str = include_str!("forensic_6r252_java_hap_trim.tsv");
+const BOUNDARY: f64 = 3517.5;
+const REQUIRED_MOVE: f64 = 1.65718129777269496;
+const GKL_MAX_QUAL: usize = 254;
+const JACOBIAN_STEP: f64 = 0.0001;
+const JACOBIAN_TOL: f32 = 8.0;
+const JACOBIAN_INV_STEP: f32 = 10_000.0;
+const JACOBIAN_SIZE: usize = 80_001;
+const GKL_INV_LN10: f64 = 0.434294;
+
+fn repo_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
+}
+
+fn kv(key: &str, value: impl AsRef<str>) {
+    eprintln!("6R283\t{key}\t{}", value.as_ref());
+}
+
+fn fmt_f64(x: f64) -> String {
+    format!("{x:.17} bits=0x{:016x}", x.to_bits())
+}
+
+fn fmt_f32(x: f32) -> String {
+    format!(
+        "{x:.9} bits=0x{:08x} widened={}",
+        x.to_bits(),
+        fmt_f64(f64::from(x))
+    )
+}
+
+fn fnv1a64_hex(bases: &[u8]) -> String {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for &b in bases {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    format!("{h:016x}")
+}
+
+fn java_seq(hash: &str) -> Vec<u8> {
+    for line in JAVA_TSV.lines() {
+        if line.contains("stage=trimmed") && line.contains(&format!("hash={hash}")) {
+            if let Some(seq) = line.split("\tseq=").nth(1) {
+                return seq.as_bytes().to_vec();
+            }
+        }
+    }
+    panic!("missing Java trimmed seq for {hash}");
+}
+
+fn bam_indel_phred(rec: &rust_htslib::bam::Record, tag: &[u8]) -> Option<Vec<u8>> {
+    match rec.aux(tag) {
+        Ok(Aux::String(s)) => Some(s.bytes().map(|b| b.saturating_sub(33)).collect()),
+        _ => None,
+    }
+}
+
+fn floor_pair(l0: f64, l2: f64) -> (f64, f64) {
+    let best = l0.max(l2);
+    if !best.is_finite() {
+        return (l0, l2);
+    }
+    let floor = best + FLOOR;
+    let lift = |v: f64| {
+        if v.is_finite() && v < floor {
+            floor
+        } else {
+            v
+        }
+    };
+    (lift(l0), lift(l2))
+}
+
+fn biallelic_gls(l0: &[f64], l2: &[f64]) -> Vec<f64> {
+    let rows: Vec<ReadLikelihoodRow> = l0
+        .iter()
+        .zip(l2.iter())
+        .enumerate()
+        .map(|(i, (a, b))| {
+            let (fa, fb) = floor_pair(*a, *b);
+            ReadLikelihoodRow {
+                read_index: i,
+                read_id: String::new(),
+                haplotype_log10_likelihoods: vec![fa, fb],
+            }
+        })
+        .collect();
+    biallelic_genotype_log10_likelihoods_gatk(&rows, 0, 1)
+}
+
+fn emitted_hom_alt(gls: &[f64]) -> (f64, f64, i32) {
+    let best = gls.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let rel = gls[2] - best;
+    let cont = -10.0 * rel;
+    let pl = (cont + 0.5).floor() as i32;
+    (rel, cont, pl)
+}
+
+fn floor5(raw: [f64; 5], other_best: f64) -> [f64; 5] {
+    let raw_max = raw.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let best = other_best.max(raw_max);
+    let floor = best + FLOOR;
+    std::array::from_fn(|k| {
+        if raw[k].is_finite() && raw[k] < floor {
+            floor
+        } else {
+            raw[k]
+        }
+    })
+}
+
+fn clip_map(
+    finalized: &[rust_htslib::bam::Record],
+    region: &gatk_haplotypecaller::assembly_region_iterator::AssemblyRegion,
+    start: u64,
+    end: u64,
+) -> std::collections::HashMap<(Vec<u8>, u16), rust_htslib::bam::Record> {
+    let mut clip_region = region.clone();
+    clip_region.extended_start = GenomePosition::new_1based(start);
+    clip_region.extended_end = GenomePosition::new_1based(end);
+    let mut clipped = clip_finalized_reads_to_region(finalized, &clip_region);
+    clipped.retain(|r| r.seq().len() >= 10);
+    let mut by_id = std::collections::HashMap::new();
+    for rec in clipped {
+        by_id.insert((rec.qname().to_vec(), rec.flags()), rec);
+    }
+    by_id
+}
+
+struct Planes {
+    bases: Vec<u8>,
+    bq: Vec<u8>,
+    iq: Vec<u8>,
+    dq: Vec<u8>,
+    gcp: Vec<u8>,
+}
+
+fn planes(rec: &rust_htslib::bam::Record, cfg: &HcLikelihoodEngineConfig) -> Planes {
+    let bases = rec.seq().as_bytes();
+    let n = bases.len();
+    let mut bq = rec.qual().to_vec();
+    prepare_read_quals_for_pairhmm_inplace(&mut bq, rec.mapq(), cfg);
+    let mut iq = indel_gop_from_optional_tag(bam_indel_phred(rec, b"BI").as_deref(), n).unwrap();
+    let mut dq = indel_gop_from_optional_tag(bam_indel_phred(rec, b"BD").as_deref(), n).unwrap();
+    apply_pcr_error_model(&bases, &mut iq, &mut dq, cfg.pcr_error_model);
+    Planes {
+        bases,
+        bq,
+        iq,
+        dq,
+        gcp: vec![GATK_PARITY_DEFAULT_GCP; n],
+    }
+}
+
+fn rust_err(q: u8) -> f64 {
+    10f64.powf(-(q as f64) / 10.0)
+}
+
+fn rust_match(q: u8) -> f64 {
+    1.0 - rust_err(q)
+}
+
+fn rust_approx_log10_sum(a: f64, b: f64) -> f64 {
+    let (x, y) = if a > b { (b, a) } else { (a, b) };
+    if x.is_infinite() && x.is_sign_negative() {
+        return y;
+    }
+    y + (1.0 + 10f64.powf(x - y)).log10()
+}
+
+fn rust_m2m(ins: u8, del: u8) -> f64 {
+    let (min_q, max_q) = if ins <= del {
+        (ins as usize, del as usize)
+    } else {
+        (del as usize, ins as usize)
+    };
+    let log10_sum = rust_approx_log10_sum(-0.1 * min_q as f64, -0.1 * max_q as f64);
+    let log10_m2m = (1.0 - 10f64.powf(log10_sum).min(1.0)).log10();
+    10f64.powf(log10_m2m)
+}
+
+fn rust_trans(ins: u8, del: u8, gcp: u8) -> [f64; 6] {
+    let gcp_err = rust_err(gcp);
+    [
+        rust_m2m(ins, del),
+        1.0 - rust_err(gcp),
+        rust_err(ins),
+        gcp_err,
+        rust_err(del),
+        gcp_err,
+    ]
+}
+
+fn libc_powf(base: f32, exp: f32) -> f32 {
+    extern "C" {
+        fn powf(x: f32, y: f32) -> f32;
+    }
+    unsafe { powf(base, exp) }
+}
+
+fn gkl_exponent(q: u8) -> f32 {
+    -((q as usize & 127) as f32) / 10.0f32
+}
+
+fn gkl_ph2pr(q: u8) -> f32 {
+    libc_powf(10.0, gkl_exponent(q))
+}
+
+/// GKL AVX `_1_distm = VEC_SUB(1.0, distm)` with `NUMBER=float`.
+fn gkl_match(q: u8) -> f32 {
+    1.0f32 - gkl_ph2pr(q)
+}
+
+/// GKL AVX `distm = VEC_DIV(distm, 3.0)` with `NUMBER=float`.
+fn gkl_mismatch(q: u8) -> f32 {
+    gkl_ph2pr(q) / 3.0f32
+}
+
+fn rust_mismatch(q: u8) -> f64 {
+    rust_err(q) / 3.0
+}
+
+fn bases_equal(x: u8, y: u8) -> bool {
+    x == y || x == b'N' || y == b'N'
+}
+
+/// GKL `computeDistVec`: `VEC_BLENDV(distmChosen, distm, _1_distm, mask)`.
+/// AVX: `_mm256_blendv_ps(distm, _1_distm, mask)` — MSB of mask selects
+/// `_1_distm` (match) else `distm` (mismatch). Bit-preserving; no arithmetic.
+fn gkl_distm_f32(q: u8, equal: bool) -> f32 {
+    if equal {
+        gkl_match(q)
+    } else {
+        gkl_mismatch(q)
+    }
+}
+
+fn rust_distm(q: u8, equal: bool) -> f64 {
+    if equal {
+        rust_match(q)
+    } else {
+        rust_mismatch(q)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MxCf {
+    Baseline,
+    ForceGklBranch,
+}
+
+#[derive(Clone, Copy)]
+struct BranchSnap {
+    gkl_bits: u32,
+    min_bits: u32,
+    gkl_below: bool,
+    gkl_bits_after: u32,
+    min_bits_after: u32,
+    rust_bits: u64,
+    rust_ratio_bits: u64,
+    rust_below: bool,
+    rust_prod_reject: bool,
+}
+
+thread_local! {
+    static BRANCHES: RefCell<Vec<BranchSnap>> = const { RefCell::new(Vec::new()) };
+    static MATRIX_AT: RefCell<Vec<(usize, usize)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// glibc 2.27 `sysdeps/ieee754/flt-32/e_logf.c` (Szabolcs Nagy).
+/// On x86_64, `double_t` is IEEE f64 (`FLT_EVAL_METHOD == 0`).
+/// `contract` applies fma to the expressions gcc contracts under `-mfma`.
+fn glibc227_logf(x: f32, contract: bool) -> f32 {
+    const OFF: u32 = 0x3f33_0000;
+    const LN2: f64 = f64::from_bits(0x3fe6_2e42_fefa_39ef);
+    const INV_C: [f64; 16] = [
+        f64::from_bits(0x3ff6_61ec_79f8_f3be),
+        f64::from_bits(0x3ff5_71ed_4aaf_883d),
+        f64::from_bits(0x3ff4_9539_f0f0_10b0),
+        f64::from_bits(0x3ff3_c995_b0b8_0385),
+        f64::from_bits(0x3ff3_0d19_0c88_64a5),
+        f64::from_bits(0x3ff2_5e22_7b0b_8ea0),
+        f64::from_bits(0x3ff1_bb4a_4a1a_343f),
+        f64::from_bits(0x3ff1_2358_f08a_e5ba),
+        f64::from_bits(0x3ff0_953f_4199_00a7),
+        f64::from_bits(0x3ff0_0000_0000_0000),
+        f64::from_bits(0x3fee_608c_fd9a_47ac),
+        f64::from_bits(0x3fec_a4b3_1f02_6aa0),
+        f64::from_bits(0x3feb_2036_576a_fce6),
+        f64::from_bits(0x3fe9_c2d1_63a1_aa2d),
+        f64::from_bits(0x3fe8_86e6_0378_41ed),
+        f64::from_bits(0x3fe7_67dc_f553_4862),
+    ];
+    const LOG_C: [f64; 16] = [
+        f64::from_bits(0xbfd5_7bf7_808c_aade),
+        f64::from_bits(0xbfd2_bef0_a7c0_6ddb),
+        f64::from_bits(0xbfd0_1eae_7f51_3a67),
+        f64::from_bits(0xbfcb_31d8_a682_24e9),
+        f64::from_bits(0xbfc6_574f_0ac0_7758),
+        f64::from_bits(0xbfc1_aa2b_c79c_8100),
+        f64::from_bits(0xbfba_4e76_ce8c_0e5e),
+        f64::from_bits(0xbfb1_973c_5a61_1ccc),
+        f64::from_bits(0xbfa2_52f4_38e1_0c1e),
+        f64::from_bits(0x0000_0000_0000_0000),
+        f64::from_bits(0x3faa_a5aa_5df2_5984),
+        f64::from_bits(0x3fbc_5e53_aa36_2eb4),
+        f64::from_bits(0x3fc5_26e5_7720_db08),
+        f64::from_bits(0x3fcb_c286_0d22_4770),
+        f64::from_bits(0x3fd1_058b_c8a0_7ee1),
+        f64::from_bits(0x3fd4_0430_57b6_ee09),
+    ];
+    const A0: f64 = f64::from_bits(0xbfd0_0ea3_48b8_8334);
+    const A1: f64 = f64::from_bits(0x3fd5_575b_0be0_0b6a);
+    const A2: f64 = f64::from_bits(0xbfdf_fffe_f20a_4123);
+
+    let mut ix = x.to_bits();
+    if ix == 0x3f80_0000 {
+        return 0.0;
+    }
+    if ix.wrapping_sub(0x0080_0000) >= 0x7f80_0000 - 0x0080_0000 {
+        if ix.wrapping_mul(2) == 0 {
+            return f32::NEG_INFINITY;
+        }
+        if ix == 0x7f80_0000 {
+            return x;
+        }
+        if ix & 0x8000_0000 != 0 || ix.wrapping_mul(2) >= 0xff00_0000 {
+            return f32::NAN;
+        }
+        ix = (x * f32::from_bits(0x4b00_0000)).to_bits();
+        ix = ix.wrapping_sub(23 << 23);
+    }
+    let tmp = ix.wrapping_sub(OFF);
+    let i = ((tmp >> (23 - 4)) % 16) as usize;
+    let k = ((tmp as i32) >> 23) as f64;
+    let iz = ix.wrapping_sub(tmp & (0x1ff << 23));
+    let invc = INV_C[i];
+    let logc = LOG_C[i];
+    let z = f64::from(f32::from_bits(iz));
+    let r = if contract {
+        z.mul_add(invc, -1.0)
+    } else {
+        z * invc - 1.0
+    };
+    let y0 = if contract {
+        k.mul_add(LN2, logc)
+    } else {
+        logc + k * LN2
+    };
+    let r2 = r * r;
+    let mut y = if contract {
+        A1.mul_add(r, A2)
+    } else {
+        A1 * r + A2
+    };
+    y = if contract {
+        A0.mul_add(r2, y)
+    } else {
+        A0 * r2 + y
+    };
+    y = if contract {
+        y.mul_add(r2, y0 + r)
+    } else {
+        y * r2 + (y0 + r)
+    };
+    y as f32
+}
+
+/// glibc 2.27 `sysdeps/ieee754/flt-32/e_log10f.c` (`__ieee754_log10f`).
+/// Returns `(sse2_bits, fma_contracted_bits)`.
+fn glibc227_log10f_both(x: f32) -> (f32, f32) {
+    const IVLN10: f32 = f32::from_bits(0x3ede_5bd9);
+    const LOG10_2HI: f32 = f32::from_bits(0x3e9a_2080);
+    const LOG10_2LO: f32 = f32::from_bits(0x3554_27db);
+    let hx0 = x.to_bits() as i32;
+    if hx0 < 0x0080_0000 || hx0 >= 0x7f80_0000 {
+        // Accepted PairHMM results are finite normals. Refuse the special paths.
+        return (f32::NAN, f32::NAN);
+    }
+    let mut k = (hx0 >> 23) - 127;
+    let i = ((k as u32 & 0x8000_0000) >> 31) as i32;
+    k += i;
+    let hx = (hx0 & 0x007f_ffff) | ((0x7f - i) << 23);
+    let y = k as f32;
+    let reduced = f32::from_bits(hx as u32);
+    let mut out = [0.0f32; 2];
+    for (slot, contract) in [(0, false), (1, true)] {
+        let ln = glibc227_logf(reduced, contract);
+        let z = if contract {
+            IVLN10.mul_add(ln, y * LOG10_2LO)
+        } else {
+            y * LOG10_2LO + IVLN10 * ln
+        };
+        out[slot] = if contract {
+            y.mul_add(LOG10_2HI, z)
+        } else {
+            z + y * LOG10_2HI
+        };
+    }
+    (out[0], out[1])
+}
+
+fn gkl_log10_initial() -> f32 {
+    static C: OnceLock<f32> = OnceLock::new();
+    *C.get_or_init(|| {
+        let init = f32::from_bits((127 + 120) << 23);
+        let (a, b) = glibc227_log10f_both(init);
+        assert_eq!(a.to_bits(), b.to_bits(), "log10f(2^120)");
+        a
+    })
+}
+
+/// Scale-matched PairHMM log10 score.
+///
+/// The reconstructed `result_float` matches `10^(Rust likelihood)`, the
+/// probability, not `probability * 2^120`. Subtracting `log10(2^120)` from
+/// `log10f(result_float)` therefore shifts every accepted read by about 36.12
+/// and is not the Java vector. The comparable GKL score is `log10f(result_float)`.
+/// Below `MIN_ACCEPTED`, the double kernel is not executed and is modeled by
+/// the Rust f64 likelihood.
+fn gkl_downstream_ll(result: f32, rust_ll: f64) -> (f64, bool) {
+    if !(result.is_finite() && result > 0.0) || result < MIN_ACCEPTED_F32 {
+        return (rust_ll, false);
+    }
+    let (sse, fma) = glibc227_log10f_both(result);
+    (f64::from(sse), sse.to_bits() != fma.to_bits())
+}
+
+/// GKL `pGAPM = ctx._(1.0) - ctx.ph2pr[_c]` already f32 (`_c = tc->c[r-1] & 127`).
+fn gkl_pgapm(gcp: u8) -> f32 {
+    1.0f32 - gkl_ph2pr(gcp)
+}
+
+fn rust_pgapm(gcp: u8) -> f64 {
+    1.0 - rust_err(gcp)
+}
+
+/// GKL `Context<float>::set_mm_prob` via `matchToMatchProb` table (NUMBER=float).
+fn gkl_pmm_table() -> &'static [f32] {
+    static T: OnceLock<Vec<f32>> = OnceLock::new();
+    T.get_or_init(|| {
+        let mut jacobian = vec![0.0f32; JACOBIAN_SIZE];
+        for k in 0..JACOBIAN_SIZE {
+            jacobian[k] = (1.0 + 10f64.powf(-(k as f64) * JACOBIAN_STEP)).log10() as f32;
+        }
+        let approx = |small: f32, big: f32| -> f32 {
+            let (mut s, mut b) = (small, big);
+            if s > b {
+                std::mem::swap(&mut s, &mut b);
+            }
+            if s.is_infinite() || b.is_infinite() {
+                return b;
+            }
+            let diff = b - s;
+            if diff >= JACOBIAN_TOL {
+                return b;
+            }
+            let d = diff * JACOBIAN_INV_STEP;
+            let ind = if d > 0.0 {
+                (d + 0.5) as i32
+            } else {
+                (d - 0.5) as i32
+            } as usize;
+            b + jacobian[ind.min(JACOBIAN_SIZE - 1)]
+        };
+        let n = ((GKL_MAX_QUAL + 1) * (GKL_MAX_QUAL + 2)) >> 1;
+        let mut m2m = vec![0.0f32; n];
+        let mut offset = 0usize;
+        for i in 0..=GKL_MAX_QUAL {
+            for j in 0..=i {
+                let log10_sum = approx(-0.1f32 * i as f32, -0.1f32 * j as f32) as f64;
+                let match_log10 =
+                    ((-1.0f64 * (10f64.powf(log10_sum)).min(1.0)).ln_1p()) * GKL_INV_LN10;
+                m2m[offset + j] = 10f64.powf(match_log10) as f32;
+            }
+            offset += i + 1;
+        }
+        m2m
+    })
+}
+
+fn gkl_pmm(ins_q: u8, del_q: u8) -> f32 {
+    let ins = (ins_q as usize) & 127;
+    let del = (del_q as usize) & 127;
+    let (min_q, max_q) = if ins <= del { (ins, del) } else { (del, ins) };
+    gkl_pmm_table()[((max_q * (max_q + 1)) >> 1) + min_q]
+}
+
+/// GKL f32 `M_t_2 * pMM` (6R.271) in INITIAL-normalized space.
+fn gkl_mm_f32(m_diag: f64, ins_q: u8, del_q: u8) -> f32 {
+    (m_diag / INITIAL_CONDITION) as f32 * gkl_pmm(ins_q, del_q)
+}
+
+/// GKL f32 `X_t_2 * pGAPM` (6R.272) in INITIAL-normalized space.
+fn gkl_xgapm_f32(x_diag: f64, gcp: u8) -> f32 {
+    (x_diag / INITIAL_CONDITION) as f32 * gkl_pgapm(gcp)
+}
+
+/// GKL f32 `Y_t_2 * pGAPM` (6R.273) in INITIAL-normalized space.
+fn gkl_ygapm_f32(y_diag: f64, gcp: u8) -> f32 {
+    (y_diag / INITIAL_CONDITION) as f32 * gkl_pgapm(gcp)
+}
+
+/// GKL f32 6R.274 partial: `VEC_ADD(M*pMM, X*pGAPM)`.
+fn gkl_partial_m_f32(m_diag: f64, x_diag: f64, ins_q: u8, del_q: u8, gcp: u8) -> f32 {
+    gkl_mm_f32(m_diag, ins_q, del_q) + gkl_xgapm_f32(x_diag, gcp)
+}
+
+/// Exact 6R.275 f32 inner sum `(M*pMM + X*pGAPM) + Y*pGAPM` in ratio space.
+fn gkl_inner_f32(m_diag: f64, x_diag: f64, y_diag: f64, ins_q: u8, del_q: u8, gcp: u8) -> f32 {
+    gkl_partial_m_f32(m_diag, x_diag, ins_q, del_q, gcp) + gkl_ygapm_f32(y_diag, gcp)
+}
+
+/// GKL `IntelPairHmm.cc` sets `_MM_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON)` and does not set DAZ.
+/// Subnormal inputs participate; a subnormal add result is stored as +0.
+fn gkl_add_ftz(a: f32, b: f32) -> f32 {
+    let sum = a + b;
+    if sum.is_subnormal() {
+        0.0
+    } else {
+        sum
+    }
+}
+
+/// GKL `pMX = ctx.ph2pr[ins]` (initializeVectors).
+fn gkl_pmx(ins_q: u8) -> f32 {
+    gkl_ph2pr(ins_q)
+}
+
+/// GKL `pXX = ctx.ph2pr[gcp]` (initializeVectors).
+fn gkl_pxx(gcp: u8) -> f32 {
+    gkl_ph2pr(gcp)
+}
+
+/// IEEE-754 f32 `M_t_1 * pMX` in INITIAL-normalized space (6R.265).
+fn gkl_mx_f32(m_up: f64, ins_q: u8) -> f32 {
+    (m_up / INITIAL_CONDITION) as f32 * gkl_pmx(ins_q)
+}
+
+/// IEEE-754 f32 `X_t_1 * pXX` in INITIAL-normalized space (6R.266).
+fn gkl_xx_f32(x_up: f64, gcp: u8) -> f32 {
+    (x_up / INITIAL_CONDITION) as f32 * gkl_pxx(gcp)
+}
+
+/// Completed `X_t` after 6R.267: `VEC_ADD(M_t_1*pMX, X_t_1*pXX)`.
+fn gkl_closed_x_f32(m_up: f64, x_up: f64, ins_q: u8, gcp: u8) -> f32 {
+    gkl_mx_f32(m_up, ins_q) + gkl_xx_f32(x_up, gcp)
+}
+
+/// Completed `M_t` after 6R.275 and 6R.276, in INITIAL-normalized f32.
+fn gkl_closed_m_f32(
+    m_diag: f64,
+    x_diag: f64,
+    y_diag: f64,
+    ins_q: u8,
+    del_q: u8,
+    gcp: u8,
+    bq: u8,
+    equal: bool,
+) -> f32 {
+    gkl_inner_f32(m_diag, x_diag, y_diag, ins_q, del_q, gcp) * gkl_distm_f32(bq, equal)
+}
+
+fn ulp_f64(a: f64, b: f64) -> u64 {
+    a.to_bits().abs_diff(b.to_bits())
+}
+
+#[derive(Clone, Copy)]
+struct AccCell {
+    retain_row: usize,
+    hap_index: usize,
+    read_len: usize,
+    hap_len: usize,
+    gkl_sum_m: f32,
+    gkl_sum_x: f32,
+    gkl_lane0_summx: f32,
+    rust_sum_m: f64,
+    rust_sum_x: f64,
+    rust_final: f64,
+}
+
+fn rust_diag_ll(
+    read: &[u8],
+    quals: &[u8],
+    hap: &[u8],
+    iq: &[u8],
+    dq: &[u8],
+    gcp: &[u8],
+    mode: MxCf,
+) -> f64 {
+    let rn = read.len();
+    let hn = hap.len();
+    let cols = hn + 1;
+    let init_del = INITIAL_CONDITION / hn as f64;
+    let mut m = vec![0.0f64; (rn + 1) * cols];
+    let mut ins = vec![0.0f64; (rn + 1) * cols];
+    let mut del = vec![0.0f64; (rn + 1) * cols];
+    for j in 0..=hn {
+        del[j] = init_del;
+    }
+    let mut gkl_last_m = vec![0.0f32; hn + 1];
+    let mut gkl_last_x = vec![0.0f32; hn + 1];
+    for i in 1..=rn {
+        let t = rust_trans(iq[i - 1], dq[i - 1], gcp[i - 1]);
+        let x = read[i - 1];
+        let q = quals[i - 1];
+        let row = i * cols;
+        let prev = (i - 1) * cols;
+        m[row] = 0.0;
+        ins[row] = 0.0;
+        del[row] = 0.0;
+        for j in 1..=hn {
+            let y = hap[j - 1];
+            let equal = bases_equal(x, y);
+            let p = rust_distm(q, equal);
+            let m_diag = m[prev + j - 1];
+            let x_diag = ins[prev + j - 1];
+            let y_diag = del[prev + j - 1];
+            m[row + j] = p * (m_diag * t[0] + x_diag * t[1] + y_diag * t[1]);
+            if i == rn {
+                gkl_last_m[j] = gkl_closed_m_f32(
+                    m_diag,
+                    x_diag,
+                    y_diag,
+                    iq[i - 1],
+                    dq[i - 1],
+                    gcp[i - 1],
+                    q,
+                    equal,
+                );
+                gkl_last_x[j] = gkl_closed_x_f32(m[prev + j], ins[prev + j], iq[i - 1], gcp[i - 1]);
+            }
+            ins[row + j] = m[prev + j] * t[2] + ins[prev + j] * t[3];
+            del[row + j] = m[row + j - 1] * t[4] + del[row + j - 1] * t[5];
+        }
+    }
+    let end = rn * cols;
+    let mut sum = 0.0;
+    let mut rust_sum_m = 0.0;
+    let mut rust_sum_x = 0.0;
+    let mut gkl_sum_m = 0.0f32;
+    let mut gkl_sum_x = 0.0f32;
+    for j in 1..=hn {
+        let m_j = m[end + j];
+        let x_j = ins[end + j];
+        sum += m_j + x_j;
+        rust_sum_m += m_j;
+        rust_sum_x += x_j;
+        gkl_sum_m += gkl_last_m[j];
+        gkl_sum_x += gkl_last_x[j];
+    }
+    let gkl_result = f32::from_bits((gkl_sum_m + gkl_sum_x).to_bits());
+    let min_acc = MIN_ACCEPTED_F32;
+    let gkl_bits = gkl_result.to_bits();
+    let min_bits = min_acc.to_bits();
+    let gkl_below = gkl_result < min_acc;
+    let rust_ratio = sum / INITIAL_CONDITION;
+    let rust_below = rust_ratio < f64::from(min_acc);
+    if mode == MxCf::Baseline {
+        BRANCHES.with(|cell| {
+            cell.borrow_mut().push(BranchSnap {
+                gkl_bits,
+                min_bits,
+                gkl_below,
+                gkl_bits_after: gkl_result.to_bits(),
+                min_bits_after: min_acc.to_bits(),
+                rust_bits: sum.to_bits(),
+                rust_ratio_bits: rust_ratio.to_bits(),
+                rust_below,
+                rust_prod_reject: sum <= 0.0 || !sum.is_finite(),
+            });
+        });
+    }
+    if sum <= 0.0 || !sum.is_finite() {
+        return f64::NEG_INFINITY;
+    }
+    let mut log_out = sum.log10();
+    if mode == MxCf::ForceGklBranch && !gkl_below {
+        let (sse, fma) = glibc227_log10f_both(gkl_result);
+        if sse.to_bits() == fma.to_bits() {
+            let delta = f64::from(sse) - f64::from(gkl_result).log10();
+            log_out += delta;
+        }
+    }
+    log_out - INITIAL_CONDITION_LOG10
+}
+
+fn collect_acc(
+    read: &[u8],
+    quals: &[u8],
+    hap: &[u8],
+    iq: &[u8],
+    dq: &[u8],
+    gcp: &[u8],
+    retain_row: usize,
+    hap_index: usize,
+    first_both: &mut Option<AccCell>,
+) {
+    if first_both.is_some() {
+        return;
+    }
+    let rn = read.len();
+    let hn = hap.len();
+    assert_eq!(quals.len(), rn);
+    let cols = hn + 1;
+    let init_del = INITIAL_CONDITION / hn as f64;
+    let mut m = vec![0.0f64; (rn + 1) * cols];
+    let mut ins = vec![0.0f64; (rn + 1) * cols];
+    let mut del = vec![0.0f64; (rn + 1) * cols];
+    for j in 0..=hn {
+        del[j] = init_del;
+    }
+    let mut gkl_last_m = vec![0.0f32; hn + 1];
+    let mut gkl_last_x = vec![0.0f32; hn + 1];
+    for i in 1..=rn {
+        let t = rust_trans(iq[i - 1], dq[i - 1], gcp[i - 1]);
+        let x = read[i - 1];
+        let q = quals[i - 1];
+        let row = i * cols;
+        let prev = (i - 1) * cols;
+        m[row] = 0.0;
+        ins[row] = 0.0;
+        del[row] = 0.0;
+        for j in 1..=hn {
+            let y = hap[j - 1];
+            let equal = bases_equal(x, y);
+            let p = rust_distm(q, equal);
+            let m_diag = m[prev + j - 1];
+            let x_diag = ins[prev + j - 1];
+            let y_diag = del[prev + j - 1];
+            m[row + j] = p * (m_diag * t[0] + x_diag * t[1] + y_diag * t[1]);
+            if i == rn {
+                gkl_last_m[j] = gkl_closed_m_f32(
+                    m_diag,
+                    x_diag,
+                    y_diag,
+                    iq[i - 1],
+                    dq[i - 1],
+                    gcp[i - 1],
+                    q,
+                    equal,
+                );
+                gkl_last_x[j] = gkl_closed_x_f32(m[prev + j], ins[prev + j], iq[i - 1], gcp[i - 1]);
+            }
+            ins[row + j] = m[prev + j] * t[2] + ins[prev + j] * t[3];
+            del[row + j] = m[row + j - 1] * t[4] + del[row + j - 1] * t[5];
+        }
+    }
+    let end = rn * cols;
+    let mut gkl_sum_m = 0.0f32;
+    let mut gkl_sum_x = 0.0f32;
+    let mut rust_sum_m = 0.0f64;
+    let mut rust_sum_x = 0.0f64;
+    for j in 1..=hn {
+        gkl_sum_m += gkl_last_m[j];
+        gkl_sum_x += gkl_last_x[j];
+        rust_sum_m += m[end + j];
+        rust_sum_x += ins[end + j];
+    }
+    let mut lane0_m = 0.0f32;
+    let mut lane0_x = 0.0f32;
+    let mut rust_final = 0.0f64;
+    let prev2 = (rn - 2) * cols;
+    for j in 1..=hn {
+        rust_final += m[end + j] + ins[end + j];
+        let equal = bases_equal(read[rn - 2], hap[j - 1]);
+        lane0_m += gkl_closed_m_f32(
+            m[prev2 + j - 1],
+            ins[prev2 + j - 1],
+            del[prev2 + j - 1],
+            iq[rn - 2],
+            dq[rn - 2],
+            gcp[rn - 2],
+            quals[rn - 2],
+            equal,
+        );
+        lane0_x += gkl_closed_x_f32(m[prev2 + j], ins[prev2 + j], iq[rn - 2], gcp[rn - 2]);
+    }
+    if gkl_sum_m != 0.0 && gkl_sum_x != 0.0 {
+        *first_both = Some(AccCell {
+            retain_row,
+            hap_index,
+            read_len: rn,
+            hap_len: hn,
+            gkl_sum_m,
+            gkl_sum_x,
+            gkl_lane0_summx: lane0_m + lane0_x,
+            rust_sum_m,
+            rust_sum_x,
+            rust_final,
+        });
+    }
+}
+
+fn dump_acc(cell: &AccCell) {
+    let ieee_add = cell.gkl_sum_m + cell.gkl_sum_x;
+    let remaining = if cell.read_len % 8 == 0 {
+        8
+    } else {
+        cell.read_len % 8
+    };
+    kv(
+        "acc_cell",
+        format!(
+            "retain_row={}\thap={}\tread_len={}\thap_len={}\tremaining_rows={}\textracted_lane={}\tlane0_summx={}\tlane1_summx={}\textracted={}\textract_bits_equal_lane={}\tlane2_to_7=uninitialized_not_extracted\trust_final={}\tresult_still_f32=true\textract_is_bit_preserving=true",
+            cell.retain_row,
+            cell.hap_index,
+            cell.read_len,
+            cell.hap_len,
+            remaining,
+            (cell.read_len - 1) % 8,
+            fmt_f32(cell.gkl_lane0_summx),
+            fmt_f32(ieee_add),
+            fmt_f32(f32::from_bits(ieee_add.to_bits())),
+            f32::from_bits(ieee_add.to_bits()).to_bits() == ieee_add.to_bits(),
+            fmt_f64(cell.rust_final),
+        ),
+    );
+}
+
+#[test]
+fn forensic_6r283_coarse_pairhmm_localization() {
+    BRANCHES.with(|cell| cell.borrow_mut().clear());
+    MATRIX_AT.with(|cell| cell.borrow_mut().clear());
+    kv("java_pin", JAVA_PIN);
+    kv("gkl_pin", GKL_PIN);
+    kv(
+        "gkl_initial_f32_bits",
+        format!("0x{:08x}", GKL_INITIAL_F32.to_bits()),
+    );
+    assert_eq!(gkl_ph2pr(20).to_bits(), Q20_GKL_PH2PR_F32);
+    assert_eq!(gkl_match(20).to_bits(), Q20_GKL_MATCH_F32);
+    assert_eq!(gkl_mismatch(20).to_bits(), Q20_GKL_MISMATCH_F32);
+    kv("production_change", "NONE");
+    kv("target", "20:29455649 T/TGTTTG");
+    kv(
+        "frozen_input",
+        "6R.257: Java174-mers + Java clip 20:29455560-29455728; 123 retainEvidence",
+    );
+    kv(
+        "gkl_mx_op",
+        "IntelPairHmm.cc:159 if (result_float < MIN_ACCEPTED); both operands f32; MIN_ACCEPTED = 1e-28f",
+    );
+    kv(
+        "gkl_source",
+        "IntelLabs/GKL 0.8.8 src/main/native/pairhmm/IntelPairHmm.cc:159 if (result_float < MIN_ACCEPTED); pairhmm_common.h:39 #define MIN_ACCEPTED 1e-28f",
+    );
+    kv(
+        "oracle_vs_host",
+        "Java oracle is x86_64 (AVX or AVX-512 if supported, not Apple); this host is aarch64 Darwin; native GKL AVX is not executed",
+    );
+    kv(
+        "first_cell_init",
+        "The extract reads one f32 lane of the completed sumMX vector. For read length 122, remainingRows = 2 and the extracted lane is 1. Lane 1 is the last read row. Lane 0 is the second-to-last read row. Lanes 2-7 are past initializeVectors and are not extracted",
+    );
+    kv(
+        "vector_shift",
+        "Lines 355, 358, and 360 _vector_shift_last run inside the stripe loop, before line 368, and shift M_t, X_t, and Y_t_1. They do not touch sumMX. The line-369 read is a scalar index of sumMX.f after the line-368 add",
+    );
+    kv(
+        "rust_formula",
+        "final_sum += m[rn,j] + ins[rn,j] in f64. CF1 replaces that linear sum with INITIAL*f32::from_bits(lane1.to_bits()), the exact extracted f32, then the existing log10 path continues",
+    );
+    kv(
+        "rust_source",
+        "gatk-haplotypecaller/src/pairhmm_logless.rs 358-361 f64 fold of (m+ins); pairhmm recurrence itself is unchanged",
+    );
+    kv(
+        "gkl_primitive_kind",
+        "f32 less-than: result_float < MIN_ACCEPTED; no arithmetic and no store to either operand",
+    );
+    kv(
+        "counterfactual_rule",
+        "CF1 makes the GKL boolean result_float < 1e-28f authoritative and does not replace the Rust f64 likelihood. sumMX, the recurrence, probabilities, normalization, geometry, scaling, and log10 stay unchanged",
+    );
+    assert_eq!(DEFAULT_NUM_BEST_HAPLOTYPES_PER_GRAPH, 128);
+
+    let java_haps: Vec<Vec<u8>> = JAVA_FNV.iter().map(|h| java_seq(h)).collect();
+    for (i, seq) in java_haps.iter().enumerate() {
+        assert_eq!(fnv1a64_hex(seq), JAVA_FNV[i]);
+        assert_eq!(seq.len(), 174);
+        assert_eq!(&seq[..9], JAVA_PREFIX);
+        assert_eq!(&seq[seq.len() - 4..], JAVA_SUFFIX);
+    }
+
+    let root = repo_root();
+    let ref_fasta = root.join(REF_REL);
+    let bam = root.join(BAM_REL);
+    if !ref_fasta.is_file() || !bam.is_file() {
+        eprintln!("skip: missing chr20_tiny BAM/REF");
+        return;
+    }
+    let dict = SequenceDictionary::from_fasta_path(&ref_fasta).expect("dict");
+    let specs = parse_intervals_cli_string(&dict, INTERVAL).expect("interval");
+    begin_hap_list_observe();
+    let walk = traverse_assembly_region_walker(
+        &dict,
+        &specs,
+        &ref_fasta,
+        &bam,
+        &ReadFilterParams::gatk_standard_hc(),
+        &WalkerTraversalConfig::gatk_haplotype_caller_production(100),
+    )
+    .expect("walk");
+    let regions = flatten_assembly_regions(&walk);
+    let region = regions
+        .iter()
+        .find(|r| {
+            matches!(
+                call_disposition(r),
+                AssemblyRegionCallDisposition::ActiveFull
+            ) && r.start.get() <= TARGET
+                && r.end.get() >= TARGET
+        })
+        .expect("ActiveFull");
+    let outcome = HaplotypeCallerEngine::call_region(
+        region,
+        &dict,
+        &ref_fasta,
+        &CallRegionArgs::strict_java(),
+    )
+    .expect("call")
+    .expect("Some");
+    let trim = take_hap_list_trim_span().expect("trim");
+    assert_eq!((trim.trim_start, trim.trim_end), RUST_CLIP);
+    let snap = take_colocated_merge_numerics()
+        .into_iter()
+        .find(|s| s.loc == TARGET)
+        .expect("snap");
+    assert_eq!(snap.n_reads, 123);
+    assert_eq!(TARGET_REF, "T");
+    assert_eq!(TARGET_ALT, "TGTTTG");
+
+    let rust_haps: Vec<Vec<u8>> = FROZEN_IDX
+        .iter()
+        .map(|&idx| outcome.assembly.haplotypes[idx].bases.clone())
+        .collect();
+    for (i, (java, rust)) in java_haps.iter().zip(rust_haps.iter()).enumerate() {
+        assert_eq!(fnv1a64_hex(rust), RUST_FNV[i]);
+        assert_eq!(&java[9..java.len() - 4], rust.as_slice());
+    }
+
+    let cfg = HcLikelihoodEngineConfig::gatk_haplotype_caller_production();
+    assert_eq!(cfg.resolved_pair_hmm_backend(), PairHmmBackend::NeonF64);
+    kv(
+        "pairhmm_backend",
+        format!(
+            "configured={} resolved={}",
+            cfg.primary_engine_label(),
+            cfg.resolved_pair_hmm_backend().label()
+        ),
+    );
+
+    let retain: std::collections::HashSet<usize> = snap.ad_row_read_index.iter().copied().collect();
+    let subset: Vec<_> = outcome
+        .read_likelihoods
+        .iter()
+        .filter(|c| retain.contains(&c.read_index.get()))
+        .cloned()
+        .collect();
+    let hap_rows = region_likelihoods_to_rows(&subset, outcome.assembly.haplotypes.len());
+    let mut by_read = std::collections::HashMap::new();
+    for row in &hap_rows {
+        by_read.entry(row.read_index).or_insert(row);
+    }
+    let l0: Vec<f64> = snap.ad_row_lls.iter().map(|ll| ll[0]).collect();
+
+    let finalized = finalize_region_reads_for_assembly(
+        &region.reads,
+        region,
+        true,
+        gatk_min_tail_quality_for_assembly(10),
+        false,
+    );
+    let java_map = clip_map(&finalized, region, JAVA_CLIP.0, JAVA_CLIP.1);
+    let java_refs: Vec<&[u8]> = java_haps.iter().map(|s| s.as_slice()).collect();
+
+    let mut unique_q = BTreeSet::new();
+    let mut n_bq_total = 0usize;
+    let mut rust_pooled = vec![0.0f64; 123];
+    let mut cf1_pooled = vec![0.0f64; 123];
+    let mut gkl_pooled = vec![0.0f64; 123];
+    let mut rust_hap_sum = [0.0f64; 5];
+    let mut gkl_hap_sum = [0.0f64; 5];
+    let mut max_abs = [0.0f64; 5];
+    let mut n_below = [0u32; 5];
+    let mut n_accepted = [0u32; 5];
+    let mut n_ifunc = 0u32;
+    let mut n_scored = 0u32;
+    let mut n_skipped = 0u32;
+    let mut first_both: Option<AccCell> = None;
+    let mut n_cf1_hap_diff = 0u64;
+    let mut first_score_dumped = false;
+
+    for (ri, &read_idx) in snap.ad_row_read_index.iter().enumerate() {
+        let key = (
+            snap.ad_row_qname[ri].as_bytes().to_vec(),
+            snap.ad_row_flags[ri],
+        );
+        let rec = java_map
+            .get(&key)
+            .unwrap_or_else(|| panic!("missing Java-clip read row={ri}"));
+        let p = planes(rec, &cfg);
+        n_bq_total += p.bq.len();
+        unique_q.extend(p.bq.iter().copied());
+
+        for k in 0..5 {
+            collect_acc(
+                &p.bases,
+                &p.bq,
+                &java_haps[k],
+                &p.iq,
+                &p.dq,
+                &p.gcp,
+                ri,
+                k,
+                &mut first_both,
+            );
+        }
+
+        let prod_row = by_read.get(&read_idx).expect("prod");
+        let p5: [f64; 5] =
+            std::array::from_fn(|k| prod_row.haplotype_log10_likelihoods[FROZEN_IDX[k]]);
+        if p5.iter().all(|&v| v == 0.0) {
+            n_skipped += 1;
+            continue;
+        }
+        let other_best = prod_row
+            .haplotype_log10_likelihoods
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !FROZEN_IDX.contains(i))
+            .map(|(_, v)| *v)
+            .fold(f64::NEG_INFINITY, f64::max);
+
+        let scores = score_read_against_haplotypes(
+            &cfg,
+            &p.bases,
+            rec.qual(),
+            rec.mapq(),
+            &java_refs,
+            bam_indel_phred(rec, b"BI").as_deref(),
+            bam_indel_phred(rec, b"BD").as_deref(),
+        )
+        .expect("neon");
+        let raw: [f64; 5] = std::array::from_fn(|k| scores[k]);
+        rust_pooled[ri] = floor5(raw, other_best)
+            .iter()
+            .copied()
+            .fold(f64::NEG_INFINITY, f64::max);
+
+        let mut cf1_raw = [0.0f64; 5];
+        let mut gkl_raw = [0.0f64; 5];
+        for k in 0..5 {
+            cf1_raw[k] = rust_diag_ll(
+                &p.bases,
+                &p.bq,
+                &java_haps[k],
+                &p.iq,
+                &p.dq,
+                &p.gcp,
+                MxCf::ForceGklBranch,
+            );
+            let scalar =
+                logless_pairhmm_likelihood(&p.bases, &p.bq, &java_haps[k], &p.iq, &p.dq, &p.gcp)
+                    .expect("scalar");
+            assert_eq!(
+                scalar.to_bits(),
+                raw[k].to_bits(),
+                "NEON must remain bit-identical to scalar (6R.258)"
+            );
+            MATRIX_AT.with(|cell| cell.borrow_mut().push((ri, k)));
+            let baseline = rust_diag_ll(
+                &p.bases,
+                &p.bq,
+                &java_haps[k],
+                &p.iq,
+                &p.dq,
+                &p.gcp,
+                MxCf::Baseline,
+            );
+            assert_eq!(
+                baseline.to_bits(),
+                raw[k].to_bits(),
+                "diagnostic baseline must match NEON/scalar"
+            );
+            if cf1_raw[k].to_bits() != raw[k].to_bits() {
+                n_cf1_hap_diff += 1;
+            }
+            let snap = BRANCHES.with(|cell| *cell.borrow().last().expect("snap"));
+            let (gkl_ll, ifunc_differ) = gkl_downstream_ll(f32::from_bits(snap.gkl_bits), raw[k]);
+            gkl_raw[k] = gkl_ll;
+            rust_hap_sum[k] += raw[k];
+            gkl_hap_sum[k] += gkl_ll;
+            max_abs[k] = max_abs[k].max((gkl_ll - raw[k]).abs());
+            if snap.gkl_below {
+                n_below[k] += 1;
+            } else {
+                n_accepted[k] += 1;
+            }
+            if ifunc_differ {
+                n_ifunc += 1;
+            }
+            if !first_score_dumped && k == 0 && ri == 0 {
+                first_score_dumped = true;
+                kv(
+                    "first_matrix_ll",
+                    format!(
+                        "baseline={} cf1={} bits_equal={}",
+                        fmt_f64(raw[k]),
+                        fmt_f64(cf1_raw[k]),
+                        raw[k].to_bits() == cf1_raw[k].to_bits(),
+                    ),
+                );
+            }
+        }
+        cf1_pooled[ri] = floor5(cf1_raw, other_best)
+            .iter()
+            .copied()
+            .fold(f64::NEG_INFINITY, f64::max);
+        gkl_pooled[ri] = floor5(gkl_raw, other_best)
+            .iter()
+            .copied()
+            .fold(f64::NEG_INFINITY, f64::max);
+        n_scored += 1;
+    }
+
+    kv(
+        "unique_bq_values",
+        unique_q
+            .iter()
+            .map(|q| q.to_string())
+            .collect::<Vec<_>>()
+            .join(","),
+    );
+    kv("n_unique_bq", unique_q.len().to_string());
+    kv("n_bq_total", n_bq_total.to_string());
+    assert!(unique_q.contains(&20));
+
+    let cell = first_both.expect("first both-nonzero last-stripe sumMX lane");
+    assert_ne!(cell.gkl_sum_m, 0.0, "sumM at line 368 must be nonzero");
+    assert_ne!(cell.gkl_sum_x, 0.0, "sumX at line 368 must be nonzero");
+    kv(
+        "first_mx_primitive",
+        "result_avx2 = sumMX.f[remainingRows-1]",
+    );
+    kv("gkl_op_kind", "bit-preserving f32 lane read");
+    kv(
+        "first_both_accumulation",
+        format!(
+            "retain_row={} hap={} read_len={} hap_len={} remaining_rows={} result_lane={}",
+            cell.retain_row,
+            cell.hap_index,
+            cell.read_len,
+            cell.hap_len,
+            if cell.read_len % 8 == 0 {
+                8
+            } else {
+                cell.read_len % 8
+            },
+            (cell.read_len - 1) % 8,
+        ),
+    );
+    dump_acc(&cell);
+
+    kv(
+        "aggregation",
+        "per read: floor each of the 5 scores at max(other_best, max(raw)) - 4.5, then alt = max(floored). Genotype GLs sum those per-read (ref, alt) pairs. The five haplotypes are not summed into five totals before PL",
+    );
+    kv("n_scored_reads", n_scored.to_string());
+    kv("n_skipped_reads", n_skipped.to_string());
+    kv(
+        "double_fallback_model",
+        "result_float < MIN_ACCEPTED uses the Rust f64 likelihood because the x86_64 double kernel is not executed on this host",
+    );
+    kv(
+        "scale",
+        format!(
+            "log10f(2^120)={}. Subtracting it from log10f(result_float) is not the Java score: reconstructed result_float is probability-scale, so the comparable score is log10f(result_float)",
+            fmt_f32(gkl_log10_initial()),
+        ),
+    );
+    kv("n_ifunc_1ulp", n_ifunc.to_string());
+    for k in 0..5 {
+        kv(
+            "hap_score",
+            format!(
+                "hap={k} rust_sum={} gkl_sum={} delta_sum={} max_abs_read={} n_below={} n_accepted={}",
+                fmt_f64(rust_hap_sum[k]),
+                fmt_f64(gkl_hap_sum[k]),
+                fmt_f64(gkl_hap_sum[k] - rust_hap_sum[k]),
+                fmt_f64(max_abs[k]),
+                n_below[k],
+                n_accepted[k],
+            ),
+        );
+    }
+    let rust_pool_sum: f64 = rust_pooled.iter().copied().sum();
+    let gkl_pool_sum: f64 = gkl_pooled.iter().copied().sum();
+    let pool_max = rust_pooled
+        .iter()
+        .zip(gkl_pooled.iter())
+        .map(|(a, b)| (b - a).abs())
+        .fold(0.0f64, f64::max);
+    kv(
+        "pooled_alt",
+        format!(
+            "rust_sum={} gkl_sum={} delta_sum={} max_abs_read={}",
+            fmt_f64(rust_pool_sum),
+            fmt_f64(gkl_pool_sum),
+            fmt_f64(gkl_pool_sum - rust_pool_sum),
+            fmt_f64(pool_max),
+        ),
+    );
+
+    let rust_gls = biallelic_gls(&l0, &rust_pooled);
+    let (rr_rel, rr_cont, rr_pl) = emitted_hom_alt(&rust_gls);
+    kv("baseline_emitted_GL", fmt_f64(rr_rel));
+    kv("baseline_continuous_PL", fmt_f64(rr_cont));
+    kv("baseline_integer_PL", rr_pl.to_string());
+    assert!((rr_rel - JOINT_GL).abs() < 1e-9);
+    assert_eq!(rr_pl, 3519);
+    kv(
+        "rust_gl_vector",
+        format!(
+            "GL00={} GL01={} GL22={}",
+            fmt_f64(rust_gls[0]),
+            fmt_f64(rust_gls[1]),
+            fmt_f64(rust_gls[2]),
+        ),
+    );
+
+    let gkl_gls = biallelic_gls(&l0, &gkl_pooled);
+    let (gkl_rel, gkl_cont, gkl_pl) = emitted_hom_alt(&gkl_gls);
+    kv(
+        "gkl_gl_vector",
+        format!(
+            "GL00={} GL01={} GL22={}",
+            fmt_f64(gkl_gls[0]),
+            fmt_f64(gkl_gls[1]),
+            fmt_f64(gkl_gls[2]),
+        ),
+    );
+    kv(
+        "gl_delta",
+        format!(
+            "d00={} d01={} d22={}",
+            fmt_f64(gkl_gls[0] - rust_gls[0]),
+            fmt_f64(gkl_gls[1] - rust_gls[1]),
+            fmt_f64(gkl_gls[2] - rust_gls[2]),
+        ),
+    );
+    kv("cf1_continuous_PL", fmt_f64(gkl_cont));
+    kv("cf1_integer_PL", gkl_pl.to_string());
+    kv("cf1_delta_continuous_PL", fmt_f64(gkl_cont - rr_cont));
+    let toward_java = rr_cont - gkl_cont;
+    kv("cf1_movement_toward_java", fmt_f64(toward_java));
+    kv("java_vcf_integer_PL", "3517");
+    kv(
+        "cf2",
+        "NOT RUN: no live Java/GKL downstream on this aarch64 host",
+    );
+    let material = toward_java > 0.1657;
+    kv("material_threshold_pl", "0.1657");
+    kv("material", material.to_string());
+    let classification = if toward_java > REQUIRED_MOVE {
+        "PAIRHMM_COARSE_HAPLOTYPE_SCORE_INJECTION_CAUSAL"
+    } else {
+        "PAIRHMM_COARSE_CHECKPOINT_PAIRHMM_SCORES_NOT_MATERIAL"
+    };
+    kv("classification", classification);
+    kv("production_change", "NONE");
+    kv(
+        "next_arrow",
+        if material {
+            "STOP — haplotype-score injection moves continuous PL toward Java by more than 0.1657. Do not resume elementary PairHMM ops"
+        } else {
+            "DOWNSTREAM_OF_PAIRHMM_SCORES: scale-matched GKL and Rust haplotype scores do not move continuous PL by a material fraction of 1.657. Do not resume elementary f32 ops"
+        },
+    );
+}

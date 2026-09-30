@@ -574,6 +574,321 @@ fn merge_stored_variation_events_at_position(
 /// Spanning-elsewhere with `emitSpanningDels` → SPAN_DEL (`*`) when that allele is
 /// in the merged list (6R.85). Unmatched at-loc events → no pool. Leftovers are
 /// **not** dumped into REF (6R.84).
+/// 6R.287 forensic capture. Production genotyping does not read this.
+#[derive(Debug, Clone)]
+pub struct Forensic6r287AlleleRow {
+    pub qname: String,
+    pub flags: u16,
+    pub alleles: Vec<f64>,
+}
+
+/// Haplotype values for one read, before and after the global floor.
+#[derive(Debug, Clone)]
+pub struct Forensic6r287FirstRead {
+    pub read_index: usize,
+    pub qname: String,
+    pub flags: u16,
+    pub best: f64,
+    pub floor: f64,
+    pub before: Vec<f64>,
+    pub after: Vec<f64>,
+    pub alleles: Vec<f64>,
+}
+
+/// Result of the 6R.287 counterfactual at one merged site.
+#[derive(Debug, Clone)]
+pub struct Forensic6r287Capture {
+    pub n_reads: usize,
+    pub n_haps: usize,
+    pub alleles: Vec<String>,
+    pub hap_allele: Vec<String>,
+    pub ref_hap_index: usize,
+    pub n_floor_lifts: usize,
+    pub allele_sums: Vec<f64>,
+    pub merged_gls: Vec<f64>,
+    pub merged_continuous_pl: Vec<f64>,
+    pub merged_pl: Vec<i32>,
+    pub subset_gls: Vec<f64>,
+    pub subset_continuous_pl: Vec<f64>,
+    pub subset_pl: Vec<i32>,
+    pub rows: Vec<Forensic6r287AlleleRow>,
+    pub first: Option<Forensic6r287FirstRead>,
+}
+
+struct Forensic6r287Request {
+    loc: u64,
+    qname: String,
+}
+
+thread_local! {
+    static FORENSIC_6R287_REQUEST: RefCell<Option<Forensic6r287Request>> =
+        const { RefCell::new(None) };
+    static FORENSIC_6R287_PARTIAL: RefCell<Option<Forensic6r287Capture>> =
+        const { RefCell::new(None) };
+    static FORENSIC_6R287_CAPTURE: RefCell<Option<Forensic6r287Capture>> =
+        const { RefCell::new(None) };
+}
+
+/// Enable the 6R.287 global-haplotype-floor counterfactual at `loc`.
+/// `None` restores the production reduction.
+pub fn set_forensic_6r287_global_hap_floor(loc: Option<u64>, qname: Option<&str>) {
+    FORENSIC_6R287_REQUEST.with(|slot| {
+        *slot.borrow_mut() = loc.map(|loc| Forensic6r287Request {
+            loc,
+            qname: qname.unwrap_or("").to_string(),
+        });
+    });
+    FORENSIC_6R287_PARTIAL.with(|slot| *slot.borrow_mut() = None);
+    FORENSIC_6R287_CAPTURE.with(|slot| *slot.borrow_mut() = None);
+}
+
+/// Take the capture written by the enabled counterfactual.
+pub fn take_forensic_6r287_capture() -> Option<Forensic6r287Capture> {
+    FORENSIC_6R287_CAPTURE.with(|slot| slot.borrow_mut().take())
+}
+
+/// 6R.288: one read's haplotype-likelihood vector, before and after a
+/// test-only substitution, plus the PL that substitution emitted.
+#[derive(Clone, Debug)]
+pub struct Forensic6r288Report {
+    pub read_index: usize,
+    pub flags: u16,
+    pub qname: String,
+    pub before: Vec<f64>,
+    pub after: Vec<f64>,
+    pub subset_continuous_pl: Vec<f64>,
+    pub subset_pl: Vec<i32>,
+}
+
+#[derive(Clone)]
+struct Forensic6r288Request {
+    loc: u64,
+    qname: String,
+    flags: u16,
+    values: Vec<f64>,
+}
+
+thread_local! {
+    static FORENSIC_6R288_REQUEST: RefCell<Option<Forensic6r288Request>> =
+        const { RefCell::new(None) };
+    static FORENSIC_6R288_REPORT: RefCell<Option<Forensic6r288Report>> =
+        const { RefCell::new(None) };
+}
+
+/// Replace one read's haplotype likelihoods at the target merge.
+/// `None` restores production. Default off.
+pub fn set_forensic_6r288_haplotype_substitute(
+    loc: Option<u64>,
+    qname: Option<&str>,
+    flags: u16,
+    values: Option<Vec<f64>>,
+) {
+    FORENSIC_6R288_REQUEST.with(|slot| {
+        *slot.borrow_mut() = match (loc, qname, values) {
+            (Some(loc), Some(qname), Some(values)) => Some(Forensic6r288Request {
+                loc,
+                qname: qname.to_string(),
+                flags,
+                values,
+            }),
+            _ => None,
+        };
+    });
+    FORENSIC_6R288_REPORT.with(|slot| *slot.borrow_mut() = None);
+}
+
+/// Take the 6R.288 substitution report.
+pub fn take_forensic_6r288_report() -> Option<Forensic6r288Report> {
+    FORENSIC_6R288_REPORT.with(|slot| slot.borrow_mut().take())
+}
+
+fn forensic_6r288_matches(loc: u64, alts: &[String]) -> bool {
+    FORENSIC_6R288_REQUEST.with(|slot| {
+        slot.borrow().as_ref().is_some_and(|r| {
+            r.loc == loc && alts.iter().any(|a| a == "TGTTTG")
+        })
+    })
+}
+
+fn forensic_6r288_overwrite(
+    rows: &mut [ReadLikelihoodRow],
+    reads: &[SharedBamRecord],
+) -> Option<(usize, u16, String, Vec<f64>, Vec<f64>)> {
+    let req = FORENSIC_6R288_REQUEST.with(|slot| slot.borrow().clone())?;
+    let row = rows.iter_mut().find(|row| {
+        reads.get(row.read_index).is_some_and(|rec| {
+            rec.flags() == req.flags && String::from_utf8_lossy(rec.qname()) == req.qname
+        })
+    })?;
+    let rec = reads.get(row.read_index)?;
+    let before = row.haplotype_log10_likelihoods.clone();
+    let n = before.len().min(req.values.len());
+    row.haplotype_log10_likelihoods[..n].copy_from_slice(&req.values[..n]);
+    let after = row.haplotype_log10_likelihoods.clone();
+    Some((
+        row.read_index,
+        rec.flags(),
+        String::from_utf8_lossy(rec.qname()).into_owned(),
+        before,
+        after,
+    ))
+}
+
+fn forensic_6r287_matches(loc: u64) -> bool {
+    FORENSIC_6R287_REQUEST.with(|slot| slot.borrow().as_ref().is_some_and(|r| r.loc == loc))
+}
+
+fn forensic_6r287_qname() -> String {
+    FORENSIC_6R287_REQUEST.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .map(|r| r.qname.clone())
+            .unwrap_or_default()
+    })
+}
+
+fn lift_haplotype_rows_to_global_best_floor(rows: &mut [ReadLikelihoodRow]) -> usize {
+    let mut n = 0usize;
+    for row in rows {
+        let best = row
+            .haplotype_log10_likelihoods
+            .iter()
+            .copied()
+            .filter(|v| v.is_finite())
+            .fold(f64::NEG_INFINITY, f64::max);
+        if !best.is_finite() {
+            continue;
+        }
+        let floor = best + LOG10_GLOBAL_READ_MISMATCHING_RATE;
+        for v in &mut row.haplotype_log10_likelihoods {
+            if v.is_finite() && *v < floor {
+                *v = floor;
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+fn forensic_6r287_snapshot_read(
+    rows: &[ReadLikelihoodRow],
+    reads: &[SharedBamRecord],
+) -> Option<Forensic6r287FirstRead> {
+    let qname = forensic_6r287_qname();
+    if qname.is_empty() {
+        return None;
+    }
+    let row = rows.iter().find(|row| {
+        reads
+            .get(row.read_index)
+            .is_some_and(|rec| String::from_utf8_lossy(rec.qname()) == qname)
+    })?;
+    let rec = reads.get(row.read_index)?;
+    let best = row
+        .haplotype_log10_likelihoods
+        .iter()
+        .copied()
+        .filter(|v| v.is_finite())
+        .fold(f64::NEG_INFINITY, f64::max);
+    Some(Forensic6r287FirstRead {
+        read_index: row.read_index,
+        qname: String::from_utf8_lossy(rec.qname()).into_owned(),
+        flags: rec.flags(),
+        best,
+        floor: best + LOG10_GLOBAL_READ_MISMATCHING_RATE,
+        before: row.haplotype_log10_likelihoods.clone(),
+        after: Vec::new(),
+        alleles: Vec::new(),
+    })
+}
+
+fn forensic_6r287_stage_partial(
+    haplotypes: &[Haplotype],
+    long_ref: &str,
+    alts: &[String],
+    pools: &[Vec<HaplotypeIndex>],
+    marg: &[ReadLikelihoodRow],
+    reads: &[SharedBamRecord],
+    n_floor_lifts: usize,
+    first: Option<Forensic6r287FirstRead>,
+) {
+    let mut hap_allele = vec!["UNMAPPED".to_string(); haplotypes.len()];
+    let names = std::iter::once(long_ref.to_string()).chain(alts.iter().cloned());
+    for (name, pool) in names.zip(pools.iter()) {
+        for hi in pool {
+            let slot = &mut hap_allele[hi.get()];
+            if slot == "UNMAPPED" {
+                *slot = name.clone();
+            } else if !slot.split('+').any(|p| p == name) {
+                slot.push('+');
+                slot.push_str(&name);
+            }
+        }
+    }
+    let mut allele_sums = vec![0.0; pools.len()];
+    let mut rows = Vec::with_capacity(marg.len());
+    for row in marg {
+        for (i, v) in row.haplotype_log10_likelihoods.iter().enumerate() {
+            if i < allele_sums.len() {
+                allele_sums[i] += *v;
+            }
+        }
+        let rec = reads.get(row.read_index);
+        rows.push(Forensic6r287AlleleRow {
+            qname: rec
+                .map(|r| String::from_utf8_lossy(r.qname()).into_owned())
+                .unwrap_or_default(),
+            flags: rec.map(|r| r.flags()).unwrap_or(0),
+            alleles: row.haplotype_log10_likelihoods.clone(),
+        });
+    }
+    let capture = Forensic6r287Capture {
+        n_reads: marg.len(),
+        n_haps: haplotypes.len(),
+        alleles: std::iter::once(long_ref.to_string())
+            .chain(alts.iter().cloned())
+            .collect(),
+        hap_allele,
+        ref_hap_index: haplotypes.iter().position(|h| h.is_reference).unwrap_or(0),
+        n_floor_lifts,
+        allele_sums,
+        merged_gls: Vec::new(),
+        merged_continuous_pl: Vec::new(),
+        merged_pl: Vec::new(),
+        subset_gls: Vec::new(),
+        subset_continuous_pl: Vec::new(),
+        subset_pl: Vec::new(),
+        rows,
+        first,
+    };
+    FORENSIC_6R287_PARTIAL.with(|slot| *slot.borrow_mut() = Some(capture));
+}
+
+fn continuous_pl_from_gls(gls: &[f64]) -> Vec<f64> {
+    let best = gls.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    gls.iter().map(|g| -10.0 * (g - best)).collect()
+}
+
+fn forensic_6r287_finish(
+    merged_gls: &[f64],
+    merged_pl: &[i32],
+    subset_gls: &[f64],
+    subset_pl: &[i32],
+) {
+    FORENSIC_6R287_PARTIAL.with(|partial| {
+        let Some(mut cap) = partial.borrow_mut().take() else {
+            return;
+        };
+        cap.merged_gls = merged_gls.to_vec();
+        cap.merged_continuous_pl = continuous_pl_from_gls(merged_gls);
+        cap.merged_pl = merged_pl.to_vec();
+        cap.subset_gls = subset_gls.to_vec();
+        cap.subset_continuous_pl = continuous_pl_from_gls(subset_gls);
+        cap.subset_pl = subset_pl.to_vec();
+        FORENSIC_6R287_CAPTURE.with(|slot| *slot.borrow_mut() = Some(cap));
+    });
+}
+
 fn colocated_merge_allele_pools(
     haplotypes: &[Haplotype],
     loc: u64,
@@ -721,7 +1036,32 @@ fn try_genotype_colocated_snp_indel_merge(
         return Ok(ColocatedMergeGenotype::NotApplicable);
     }
     let hap_rows = region_likelihoods_to_rows(subset.as_ref(), haplotypes.len());
-    let mut marg: Vec<ReadLikelihoodRow> = hap_rows
+    // 6R.287 forensic only. Default off: production still maxes pools, then
+    // floors the allele columns. The flag floors a copy of every haplotype at
+    // the per-read max across all columns, then maxes within each allele pool.
+    // 6R.288 forensic only. Default off: replace one read's haplotype vector
+    // on that same copy, then use the production max-then-allele-floor path.
+    let cf = forensic_6r287_matches(loc);
+    let subst = forensic_6r288_matches(loc, &alts);
+    let mut cf_rows = if cf || subst {
+        Some(hap_rows.clone())
+    } else {
+        None
+    };
+    let mut cf_before: Option<Forensic6r287FirstRead> = None;
+    let mut cf_lifts = 0usize;
+    let mut subst_hit: Option<(usize, u16, String, Vec<f64>, Vec<f64>)> = None;
+    if let Some(rows) = cf_rows.as_mut() {
+        if subst {
+            subst_hit = forensic_6r288_overwrite(rows, likelihood_reads);
+        }
+        if cf {
+            cf_before = forensic_6r287_snapshot_read(&hap_rows, likelihood_reads);
+            cf_lifts = lift_haplotype_rows_to_global_best_floor(rows);
+        }
+    }
+    let marg_source = cf_rows.as_ref().unwrap_or(&hap_rows);
+    let mut marg: Vec<ReadLikelihoodRow> = marg_source
         .iter()
         .map(|row| {
             let lls: Vec<f64> = pools.iter().map(|pool| pool_max_log10(pool, row)).collect();
@@ -732,7 +1072,31 @@ fn try_genotype_colocated_snp_indel_merge(
             }
         })
         .collect();
-    apply_java_marginal_normalize_n(&mut marg);
+    if cf {
+        if let Some(before) = cf_before.as_mut() {
+            if let Some(after_row) = marg_source
+                .iter()
+                .find(|row| row.read_index == before.read_index)
+            {
+                before.after = after_row.haplotype_log10_likelihoods.clone();
+            }
+            if let Some(allele_row) = marg.iter().find(|row| row.read_index == before.read_index) {
+                before.alleles = allele_row.haplotype_log10_likelihoods.clone();
+            }
+        }
+        forensic_6r287_stage_partial(
+            haplotypes,
+            &long_ref,
+            &alts,
+            &pools,
+            &marg,
+            likelihood_reads,
+            cf_lifts,
+            cf_before,
+        );
+    } else {
+        apply_java_marginal_normalize_n(&mut marg);
+    }
     let n_alleles = 1 + alts.len();
     let gls = diploid_genotype_log10_likelihoods_from_allele_rows(&marg, n_alleles);
     let depths = informative_ad_n_alleles(&marg, n_alleles);
@@ -803,6 +1167,23 @@ fn try_genotype_colocated_snp_indel_merge(
         COLOCATED_MERGE_NUMERICS.with(|slot| slot.borrow_mut().push(snap));
     }
     let format = emit_genotype_format_fields(&unused.log10_gls, &remarg_ad)?;
+    if cf {
+        forensic_6r287_finish(&gls, &merged_format.pl_as_i32(), &unused.log10_gls, &format.pl_as_i32());
+    }
+    if let Some((read_index, flags, qname, before, after)) = subst_hit {
+        let subset_pl = format.pl_as_i32();
+        FORENSIC_6R288_REPORT.with(|slot| {
+            *slot.borrow_mut() = Some(Forensic6r288Report {
+                read_index,
+                flags,
+                qname,
+                before,
+                after,
+                subset_continuous_pl: continuous_pl_from_gls(&unused.log10_gls),
+                subset_pl,
+            });
+        });
+    }
     let aggregation = aggregate_haplotype_log10_likelihoods(&hap_rows)?;
     let best = best_haplotype_index(&aggregation)
         .unwrap_or(crate::bio_ids::HaplotypeIndex::new(0))
@@ -849,7 +1230,11 @@ fn try_genotype_colocated_snp_indel_merge(
         extra_alt_alleles: extra,
         post_merge_unused_alt_subset: unused.alt_alleles.len() < alts.len(),
         qual_log10_p_error,
-        annotation_likelihoods: Vec::new(),
+        // 6R.246: Java `prepareReadAlleleLikelihoodsForAnnotation` reuses the
+        // post-retainEvidence genotyping AlleleLikelihoods (contamination off).
+        // `hap_rows` already copied subset cells for GLs; `into_owned` is a move
+        // of the existing `Cow::Owned` retainEvidence object, not PairHMM.
+        annotation_likelihoods: subset.into_owned(),
     }))
 }
 

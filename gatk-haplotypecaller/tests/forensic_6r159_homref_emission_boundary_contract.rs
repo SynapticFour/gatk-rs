@@ -385,7 +385,7 @@ fn forensic_6r159_config_calling_vs_emitting() {
     assert_eq!(DEFAULT_STAND_EMIT_CONFIDENCE, 10.0);
     assert_eq!(JAVA_STAND_CALL_CONF, 30.0);
     let cfg = HcGenotypingConfig::strict_java();
-    assert_eq!(cfg.stand_emit_confidence, 10.0);
+    assert_eq!(cfg.stand_emit_confidence, JAVA_STAND_CALL_CONF);
     // GQ=5 vs 10 is a later/unreached Rust gate, not the first drop.
     let a = trace_canonical_through_a3("A_canonical_00_gq5", &CANONICAL_GL, CANONICAL_AD);
     assert!(a.gq_below_stand_emit_10);

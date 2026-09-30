@@ -1,0 +1,23 @@
+6R133	region_active	20:29455300-29455559
+6R133	region_padded	20:29455200-29455659
+6R133	assemble_n	128
+6R133	assemble	idx=115	hash=c7acc50dfb9f9ecc	isRef=false	len=460	score=-2.64786702
+6R133	graph_ref	hash=442d1a5b4b11b07e	len=460	finalized_reads=319
+6R133	kmer_begin	kmer=10
+6R133	rt	kmer=10	nodes=751	edges=783	cycles=true
+6R133	kmer_skip	kmer=10	reason=cycles_before_dangling
+6R133	kmer_begin	kmer=25
+6R133	rt	kmer=25	nodes=1064	edges=1079	cycles=false
+6R133	seq	kmer=25	status=assembled_some_variation	nodes=37	edges=52
+6R133	vtx	kmer=25	id=0	hash=c3689bac950ee919	len=96	is_source=true	is_sink=false	seq=GAAAACATTGAATATTTTTTTCACACTGAAGCCAGAACTCTTGGGTACCATAACCCAGCAATATTGTTTGCTGGCTGTCACTTAAACTCACAAAAC
+6R133	vtx	kmer=25	id=11	hash=e9de82da0fd60acd	len=42	is_source=false	is_sink=false	seq=TCCTCTGTTTTGTCATCTGTAATAAATACAGATACAATATTT
+6R133	vtx	kmer=25	id=12	hash=279a7c6ae1412c2a	len=42	is_source=false	is_sink=false	seq=ACCTCTGTTTTGTCATCTCTAATAAATACAGACACAATATTC
+6R133	vtx	kmer=25	id=17	hash=dd0005a2181c5c75	len=37	is_source=false	is_sink=false	seq=TGTTTTATATATATGTATATATCTTGCAAAATTATTG
+6R133	edge	kmer=25	from=0	to=11	mult=33	is_ref=true
+6R133	edge	kmer=25	from=0	to=12	mult=3	is_ref=false
+6R133	edge	kmer=25	from=11	to=17	mult=21	is_ref=true
+6R133	edge	kmer=25	from=12	to=17	mult=3	is_ref=false
+6R133	kbest_set	kmer=25	K=128	n=128
+6R133	kbest	kmer=25	K=128	rank=116	hash=c7acc50dfb9f9ecc	score=-2.64786702	isRef=false	len=460
+6R133	kbest_set	kmer=25	K=256	n=256
+6R133	kbest	kmer=25	K=256	rank=116	hash=c7acc50dfb9f9ecc	score=-2.64786702	isRef=false	len=460

@@ -1,0 +1,6 @@
+record
+i=0	qname=HISEQ1:13:H8G92ADXX:1:2102:7192:18079	flags=99	present=1	qlen=148	max_ll=-12.324832	thresh=-8.000000	keep=DROP
+i=1	qname=HISEQ1:9:H8962ADXX:1:1116:1789:43193	flags=163	present=1	qlen=113	max_ll=-8.732083	thresh=-8.000000	keep=DROP
+i=2	qname=HWI-D00360:6:H81VLADXX:1:1111:8050:25694	flags=163	present=1	qlen=148	max_ll=-8.682712	thresh=-8.000000	keep=DROP
+i=3	qname=HWI-D00360:6:H81VLADXX:1:2102:1733:39463	flags=163	present=1	qlen=148	max_ll=-12.536733	thresh=-8.000000	keep=DROP
+i=4	qname=HWI-D00360:7:H88WKADXX:2:1201:4043:96748	flags=163	present=1	qlen=148	max_ll=-15.402292	thresh=-8.000000	keep=DROP

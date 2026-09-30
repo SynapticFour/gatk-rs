@@ -407,6 +407,8 @@ mod traces {
                 start: e.start_1based.get(),
                 end: e.end_1based.get(),
                 is_indel: e.is_indel(),
+                ref_allele: e.ref_allele.clone(),
+                alt_allele: e.alt_allele.clone(),
             })
             .collect();
         let trimmer =
@@ -444,6 +446,8 @@ mod traces {
                 start: e.start_1based.get(),
                 end: e.end_1based.get(),
                 is_indel: e.is_indel(),
+                ref_allele: e.ref_allele.clone(),
+                alt_allele: e.alt_allele.clone(),
             })
             .collect();
         let oracle_trim = trimmer.trim(&region, &oracle_only, Some(&region.reference));

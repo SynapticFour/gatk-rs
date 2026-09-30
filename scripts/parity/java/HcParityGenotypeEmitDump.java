@@ -192,6 +192,7 @@ public final class HcParityGenotypeEmitDump extends HaplotypeCallerGenotypingEng
             kv(
                     "hap_ll_sample0_evidence",
                     Integer.toString(readLikelihoods.sampleEvidenceCount(0)));
+            HcParityHapLlMembershipDump.dumpLl("before_calculateGLs_hap_ll", readLikelihoods);
 
             dumpHaplotypeLikelihoods(readLikelihoods);
 
@@ -201,15 +202,31 @@ public final class HcParityGenotypeEmitDump extends HaplotypeCallerGenotypingEng
             dumpAlleleMapper(alleleMapper, haplotypes, targetStart);
 
             AlleleLikelihoods readAlleleLikelihoods = readLikelihoods.marginalize(alleleMapper);
-            dumpReadAlleleLikelihoodsTagged(
-                    readAlleleLikelihoods, merged, "6R123", "pre_retain");
             final SimpleInterval relevant =
                     new SimpleInterval(merged)
                             .expandWithinContig(
                                     2, header.getSequenceDictionary());
+            kv(
+                    "retain_interval",
+                    relevant.getContig()
+                            + ":"
+                            + relevant.getStart()
+                            + "-"
+                            + relevant.getEnd());
+            kv(
+                    "merged_span",
+                    merged.getContig()
+                            + ":"
+                            + merged.getStart()
+                            + "-"
+                            + merged.getEnd());
+            dumpReadAlleleLikelihoodsTagged(
+                    readAlleleLikelihoods, merged, "6R123", "pre_retain", relevant);
+            HcParityHapLlMembershipDump.dumpLl("after_marginalize", readAlleleLikelihoods);
             readAlleleLikelihoods.retainEvidence(
                     (Object ev) -> relevant.overlaps((GATKRead) ev));
-            dumpReadAlleleLikelihoods(readAlleleLikelihoods, merged);
+            HcParityHapLlMembershipDump.dumpLl("after_retainEvidence", readAlleleLikelihoods);
+            dumpReadAlleleLikelihoods(readAlleleLikelihoods, merged, relevant);
 
             final int ploidy = configuration.genotypeArgs.samplePloidy;
             final List noCallAlleles = GATKVariantContextUtils.noCallAlleles(ploidy);
@@ -478,10 +495,8 @@ public final class HcParityGenotypeEmitDump extends HaplotypeCallerGenotypingEng
             kv123(
                     "hap_read_ll",
                     ev.getName()
-                            + "\tflags="
-                            + ev.getFlags()
-                            + "\tstart="
-                            + ev.getStart()
+                            + "\t"
+                            + readGeom(ev)
                             + "\t"
                             + ll.toString());
         }
@@ -492,7 +507,8 @@ public final class HcParityGenotypeEmitDump extends HaplotypeCallerGenotypingEng
             final AlleleLikelihoods likelihoods,
             final VariantContext merged,
             final String tag,
-            final String stage) {
+            final String stage,
+            final SimpleInterval relevant) {
         kvTagged(tag, "stage", stage);
         kvTagged(tag, "allele_ll_n_alleles", Integer.toString(likelihoods.numberOfAlleles()));
         kvTagged(tag, "allele_ll_n_evidence", Integer.toString(likelihoods.evidenceCount()));
@@ -529,10 +545,10 @@ public final class HcParityGenotypeEmitDump extends HaplotypeCallerGenotypingEng
                     tag,
                     "read_ll",
                     ev.getName()
-                            + "\tflags="
-                            + ev.getFlags()
-                            + "\tstart="
-                            + ev.getStart()
+                            + "\t"
+                            + readGeom(ev)
+                            + "\toverlap="
+                            + relevant.overlaps(ev)
                             + "\t"
                             + ll.toString());
         }
@@ -548,7 +564,9 @@ public final class HcParityGenotypeEmitDump extends HaplotypeCallerGenotypingEng
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static void dumpReadAlleleLikelihoods(
-            final AlleleLikelihoods likelihoods, final VariantContext merged) {
+            final AlleleLikelihoods likelihoods,
+            final VariantContext merged,
+            final SimpleInterval relevant) {
         kv106("allele_ll_n_alleles", Integer.toString(likelihoods.numberOfAlleles()));
         kv106("allele_ll_n_evidence", Integer.toString(likelihoods.evidenceCount()));
         kv106("allele_ll_sample0_evidence", Integer.toString(likelihoods.sampleEvidenceCount(0)));
@@ -588,13 +606,51 @@ public final class HcParityGenotypeEmitDump extends HaplotypeCallerGenotypingEng
             kv106(
                     "read_ll",
                     ev.getName()
-                            + "\tflags="
-                            + ev.getFlags()
-                            + "\tstart="
-                            + ev.getStart()
+                            + "\t"
+                            + readGeom(ev)
+                            + "\toverlap="
+                            + relevant.overlaps(ev)
                             + "\t"
                             + ll.toString());
         }
+    }
+
+    private static String readGeom(final GATKRead ev) {
+        final String cigar = ev.getCigar() == null ? "." : ev.getCigar().toString();
+        String mateContig = ".";
+        int mateStart = 0;
+        if (ev.isPaired() && !ev.mateIsUnmapped()) {
+            mateContig = ev.getMateContig() == null ? "." : ev.getMateContig();
+            mateStart = ev.getMateStart();
+        }
+        final String origPos =
+                ev.hasAttribute("OP") ? ev.getAttributeAsString("OP") : ".";
+        final String origCigar =
+                ev.hasAttribute("OC") ? ev.getAttributeAsString("OC") : ".";
+        return "flags="
+                + ev.getFlags()
+                + "\tstart="
+                + ev.getStart()
+                + "\tend="
+                + ev.getEnd()
+                + "\tuStart="
+                + ev.getUnclippedStart()
+                + "\tuEnd="
+                + ev.getUnclippedEnd()
+                + "\tmapq="
+                + ev.getMappingQuality()
+                + "\tlen="
+                + ev.getLength()
+                + "\tcigar="
+                + cigar
+                + "\tmate="
+                + mateContig
+                + "\tmateStart="
+                + mateStart
+                + "\torigPos="
+                + origPos
+                + "\torigCigar="
+                + origCigar;
     }
 
     private static String fnv1a64Hex(final byte[] data) {

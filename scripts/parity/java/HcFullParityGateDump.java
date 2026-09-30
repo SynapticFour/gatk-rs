@@ -25,7 +25,9 @@ import org.broadinstitute.hellbender.engine.filters.MappingQualityReadFilter;
 import org.broadinstitute.hellbender.engine.filters.ReadFilterLibrary;
 import org.broadinstitute.hellbender.engine.filters.WellformedReadFilter;
 import org.broadinstitute.hellbender.engine.spark.AssemblyRegionArgumentCollection;
+import org.broadinstitute.hellbender.tools.walkers.annotator.TandemRepeat;
 import org.broadinstitute.hellbender.tools.walkers.annotator.VariantAnnotatorEngine;
+import org.apache.commons.lang3.tuple.Pair;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.HaplotypeCallerArgumentCollection;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.PairHMMNativeArgumentCollection;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.AssemblyRegionTrimmer;
@@ -126,6 +128,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.SortedSet;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
@@ -331,6 +334,15 @@ public final class HcFullParityGateDump {
             case "genotype-emit-at-loc":
                 genotypeEmitAtLoc(rest);
                 break;
+            case "hap-ll-membership-at-loc":
+                hapLlMembershipAtLoc(rest);
+                break;
+            case "five-ll-at-loc":
+                fiveLlAtLoc(rest, false);
+                break;
+            case "five-ll-at-loc-double":
+                fiveLlAtLoc(rest, true);
+                break;
             case "ll-input-at-loc":
                 llInputAtLoc(rest, false);
                 break;
@@ -506,7 +518,7 @@ public final class HcFullParityGateDump {
                         + "assembly-seqgraph-summary|assembly-assemble|pairhmm-likelihoods|pairhmm-native-likelihoods|"
                         + "pairhmm-bq-cap|pairhmm-haplotype-filter|"
                         + "genotyping-aggregate|genotype-format|annotate-core|annotation-manifest|"
-                        + "call-region-vcf|call-region-format|ad-annotation-call|eventmap-at-loc|hap-trim-at-loc|eventmap-haps-at-loc|seqgraph-kbest-at-loc|genotype-emit-at-loc|ll-input-at-loc|ll-input-at-loc-double|filter-poorly-modeled-call|filter-poorly-modeled-call-double|variant-vcf-from-gl-ad|variant-format-from-gl-ad|"
+                        + "call-region-vcf|call-region-format|ad-annotation-call|eventmap-at-loc|hap-trim-at-loc|eventmap-haps-at-loc|seqgraph-kbest-at-loc|genotype-emit-at-loc|hap-ll-membership-at-loc|five-ll-at-loc|five-ll-at-loc-double|ll-input-at-loc|ll-input-at-loc-double|filter-poorly-modeled-call|filter-poorly-modeled-call-double|variant-vcf-from-gl-ad|variant-format-from-gl-ad|"
                         + "af-em|subset-alleles-pl|subset-alleles-vc|subset-alleles-integration|"
                         + "gvcf-header|gvcf-writer-blocks|"
                         + "assembly-region-genotype|assembly-region-genotype-subset|"
@@ -2466,6 +2478,7 @@ public final class HcFullParityGateDump {
                                             .thenComparing(
                                                     vc -> vc.getAlternateAlleles().toString()));
                     sortedUnion.addAll(union);
+                    dumpTrimIntervalTrace(r, sortedUnion, refCtx, ctx.asmArgs);
                     final AssemblyRegionTrimmer.Result trimmingResult =
                             trimmer.trim(r, sortedUnion, refCtx);
                     System.out.println(
@@ -2533,6 +2546,163 @@ public final class HcFullParityGateDump {
         }
     }
 
+    /**
+     * 6R.253: replay {@code AssemblyRegionTrimmer.trim} interval math with observed
+     * padding/STR values. Dump-only; does not change HaplotypeCaller production.
+     */
+    private static void dumpTrimIntervalTrace(
+            final AssemblyRegion region,
+            final SortedSet<VariantContext> variants,
+            final ReferenceContext referenceContext,
+            final AssemblyRegionArgumentCollection assemblyRegionArgs) {
+        System.out.println(
+                "6R253\tknobs\tsnpPadding="
+                        + assemblyRegionArgs.snpPaddingForGenotyping
+                        + "\tindelPadding="
+                        + assemblyRegionArgs.indelPaddingForGenotyping
+                        + "\tstrPadding="
+                        + assemblyRegionArgs.strPaddingForGenotyping
+                        + "\tassemblyRegionPadding="
+                        + assemblyRegionArgs.assemblyRegionPadding
+                        + "\tlegacy="
+                        + assemblyRegionArgs.enableLegacyAssemblyRegionTrimming);
+        final Locatable win = referenceContext.getWindow();
+        System.out.println(
+                "6R253\tref_window\t"
+                        + win.getContig()
+                        + ":"
+                        + win.getStart()
+                        + "-"
+                        + win.getEnd());
+        System.out.println(
+                "6R253\tactive\t"
+                        + region.getContig()
+                        + ":"
+                        + region.getStart()
+                        + "-"
+                        + region.getEnd());
+        final Locatable padded = region.getPaddedSpan();
+        System.out.println(
+                "6R253\tpadded\t"
+                        + padded.getContig()
+                        + ":"
+                        + padded.getStart()
+                        + "-"
+                        + padded.getEnd());
+        int nOverlap = 0;
+        for (final VariantContext vc : variants) {
+            final boolean overlaps = region.overlaps(vc);
+            if (overlaps) {
+                nOverlap++;
+            }
+            System.out.println(
+                    "6R253\tevent\tstart="
+                            + vc.getStart()
+                            + "\tend="
+                            + vc.getEnd()
+                            + "\tref="
+                            + vc.getReference().getBaseString()
+                            + "\talts="
+                            + allelesBaseString(vc.getAlternateAlleles())
+                            + "\tisIndel="
+                            + vc.isIndel()
+                            + "\tisSNP="
+                            + vc.isSNP()
+                            + "\toverlaps_active="
+                            + overlaps);
+        }
+        System.out.println("6R253\tn_union\t" + variants.size());
+        System.out.println("6R253\tn_overlap\t" + nOverlap);
+        final List<VariantContext> variantsInRegion =
+                variants.stream().filter(region::overlaps).collect(Collectors.toList());
+        if (variantsInRegion.isEmpty()) {
+            System.out.println("6R253\tno_variation");
+            return;
+        }
+        int minStart = variantsInRegion.stream().mapToInt(VariantContext::getStart).min().getAsInt();
+        int maxEnd = variantsInRegion.stream().mapToInt(VariantContext::getEnd).max().getAsInt();
+        System.out.println("6R253\traw_min_start\t" + minStart);
+        System.out.println("6R253\traw_max_end\t" + maxEnd);
+        final SimpleInterval variantSpan =
+                new SimpleInterval(region.getContig(), minStart, maxEnd).intersect(region);
+        System.out.println(
+                "6R253\tvariant_span_before_pad\t"
+                        + variantSpan.getContig()
+                        + ":"
+                        + variantSpan.getStart()
+                        + "-"
+                        + variantSpan.getEnd());
+        for (final VariantContext vc : variantsInRegion) {
+            int pad = assemblyRegionArgs.snpPaddingForGenotyping;
+            String strInfo = "none";
+            if (vc.isIndel()) {
+                pad = assemblyRegionArgs.indelPaddingForGenotyping;
+                final Pair<?, ?> numRepeatsAndUnit =
+                        TandemRepeat.getNumTandemRepeatUnits(referenceContext, vc);
+                if (numRepeatsAndUnit != null && numRepeatsAndUnit.getRight() != null) {
+                    final byte[] unit = (byte[]) numRepeatsAndUnit.getRight();
+                    @SuppressWarnings("unchecked")
+                    final List<Integer> counts = (List<Integer>) numRepeatsAndUnit.getLeft();
+                    final int repeatLength = unit.length;
+                    final int mostRepeats =
+                            counts.stream().max(Integer::compareTo).orElse(0);
+                    final int longestSTR = mostRepeats * repeatLength;
+                    pad = assemblyRegionArgs.strPaddingForGenotyping + longestSTR;
+                    strInfo =
+                            "unit="
+                                    + new String(unit, StandardCharsets.US_ASCII)
+                                    + ";counts="
+                                    + counts
+                                    + ";mostRepeats="
+                                    + mostRepeats
+                                    + ";longestSTR="
+                                    + longestSTR;
+                }
+            }
+            final int paddedStart = Math.max(vc.getStart() - pad, 1);
+            final int paddedEnd = vc.getEnd() + pad;
+            minStart = Math.min(minStart, paddedStart);
+            maxEnd = Math.max(maxEnd, paddedEnd);
+            System.out.println(
+                    "6R253\tpad\tstart="
+                            + vc.getStart()
+                            + "\tend="
+                            + vc.getEnd()
+                            + "\tref="
+                            + vc.getReference().getBaseString()
+                            + "\talts="
+                            + allelesBaseString(vc.getAlternateAlleles())
+                            + "\tisIndel="
+                            + vc.isIndel()
+                            + "\tpadding="
+                            + pad
+                            + "\tstr="
+                            + strInfo
+                            + "\tstart_minus_pad="
+                            + paddedStart
+                            + "\tend_plus_pad="
+                            + paddedEnd
+                            + "\trunning_minStart="
+                            + minStart
+                            + "\trunning_maxEnd="
+                            + maxEnd);
+        }
+        final SimpleInterval paddedVariantSpan =
+                new SimpleInterval(region.getContig(), minStart, maxEnd)
+                        .intersect(region.getPaddedSpan());
+        System.out.println("6R253\tminStart_after_pad\t" + minStart);
+        System.out.println("6R253\tmaxEnd_after_pad\t" + maxEnd);
+        System.out.println(
+                "6R253\tpadded_variant_span\t"
+                        + paddedVariantSpan.getContig()
+                        + ":"
+                        + paddedVariantSpan.getStart()
+                        + "-"
+                        + paddedVariantSpan.getEnd());
+        System.out.println(
+                "6R253\tobject\tpadded_variant_span_class=htsjdk_or_gatk.SimpleInterval\tcoordinate=reference");
+    }
+
     private static void dumpHapSet(final String stage, final List<Haplotype> haps) {
         final java.util.LinkedHashSet<String> uniq = new java.util.LinkedHashSet<>();
         int nRef = 0;
@@ -2574,7 +2744,11 @@ public final class HcFullParityGateDump {
                             + "\tcigar="
                             + cigar
                             + "\talignStart="
-                            + h.getAlignmentStartHapwrtRef());
+                            + h.getAlignmentStartHapwrtRef()
+                            + "\tscore="
+                            + formatScore(h.getScore())
+                            + "\tseq="
+                            + new String(h.getBases(), StandardCharsets.US_ASCII));
         }
     }
 
@@ -3543,6 +3717,172 @@ public final class HcFullParityGateDump {
                             new ReferenceContext(ctx.reference, r.getSpan(), padding, padding);
                     final List<VariantContext> calls = ctx.engine.callRegion(r, features, refCtx);
                     System.out.println(prefix + "\tcall_region_n\t" + calls.size());
+                    return;
+                }
+            }
+            throw new IllegalArgumentException("no active assembly region in interval");
+        }
+    }
+
+    /**
+     * TEST-ONLY 6R.230: frozen-five PairHMM inputs + prim/norm cells at loc.
+     * Args: ref bam interval loc [padding].
+     */
+    private static void fiveLlAtLoc(final String[] args, final boolean nativeDouble)
+            throws Exception {
+        if (args.length < 4) {
+            usage();
+        }
+        final String refPath = args[0];
+        final String bamPath = args[1];
+        final String intervalCli = args[2];
+        final int loc = Integer.parseInt(args[3]);
+        final int padding = args.length > 4 ? parsePadding(args[4]) : DEFAULT_PADDING;
+        try (HcContext ctx = new HcContext(refPath, bamPath, padding, null, nativeDouble)) {
+            HcParityFiveReadLlDump.installOn(ctx.engine);
+            final List<SimpleInterval> intervals =
+                    parseIntervals(ctx.header.getSequenceDictionary(), intervalCli);
+            for (final List<Locatable> contigIntervals : groupByContig(intervals)) {
+                final List<SimpleInterval> contigSimple =
+                        contigIntervals.stream()
+                                .map(SimpleInterval::new)
+                                .collect(Collectors.toList());
+                final MultiIntervalLocalReadShard shard =
+                        new MultiIntervalLocalReadShard(
+                                contigSimple, padding, ctx.readsSource);
+                configureHcProductionReadShard(shard, ctx);
+                final AssemblyRegionIterator iter =
+                        new AssemblyRegionIterator(
+                                shard,
+                                ctx.header,
+                                ctx.reference,
+                                null,
+                                ctx.engine,
+                                ctx.asmArgs,
+                                false);
+                while (iter.hasNext()) {
+                    final AssemblyRegion r = iter.next();
+                    if (!r.isActive()) {
+                        continue;
+                    }
+                    if (loc < r.getStart() || loc > r.getEnd()) {
+                        continue;
+                    }
+                    System.out.println(
+                            HcParityFiveReadLlDump.PFX
+                                    + "\tregion\t"
+                                    + r.getContig()
+                                    + ":"
+                                    + r.getStart()
+                                    + "-"
+                                    + r.getEnd()
+                                    + "\treads="
+                                    + r.getReads().size());
+                    final FeatureContext features = new FeatureContext();
+                    final ReferenceContext refCtx =
+                            new ReferenceContext(ctx.reference, r.getSpan(), padding, padding);
+                    ctx.engine.callRegion(r, features, refCtx);
+                    return;
+                }
+            }
+            throw new IllegalArgumentException("no active assembly region in interval");
+        }
+    }
+
+    /**
+     * TEST-ONLY 6R.229: frozen-five membership through Java hap_ll construction.
+     * Args: ref bam interval loc [padding].
+     */
+    private static void hapLlMembershipAtLoc(final String[] args) throws Exception {
+        if (args.length < 4) {
+            usage();
+        }
+        final String refPath = args[0];
+        final String bamPath = args[1];
+        final String intervalCli = args[2];
+        final int loc = Integer.parseInt(args[3]);
+        final int padding = args.length > 4 ? parsePadding(args[4]) : DEFAULT_PADDING;
+        try (HcContext ctx = new HcContext(refPath, bamPath, padding);
+                CachingIndexedFastaSequenceFile refReader =
+                        new CachingIndexedFastaSequenceFile(Paths.get(refPath))) {
+            final Field hcArgsField = HaplotypeCallerEngine.class.getDeclaredField("hcArgs");
+            hcArgsField.setAccessible(true);
+            final HaplotypeCallerArgumentCollection hcArgs =
+                    (HaplotypeCallerArgumentCollection) hcArgsField.get(ctx.engine);
+            final Field assemblerField =
+                    HaplotypeCallerEngine.class.getDeclaredField("assemblyEngine");
+            assemblerField.setAccessible(true);
+            final ReadThreadingAssembler assembler =
+                    (ReadThreadingAssembler) assemblerField.get(ctx.engine);
+            final Field alignerField = HaplotypeCallerEngine.class.getDeclaredField("aligner");
+            alignerField.setAccessible(true);
+            final SmithWatermanAligner aligner =
+                    (SmithWatermanAligner) alignerField.get(ctx.engine);
+            final Field trimmerField = HaplotypeCallerEngine.class.getDeclaredField("trimmer");
+            trimmerField.setAccessible(true);
+            final AssemblyRegionTrimmer trimmer =
+                    (AssemblyRegionTrimmer) trimmerField.get(ctx.engine);
+            final Logger logger = LogManager.getLogger(HcFullParityGateDump.class);
+            final SampleList samplesList = sampleListFromHeader(ctx.header);
+            HcParityHapLlMembershipDump.installOn(ctx.engine);
+            HcParityGenotypeEmitDump.installOn(ctx.engine, loc);
+            final List<SimpleInterval> intervals =
+                    parseIntervals(ctx.header.getSequenceDictionary(), intervalCli);
+            for (final List<Locatable> contigIntervals : groupByContig(intervals)) {
+                final List<SimpleInterval> contigSimple =
+                        contigIntervals.stream()
+                                .map(SimpleInterval::new)
+                                .collect(Collectors.toList());
+                final MultiIntervalLocalReadShard shard =
+                        new MultiIntervalLocalReadShard(
+                                contigSimple, padding, ctx.readsSource);
+                configureHcProductionReadShard(shard, ctx);
+                final AssemblyRegionIterator iter =
+                        new AssemblyRegionIterator(
+                                shard,
+                                ctx.header,
+                                ctx.reference,
+                                null,
+                                ctx.engine,
+                                ctx.asmArgs,
+                                false);
+                while (iter.hasNext()) {
+                    final AssemblyRegion r = iter.next();
+                    if (!r.isActive()) {
+                        continue;
+                    }
+                    if (loc < r.getStart() || loc > r.getEnd()) {
+                        continue;
+                    }
+                    HcParityHapLlMembershipDump.kv(
+                            "region",
+                            r.getContig()
+                                    + ":"
+                                    + r.getStart()
+                                    + "-"
+                                    + r.getEnd()
+                                    + "\treads="
+                                    + r.getReads().size());
+                    final AssemblyRegion copy = HcParityHapLlMembershipDump.copyRegion(r);
+                    final ReferenceContext refCtx =
+                            new ReferenceContext(ctx.reference, r.getSpan(), padding, padding);
+                    HcParityHapLlMembershipDump.dumpPrefixStages(
+                            ctx.engine,
+                            copy,
+                            hcArgs,
+                            samplesList,
+                            logger,
+                            refReader,
+                            assembler,
+                            aligner,
+                            trimmer,
+                            refCtx);
+                    Utils.resetRandomGenerator();
+                    final FeatureContext features = new FeatureContext();
+                    final List<VariantContext> calls =
+                            ctx.engine.callRegion(r, features, refCtx);
+                    HcParityHapLlMembershipDump.kv(
+                            "call_region_n", Integer.toString(calls.size()));
                     return;
                 }
             }

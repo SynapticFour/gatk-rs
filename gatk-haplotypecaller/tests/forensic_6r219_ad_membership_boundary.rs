@@ -353,8 +353,10 @@ fn forensic_6r219_live_ad_membership_boundary() {
     kv("java_ad", "42,5");
     kv("java_fmt_dp", JAVA_FMT_DP.to_string());
     kv("java_pl", "84,0,1738");
-    assert_eq!(ad, vec![44, 5], "Rust FORMAT AD before any 6R.219 fix");
-    assert_ne!(ad, JAVA_AD);
+    assert_eq!(
+        ad, JAVA_AD,
+        "6R.239: FORMAT AD matches Java after sentinel fix"
+    );
 
     let emitted =
         try_emit_call_region_variants(region, &outcome, "SAMPLE", DEFAULT_STAND_EMIT_CONFIDENCE)
@@ -378,9 +380,9 @@ fn forensic_6r219_live_ad_membership_boundary() {
     kv("info_mq", format!("{:?}", info_f64(&rec.info, "MQ")));
     kv("info_fs", format!("{:?}", info_f64(&rec.info, "FS")));
     kv("info_sor", format!("{:?}", info_f64(&rec.info, "SOR")));
-    assert_eq!(s.ad.as_deref(), Some([44, 5].as_slice()));
-    assert_eq!(s.dp, Some(49));
-    assert_eq!(info_i32(&rec.info, "DP"), Some(52));
+    assert_eq!(s.ad.as_deref(), Some([42, 5].as_slice()));
+    assert_eq!(s.dp, Some(47));
+    assert_eq!(info_i32(&rec.info, "DP"), Some(47));
 
     let config = HcGenotypingConfig::strict_java();
     let ref_hap = haps.iter().find(|h| h.is_reference).expect("ref hap");
@@ -546,10 +548,10 @@ fn forensic_6r219_live_ad_membership_boundary() {
         vec![ref_n, alt_n],
         "vote dump must match InformativeAd on the overlap remarg object"
     );
-    assert_ne!(
+    assert_eq!(
         ad_overlap.as_vec(),
         ad,
-        "FORMAT AD is not retainEvidence overlap informative remarg — first internal split"
+        "6R.226: FORMAT AD is retainEvidence overlap informative remarg (P2)"
     );
 
     let subset_cells: Vec<_> = likelihoods
@@ -802,11 +804,11 @@ fn forensic_6r219_live_ad_membership_boundary() {
         ),
     );
     assert_eq!(fmt_dp, ad[0] + ad[1], "FORMAT DP tracks FORMAT AD sum");
-    assert_ne!(fmt_dp, JAVA_FMT_DP, "FORMAT DP differs with AD");
-    assert_ne!(
+    assert_eq!(fmt_dp, JAVA_FMT_DP, "6R.239: FORMAT DP matches Java");
+    assert_eq!(
         info_i32(&rec.info, "DP"),
         Some(fmt_dp),
-        "INFO DP is a separate evidence lifecycle"
+        "6R.226: INFO DP tracks the P2 AD-sum FORMAT DP on this site"
     );
 
     let first_arrow;
@@ -830,12 +832,13 @@ fn forensic_6r219_live_ad_membership_boundary() {
         first_arrow = "same overlap set; informative/best-allele filter admits extra REF votes";
         classification = "INFORMATIVE_EVIDENCE_DIVERGENCE";
     } else {
-        first_arrow = "retainEvidence overlap informative remarg is FORMAT AD and already differs from Java 42,5";
-        classification = "READ_MEMBERSHIP_DIVERGENCE";
+        first_arrow =
+            "6R.239: retainEvidence overlap informative remarg FORMAT AD matches Java 42,5";
+        classification = "NO_DIVERGENCE_AT_THIS_BOUNDARY";
     }
     kv("first_divergent_arrow", first_arrow);
     kv("classification", classification);
-    assert_eq!(classification, "ALLELE_LIKELIHOOD_INPUT_DIVERGENCE");
+    assert_eq!(classification, "NO_DIVERGENCE_AT_THIS_BOUNDARY");
     kv(
         "pairhmm_causal",
         "winner identities dumped per overlap row; residuals not assumed causal",
@@ -853,7 +856,7 @@ fn forensic_6r219_live_ad_membership_boundary() {
         "extra_ref_votes_remarg_vs_format",
         (ref_n - ad[0]).to_string(),
     );
-    assert_eq!(extra_ref, 2, "Rust FORMAT has two extra REF vs Java");
+    assert_eq!(extra_ref, 0, "6R.239: P2 remarg matches Java REF votes");
     assert_eq!(ad[1], JAVA_AD[1], "ALT AD already matches Java");
     let _ = (JAVA_GQ, JAVA_PL, JAVA_QUAL);
 }

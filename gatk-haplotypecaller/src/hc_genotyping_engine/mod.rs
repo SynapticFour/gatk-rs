@@ -59,7 +59,7 @@ pub fn l9_may_overwrite_pairhmm_gls_after_emit_fail(
 }
 
 use crate::activity_scoring::{
-    genotype_log10_likelihoods_after_java_genotype_pl_roundtrip, log10_sum_log10,
+    approximate_log10_sum_log10_pair, genotype_log10_likelihoods_after_java_genotype_pl_roundtrip,
 };
 use crate::af_calc::{
     calculate_biallelic_af_em, diploid_af_log10_prob_only_ref_allele_exists, AfCalculatorConfig,
@@ -245,10 +245,17 @@ pub fn region_likelihoods_to_rows(
     with_region_likelihood_rows(likelihoods, n_haplotypes, |rows| rows.to_vec())
 }
 
-/// Borrow dense likelihood rows from a TLS cache keyed by `(ptr, len, n_haps)`.
+thread_local! {
+    static REGION_LIKELIHOOD_ROWS_CACHE: std::cell::RefCell<
+        Option<(Vec<(usize, usize, u64)>, usize, Vec<ReadLikelihoodRow>)>,
+    > = const { std::cell::RefCell::new(None) };
+}
+
+/// Borrow dense likelihood rows from a TLS cache keyed by sparse-cell identity + `n_haps`.
 ///
 /// Multi-allelic sites call this many times with the same sparse matrix; only the
 /// first call rebuilds. Callback must not escape the borrowed slice.
+/// Key: exact `(read_index, haplotype_index, log10.to_bits())` sequence plus `n_haps` (6R.226).
 pub fn with_region_likelihood_rows<R>(
     likelihoods: &[RegionReadLikelihood],
     n_haplotypes: usize,
@@ -257,35 +264,49 @@ pub fn with_region_likelihood_rows<R>(
     if likelihoods.is_empty() {
         return f(&[]);
     }
-    let key = (
-        likelihoods.as_ptr() as usize,
-        likelihoods.len(),
-        n_haplotypes,
-    );
-    thread_local! {
-        static ROWS_CACHE: std::cell::RefCell<Option<(usize, usize, usize, Vec<ReadLikelihoodRow>)>> =
-            const { std::cell::RefCell::new(None) };
+    if let Some(rows) = diagnostic_rows_cache_bypass(likelihoods, n_haplotypes) {
+        return f(&rows);
     }
-    ROWS_CACHE.with(|cell| {
+    let identity = sparse_population_identity(likelihoods);
+    let trace_key = diagnostic_rows_cache_key(likelihoods, n_haplotypes);
+    REGION_LIKELIHOOD_ROWS_CACHE.with(|cell| {
         let mut slot = cell.borrow_mut();
-        let hit = matches!(
-            slot.as_ref(),
-            Some((p, n, h, _)) if (*p, *n, *h) == key
-        );
+        let hit = slot
+            .as_ref()
+            .is_some_and(|(id, n, _)| *n == n_haplotypes && *id == identity);
+        LAST_ROWS_CACHE_HIT.set(hit);
+        record_region_likelihood_rows_lookup(trace_key, hit, likelihoods, slot.as_ref());
         if !hit {
             *slot = Some((
-                key.0,
-                key.1,
-                key.2,
+                identity,
+                n_haplotypes,
                 region_likelihoods_to_rows_uncached(likelihoods, n_haplotypes),
             ));
         }
-        // `slot` is Some after the fill above (or was already a hit).
         match slot.as_ref() {
-            Some((_, _, _, rows)) => f(rows),
+            Some((_, _, rows)) => f(rows),
             None => f(&[]),
         }
     })
+}
+
+/// 6R.226 investigation-only: `(identity_len, identity_len, n_haps, n_rows)`.
+#[doc(hidden)]
+pub fn region_likelihood_rows_tls_identity() -> Option<(usize, usize, usize, usize)> {
+    REGION_LIKELIHOOD_ROWS_CACHE.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .map(|(id, h, rows)| (id.len(), id.len(), *h, rows.len()))
+    })
+}
+
+/// 6R.222 investigation-only: drop the TLS row cache. Production never calls this.
+#[doc(hidden)]
+pub fn clear_region_likelihood_rows_tls() {
+    reset_rows_cache_insert_identity();
+    REGION_LIKELIHOOD_ROWS_CACHE.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
 }
 
 /// Bench/test helper: rebuild dense rows without TLS cache.
@@ -399,11 +420,11 @@ pub fn biallelic_genotype_log10_likelihoods_gatk(
         } else {
             MARGINALIZE_EMPTY_POOL_LOG10
         };
-        // GATK `GenotypeLikelihoodCalculator`: hom-ref/hom-alt add log10(copy count) per read;
-        // het sums log10 L(read|allele) for each allele copy via log10Sum.
+        // GATK `GenotypeLikelihoodCalculator`: hom-ref/hom-alt add log10(copy count) per read.
+        // The heterozygote is `approximateLog10SumLog10`, not analytic `log10sumLog10`.
         g0 += lr + log10_ploidy;
         g2 += la + log10_ploidy;
-        g1 += log10_sum_log10(&[lr, la]);
+        g1 += approximate_log10_sum_log10_pair(lr, la);
     }
     vec![g0 - denominator, g1 - denominator, g2 - denominator]
 }
@@ -448,7 +469,7 @@ pub fn diploid_genotype_log10_likelihoods_from_allele_rows(
                 gls[k] += if i == j {
                     allele_ll[i] + log10_ploidy
                 } else {
-                    log10_sum_log10(&[allele_ll[i], allele_ll[j]])
+                    approximate_log10_sum_log10_pair(allele_ll[i], allele_ll[j])
                 };
                 k += 1;
             }

@@ -374,18 +374,24 @@ mod traces {
                 start: SITE_CA,
                 end: SITE_CA,
                 is_indel: false,
+                ref_allele: String::new(),
+                alt_allele: String::new(),
             },
             TrimVariant {
                 contig: "2".into(),
                 start: SITE_TC,
                 end: SITE_TC,
                 is_indel: false,
+                ref_allele: String::new(),
+                alt_allele: String::new(),
             },
             TrimVariant {
                 contig: "2".into(),
                 start: SITE_GC,
                 end: SITE_GC,
                 is_indel: false,
+                ref_allele: String::new(),
+                alt_allele: String::new(),
             },
         ];
         let res = trimmer.trim(&region, &vars, None);

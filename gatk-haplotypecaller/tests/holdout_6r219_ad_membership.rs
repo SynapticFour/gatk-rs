@@ -156,9 +156,9 @@ fn holdout_6r219_ad_membership() {
         })
         .expect("G/A");
     assert!(!target_call.post_merge_unused_alt_subset);
-    assert_eq!(target_call.genotype.format.ad_as_i32(), vec![44, 5]);
-    assert_eq!(target_call.genotype.format.pl_as_i32(), vec![78, 0, 1811]);
-    assert_eq!(target_call.genotype.format.dp.as_i32(), 49);
+    assert_eq!(target_call.genotype.format.ad_as_i32(), vec![42, 5]);
+    assert_eq!(target_call.genotype.format.pl_as_i32(), vec![84, 0, 1738]);
+    assert_eq!(target_call.genotype.format.dp.as_i32(), 47);
     let emitted = try_emit_call_region_variants(
         covering_target,
         &target_outcome,
@@ -172,13 +172,13 @@ fn holdout_6r219_ad_membership() {
         .expect("emit G/A");
     assert_eq!(
         target_rec.samples[0].ad.as_deref(),
-        Some([44, 5].as_slice())
+        Some([42, 5].as_slice())
     );
-    assert_eq!(target_rec.samples[0].dp, Some(49));
-    assert_eq!(info_i32(&target_rec.info, "DP"), Some(52));
+    assert_eq!(target_rec.samples[0].dp, Some(47));
+    assert_eq!(info_i32(&target_rec.info, "DP"), Some(47));
     kv("java_ad", "42,5");
-    kv("rust_ad", "44,5");
-    kv("matched_format", "GT=0/1 AD=44,5 DP=49 vs Java 42,5 DP=47");
+    kv("rust_ad", "42,5");
+    kv("matched_format", "GT=0/1 AD=42,5 DP=47 matches Java");
     kv(
         "unmatched",
         "FORMAT AD is a FORMAT-specific subset, not retainEvidence remarg 47,5",

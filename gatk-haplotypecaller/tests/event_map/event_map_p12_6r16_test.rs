@@ -496,6 +496,8 @@ mod traces {
                 start: e.start_1based.get(),
                 end: e.end_1based.get(),
                 is_indel: e.is_indel(),
+                ref_allele: e.ref_allele.clone(),
+                alt_allele: e.alt_allele.clone(),
             })
             .collect();
         let trimmer =
@@ -805,11 +807,14 @@ mod traces {
         // 6R.39: trim_modern uses Math.max(end+padding). Pre-fix this haplotype was
         // 256 bp (`79M2D1M2I174M`) because padding accumulated until clipped to the
         // extended-region end. Java-contract span is 159 bp.
-        // 6R.114: leading Match includes the TTC deletion anchor (`80M` not `79M`).
+        // 6R.114: leading Match includes the TTC deletion anchor.
+        // 6R.310: indel padding uses Java anchored tandem-repeat counts. On TTT>T
+        // that pad is 2 bp shorter than the old inclusive-span homopolymer, so the
+        // same 159 bp haplotype is `78M2D1M2I78M`. The anchor T stays in the lead.
         assert_eq!(canon.bases.len(), 159);
         assert_eq!(
             canon.cigar.as_ref().map(|c| c.to_gatk_string()).as_deref(),
-            Some("80M2D1M2I76M")
+            Some("78M2D1M2I78M")
         );
         assert_eq!(canon.alignment_start_hap_wrt_ref, 0);
         assert_eq!(canon.kmer_size, 85);
@@ -893,6 +898,8 @@ mod traces {
                 start: e.start_1based.get(),
                 end: e.end_1based.get(),
                 is_indel: e.is_indel(),
+                ref_allele: e.ref_allele.clone(),
+                alt_allele: e.alt_allele.clone(),
             })
             .collect();
         let trimmer =
@@ -1075,7 +1082,7 @@ mod traces {
         );
         assert!(
             ttc_on_hap && atg_on_hap,
-            "6R.114: hap EventMap reconstructs TTC/T and A/ATG (80M2D1M2I, not leftover A/G)"
+            "6R.114: hap EventMap reconstructs TTC/T and A/ATG (78M2D1M2I, not leftover A/G)"
         );
         assert!(
             dup_bases.is_empty(),

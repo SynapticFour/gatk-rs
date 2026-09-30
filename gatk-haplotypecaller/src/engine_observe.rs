@@ -451,6 +451,240 @@ pub fn take_hap_list_snaps() -> Vec<HapListSnap> {
     HAP_LIST_SNAPS.with(|v| std::mem::take(&mut *v.borrow_mut()))
 }
 
+/// One assembled event or trim-input interval (TEST-ONLY).
+#[derive(Clone, Debug)]
+pub struct TrimCalcVar {
+    pub start: u64,
+    pub end: u64,
+    pub is_indel: bool,
+    pub ref_al: String,
+    pub alt_al: String,
+}
+
+/// Inputs and outputs of `AssemblyRegionTrimmer::trim` (TEST-ONLY).
+#[derive(Clone, Debug)]
+pub struct TrimCalcSnap {
+    pub active_start: u64,
+    pub active_end: u64,
+    pub assembly_padded_start: u64,
+    pub assembly_padded_end: u64,
+    pub events: Vec<TrimCalcVar>,
+    pub trim_vars: Vec<TrimCalcVar>,
+    pub variant_start: u64,
+    pub variant_end: u64,
+    pub padded_start: u64,
+    pub padded_end: u64,
+}
+
+thread_local! {
+    static TRIM_CALC_ON: std::cell::Cell<bool> = std::cell::Cell::new(false);
+    static TRIM_CALC_SNAP: std::cell::RefCell<Option<TrimCalcSnap>> = std::cell::RefCell::new(None);
+    static FORENSIC_6R294_PADDED: std::cell::Cell<Option<(u64, u64)>> = const { std::cell::Cell::new(None) };
+}
+
+thread_local! {
+    static FORENSIC_6R306_ON: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static FORENSIC_6R306_MATE_FAIL: std::cell::RefCell<std::collections::HashSet<(Vec<u8>, u16)>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+    static FORENSIC_6R306_EXCLUDED: std::cell::RefCell<std::collections::HashSet<(Vec<u8>, u16)>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// Diagnostic counter for mate-contig exclusions. Production always omits
+/// those reads from PairHMM evidence. The flag only records the count.
+pub fn set_forensic_6r306_exclude_failed_mate(enabled: bool) {
+    FORENSIC_6R306_ON.with(|c| c.set(enabled));
+    FORENSIC_6R306_EXCLUDED.with(|s| s.borrow_mut().clear());
+    if !enabled {
+        FORENSIC_6R306_MATE_FAIL.with(|s| s.borrow_mut().clear());
+    }
+}
+
+pub fn forensic_6r306_excluded_count() -> usize {
+    FORENSIC_6R306_EXCLUDED.with(|s| s.borrow().len())
+}
+
+pub fn forensic_6r306_mate_fail_noted() -> usize {
+    FORENSIC_6R306_MATE_FAIL.with(|s| s.borrow().len())
+}
+
+/// One read in native container order. Diagnostic capture only.
+#[derive(Clone, Debug)]
+pub struct Forensic6r307Read {
+    pub qname: String,
+    pub flags: u16,
+    pub start_1based: i64,
+    pub cigar: String,
+    pub reverse: bool,
+    pub mapq: u8,
+    pub mate_tid: i32,
+    pub mate_start_1based: i64,
+    pub tlen: i64,
+}
+
+thread_local! {
+    static FORENSIC_6R307_ON: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static FORENSIC_6R307_STAGES: std::cell::RefCell<Vec<(String, Vec<Forensic6r307Read>)>> =
+        std::cell::RefCell::new(Vec::new());
+}
+
+/// Record native read order at pipeline boundaries. Default off.
+pub fn begin_forensic_6r307_order_observe() {
+    FORENSIC_6R307_ON.with(|c| c.set(true));
+    FORENSIC_6R307_STAGES.with(|s| s.borrow_mut().clear());
+}
+
+pub fn take_forensic_6r307_order() -> Vec<(String, Vec<Forensic6r307Read>)> {
+    FORENSIC_6R307_ON.with(|c| c.set(false));
+    FORENSIC_6R307_STAGES.with(|s| std::mem::take(&mut *s.borrow_mut()))
+}
+
+pub(super) fn note_forensic_6r307_records<R: std::borrow::Borrow<rust_htslib::bam::Record>>(
+    stage: &str,
+    reads: &[R],
+) {
+    if !FORENSIC_6R307_ON.with(|c| c.get()) {
+        return;
+    }
+    let rows = reads
+        .iter()
+        .map(|r| {
+            let r = r.borrow();
+            let cigar = r.cigar().to_string();
+            let mate_start_1based = if r.mpos() < 0 { -1 } else { r.mpos() + 1 };
+            Forensic6r307Read {
+                qname: String::from_utf8_lossy(r.qname()).into_owned(),
+                flags: r.flags(),
+                start_1based: r.pos() + 1,
+                cigar,
+                reverse: r.is_reverse(),
+                mapq: r.mapq(),
+                mate_tid: r.mtid(),
+                mate_start_1based,
+                tlen: r.insert_size(),
+            }
+        })
+        .collect();
+    FORENSIC_6R307_STAGES.with(|s| s.borrow_mut().push((stage.to_string(), rows)));
+}
+
+/// QNAME+FLAG of a read that fails `passes_mate_on_same_contig_or_no_mapped_mate`.
+pub fn failed_mate_key_of(rec: &rust_htslib::bam::Record) -> Option<(Vec<u8>, u16)> {
+    if crate::read_pre_mate::passes_mate_on_same_contig_or_no_mapped_mate(rec) {
+        None
+    } else {
+        Some((rec.qname().to_vec(), rec.flags()))
+    }
+}
+
+/// QNAME+FLAG keys that fail `passes_mate_on_same_contig_or_no_mapped_mate`.
+pub fn failed_mate_evidence_keys(
+    reads: &[rust_htslib::bam::Record],
+) -> std::collections::HashSet<(Vec<u8>, u16)> {
+    reads.iter().filter_map(failed_mate_key_of).collect()
+}
+
+pub(super) fn forensic_6r306_note_pre_filter_reads(reads: &[crate::shared_bam::SharedBamRecord]) {
+    let fail = reads.iter().filter_map(|r| failed_mate_key_of(r)).collect();
+    FORENSIC_6R306_MATE_FAIL.with(|s| *s.borrow_mut() = fail);
+}
+
+pub(super) fn production_failed_mate_key(qname: &[u8], flags: u16) -> bool {
+    FORENSIC_6R306_MATE_FAIL.with(|s| s.borrow().contains(&(qname.to_vec(), flags)))
+}
+
+pub(super) fn note_production_failed_mate_exclusion(qname: &[u8], flags: u16) {
+    if FORENSIC_6R306_ON.with(|c| c.get()) {
+        FORENSIC_6R306_EXCLUDED.with(|s| {
+            s.borrow_mut().insert((qname.to_vec(), flags));
+        });
+    }
+}
+
+pub(super) fn forensic_6r306_exclude_zero_row(qname: &[u8], flags: u16) -> bool {
+    let hit = production_failed_mate_key(qname, flags);
+    if hit {
+        note_production_failed_mate_exclusion(qname, flags);
+    }
+    hit
+}
+
+/// Force the post-trim padded span for this thread. `None` restores production.
+/// Does not change `trim_modern`, padding constants, or the active variant span.
+pub fn set_forensic_6r294_padded_span(start: Option<u64>, end: Option<u64>) {
+    FORENSIC_6R294_PADDED.with(|c| {
+        c.set(match (start, end) {
+            (Some(start), Some(end)) if start <= end => Some((start, end)),
+            _ => None,
+        });
+    });
+}
+
+pub(super) fn apply_forensic_6r294_padded_span(region: &mut AssemblyRegion) {
+    let Some((start, end)) = FORENSIC_6R294_PADDED.with(|c| c.get()) else {
+        return;
+    };
+    region.extended_start = crate::genome_loc::GenomePosition::new_1based(start);
+    region.extended_end = crate::genome_loc::GenomePosition::new_1based(end);
+}
+
+/// Enable capture of the trimmer's event list and spans. Idle in production.
+pub fn begin_trim_calc_observe() {
+    TRIM_CALC_ON.with(|c| c.set(true));
+    TRIM_CALC_SNAP.with(|v| *v.borrow_mut() = None);
+}
+
+/// Take the trim-calculation snapshot and disable capture.
+pub fn take_trim_calc_snap() -> Option<TrimCalcSnap> {
+    TRIM_CALC_ON.with(|c| c.set(false));
+    TRIM_CALC_SNAP.with(|v| v.borrow_mut().take())
+}
+
+pub(super) fn capture_trim_calc(
+    region: &AssemblyRegion,
+    events: &[crate::event_map::VariationEvent],
+    trim_vars: &[crate::assembly_region_trimmer::TrimVariant],
+    trim_result: &crate::assembly_region_trimmer::AssemblyRegionTrimResult,
+) {
+    if !TRIM_CALC_ON.with(|c| c.get()) {
+        return;
+    }
+    let events = events
+        .iter()
+        .map(|e| TrimCalcVar {
+            start: e.start_1based.get(),
+            end: e.end_1based.get(),
+            is_indel: e.is_indel(),
+            ref_al: e.ref_allele.clone(),
+            alt_al: e.alt_allele.clone(),
+        })
+        .collect();
+    let trim_vars = trim_vars
+        .iter()
+        .map(|v| TrimCalcVar {
+            start: v.start,
+            end: v.end,
+            is_indel: v.is_indel,
+            ref_al: String::new(),
+            alt_al: String::new(),
+        })
+        .collect();
+    TRIM_CALC_SNAP.with(|s| {
+        *s.borrow_mut() = Some(TrimCalcSnap {
+            active_start: region.start.get(),
+            active_end: region.end.get(),
+            assembly_padded_start: region.extended_start.get(),
+            assembly_padded_end: region.extended_end.get(),
+            events,
+            trim_vars,
+            variant_start: trim_result.variant_start.unwrap_or(0),
+            variant_end: trim_result.variant_end.unwrap_or(0),
+            padded_start: trim_result.padded_variant_start.unwrap_or(0),
+            padded_end: trim_result.padded_variant_end.unwrap_or(0),
+        });
+    });
+}
+
 /// Trim interval used by `trim_to` (TEST-ONLY). `None` unless observe is on.
 pub fn take_hap_list_trim_span() -> Option<HapListTrimSpan> {
     HAP_LIST_TRIM_SPAN.with(|v| v.borrow_mut().take())

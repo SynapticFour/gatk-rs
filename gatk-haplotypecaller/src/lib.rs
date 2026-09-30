@@ -21,16 +21,16 @@ pub mod allele_filtering;
 pub mod assembly;
 pub mod assembly_based_caller;
 pub mod assembly_dangling_recovery;
-pub mod assembly_pipeline_stages;
+pub(crate) mod assembly_pipeline_stages;
 pub mod assembly_pruning;
-pub mod assembly_region_evaluator;
+pub(crate) mod assembly_region_evaluator;
 pub mod assembly_region_finalize;
 pub mod assembly_region_iterator;
 pub mod assembly_region_trimmer;
 pub mod assembly_result_set;
 pub mod bio_ids;
 pub mod cigar;
-pub mod cigar_builder;
+pub(crate) mod cigar_builder;
 /// Multi-sample gVCF merge (GATK CombineGVCFs algorithm slice).
 pub mod combine_gvcfs;
 pub mod emit_gates;
@@ -40,25 +40,25 @@ pub mod feature_context;
 pub mod genome_loc;
 /// Joint genotyping of combined gVCFs (GATK GenotypeGVCFs algorithm slice).
 pub mod genotype_gvcfs;
-pub mod genotype_site;
+pub(crate) mod genotype_site;
 pub mod genotyping;
 pub mod given_alleles;
-pub mod gvcf_writer;
+pub(crate) mod gvcf_writer;
 pub mod haplotype;
 pub mod haplotype_cigar;
 pub mod hc_allele_mapping;
 pub mod hc_emit_policy;
 pub mod hc_genotyping_engine;
 /// Observe-only production HC profiler (`GATK_RS_HC_PROFILE`).
-pub mod hc_profile;
-pub mod hq_soft_clip;
-pub mod junction_kbest;
-pub mod junction_tree_graph;
+pub(crate) mod hc_profile;
+pub(crate) mod hq_soft_clip;
+pub(crate) mod junction_kbest;
+pub(crate) mod junction_tree_graph;
 pub mod kbest_haplotype;
 pub mod kmer_key;
 pub mod likelihood_engine;
 pub mod locus_iterator;
-pub mod minimal_genotyping;
+pub(crate) mod minimal_genotyping;
 pub mod multiallelic_emit;
 pub mod pairhmm;
 pub mod pairhmm_log10;
@@ -79,7 +79,7 @@ pub mod read_threading_graph;
 pub mod read_transformer;
 pub mod read_validation;
 pub mod ref_confidence;
-pub mod ref_confidence_merger;
+pub(crate) mod ref_confidence_merger;
 pub mod reference_context;
 pub mod reference_vcf_emit;
 /// Leaf likelihood-row type (breaks engine ↔ genotyping module cycle).
@@ -131,6 +131,7 @@ pub(crate) mod read_error_correction;
 pub(crate) mod read_optional_tags;
 pub(crate) mod read_pre_len;
 pub(crate) mod read_pre_mate;
+pub use read_pre_mate::passes_mate_on_same_contig_or_no_mapped_mate;
 pub(crate) mod read_pre_mq;
 pub mod read_unclip;
 pub(crate) mod region_pileup;
@@ -320,7 +321,6 @@ pub use activity_scoring::{
     AVERAGE_HQ_SOFTCLIPS_HQ_BASES_THRESHOLD, LOG10_ONE_THIRD, REF_MODEL_DELETION_QUAL,
 };
 pub use alignment::*;
-pub use alignment::{calculate_haplotype_cigar, Cigar, CigarOperator, SwParameters};
 pub use allele_downsample::{
     apply_contamination_to_pileup, select_allele_biased_evidence_indices, target_allele_counts,
 };
@@ -339,18 +339,15 @@ pub use assembly_based_caller::{
     assemble_reads, assemble_reads_with_finalized, call_region_assemble, AssembleReadsArgs,
     AssembledRegion,
 };
-pub use assembly_pipeline_stages::{
-    CallRegionAssemblyStage, EVENT_MAP_SYNC_AROUND_FILTER_RATIONALE,
-};
-pub use assembly_region_evaluator::{add_locus_for_smoothed_activity, evaluate_hc_activity_state};
 pub use assembly_region_iterator::{
     load_all_records_for_contig, load_all_records_for_contig_raw, load_records_for_shard_raw,
     refuse_oversized_assembly_region_reads, sync_read_qnames, AssemblyRegion,
     AssemblyRegionIterator, AssemblyRegionIteratorConfig, MAX_READS_PER_ASSEMBLY_REGION,
 };
 pub use assembly_region_trimmer::{
-    load_trim_variants_tsv, trim_assembly_region, AssemblyRegionTrimResult, AssemblyRegionTrimmer,
-    AssemblyRegionTrimmerConfig, TrimVariant,
+    load_trim_variants_tsv, longest_str_len_at_variant, tandem_repeat_at_event,
+    trim_assembly_region, AssemblyRegionTrimResult, AssemblyRegionTrimmer,
+    AssemblyRegionTrimmerConfig, TandemRepeatAtEvent, TrimVariant,
 };
 /// CLI diagnostic (`gatk-cli DumpSmoothedActivity`) — requires `dev-dumps`.
 #[cfg(feature = "dev-dumps")]
@@ -363,16 +360,21 @@ pub use bio_ids::{
     ReferenceCoordinate, SampleIndex,
 };
 pub use combine_gvcfs::{run_combine_gvcfs, CombineGvcfsArgs};
-pub use engine::{
-    begin_hap_list_observe, begin_likelihood_pipeline_observe, begin_poorly_modeled_observe,
-    begin_realign_observe, observe_poorly_modeled_haplotypes, take_hap_list_snaps,
-    take_hap_list_trim_span, take_likelihood_pipeline_cells, take_likelihood_pipeline_snaps,
-    take_poorly_modeled_cells, take_poorly_modeled_haplotypes, take_poorly_modeled_observe,
-    take_realign_observe, CallRegionArgs, CallRegionMode, CallRegionOutcome, HapListColumn,
-    HapListSnap, HapListTrimSpan, HaplotypeCallerEngine, LikelihoodPipelineCell,
-    LikelihoodPipelineSnap, PoorlyModeledHapColumn, PoorlyModeledObserveCell,
-    PoorlyModeledObserveRow, RealignObserveRow,
+pub use engine::engine_observe::{
+    begin_forensic_6r307_order_observe, begin_hap_list_observe, begin_likelihood_pipeline_observe,
+    begin_poorly_modeled_observe, begin_realign_observe, begin_trim_calc_observe,
+    failed_mate_evidence_keys, failed_mate_key_of, forensic_6r306_excluded_count,
+    forensic_6r306_mate_fail_noted, observe_poorly_modeled_haplotypes,
+    set_forensic_6r294_padded_span, set_forensic_6r306_exclude_failed_mate,
+    take_forensic_6r307_order, take_hap_list_snaps, take_hap_list_trim_span,
+    take_likelihood_pipeline_cells, take_likelihood_pipeline_snaps, take_poorly_modeled_cells,
+    take_poorly_modeled_haplotypes, take_poorly_modeled_observe, take_realign_observe,
+    take_trim_calc_snap, Forensic6r307Read, HapListColumn, HapListSnap, HapListTrimSpan,
+    LikelihoodPipelineCell, LikelihoodPipelineSnap, PoorlyModeledHapColumn,
+    PoorlyModeledObserveCell, PoorlyModeledObserveRow, RealignObserveRow, TrimCalcSnap,
+    TrimCalcVar,
 };
+pub use engine::{CallRegionArgs, CallRegionMode, CallRegionOutcome, HaplotypeCallerEngine};
 pub use event_map::{AlleleBytes, Event, EventMap, IndelSpan};
 pub use feature_context::{FeatureContext, FeatureDataSources, FeatureLocatable};
 pub use gatk_well_rng::{Well19937c, GATK_WELL19937C_SEED};
@@ -380,28 +382,24 @@ pub use genome_loc::{GenomeLoc, GenomePosition};
 pub use genotype_gvcfs::{run_genotype_gvcfs, GenotypeGvcfsArgs, DEFAULT_STAND_CALL_CONF};
 pub use genotyping::*;
 pub use given_alleles::{merge_given_alleles_into_assembly, GatkGivenAllele};
-pub use gvcf_writer::{
-    gatk_hc_gvcf_header_lines, GvcfWriter, GvcfWriterConfig, GATK_HC_DEFAULT_GQB,
-};
 pub use haplotype::Haplotype;
 pub use hc_genotyping_engine::{
     audit_colocated_snp_indel_merge_numerics, biallelic_genotype_log10_likelihoods_gatk,
-    diagnose_genotype_variation_event, diagnose_genotype_variation_event_with_region_state,
-    genotype_active_region, java_emit_af_decision, java_vcf_shaped_rescue_gl,
-    l9_may_overwrite_pairhmm_gls_after_emit_fail, marginalize_rows_to_biallelic_alleles,
-    region_likelihoods_to_rows, subset_biallelic_haplotype_indices, take_colocated_merge_numerics,
-    with_region_likelihood_rows, ColocatedMergeNumerics, GenotypeRejectReason, GenotypingSemantics,
-    HcGenotypingConfig, InformativeAd, JavaEmitAfDecision, RegionGenotypeResult, SparsePlShape,
-    DEFAULT_INFORMATIVE_READ_OVERLAP_MARGIN, DEFAULT_STAND_EMIT_CONFIDENCE,
+    clear_region_likelihood_rows_tls, diagnose_genotype_variation_event,
+    diagnose_genotype_variation_event_with_region_state, genotype_active_region,
+    java_emit_af_decision, java_vcf_shaped_rescue_gl, l9_may_overwrite_pairhmm_gls_after_emit_fail,
+    marginalize_rows_to_biallelic_alleles, region_likelihood_rows_logical_identity,
+    region_likelihood_rows_tls_identity, region_likelihoods_to_rows,
+    region_likelihoods_to_rows_uncached_pub, set_region_likelihood_rows_cache_diagnostic,
+    subset_biallelic_haplotype_indices, take_colocated_merge_numerics,
+    take_last_region_likelihood_rows_lookup_trace, take_last_site_score_inner_trace,
+    take_region_likelihood_rows_lookup_log, with_region_likelihood_rows, ColocatedMergeNumerics,
+    GenotypeRejectReason, GenotypingSemantics, HcGenotypingConfig, InformativeAd,
+    JavaEmitAfDecision, RegionGenotypeResult, RegionLikelihoodRowsLookupTrace, SiteScoreInnerTrace,
+    SparsePlShape, DEFAULT_INFORMATIVE_READ_OVERLAP_MARGIN, DEFAULT_STAND_EMIT_CONFIDENCE,
 };
 #[cfg(feature = "dev-dumps")]
 pub use hc_genotyping_engine::{format_locus_genotype_pl_dump, pairhmm_locus_trace_dump};
-pub use hq_soft_clip::{
-    count_high_quality_soft_clip_bases_rcm, hq_soft_clip_running_mean_at_locus,
-    max_hq_soft_clip_bases, RCM_HQ_SOFT_CLIP_QUAL_THRESHOLD,
-};
-pub use junction_kbest::{find_junction_best_haplotypes, JunctionKBestPath};
-pub use junction_tree_graph::build_junction_tree_graph_from_ref_and_reads;
 pub use kbest_haplotype::{
     find_best_haplotypes, find_best_haplotypes_for_assembly,
     find_best_haplotypes_preserving_cycles, KBestPath,
@@ -412,10 +410,6 @@ pub use likelihood_engine::{
     HcLikelihoodEngineConfig, HcLikelihoodImplementation,
 };
 pub use locus_iterator::{IntervalLocusIterator, LocusPileupState, LocusPileupWalker};
-pub use minimal_genotyping::{
-    calculate_single_sample_ref_vs_any_active_state_profile_value,
-    haplotype_caller_activity_profile_state_minimal_genotyping,
-};
 pub use pairhmm::{
     pairhmm_fp_eq, pairhmm_log10_likelihood, pairhmm_log10_likelihood_slices,
     pairhmm_log10_likelihoods_vectorized, pairhmm_log10_likelihoods_vectorized_slices,
@@ -453,10 +447,7 @@ pub use read_model::{
     FLAG_VENDOR_QUALITY_FAILED, GATK_HC_DEFAULT_MIN_MAPPING_QUALITY, MAPPING_QUALITY_UNAVAILABLE,
     STANDARD_HC_READ_FILTER_JAVA_NAMES,
 };
-pub use read_projection::{
-    cigar_hard_clip_length, cigar_soft_clip_ends, query_index_at_reference_position,
-    reference_position_at_query_index,
-};
+pub use read_projection::{query_index_at_reference_position, reference_position_at_query_index};
 pub use read_threading_assembler::{
     assemble_from_ref_and_reads, audit_threading_dangling_recovery,
     diagnostic_rt_first_skip_seq_graph_kmer, AssemblyResult as ThreadingAssemblyResult,
@@ -472,10 +463,6 @@ pub use read_threading_graph::{
     assembly_graph_from_reads_threading, assembly_graph_from_ref_and_reads_threading,
     assembly_graph_from_ref_and_reads_threading_with_summary, reference_has_non_unique_kmers,
     threading_non_unique_summary, ThreadingNonUniqueSummary,
-};
-pub use read_transformer::{
-    apply_iupac_strict_transform, apply_shard_read_pipeline, load_contig_records_hc_production,
-    ShardReadPipelineConfig,
 };
 pub use read_validation::validate_mapped_read_sanity;
 pub use ref_confidence::{

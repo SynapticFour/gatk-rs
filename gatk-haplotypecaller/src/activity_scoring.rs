@@ -218,7 +218,14 @@ fn jacobian_log_table_get(diff: f64) -> f64 {
     cache[idx]
 }
 
-/// GATK `MathUtils.approximateLog10SumLog10(a, b)`.
+/// GATK 4.4.0.0 `MathUtils.approximateLog10SumLog10(double, double)`.
+///
+/// This is the two-component genotype-likelihood combine. The smaller
+/// argument is ordered first. A negative-infinity smaller value returns the
+/// other argument. When `larger - smaller < 8.0`, the larger value is
+/// increased by the Jacobian-log table entry; otherwise the larger value is
+/// returned unchanged. [`log10_sum_log10`] is Java `log10sumLog10` and is a
+/// different operation.
 pub fn approximate_log10_sum_log10_pair(a: f64, b: f64) -> f64 {
     const MAX_TOLERANCE: f64 = 8.0;
     let (a, b) = if a > b { (b, a) } else { (a, b) };

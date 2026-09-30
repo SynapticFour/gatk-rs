@@ -17,6 +17,8 @@ fn given_alleles_extend_trim_variants_without_duplicate() {
         start: 100,
         end: 100,
         is_indel: false,
+        ref_allele: String::new(),
+        alt_allele: String::new(),
     }];
     given_alleles_to_trim_variants(&given, "2", &mut trim);
     assert_eq!(trim.len(), 1);

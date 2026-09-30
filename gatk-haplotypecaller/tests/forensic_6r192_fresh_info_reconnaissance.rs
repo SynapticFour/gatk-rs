@@ -470,16 +470,20 @@ fn forensic_6r192_live_vcf_inventory() {
         kv("first_rust_only", rust_map[k].site());
     }
     assert!(java_only.is_empty());
-    assert_eq!(rust_only.len(), 3);
+    assert_eq!(rust_only.len(), 4);
+    assert_eq!(
+        rust_map[rust_only.first().unwrap()].site(),
+        "20:29455314 G/C"
+    );
     assert_eq!(chr2_fmt, 0, "chr2 FORMAT must stay closed after 6R.191");
     assert_eq!(chr2_qual, 0, "chr2 QUAL must stay closed within 0.05");
     assert_eq!(java_map.len(), 126);
-    assert_eq!(rust_map.len(), 129);
+    assert_eq!(rust_map.len(), 130);
     assert!(
         first_fmt
             .as_ref()
-            .is_some_and(|(site, fd)| site.starts_with("20:29455379") && *fd == "AD"),
-        "first FORMAT split after 6R.218 is AD at 20:29455379: {first_fmt:?}"
+            .is_some_and(|(site, fd)| site.starts_with("20:29455649") && *fd == "PL"),
+        "6R.239 closed AD at 20:29455379; first remaining FORMAT split is PL at 20:29455649: {first_fmt:?}"
     );
     assert!(
         extra_info_keys.is_empty(),

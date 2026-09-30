@@ -45,6 +45,116 @@ thread_local! {
         RefCell::new(PairHmmReadScratch::empty());
 }
 
+/// One PairHMM input capture for the 6R.289 target read. Default off.
+#[derive(Clone, Debug)]
+pub struct Forensic6r289Snap {
+    pub flags: u16,
+    pub mapq: u8,
+    pub pos_1based: i64,
+    pub cigar: String,
+    pub read_bases: Vec<u8>,
+    pub raw_quals: Vec<u8>,
+    pub base_quals: Vec<u8>,
+    pub ins_before_pcr: Vec<u8>,
+    pub ins_quals: Vec<u8>,
+    pub del_before_pcr: Vec<u8>,
+    pub del_quals: Vec<u8>,
+    pub gcp: Vec<u8>,
+    pub hap0: Vec<u8>,
+    pub hap0_index: usize,
+    pub n_haps: usize,
+    pub h0_score: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Forensic6r289Field {
+    ReadBases,
+    BaseQuals,
+    InsQuals,
+    DelQuals,
+    Gcp,
+    Hap0,
+}
+
+struct Forensic6r289State {
+    qname: String,
+    flags: u16,
+    armed: bool,
+    mapq: u8,
+    pos_1based: i64,
+    cigar: String,
+    hap0_slot: usize,
+    subst: Option<(Forensic6r289Field, Vec<u8>)>,
+    snaps: Vec<Forensic6r289Snap>,
+}
+
+thread_local! {
+    static FORENSIC_6R289: RefCell<Option<Forensic6r289State>> = const { RefCell::new(None) };
+}
+
+/// Enable input capture for one read. `None` clears it. Does not change scoring
+/// unless [`set_forensic_6r289_substitute`] is also set.
+pub fn set_forensic_6r289_target(qname: Option<&str>, flags: u16) {
+    FORENSIC_6R289.with(|slot| {
+        *slot.borrow_mut() = qname.map(|qname| Forensic6r289State {
+            qname: qname.to_string(),
+            flags,
+            armed: false,
+            mapq: 0,
+            pos_1based: 0,
+            cigar: String::new(),
+            hap0_slot: 0,
+            subst: None,
+            snaps: Vec::new(),
+        });
+    });
+}
+
+/// Replace one input field for the armed target read before the kernel runs.
+pub fn set_forensic_6r289_substitute(field: Option<Forensic6r289Field>, bytes: Option<Vec<u8>>) {
+    FORENSIC_6R289.with(|slot| {
+        if let Some(state) = slot.borrow_mut().as_mut() {
+            state.subst = match (field, bytes) {
+                (Some(field), Some(bytes)) => Some((field, bytes)),
+                _ => None,
+            };
+        }
+    });
+}
+
+pub fn forensic_6r289_active() -> bool {
+    FORENSIC_6R289.with(|slot| slot.borrow().is_some())
+}
+
+pub fn forensic_6r289_matches(qname: &[u8], flags: u16) -> bool {
+    FORENSIC_6R289.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .is_some_and(|s| s.flags == flags && s.qname.as_bytes() == qname)
+    })
+}
+
+pub(crate) fn forensic_6r289_arm(mapq: u8, pos_1based: i64, cigar: String, hap0_slot: usize) {
+    FORENSIC_6R289.with(|slot| {
+        if let Some(state) = slot.borrow_mut().as_mut() {
+            state.armed = true;
+            state.mapq = mapq;
+            state.pos_1based = pos_1based;
+            state.cigar = cigar;
+            state.hap0_slot = hap0_slot;
+        }
+    });
+}
+
+pub fn take_forensic_6r289_snaps() -> Vec<Forensic6r289Snap> {
+    FORENSIC_6R289.with(|slot| {
+        slot.borrow_mut()
+            .as_mut()
+            .map(|s| std::mem::take(&mut s.snaps))
+            .unwrap_or_default()
+    })
+}
+
 /// Diagnostic dump of kernel-boundary arrays. Scoring is unchanged.
 /// Set `GATK_RS_PAIRHMM_INPUT_DUMP` to a writable path (Java `--pair-hmm-results-file` layout
 /// without the likelihood column).
@@ -318,6 +428,21 @@ pub fn score_read_against_haplotypes(
         prepare_read_quals_for_pairhmm_inplace(&mut scratch.capped[..n], read_mapq, config);
         fill_indel_gop_from_optional_tag(&mut scratch.ins[..n], insertion_gop)?;
         fill_indel_gop_from_optional_tag(&mut scratch.del[..n], deletion_gop)?;
+        let armed = FORENSIC_6R289.with(|slot| {
+            slot.borrow_mut()
+                .as_mut()
+                .map(|state| std::mem::take(&mut state.armed))
+                .unwrap_or(false)
+        });
+        let (raw_quals, ins_before, del_before) = if armed {
+            (
+                read_quals.to_vec(),
+                scratch.ins[..n].to_vec(),
+                scratch.del[..n].to_vec(),
+            )
+        } else {
+            (Vec::new(), Vec::new(), Vec::new())
+        };
         scratch.gcp[..n].fill(GATK_PARITY_DEFAULT_GCP);
         if !config.uses_dragstr_pair_hmm() {
             let PairHmmReadScratch {
@@ -333,33 +458,126 @@ pub fn score_read_against_haplotypes(
                 config.pcr_error_model,
             );
         }
-        let capped = &scratch.capped[..n];
-        let ins = &scratch.ins[..n];
-        let del = &scratch.del[..n];
-        let gcp = &scratch.gcp[..n];
-        dump_pairhmm_kernel_inputs_if_enabled(read_bases, capped, haplotype_bases, ins, del, gcp);
-        match backend {
-            PairHmmBackend::Log10Scalar => haplotype_bases
-                .iter()
-                .map(|hap| {
-                    crate::pairhmm_log10::log10_pairhmm_likelihood(
-                        read_bases, capped, hap, ins, del, gcp,
-                    )
-                })
-                .collect(),
-            PairHmmBackend::LoglessScalar => haplotype_bases
-                .iter()
-                .map(|hap| {
-                    crate::pairhmm_logless::logless_pairhmm_likelihood(
-                        read_bases, capped, hap, ins, del, gcp,
-                    )
-                })
-                .collect(),
-            _ => {
-                score_read_haps_logless(backend, read_bases, capped, haplotype_bases, ins, del, gcp)
+        if !armed {
+            let capped = &scratch.capped[..n];
+            let ins = &scratch.ins[..n];
+            let del = &scratch.del[..n];
+            let gcp = &scratch.gcp[..n];
+            dump_pairhmm_kernel_inputs_if_enabled(
+                read_bases,
+                capped,
+                haplotype_bases,
+                ins,
+                del,
+                gcp,
+            );
+            return score_prepared(backend, read_bases, capped, haplotype_bases, ins, del, gcp);
+        }
+        let Some((meta, subst)) = FORENSIC_6R289.with(|slot| {
+            let state = slot.borrow();
+            let state = state.as_ref()?;
+            Some((
+                (
+                    state.flags,
+                    state.mapq,
+                    state.pos_1based,
+                    state.cigar.clone(),
+                    state.hap0_slot,
+                ),
+                state.subst.clone(),
+            ))
+        }) else {
+            let capped = &scratch.capped[..n];
+            let ins = &scratch.ins[..n];
+            let del = &scratch.del[..n];
+            let gcp = &scratch.gcp[..n];
+            return score_prepared(backend, read_bases, capped, haplotype_bases, ins, del, gcp);
+        };
+        let (flags, mapq, pos_1based, cigar, slot) = meta;
+        let mut bases = read_bases.to_vec();
+        let mut bq = scratch.capped[..n].to_vec();
+        let mut ins = scratch.ins[..n].to_vec();
+        let mut del = scratch.del[..n].to_vec();
+        let mut gcp = scratch.gcp[..n].to_vec();
+        let mut haps: Vec<Vec<u8>> = haplotype_bases.iter().map(|h| h.to_vec()).collect();
+        let hap0 = haps.get(slot).cloned().unwrap_or_default();
+        let snap_bases = bases.clone();
+        let snap_bq = bq.clone();
+        let snap_ins = ins.clone();
+        let snap_del = del.clone();
+        let snap_gcp = gcp.clone();
+        if let Some((field, bytes)) = subst {
+            match field {
+                Forensic6r289Field::ReadBases => bases = bytes,
+                Forensic6r289Field::BaseQuals => bq = bytes,
+                Forensic6r289Field::InsQuals => ins = bytes,
+                Forensic6r289Field::DelQuals => del = bytes,
+                Forensic6r289Field::Gcp => gcp = bytes,
+                Forensic6r289Field::Hap0 => {
+                    if let Some(h) = haps.get_mut(slot) {
+                        *h = bytes;
+                    }
+                }
             }
         }
+        let hap_refs: Vec<&[u8]> = haps.iter().map(|h| h.as_slice()).collect();
+        dump_pairhmm_kernel_inputs_if_enabled(&bases, &bq, &hap_refs, &ins, &del, &gcp);
+        let scores = score_prepared(backend, &bases, &bq, &hap_refs, &ins, &del, &gcp)?;
+        let h0_score = scores.get(slot).copied().unwrap_or(f64::NAN);
+        FORENSIC_6R289.with(|tls| {
+            if let Some(state) = tls.borrow_mut().as_mut() {
+                state.snaps.push(Forensic6r289Snap {
+                    flags,
+                    mapq,
+                    pos_1based,
+                    cigar,
+                    read_bases: snap_bases,
+                    raw_quals,
+                    base_quals: snap_bq,
+                    ins_before_pcr: ins_before,
+                    ins_quals: snap_ins,
+                    del_before_pcr: del_before,
+                    del_quals: snap_del,
+                    gcp: snap_gcp,
+                    hap0,
+                    hap0_index: slot,
+                    n_haps: haplotype_bases.len(),
+                    h0_score,
+                });
+            }
+        });
+        Ok(scores)
     })
+}
+
+fn score_prepared(
+    backend: PairHmmBackend,
+    read_bases: &[u8],
+    capped: &[u8],
+    haplotype_bases: &[&[u8]],
+    ins: &[u8],
+    del: &[u8],
+    gcp: &[u8],
+) -> GatkResult<Vec<f64>> {
+    match backend {
+        PairHmmBackend::Log10Scalar => haplotype_bases
+            .iter()
+            .map(|hap| {
+                crate::pairhmm_log10::log10_pairhmm_likelihood(
+                    read_bases, capped, hap, ins, del, gcp,
+                )
+            })
+            .collect(),
+        PairHmmBackend::LoglessScalar => haplotype_bases
+            .iter()
+            .map(|hap| {
+                crate::pairhmm_logless::logless_pairhmm_likelihood(
+                    read_bases, capped, hap, ins, del, gcp,
+                )
+            })
+            .collect(),
+        _ => score_read_haps_logless(backend, read_bases, capped, haplotype_bases, ins, del, gcp),
+    }
 }
 
 #[cfg(test)]
