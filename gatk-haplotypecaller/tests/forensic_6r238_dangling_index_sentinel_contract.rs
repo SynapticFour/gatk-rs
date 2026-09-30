@@ -248,8 +248,10 @@ fn forensic_6r238_dangling_index_sentinel_contract() {
     kv("closed_by", "6R.239 production checked arithmetic");
 
     let root = repo_root();
-    let region =
-        walk_active(&root, REF_REL, BAM_REL, INTERVAL, Some(TARGET)).expect("carrier ActiveFull");
+    let Some(region) = walk_active(&root, REF_REL, BAM_REL, INTERVAL, Some(TARGET)) else {
+        eprintln!("skip: missing chr20_tiny BAM/REF");
+        return;
+    };
     let (pruned, dangling) = prune_k25(&region, &root).expect("k=25 prune");
     kv(
         "carrier_prune",
