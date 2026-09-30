@@ -84,7 +84,8 @@ fn forensic_6r302_jacobian_design() {
         }
     }
     assert_eq!(n_pairs, 366);
-    assert_eq!(mismatches.len(), 11);
+    // `(1+10^exp).log10()` is host libm. Darwin misses 11 frozen Java
+    // table cells; the Ubuntu runner misses 1. The pair result is the contract.
     for (gt, qname, flags, index, diff, java_cell, rust_cell, java_result, helper) in &mismatches {
         assert_eq!(helper.to_bits(), java_result.to_bits());
         let ulps = rust_cell.to_bits().abs_diff(java_cell.to_bits());
