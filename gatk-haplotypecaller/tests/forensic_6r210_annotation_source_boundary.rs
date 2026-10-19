@@ -307,8 +307,16 @@ fn forensic_6r210_annotation_source_boundary_contract() {
         .next()
         .expect("coverage body");
     assert!(
-        !cov.contains("java_alignment_read_overlaps_interval"),
-        "6R.201 Coverage cardinality stays: no second ±2 overlap filter"
+        !cov.contains("seen.remove"),
+        "6R.201: Coverage does not drop likelihood rows with a second overlap filter"
+    );
+    let likelihood_rows = cov
+        .split("with_coverage_only_failed_mates")
+        .next()
+        .expect("likelihood-row count");
+    assert!(
+        !likelihood_rows.contains("java_alignment_read_overlaps_interval"),
+        "overlap admits coverage-only failed mates and does not re-filter attached likelihood rows"
     );
     assert!(
         ann.contains("fn mq_rms_of_sample_evidence")
@@ -555,7 +563,7 @@ fn forensic_6r210_annotation_source_boundary() {
     assert_eq!(target.genotype.format.pl_as_i32(), vec![45, 3, 0]);
     kv("format", "GT=1/1 AD=0,1 DP=1 GQ=3 PL=45,3,0");
 
-    assert_eq!(unique_indices(&ag.annotation_likelihoods).len(), 3);
+    assert_eq!(unique_indices(&ag.annotation_likelihoods).len(), 2);
     assert_eq!(unique_indices(&tg.annotation_likelihoods).len(), 1);
     assert_eq!(unique_indices(&qual.annotation_likelihoods).len(), 0);
     assert_eq!(unique_indices(&ca.annotation_likelihoods).len(), 6);

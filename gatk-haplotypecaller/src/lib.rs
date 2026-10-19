@@ -369,10 +369,10 @@ pub use engine::engine_observe::{
     take_forensic_6r307_order, take_hap_list_snaps, take_hap_list_trim_span,
     take_likelihood_pipeline_cells, take_likelihood_pipeline_snaps, take_poorly_modeled_cells,
     take_poorly_modeled_haplotypes, take_poorly_modeled_observe, take_realign_observe,
-    take_trim_calc_snap, Forensic6r307Read, HapListColumn, HapListSnap, HapListTrimSpan,
-    LikelihoodPipelineCell, LikelihoodPipelineSnap, PoorlyModeledHapColumn,
-    PoorlyModeledObserveCell, PoorlyModeledObserveRow, RealignObserveRow, TrimCalcSnap,
-    TrimCalcVar,
+    take_trim_calc_snap, with_coverage_only_failed_mates, Forensic6r307Read, HapListColumn,
+    HapListSnap, HapListTrimSpan, LikelihoodPipelineCell, LikelihoodPipelineSnap,
+    PoorlyModeledHapColumn, PoorlyModeledObserveCell, PoorlyModeledObserveRow, RealignObserveRow,
+    TrimCalcSnap, TrimCalcVar,
 };
 pub use engine::{CallRegionArgs, CallRegionMode, CallRegionOutcome, HaplotypeCallerEngine};
 pub use event_map::{AlleleBytes, Event, EventMap, IndelSpan};

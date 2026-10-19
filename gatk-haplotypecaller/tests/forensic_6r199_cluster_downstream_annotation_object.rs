@@ -447,9 +447,9 @@ fn forensic_6r199_cluster_downstream_annotation_object() {
         "MQ RMS of the attached object is Java 40.58, not retain n=4 ~44.15"
     );
 
-    assert_eq!(unique_indices(&gt_snp.annotation_likelihoods).len(), 3);
-    assert_eq!(unique_indices(&ag.annotation_likelihoods).len(), 3);
-    assert_eq!(unique_indices(&ac.annotation_likelihoods).len(), 4);
+    assert_eq!(unique_indices(&gt_snp.annotation_likelihoods).len(), 2);
+    assert_eq!(unique_indices(&ag.annotation_likelihoods).len(), 2);
+    assert_eq!(unique_indices(&ac.annotation_likelihoods).len(), 3);
     assert_eq!(unique_indices(&indel.annotation_likelihoods).len(), 1);
     assert_eq!(unique_indices(&tg.annotation_likelihoods).len(), 1);
     assert_eq!(unique_indices(&qual.annotation_likelihoods).len(), 0);

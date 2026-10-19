@@ -554,25 +554,63 @@ fn java_finalize_mq(rms: f64) -> f64 {
 /// `addEvidence(overlappingFilteredReads, 0)`. Reads already remaining in the
 /// post-filter matrix are not double-counted. INFO DP may exceed FORMAT DP.
 pub fn coverage_evidence_count(
-    _reads: &[SharedBamRecord],
+    reads: &[SharedBamRecord],
     likelihoods: &[RegionReadLikelihood],
-    _start_1based: u64,
-    _end_1based: u64,
-    _margin: i32,
+    start_1based: u64,
+    end_1based: u64,
+    margin: i32,
 ) -> i32 {
     let mut seen = BTreeSet::new();
     for cell in likelihoods {
         seen.insert(cell.read_index.get());
     }
+    // 7R.6: mate-on-other-contig reads are omitted from PairHMM and have no
+    // likelihood row. Java Coverage still counts the overlapping ones.
+    crate::engine::engine_observe::with_coverage_only_failed_mates(|mates| {
+        for (i, rec) in mates.iter().enumerate() {
+            if !crate::hc_genotyping_engine::java_alignment_read_overlaps_interval(
+                rec,
+                start_1based,
+                end_1based,
+                margin,
+            ) {
+                continue;
+            }
+            seen.insert(reads.len().saturating_add(i));
+        }
+    });
     seen.len() as i32
 }
 
 /// 6R.168: Java RMS on [`rms_mapping_quality_sample_mapqs`], then `%.2f`.
+///
+/// 7R.9: Java `sampleEvidence` after `addEvidence` also contains overlapping
+/// mate-filtered reads. `with_coverage_only_failed_mates` is exactly the reads
+/// the 6R.311 retain removed from the scored list, so they have no likelihood
+/// index and are not already in `mqs`.
 fn mq_rms_of_sample_evidence(
     reads: &[SharedBamRecord],
     likelihoods: &[RegionReadLikelihood],
+    start_1based: u64,
+    end_1based: u64,
+    margin: i32,
 ) -> f64 {
-    let mqs = rms_mapping_quality_sample_mapqs(reads, likelihoods);
+    let mut mqs = rms_mapping_quality_sample_mapqs(reads, likelihoods);
+    crate::engine::engine_observe::with_coverage_only_failed_mates(|mates| {
+        for rec in mates {
+            if rec.mapq() == MAPPING_QUALITY_UNAVAILABLE {
+                continue;
+            }
+            if crate::hc_genotyping_engine::java_alignment_read_overlaps_interval(
+                rec,
+                start_1based,
+                end_1based,
+                margin,
+            ) {
+                mqs.push(rec.mapq());
+            }
+        }
+    });
     match rms_mapping_quality_raw(&mqs) {
         Some((_, _, rms)) => java_finalize_mq(rms),
         None => 0.0,
@@ -664,7 +702,8 @@ pub fn annotate_hc_variant_site(
             ),
         };
     // 6R.166: FS/SOR use Java `getContingencyTable` on post-filter allele likelihoods.
-    // 6R.167: MQ membership is Java `sampleEvidence` (MQ != 255). Do not change it.
+    // 6R.167: MQ membership is Java `sampleEvidence` (MQ != 255), including
+    // overlapping coverage-only failed mates (7R.9).
     // 6R.168: MQ aggregation is Java `makeFinalizedAnnotationString` RMS + `%.2f`.
     let (fs_rf, fs_rr, fs_af, fs_ar, sor_rf, sor_rr, sor_af, sor_ar, mq) = match strand_likelihoods
     {
@@ -681,7 +720,13 @@ pub fn annotate_hc_variant_site(
                 sor.1,
                 sor.2,
                 sor.3,
-                mq_rms_of_sample_evidence(ev.reads, ev.likelihoods),
+                mq_rms_of_sample_evidence(
+                    ev.reads,
+                    ev.likelihoods,
+                    position_1based,
+                    var_end,
+                    config.informative_read_overlap_margin,
+                ),
             )
         }
         None => (0, 0, 0, 0, 0, 0, 0, 0, 0.0),
@@ -906,6 +951,132 @@ mod tests {
         assert!(
             (qd - 25.36).abs() < 0.005,
             "QD first GATK-seed gaussian, qd={qd}"
+        );
+    }
+
+    fn bam_rec(
+        qname: &[u8],
+        pos0: i64,
+        mapq: u8,
+        paired: bool,
+        unmapped: bool,
+        mate_unmapped: bool,
+        mtid: i32,
+    ) -> SharedBamRecord {
+        use rust_htslib::bam::record::{Cigar, CigarString};
+        use rust_htslib::bam::HeaderView;
+        use std::sync::Arc;
+        let mut r = Record::new();
+        r.set_header(Arc::new(HeaderView::from_bytes(
+            b"@HD\tVN:1.0\n@SQ\tSN:chr1\tLN:10000\n@SQ\tSN:chr2\tLN:10000\n",
+        )));
+        r.set(
+            qname,
+            Some(&CigarString::from(vec![Cigar::Match(10)])),
+            b"AAAAAAAAAA",
+            &vec![30u8; 10],
+        );
+        r.set_tid(0);
+        r.set_pos(pos0);
+        r.set_mapq(mapq);
+        r.set_mtid(mtid);
+        if paired {
+            r.set_paired();
+        }
+        if unmapped {
+            r.set_unmapped();
+        } else {
+            r.unset_unmapped();
+        }
+        if mate_unmapped {
+            r.set_mate_unmapped();
+        } else {
+            r.unset_mate_unmapped();
+        }
+        crate::shared_bam::share_record(r)
+    }
+
+    fn ll_cell(read_index: usize) -> RegionReadLikelihood {
+        RegionReadLikelihood {
+            read_index: crate::bio_ids::ReadIndex::new(read_index),
+            haplotype_index: crate::bio_ids::HaplotypeIndex::new(0),
+            log10_likelihood: -1.0,
+        }
+    }
+
+    #[test]
+    fn mq_adds_overlapping_coverage_only_failed_mate_without_a_likelihood_row() {
+        use crate::engine::engine_observe::{
+            clear_coverage_only_failed_mates, forensic_6r306_note_pre_filter_reads,
+            production_failed_mate_key, replace_coverage_only_failed_mates,
+            with_coverage_only_failed_mates,
+        };
+        clear_coverage_only_failed_mates();
+        let same = bam_rec(b"same-contig", 99, 53, true, false, false, 0);
+        let ordinary = bam_rec(b"ordinary", 99, 43, false, false, false, 0);
+        let mate_unmapped = bam_rec(b"mate-unmapped", 99, 30, true, false, true, 1);
+        let other = bam_rec(b"other-contig", 99, 25, true, false, false, 1);
+        let other_far = bam_rec(b"other-far", 5000, 10, true, false, false, 1);
+        let unavailable = bam_rec(b"other-unavail", 99, 255, true, false, false, 1);
+        let originals = [
+            same.clone(),
+            ordinary.clone(),
+            mate_unmapped.clone(),
+            other.clone(),
+            other_far.clone(),
+            unavailable.clone(),
+        ];
+        forensic_6r306_note_pre_filter_reads(&originals);
+        let mut scored = Vec::new();
+        let mut coverage_only = Vec::new();
+        for rec in &originals {
+            if production_failed_mate_key(rec.qname(), rec.flags()) {
+                coverage_only.push(rec.clone());
+            } else {
+                scored.push(rec.clone());
+            }
+        }
+        assert!(scored.iter().any(|r| r.qname() == b"same-contig"));
+        assert!(scored.iter().any(|r| r.qname() == b"ordinary"));
+        assert!(scored.iter().any(|r| r.qname() == b"mate-unmapped"));
+        assert!(coverage_only.iter().all(|r| {
+            r.qname() == b"other-contig"
+                || r.qname() == b"other-far"
+                || r.qname() == b"other-unavail"
+        }));
+        assert!(!coverage_only
+            .iter()
+            .any(|r| scored.iter().any(|s| s.qname() == r.qname())));
+        replace_coverage_only_failed_mates(coverage_only);
+        let cells = vec![ll_cell(0), ll_cell(1), ll_cell(2)];
+        let with_coverage = mq_rms_of_sample_evidence(&scored, &cells, 100, 100, 0);
+        let likelihood_only = {
+            let mqs = rms_mapping_quality_sample_mapqs(&scored, &cells);
+            java_finalize_mq(rms_mapping_quality_raw(&mqs).expect("raw").2)
+        };
+        let expected = java_finalize_mq(rms_mapping_quality_raw(&[53, 43, 30, 25]).expect("raw").2);
+        assert!(
+            (with_coverage - expected).abs() < 1e-9,
+            "overlapping failed mate enters MQ once, got {with_coverage} expected {expected}"
+        );
+        assert!(
+            (with_coverage - likelihood_only).abs() > 1.0,
+            "coverage-only MAPQ must change the RMS"
+        );
+        assert!(
+            (likelihood_only - java_finalize_mq(rms_mapping_quality_raw(&[53, 43, 30]).unwrap().2))
+                .abs()
+                < 1e-9
+        );
+        assert_eq!(cells.len(), 3, "failed mate has no likelihood row");
+        assert!(with_coverage_only_failed_mates(|mates| {
+            mates.iter().any(|r| r.qname() == b"other-contig")
+        }));
+        clear_coverage_only_failed_mates();
+        let cleared = mq_rms_of_sample_evidence(&scored, &cells, 100, 100, 0);
+        assert!(
+            (cleared - likelihood_only).abs() < 1e-9,
+            "without the coverage-only list, MQ stays on genotyping MAPQs"
         );
     }
 }

@@ -776,12 +776,16 @@ fn left_align_indels(
             } else {
                 0
             };
-            let (start_shift, end_shift) = normalize_alleles(
-                &[ref_bases, read_bases],
-                &mut [ref_indel, read_indel],
-                max_shift,
-                true,
-            );
+            // `IndexRange` is `Copy`. An array literal here is a temporary, so
+            // `normalize_alleles` would mutate copies and the named ranges would
+            // stay at their pre-call values. Keep the slice, then write it back
+            // before indel lengths are read (Java `normalizeAlleles` mutates the
+            // caller's `IndexRange` objects).
+            let mut bounds = [ref_indel, read_indel];
+            let (start_shift, end_shift) =
+                normalize_alleles(&[ref_bases, read_bases], &mut bounds, max_shift, true);
+            ref_indel = bounds[0];
+            read_indel = bounds[1];
             result_rtl.push(CigarElement {
                 length: end_shift,
                 operator: CigarOperator::Match,
@@ -1049,5 +1053,37 @@ mod tests {
         assert!(!t.java_would_retain);
         assert_eq!(t.first_rust_reject, Some("duplicate_bases_label"));
         assert_eq!(t.first_java_reject, Some("duplicate_linked_hash_set"));
+    }
+
+    fn cigar_from_spec(spec: &[(usize, CigarOperator)]) -> Cigar {
+        let mut cigar = Cigar::new();
+        for (length, operator) in spec {
+            cigar.push(*length, *operator);
+        }
+        cigar
+    }
+
+    /// 7R.26: `left_align_indels` must keep the ranges `normalize_alleles` writes.
+    /// The composed CIGAR and bases are the 7R.24 diagnostic alignment. The old
+    /// temporary slice produced `5M3D1I137M2I5M`.
+    #[test]
+    fn left_align_keeps_normalized_ranges_on_diagnostic_composed_cigar() {
+        const REF: &[u8] = b"AATTATTATAATAGCTGTAAAATAGTTATATGTGTTTCAAATTTCATACTCCAAAAAGTTTGGATATAGATGGAAGATACATAACTATATGTATAGTGAGAGAGAGAGAGCTAGCAGAATAGATAAAAAATAATTTTATAATAAAAGAATACTATATCTGCTTTTTTAATTGGAAGTATTAAATTTATCTATGTGACTGCATTATTTCCTAAAAGGTCACATTTTTTTAAAAAAATTAAAAAATATTAGAAGATTGCATCATTATAATTTATTTCTTAAATTTTAATTATATGTATATCTATGAATAATTTATG";
+        const READ: &[u8] = b"ATAGTGAGAGAGAGAGCTAGCAGAATAGATAAAAAATAATTTTATAATAAAAGAATACTATATCTGCTTTTTTAATTGGAAGTATTAAATTTATCTATGTGACTGCATTATTTCCTAAAAGGTCACATTTTTTAAAAAAAAATTTAAA";
+        let cigar = cigar_from_spec(&[
+            (5, CigarOperator::Match),
+            (2, CigarOperator::Deletion),
+            (111, CigarOperator::Match),
+            (1, CigarOperator::Insertion),
+            (1, CigarOperator::Deletion),
+            (24, CigarOperator::Match),
+            (2, CigarOperator::Insertion),
+            (5, CigarOperator::Match),
+        ]);
+        let left = left_align_indels_for_read(&cigar, REF, READ, 92);
+        assert_eq!(left.cigar.to_gatk_string(), "5M2D136M2I5M");
+        assert_eq!(left.leading_deletions_removed, 0);
+        assert_eq!(left.cigar.reference_length(), 148);
+        assert_eq!(left.cigar.read_length(), READ.len());
     }
 }

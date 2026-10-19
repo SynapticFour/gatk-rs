@@ -11,20 +11,16 @@
 
 use gatk_core::io::vcf::InfoValue;
 use gatk_core::reference::{parse_intervals_cli_string, SequenceDictionary};
-use gatk_haplotypecaller::event_map::{build_per_haplotype_variation_events, VariationEvent};
-use gatk_haplotypecaller::hc_allele_mapping::create_allele_mapper_with_events;
-use gatk_haplotypecaller::read_realignment::LOG_10_INFORMATIVE_THRESHOLD;
 use gatk_haplotypecaller::variant_site_hc_annotations::{
     coverage_evidence_count, strand_bias_contingency_table, HcStrandBiasLikelihoods,
     STRAND_ODDS_RATIO_MIN_COUNT,
 };
 use gatk_haplotypecaller::{
-    call_disposition, flatten_assembly_regions, marginalize_rows_to_biallelic_alleles,
-    region_likelihoods_to_rows, traverse_assembly_region_walker, try_emit_call_region_variants,
-    AssemblyRegionCallDisposition, CallRegionArgs, GenomePosition, HaplotypeCallerEngine,
-    HcGenotypingConfig, ReadFilterParams, WalkerTraversalConfig, DEFAULT_STAND_EMIT_CONFIDENCE,
+    call_disposition, flatten_assembly_regions, traverse_assembly_region_walker,
+    try_emit_call_region_variants, AssemblyRegionCallDisposition, CallRegionArgs, GenomePosition,
+    HaplotypeCallerEngine, HcGenotypingConfig, ReadFilterParams, WalkerTraversalConfig,
+    DEFAULT_STAND_EMIT_CONFIDENCE,
 };
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 const INTERVAL: &str = "2:92305500-92305850";
@@ -220,20 +216,25 @@ fn forensic_6r176_pairhmm_mate_contig_membership() {
         emit_spanning_dels: !cfg.disable_spanning_event_genotyping,
     };
 
-    let third_idx: BTreeSet<usize> = evidence
-        .reads
+    let coverage_only =
+        gatk_haplotypecaller::with_coverage_only_failed_mates(|mates| mates.to_vec());
+    let third_reads: Vec<_> = coverage_only
         .iter()
-        .enumerate()
-        .filter(|(_, r)| qname(r) == THIRD_QNAME && r.flags() == 145)
-        .map(|(i, _)| i)
+        .filter(|r| qname(r) == THIRD_QNAME && r.flags() == 145)
         .collect();
     assert_eq!(
-        third_idx.len(),
+        third_reads.len(),
         1,
-        "FLAG=145 remains in genotyping evidence"
+        "FLAG=145 remains in the coverage-only list"
     );
-    let third = *third_idx.iter().next().unwrap();
-    let rec = &evidence.reads[third];
+    let rec = third_reads[0];
+    assert!(
+        outcome
+            .genotyping_reads
+            .iter()
+            .all(|g| qname(g) != THIRD_QNAME || g.flags() != 145),
+        "FLAG=145 must stay out of genotyping evidence"
+    );
     kv(
         "flag145",
         format!(
@@ -247,26 +248,23 @@ fn forensic_6r176_pairhmm_mate_contig_membership() {
             rec.cigar()
         ),
     );
-    assert_ne!(rec.tid(), rec.mtid(), "mapped mate is a different contig");
 
     let third_cells: Vec<f64> = evidence
         .likelihoods
         .iter()
-        .filter(|c| c.read_index.get() == third)
+        .filter(|c| {
+            evidence
+                .reads
+                .get(c.read_index.get())
+                .is_some_and(|r| qname(r) == THIRD_QNAME && r.flags() == 145)
+        })
         .map(|c| c.log10_likelihood)
         .collect();
     assert!(
-        !third_cells.is_empty(),
-        "FLAG=145 must remain in the likelihood object for Coverage"
+        third_cells.is_empty(),
+        "FLAG=145 must not have a PairHMM or ordinary likelihood row, got {third_cells:?}"
     );
-    assert!(
-        third_cells.iter().all(|&ll| ll == 0.0),
-        "FLAG=145 PairHMM cells must be addEvidence(0), got {third_cells:?}"
-    );
-    kv(
-        "flag145_pairhmm",
-        format!("absent_real_scores cells={third_cells:?}"),
-    );
+    kv("flag145_pairhmm", "no_likelihood_row");
 
     let counted = coverage_evidence_count(
         evidence.reads,
@@ -277,45 +275,6 @@ fn forensic_6r176_pairhmm_mate_contig_membership() {
     );
     kv("coverage_evidence_count", counted.to_string());
     assert_eq!(counted, 3, "INFO DP Coverage still includes FLAG=145");
-
-    let hap_cache = build_per_haplotype_variation_events(
-        evidence.haplotypes,
-        evidence.full_ref_bytes,
-        evidence.full_pad_1based,
-        evidence.max_mnp_distance,
-        evidence.contig,
-    );
-    let mapping = create_allele_mapper_with_events(
-        &VariationEvent::from_alleles(evidence.contig, TARGET, MERGED_REF, MERGED_ALT),
-        TARGET,
-        evidence.haplotypes,
-        evidence.pad_start_1based,
-        evidence.ref_bytes,
-        evidence.max_mnp_distance,
-        evidence.emit_spanning_dels,
-        Some(&hap_cache),
-    );
-    let rows = region_likelihoods_to_rows(evidence.likelihoods, evidence.haplotypes.len());
-    let marg = marginalize_rows_to_biallelic_alleles(
-        &rows,
-        &mapping.ref_haplotype_indices,
-        &mapping.alt_haplotype_indices,
-    );
-    let third_row = marg.iter().find(|r| r.read_index == third).expect("marg");
-    let lr = third_row.haplotype_log10_likelihoods[0];
-    let la = third_row.haplotype_log10_likelihoods[1];
-    let gap = (lr - la).abs();
-    kv(
-        "flag145_marg",
-        format!(
-            "ll_ref={lr:.4} ll_alt={la:.4} gap={gap:.4} informative={}",
-            gap > LOG_10_INFORMATIVE_THRESHOLD
-        ),
-    );
-    assert!(
-        gap <= LOG_10_INFORMATIVE_THRESHOLD,
-        "FLAG=145 must be uninformative after addEvidence(0)"
-    );
 
     let table = strand_bias_contingency_table(
         &evidence,

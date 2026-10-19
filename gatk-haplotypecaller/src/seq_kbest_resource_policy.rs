@@ -1,11 +1,13 @@
-//! Experimental SeqGraph k-best **resource** policy (6R.140).
+//! SeqGraph k-best **resource** policy (6R.140, production default 7R.22).
 //!
 //! Separates requested **K** (completed paths / visit budget) from **frontier
-//! resource safety**. This is instrumentation / architecture only.
+//! resource safety**.
 //!
-//! **No k-best memory contract has been selected** (6R.139). The production
-//! default remains `legacy_1024`: `BinaryHeap.len() >= 1024` Peak-RSS proxy.
-//! Do not treat env vars or diagnostic byte ceilings as a CLAIM_MATRIX claim.
+//! Unset `GATK_RS_EXPERIMENTAL_KBEST_POLICY` selects [`seq_kbest_resource_policy::SeqKbestResourcePolicy::UnboundedDiagnostic`]:
+//! no frontier-count refusal, matching Java `PriorityQueue` semantics. The historical
+//! `legacy_1024` heap-length refusal remains selectable by name. Process RSS abort
+//! (`GATK_RS_HC_RSS_ABORT_MIB`) is a separate guard. Do not treat diagnostic byte
+//! ceilings as a CLAIM_MATRIX claim.
 
 use crate::runtime_config;
 use gatk_common::{GatkError, GatkResult};
@@ -22,10 +24,11 @@ pub const DIAGNOSTIC_GENEROUS_BYTE_BUDGET: usize = 8 * 1024 * 1024;
 /// Independent of `requested_k`. Java has no analogue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SeqKbestResourcePolicy {
-    /// Exact current production refusal: `BinaryHeap.len() >= 1024`.
+    /// Historical heap-length refusal: `BinaryHeap.len() >= 1024`.
+    /// Selectable via `GATK_RS_EXPERIMENTAL_KBEST_POLICY=legacy_1024`. Not the default.
     Legacy1024,
-    /// No frontier-resource refusal (path-edge / expansion Peak-RSS caps remain).
-    /// Forensic/diagnostic only — must not become the production default.
+    /// No frontier-count refusal (path-edge / expansion caps remain).
+    /// Production default when the policy env is unset. Java has no frontier-size bound.
     UnboundedDiagnostic,
     /// Experimental live-frontier byte ceiling. Accounting is experimental
     /// (see [`SeqKbestRunDiagnostics`] and `docs/parity/KBEST_RESOURCE_POLICY.md`).
@@ -51,7 +54,8 @@ impl SeqKbestResourcePolicy {
         }
     }
 
-    /// Parse experimental env. Unset → [`Self::Legacy1024`].
+    /// Parse the policy env. Unset → [`Self::UnboundedDiagnostic`].
+    /// Explicit `legacy_1024` and `unbounded_diagnostic` stay selectable.
     /// Invalid names/budgets **fail closed** (no silent fallback).
     pub fn from_runtime() -> GatkResult<Self> {
         parse_policy(
@@ -72,7 +76,7 @@ pub fn parse_policy(
                     "GATK_RS_EXPERIMENTAL_KBEST_MEMORY_BUDGET is set but GATK_RS_EXPERIMENTAL_KBEST_POLICY is unset; set policy=byte_budget or unset the budget (experimental; not a product contract)",
                 ));
             }
-            Ok(SeqKbestResourcePolicy::Legacy1024)
+            Ok(SeqKbestResourcePolicy::UnboundedDiagnostic)
         }
         Some("legacy_1024") => {
             if budget_raw.is_some() {
@@ -184,18 +188,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_unset_is_legacy_1024() {
+    fn default_unset_is_unbounded_diagnostic() {
         let p = parse_policy(None, None).expect("unset");
-        assert_eq!(p, SeqKbestResourcePolicy::Legacy1024);
-        assert_eq!(p.name(), "legacy_1024");
+        assert_eq!(p, SeqKbestResourcePolicy::UnboundedDiagnostic);
+        assert_eq!(p.name(), "unbounded_diagnostic");
+        assert_eq!(p.resource_limit_display(), "none");
     }
 
     #[test]
-    fn explicit_legacy_matches_default() {
-        assert_eq!(
-            parse_policy(Some("legacy_1024"), None).unwrap(),
-            SeqKbestResourcePolicy::Legacy1024
-        );
+    fn explicit_legacy_1024_remains_selectable() {
+        let p = parse_policy(Some("legacy_1024"), None).unwrap();
+        assert_eq!(p, SeqKbestResourcePolicy::Legacy1024);
+        assert_eq!(p.name(), "legacy_1024");
+        assert_eq!(p.resource_limit_display(), "heap_len<1024");
+        assert_ne!(p, parse_policy(None, None).unwrap());
     }
 
     #[test]

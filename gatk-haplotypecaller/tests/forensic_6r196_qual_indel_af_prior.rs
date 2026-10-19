@@ -217,6 +217,13 @@ fn forensic_6r196_qual_indel_af_prior_live() {
     )
     .expect("ag call")
     .expect("ag outcome");
+    let ag_emitted = try_emit_call_region_variants(
+        covering_ag,
+        &ag_outcome,
+        "NA12878",
+        DEFAULT_STAND_EMIT_CONFIDENCE,
+    )
+    .expect("ag emit");
     let ac_outcome = HaplotypeCallerEngine::call_region(
         covering_ac,
         &dict,
@@ -225,6 +232,13 @@ fn forensic_6r196_qual_indel_af_prior_live() {
     )
     .expect("ac call")
     .expect("ac outcome");
+    let ac_emitted = try_emit_call_region_variants(
+        covering_ac,
+        &ac_outcome,
+        "NA12878",
+        DEFAULT_STAND_EMIT_CONFIDENCE,
+    )
+    .expect("ac emit");
     let tg_outcome = HaplotypeCallerEngine::call_region(
         covering_tg,
         &dict,
@@ -233,6 +247,13 @@ fn forensic_6r196_qual_indel_af_prior_live() {
     )
     .expect("tg call")
     .expect("tg outcome");
+    let tg_emitted = try_emit_call_region_variants(
+        covering_tg,
+        &tg_outcome,
+        "NA12878",
+        DEFAULT_STAND_EMIT_CONFIDENCE,
+    )
+    .expect("tg emit");
 
     let closed_ag = ag_outcome
         .genotyped_calls
@@ -262,8 +283,8 @@ fn forensic_6r196_qual_indel_af_prior_live() {
         })
         .expect("CT/C");
 
-    assert_eq!(unique_indices(&closed_ag.annotation_likelihoods).len(), 3);
-    assert_eq!(unique_indices(&closed_ac.annotation_likelihoods).len(), 4);
+    assert_eq!(unique_indices(&closed_ag.annotation_likelihoods).len(), 2);
+    assert_eq!(unique_indices(&closed_ac.annotation_likelihoods).len(), 3);
     assert!(
         target.extra_alt_alleles.is_empty(),
         "biallelic emitted indel; QUAL is not a copied merged SPAN_DEL object"
@@ -279,27 +300,6 @@ fn forensic_6r196_qual_indel_af_prior_live() {
     );
     kv("allele_set", "CT,C (REF len 2 ≠ ALT len 1 → indel prior)");
 
-    let ag_emitted = try_emit_call_region_variants(
-        covering_ag,
-        &ag_outcome,
-        "NA12878",
-        DEFAULT_STAND_EMIT_CONFIDENCE,
-    )
-    .expect("ag emit");
-    let ac_emitted = try_emit_call_region_variants(
-        covering_ac,
-        &ac_outcome,
-        "NA12878",
-        DEFAULT_STAND_EMIT_CONFIDENCE,
-    )
-    .expect("ac emit");
-    let tg_emitted = try_emit_call_region_variants(
-        covering_tg,
-        &tg_outcome,
-        "NA12878",
-        DEFAULT_STAND_EMIT_CONFIDENCE,
-    )
-    .expect("tg emit");
     let gt_rec = ag_emitted
         .iter()
         .find(|r| r.position == CLOSED_GT && r.reference == "G")

@@ -289,6 +289,13 @@ fn forensic_6r195_qd_follows_qual() {
     )
     .expect("ag call")
     .expect("ag outcome");
+    let ag_emitted = try_emit_call_region_variants(
+        covering_ag,
+        &ag_outcome,
+        "NA12878",
+        DEFAULT_STAND_EMIT_CONFIDENCE,
+    )
+    .expect("ag emit");
     let ac_outcome = HaplotypeCallerEngine::call_region(
         covering_ac,
         &dict,
@@ -297,6 +304,13 @@ fn forensic_6r195_qd_follows_qual() {
     )
     .expect("ac call")
     .expect("ac outcome");
+    let ac_emitted = try_emit_call_region_variants(
+        covering_ac,
+        &ac_outcome,
+        "NA12878",
+        DEFAULT_STAND_EMIT_CONFIDENCE,
+    )
+    .expect("ac emit");
     let tg_outcome = HaplotypeCallerEngine::call_region(
         covering_tg,
         &dict,
@@ -305,6 +319,13 @@ fn forensic_6r195_qd_follows_qual() {
     )
     .expect("tg call")
     .expect("tg outcome");
+    let tg_emitted = try_emit_call_region_variants(
+        covering_tg,
+        &tg_outcome,
+        "NA12878",
+        DEFAULT_STAND_EMIT_CONFIDENCE,
+    )
+    .expect("tg emit");
 
     let closed_ag = ag_outcome
         .genotyped_calls
@@ -343,8 +364,8 @@ fn forensic_6r195_qd_follows_qual() {
         })
         .expect("CT/C");
 
-    assert_eq!(unique_indices(&closed_ag.annotation_likelihoods).len(), 3);
-    assert_eq!(unique_indices(&closed_ac.annotation_likelihoods).len(), 4);
+    assert_eq!(unique_indices(&closed_ag.annotation_likelihoods).len(), 2);
+    assert_eq!(unique_indices(&closed_ac.annotation_likelihoods).len(), 3);
     assert_eq!(unique_indices(&closed_tg.annotation_likelihoods).len(), 1);
     assert_eq!(target.genotype.format.ad_as_i32(), vec![1, 1]);
     assert_eq!(target.genotype.format.dp.as_i32(), 2);
@@ -357,27 +378,6 @@ fn forensic_6r195_qd_follows_qual() {
     kv("rust_qd_depth", qd_depth.to_string());
     assert_eq!(qd_depth, 2);
 
-    let ag_emitted = try_emit_call_region_variants(
-        covering_ag,
-        &ag_outcome,
-        "NA12878",
-        DEFAULT_STAND_EMIT_CONFIDENCE,
-    )
-    .expect("ag emit");
-    let ac_emitted = try_emit_call_region_variants(
-        covering_ac,
-        &ac_outcome,
-        "NA12878",
-        DEFAULT_STAND_EMIT_CONFIDENCE,
-    )
-    .expect("ac emit");
-    let tg_emitted = try_emit_call_region_variants(
-        covering_tg,
-        &tg_outcome,
-        "NA12878",
-        DEFAULT_STAND_EMIT_CONFIDENCE,
-    )
-    .expect("tg emit");
     let gt_rec = ag_emitted
         .iter()
         .find(|r| r.position == CLOSED_GT && r.reference == "G")

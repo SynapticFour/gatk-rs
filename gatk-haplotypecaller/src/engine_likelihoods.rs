@@ -14,8 +14,9 @@ use crate::likelihood_engine::score_read_against_haplotypes;
 /// realign / genotyping evidence list.
 ///
 /// PairHMM membership applies Java `MATE_ON_SAME_CONTIG_OR_NO_MAPPED_MATE` (6R.311):
-/// a paired read whose mapped mate is on another contig is omitted. Other
-/// filtered reads still receive `addEvidence(..., 0)` cells.
+/// a paired read whose mapped mate is on another contig is omitted from PairHMM
+/// and receives no likelihood row. Its identity is kept for Coverage (6R.176).
+/// Other filtered reads still receive `addEvidence(..., 0)` cells.
 pub(super) fn compute_region_read_likelihoods(
     region: &AssemblyRegion,
     haplotypes: &[Haplotype],
@@ -45,13 +46,19 @@ pub(super) fn compute_region_read_likelihoods(
     // Java `callRegion` drops these stubs on `regionForGenotyping` before PairHMM.
     finalized.retain(|r| unclipped_read_length(r) >= GATK_MINIMUM_READ_LENGTH_AFTER_TRIMMING);
     // Mate contig lives on the pre-filter originals. Clipped copies have no `mtid`.
-    finalized.retain(|r| {
-        if !super::production_failed_mate_key(r.qname(), r.flags()) {
-            return true;
+    // 6R.311: drop the read from PairHMM. 7R.6: move that same record to Coverage.
+    let mut coverage_only = Vec::new();
+    let mut scored_finalized = Vec::with_capacity(finalized.len());
+    for record in finalized {
+        if super::production_failed_mate_key(record.qname(), record.flags()) {
+            super::note_production_failed_mate_exclusion(record.qname(), record.flags());
+            coverage_only.push(crate::shared_bam::share_record(record));
+        } else {
+            scored_finalized.push(record);
         }
-        super::note_production_failed_mate_exclusion(r.qname(), r.flags());
-        false
-    });
+    }
+    let finalized = scored_finalized;
+    super::engine_observe::replace_coverage_only_failed_mates(coverage_only);
     super::note_forensic_6r307_records("pairhmm_input", &finalized);
     let active_span = Some((region.start.get(), region.end.get()));
     // Trim/hard-clip can drop sparse-BAM reads that still overlap the active locus.
