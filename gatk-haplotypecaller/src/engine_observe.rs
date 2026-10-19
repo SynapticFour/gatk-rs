@@ -486,6 +486,8 @@ thread_local! {
     static FORENSIC_6R306_ON: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static FORENSIC_6R306_MATE_FAIL: std::cell::RefCell<std::collections::HashSet<(Vec<u8>, u16)>> =
         std::cell::RefCell::new(std::collections::HashSet::new());
+    static COVERAGE_ONLY_FAILED_MATES: std::cell::RefCell<Vec<crate::shared_bam::SharedBamRecord>> =
+        std::cell::RefCell::new(Vec::new());
     static FORENSIC_6R306_EXCLUDED: std::cell::RefCell<std::collections::HashSet<(Vec<u8>, u16)>> =
         std::cell::RefCell::new(std::collections::HashSet::new());
 }
@@ -584,13 +586,32 @@ pub fn failed_mate_evidence_keys(
     reads.iter().filter_map(failed_mate_key_of).collect()
 }
 
-pub(super) fn forensic_6r306_note_pre_filter_reads(reads: &[crate::shared_bam::SharedBamRecord]) {
+pub(crate) fn forensic_6r306_note_pre_filter_reads(reads: &[crate::shared_bam::SharedBamRecord]) {
     let fail = reads.iter().filter_map(|r| failed_mate_key_of(r)).collect();
     FORENSIC_6R306_MATE_FAIL.with(|s| *s.borrow_mut() = fail);
 }
 
-pub(super) fn production_failed_mate_key(qname: &[u8], flags: u16) -> bool {
+pub(crate) fn production_failed_mate_key(qname: &[u8], flags: u16) -> bool {
     FORENSIC_6R306_MATE_FAIL.with(|s| s.borrow().contains(&(qname.to_vec(), flags)))
+}
+
+/// Reads removed from PairHMM by the 6R.311 mate retain. Coverage still counts them.
+pub(crate) fn replace_coverage_only_failed_mates(reads: Vec<crate::shared_bam::SharedBamRecord>) {
+    COVERAGE_ONLY_FAILED_MATES.with(|s| *s.borrow_mut() = reads);
+}
+
+pub(crate) fn clear_coverage_only_failed_mates() {
+    COVERAGE_ONLY_FAILED_MATES.with(|s| s.borrow_mut().clear());
+}
+
+/// Borrow failed-mate reads omitted from PairHMM and kept for Coverage (7R.6).
+///
+/// The list stays in this thread's stash. `f` must not call `replace` or `clear`
+/// on it, and the borrow ends when `f` returns.
+pub fn with_coverage_only_failed_mates<R>(
+    f: impl FnOnce(&[crate::shared_bam::SharedBamRecord]) -> R,
+) -> R {
+    COVERAGE_ONLY_FAILED_MATES.with(|s| f(&s.borrow()))
 }
 
 pub(super) fn note_production_failed_mate_exclusion(qname: &[u8], flags: u16) {
@@ -929,4 +950,104 @@ pub(super) fn record_realign_observe(
             });
         }
     });
+}
+
+#[cfg(test)]
+mod coverage_only_tests {
+    use super::{
+        clear_coverage_only_failed_mates, forensic_6r306_note_pre_filter_reads,
+        production_failed_mate_key, replace_coverage_only_failed_mates,
+        with_coverage_only_failed_mates,
+    };
+    use crate::bio_ids::{HaplotypeIndex, ReadIndex};
+    use crate::region_read_likelihood::RegionReadLikelihood;
+    use crate::shared_bam::share_record;
+    use crate::variant_site_hc_annotations::coverage_evidence_count;
+    use rust_htslib::bam::record::{Cigar, CigarString};
+    use rust_htslib::bam::{HeaderView, Record};
+    use std::sync::Arc;
+
+    fn rec(
+        qname: &[u8],
+        pos0: i64,
+        paired: bool,
+        unmapped: bool,
+        mate_unmapped: bool,
+        mtid: i32,
+    ) -> Record {
+        let mut r = Record::new();
+        r.set_header(Arc::new(HeaderView::from_bytes(
+            b"@HD\tVN:1.0\n@SQ\tSN:chr1\tLN:10000\n@SQ\tSN:chr2\tLN:10000\n",
+        )));
+        r.set(
+            qname,
+            Some(&CigarString::from(vec![Cigar::Match(10)])),
+            b"AAAAAAAAAA",
+            &vec![30u8; 10],
+        );
+        r.set_tid(0);
+        r.set_pos(pos0);
+        r.set_mtid(mtid);
+        if paired {
+            r.set_paired();
+        }
+        if unmapped {
+            r.set_unmapped();
+        } else {
+            r.unset_unmapped();
+        }
+        if mate_unmapped {
+            r.set_mate_unmapped();
+        } else {
+            r.unset_mate_unmapped();
+        }
+        r
+    }
+
+    #[test]
+    fn coverage_counts_overlapping_failed_mate_without_a_likelihood_row() {
+        clear_coverage_only_failed_mates();
+        let originals = [
+            share_record(rec(b"unpaired", 99, false, false, false, 1)),
+            share_record(rec(b"mate-unmapped", 99, true, false, true, 1)),
+            share_record(rec(b"read-unmapped", 99, true, true, false, 1)),
+            share_record(rec(b"same-contig", 99, true, false, false, 0)),
+            share_record(rec(b"other-contig", 99, true, false, false, 1)),
+            share_record(rec(b"other-far", 5000, true, false, false, 1)),
+        ];
+        forensic_6r306_note_pre_filter_reads(&originals);
+        let mut scored = Vec::new();
+        let mut coverage_only = Vec::new();
+        for r in &originals {
+            if production_failed_mate_key(r.qname(), r.flags()) {
+                coverage_only.push(r.clone());
+            } else {
+                scored.push(r.clone());
+            }
+        }
+        assert_eq!(coverage_only.len(), 2);
+        assert!(coverage_only.iter().any(|r| r.qname() == b"other-contig"));
+        assert!(coverage_only.iter().any(|r| r.qname() == b"other-far"));
+        assert!(scored.iter().any(|r| r.qname() == b"unpaired"));
+        assert!(scored.iter().any(|r| r.qname() == b"mate-unmapped"));
+        assert!(scored.iter().any(|r| r.qname() == b"read-unmapped"));
+        assert!(scored.iter().any(|r| r.qname() == b"same-contig"));
+        replace_coverage_only_failed_mates(coverage_only);
+        let cell = RegionReadLikelihood {
+            read_index: ReadIndex::new(0),
+            haplotype_index: HaplotypeIndex::new(0),
+            log10_likelihood: -1.0,
+        };
+        let counted = coverage_evidence_count(&scored, &[cell], 100, 100, 0);
+        assert_eq!(
+            counted, 2,
+            "overlapping failed mate counts; a distant failed mate and cell-less passing reads do not"
+        );
+        assert!(with_coverage_only_failed_mates(|mates| {
+            mates
+                .iter()
+                .all(|r| r.qname() == b"other-contig" || r.qname() == b"other-far")
+        }));
+        clear_coverage_only_failed_mates();
+    }
 }

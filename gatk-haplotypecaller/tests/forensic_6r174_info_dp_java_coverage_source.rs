@@ -204,14 +204,47 @@ fn forensic_6r174_info_dp_java_coverage_source() {
             retain.insert(idx);
         }
     }
-    kv("retainEvidence_unique", retain.len().to_string());
+    let coverage_only =
+        gatk_haplotypecaller::with_coverage_only_failed_mates(|mates| mates.to_vec());
+    let coverage_members: Vec<_> = coverage_only
+        .iter()
+        .filter(|r| java_alignment_read_overlaps_interval(r, TARGET, TARGET, MARGIN))
+        .collect();
+    kv(
+        "retainEvidence_unique",
+        (retain.len() + coverage_members.len()).to_string(),
+    );
     let mut members = Vec::new();
     for idx in &retain {
         let rec = &outcome.genotyping_reads[*idx];
         dump_read("RETAIN", rec);
         members.push(member_id(rec));
     }
-    assert_eq!(retain.len(), 3, "Java Coverage evidenceCount = 3");
+    for rec in &coverage_members {
+        dump_read("COVERAGE_ONLY", rec);
+        let id = member_id(rec);
+        members.push(id.clone());
+        assert!(
+            outcome.read_likelihoods.iter().all(|c| {
+                outcome
+                    .genotyping_reads
+                    .get(c.read_index.get())
+                    .map(|g| member_id(g))
+                    .as_deref()
+                    != Some(id.as_str())
+            }),
+            "coverage-only read must not have a likelihood row"
+        );
+        assert!(
+            outcome.genotyping_reads.iter().all(|g| member_id(g) != id),
+            "coverage-only read must stay out of genotyping evidence"
+        );
+    }
+    assert_eq!(
+        retain.len() + coverage_members.len(),
+        3,
+        "Java Coverage evidenceCount = 3"
+    );
     assert!(
         members.iter().any(|m| m == THIRD_READ),
         "third INFO DP read must be {THIRD_READ}, got {members:?}"
