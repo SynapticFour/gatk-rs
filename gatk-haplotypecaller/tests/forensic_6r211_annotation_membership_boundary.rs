@@ -269,8 +269,16 @@ fn forensic_6r211_annotation_membership_boundary_contract() {
         .next()
         .expect("coverage body");
     assert!(
-        !cov.contains("java_alignment_read_overlaps_interval"),
-        "6R.201 Coverage cardinality stays"
+        !cov.contains("seen.remove"),
+        "6R.201: Coverage does not drop likelihood rows with a second overlap filter"
+    );
+    let likelihood_rows = cov
+        .split("with_coverage_only_failed_mates")
+        .next()
+        .expect("likelihood-row count");
+    assert!(
+        !likelihood_rows.contains("java_alignment_read_overlaps_interval"),
+        "overlap admits coverage-only failed mates and does not re-filter attached likelihood rows"
     );
     assert!(
         ann.contains("fn mq_rms_of_sample_evidence")

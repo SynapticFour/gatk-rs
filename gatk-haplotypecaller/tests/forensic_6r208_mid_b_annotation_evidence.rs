@@ -284,8 +284,16 @@ fn forensic_6r208_mid_b_annotation_evidence_contract() {
         .next()
         .expect("coverage body");
     assert!(
-        !cov.contains("java_alignment_read_overlaps_interval"),
-        "6R.201 Coverage cardinality stays: no second ±2 overlap filter"
+        !cov.contains("seen.remove"),
+        "6R.201: Coverage does not drop likelihood rows with a second overlap filter"
+    );
+    let likelihood_rows = cov
+        .split("with_coverage_only_failed_mates")
+        .next()
+        .expect("likelihood-row count");
+    assert!(
+        !likelihood_rows.contains("java_alignment_read_overlaps_interval"),
+        "overlap admits coverage-only failed mates and does not re-filter attached likelihood rows"
     );
     assert!(
         ann.contains("fn mq_rms_of_sample_evidence")
@@ -449,17 +457,26 @@ fn forensic_6r208_mid_b_annotation_evidence() {
     let covering_one = covering_mid(CLOSED_ONE_READ);
     let covering_closed_mid = covering_mid(CLOSED_MID);
 
+    let emit = |region: &gatk_haplotypecaller::AssemblyRegion,
+                o: &gatk_haplotypecaller::CallRegionOutcome| {
+        try_emit_call_region_variants(region, o, "NA12878", DEFAULT_STAND_EMIT_CONFIDENCE)
+            .expect("emit")
+    };
+    // Coverage-only failed mates are thread-local for the region just called.
+    // Production emits before the next region replaces them.
     let gap_outcome = call_one(covering_gt);
     let ag_outcome = if std::ptr::eq(covering_gt, covering_ag) {
         gap_outcome.clone()
     } else {
         call_one(covering_ag)
     };
+    let gap_emitted = emit(covering_ag, &ag_outcome);
     let ac_outcome = if std::ptr::eq(covering_gt, covering_ac) {
         gap_outcome.clone()
     } else {
         call_one(covering_ac)
     };
+    let ac_emitted = emit(covering_ac, &ac_outcome);
     let indel_outcome = call_one(covering_indel);
     let tg_outcome = if std::ptr::eq(covering_indel, covering_tg_snp) {
         indel_outcome.clone()
@@ -666,9 +683,9 @@ fn forensic_6r208_mid_b_annotation_evidence() {
     assert_eq!(target.genotype.format.pl_as_i32(), vec![90, 6, 0]);
     kv("format", "GT=1/1 AD=0,2 DP=2 GQ=6 PL=90,6,0");
 
-    assert_eq!(unique_indices(&gt_snp.annotation_likelihoods).len(), 3);
-    assert_eq!(unique_indices(&ag.annotation_likelihoods).len(), 3);
-    assert_eq!(unique_indices(&ac.annotation_likelihoods).len(), 4);
+    assert_eq!(unique_indices(&gt_snp.annotation_likelihoods).len(), 2);
+    assert_eq!(unique_indices(&ag.annotation_likelihoods).len(), 2);
+    assert_eq!(unique_indices(&ac.annotation_likelihoods).len(), 3);
     assert_eq!(unique_indices(&indel.annotation_likelihoods).len(), 1);
     assert_eq!(unique_indices(&tg.annotation_likelihoods).len(), 1);
     assert_eq!(unique_indices(&qual.annotation_likelihoods).len(), 0);
@@ -677,13 +694,6 @@ fn forensic_6r208_mid_b_annotation_evidence() {
     assert_eq!(unique_indices(&one.annotation_likelihoods).len(), 1);
     assert_eq!(unique_indices(&mid.annotation_likelihoods).len(), 3);
 
-    let emit = |region: &gatk_haplotypecaller::AssemblyRegion,
-                o: &gatk_haplotypecaller::CallRegionOutcome| {
-        try_emit_call_region_variants(region, o, "NA12878", DEFAULT_STAND_EMIT_CONFIDENCE)
-            .expect("emit")
-    };
-    let gap_emitted = emit(covering_ag, &ag_outcome);
-    let ac_emitted = emit(covering_ac, &ac_outcome);
     let indel_emitted = emit(covering_indel, &indel_outcome);
     let tg_emitted = emit(covering_tg_snp, &tg_outcome);
     let qual_emitted = emit(covering_qual, &qual_outcome);

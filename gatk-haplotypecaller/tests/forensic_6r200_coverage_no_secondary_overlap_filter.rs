@@ -2,6 +2,8 @@
 //! Java `Coverage.annotate` is `likelihoods.evidenceCount()` with no overlap.
 //! The second `java_alignment_read_overlaps_interval(±2)` filter that used to
 //! drop two stored rows (6 → 4) was proven here and removed by 6R.201.
+//! Overlap remains only to admit coverage-only failed mates, which have no
+//! likelihood row.
 //!
 //! Frozen Java 4.4.0.0 SHA `2dbc025821bc5f686c423ff332a41e6cef892a77`.
 //! PRODUCTION CHANGE: NONE (6R.200). Coverage cardinality is 6R.201.
@@ -185,9 +187,16 @@ fn forensic_6r200_java_vs_rust_coverage_contracts() {
         .next()
         .expect("coverage body");
     assert!(
-        !cov.contains("java_alignment_read_overlaps_interval")
-            && !cov.contains("seen.remove(&idx)"),
-        "6R.200 proved the second overlap filter; 6R.201 removed it from Coverage"
+        !cov.contains("seen.remove"),
+        "6R.201: Coverage does not drop likelihood rows with a second overlap filter"
+    );
+    let likelihood_rows = cov
+        .split("with_coverage_only_failed_mates")
+        .next()
+        .expect("likelihood-row count");
+    assert!(
+        !likelihood_rows.contains("java_alignment_read_overlaps_interval"),
+        "overlap admits coverage-only failed mates and does not re-filter attached likelihood rows"
     );
     let annotate = ann
         .split("pub fn annotate_hc_variant_site")
@@ -312,14 +321,26 @@ fn forensic_6r200_coverage_no_secondary_overlap_filter() {
             call_one(b)
         }
     };
+    let emit = |region: &gatk_haplotypecaller::AssemblyRegion,
+                o: &gatk_haplotypecaller::CallRegionOutcome| {
+        try_emit_call_region_variants(region, o, "NA12878", DEFAULT_STAND_EMIT_CONFIDENCE)
+            .expect("emit")
+    };
+    // Coverage-only failed mates are thread-local for the region just called.
+    // Production emits before the next region replaces them.
     let gap_outcome = call_one(covering_gt);
     let ag_outcome = reuse(covering_gt, covering_ag, &gap_outcome);
+    let gap_emitted = emit(covering_ag, &ag_outcome);
     let ac_outcome = reuse(covering_gt, covering_ac, &gap_outcome);
+    let ac_emitted = emit(covering_ac, &ac_outcome);
     let indel_outcome = call_one(covering_indel);
+    let indel_emitted = emit(covering_indel, &indel_outcome);
     let tg_snp_outcome = reuse(covering_indel, covering_tg_snp, &indel_outcome);
+    let tg_snp_emitted = emit(covering_tg_snp, &tg_snp_outcome);
     let qual_outcome = reuse(covering_indel, covering_qual, &indel_outcome);
+    let qual_emitted = emit(covering_qual, &qual_outcome);
     let outcome = reuse(covering_indel, covering_target, &indel_outcome);
-    let mid_outcome = call_one(covering_mid);
+    let target_emitted = emit(covering_target, &outcome);
 
     let find = |o: &gatk_haplotypecaller::CallRegionOutcome, pos: u64, r: &str, a: &str| {
         o.genotyped_calls
@@ -338,7 +359,6 @@ fn forensic_6r200_coverage_no_secondary_overlap_filter() {
     let indel = find(&indel_outcome, CLOSED_INDEL, "TTC", "T");
     let tg = find(&tg_snp_outcome, CLOSED_TG, "T", "G");
     let qual = find(&qual_outcome, CLOSED_QUAL, "CT", "C");
-    let mid = find(&mid_outcome, CLOSED_MID, "G", "A");
     let target = find(&outcome, TARGET, TARGET_REF, TARGET_ALT);
 
     let attached = unique_indices(&target.annotation_likelihoods);
@@ -423,13 +443,24 @@ fn forensic_6r200_coverage_no_secondary_overlap_filter() {
         "Coverage evidenceCount matches unique attached n=6"
     );
 
-    assert_eq!(unique_indices(&gt_snp.annotation_likelihoods).len(), 3);
-    assert_eq!(unique_indices(&ag.annotation_likelihoods).len(), 3);
-    assert_eq!(unique_indices(&ac.annotation_likelihoods).len(), 4);
+    assert_eq!(
+        unique_indices(&gt_snp.annotation_likelihoods).len(),
+        2,
+        "2:92305634 G/T likelihood rows are the two scored reads; the other-contig failed mate is coverage-only"
+    );
+    assert_eq!(
+        unique_indices(&ag.annotation_likelihoods).len(),
+        2,
+        "2:92305635 A/G shares that coverage-only failed mate"
+    );
+    assert_eq!(
+        unique_indices(&ac.annotation_likelihoods).len(),
+        3,
+        "2:92305716 A/C likelihood rows omit the same coverage-only failed mate"
+    );
     assert_eq!(unique_indices(&indel.annotation_likelihoods).len(), 1);
     assert_eq!(unique_indices(&tg.annotation_likelihoods).len(), 1);
     assert_eq!(unique_indices(&qual.annotation_likelihoods).len(), 0);
-    assert_eq!(unique_indices(&mid.annotation_likelihoods).len(), 3);
 
     assert_eq!(target.genotype.format.ad_as_i32(), vec![2, 4]);
     assert_eq!(target.genotype.format.dp.as_i32(), 6);
@@ -442,18 +473,10 @@ fn forensic_6r200_coverage_no_secondary_overlap_filter() {
     assert_eq!(mqs.len(), 6);
     assert!((rms - 40.58).abs() < 0.01);
 
-    let emit = |region: &gatk_haplotypecaller::AssemblyRegion,
-                o: &gatk_haplotypecaller::CallRegionOutcome| {
-        try_emit_call_region_variants(region, o, "NA12878", DEFAULT_STAND_EMIT_CONFIDENCE)
-            .expect("emit")
-    };
-    let gap_emitted = emit(covering_ag, &ag_outcome);
-    let ac_emitted = emit(covering_ac, &ac_outcome);
-    let indel_emitted = emit(covering_indel, &indel_outcome);
-    let tg_snp_emitted = emit(covering_tg_snp, &tg_snp_outcome);
-    let qual_emitted = emit(covering_qual, &qual_outcome);
-    let target_emitted = emit(covering_target, &outcome);
+    let mid_outcome = call_one(covering_mid);
     let mid_emitted = emit(covering_mid, &mid_outcome);
+    let mid = find(&mid_outcome, CLOSED_MID, "G", "A");
+    assert_eq!(unique_indices(&mid.annotation_likelihoods).len(), 3);
 
     assert_eq!(
         info_i32(&rec_at(&gap_emitted, CLOSED_GT, "G").info, "DP"),
