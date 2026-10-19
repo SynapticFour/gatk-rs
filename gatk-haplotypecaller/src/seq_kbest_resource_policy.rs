@@ -3,7 +3,7 @@
 //! Separates requested **K** (completed paths / visit budget) from **frontier
 //! resource safety**.
 //!
-//! Unset `GATK_RS_EXPERIMENTAL_KBEST_POLICY` selects [`SeqKbestResourcePolicy::UnboundedDiagnostic`]:
+//! Unset `GATK_RS_EXPERIMENTAL_KBEST_POLICY` selects [`seq_kbest_resource_policy::SeqKbestResourcePolicy::UnboundedDiagnostic`]:
 //! no frontier-count refusal, matching Java `PriorityQueue` semantics. The historical
 //! `legacy_1024` heap-length refusal remains selectable by name. Process RSS abort
 //! (`GATK_RS_HC_RSS_ABORT_MIB`) is a separate guard. Do not treat diagnostic byte
