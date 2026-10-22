@@ -462,6 +462,9 @@ pub fn upsert_coupled_cluster_alt_haplotype(
     {
         if let Some(assy) = apply_cigar() {
             let h = &mut assembly.haplotypes[idx];
+            if h.is_reference {
+                return Ok(());
+            }
             h.cigar = Some(assy.cigar);
             h.alignment_start_hap_wrt_ref = 0;
             tag_alt_haplotype_from_reference(h, &ref_hap_tag, kmer);
@@ -1115,5 +1118,198 @@ mod cigar_anchor_6r114 {
         assert_eq!(edge.to_gatk_string(), "1M2D1M2I16M");
         assert_eq!(edge.reference_length(), 20);
         assert_eq!(edge.read_length(), 20);
+    }
+}
+
+#[cfg(test)]
+mod upsert_coupled_ref_guard {
+    use std::sync::Arc;
+
+    use crate::assembly_result_set::AssemblyResultSet;
+    use crate::cigar::{Cigar, CigarOperator};
+    use crate::genome_loc::GenomeLoc;
+    use crate::haplotype::Haplotype;
+    use crate::read_threading_assembler::AssemblyStatus;
+    use crate::smith_waterman::SwParameters;
+
+    use super::{
+        align_coupled_cluster_bases, cluster_coupled_events_complete, coupled_cluster_alt_bases,
+        force_cluster_coupled_haplotype_cigar, reference_motif_cluster_coupled_events,
+        upsert_coupled_cluster_alt_haplotype, P12_CLUSTER_TTC_START, SUPPLEMENT_HAPLOTYPE_SCORE,
+    };
+
+    const REF_BASES: &[u8] = b"TTCA";
+    const ALT_BASES: &[u8] = b"TATG";
+    const DUMP_KMER: usize = 10;
+
+    fn coupled_events() -> Vec<crate::event_map::VariationEvent> {
+        let events =
+            reference_motif_cluster_coupled_events(REF_BASES, P12_CLUSTER_TTC_START, "2");
+        assert_eq!(events.len(), 2);
+        events
+    }
+
+    fn assembly(
+        status: AssemblyStatus,
+        kmer_size: usize,
+        haplotypes: Vec<Haplotype>,
+    ) -> AssemblyResultSet {
+        AssemblyResultSet::from_assembly_for_calling_owned(
+            status,
+            kmer_size,
+            haplotypes,
+            Arc::<[u8]>::from(REF_BASES),
+            P12_CLUSTER_TTC_START,
+            "2",
+            0,
+        )
+    }
+
+    fn cigar(length: usize, operator: CigarOperator) -> Cigar {
+        let mut cigar = Cigar::new();
+        cigar.push(length, operator);
+        cigar
+    }
+
+    fn forced_coupled_cigar() -> Cigar {
+        force_cluster_coupled_haplotype_cigar(P12_CLUSTER_TTC_START, REF_BASES.len())
+    }
+
+    #[test]
+    fn upsert_ref_guard_reference_flagged_alt_is_unchanged() {
+        let mut hap = Haplotype::new(ALT_BASES.to_vec(), true);
+        let mut assembly = assembly(AssemblyStatus::JustAssembledReference, 0, vec![hap]);
+        hap = assembly.haplotypes.pop().expect("reference haplotype");
+        hap.cigar = Some(cigar(ALT_BASES.len(), CigarOperator::Match));
+        hap.alignment_start_hap_wrt_ref = 7;
+        hap.kmer_size = 11;
+        hap.score = 3.5;
+        hap.genome_loc = Some(GenomeLoc::new(11, 14));
+        let before = hap.clone();
+        assembly.haplotypes.push(hap);
+
+        let events = coupled_events();
+        assert!(cluster_coupled_events_complete(&events));
+        let expected = forced_coupled_cigar();
+        let sentinel = before.cigar.clone().expect("sentinel cigar");
+        assert_ne!(sentinel, expected);
+        let coupled = coupled_cluster_alt_bases(
+            &assembly,
+            REF_BASES,
+            P12_CLUSTER_TTC_START,
+            &events,
+        )
+        .expect("coupled bases");
+        assert_eq!(coupled, ALT_BASES);
+        let sw = SwParameters::gatk_haplotype_to_reference();
+        let aligned = align_coupled_cluster_bases(
+            REF_BASES,
+            &coupled,
+            sentinel.reference_length(),
+            before.alignment_start_hap_wrt_ref,
+            P12_CLUSTER_TTC_START,
+            &events,
+            &sw,
+        )
+        .expect("complete events align");
+        assert_eq!(aligned.cigar, expected);
+
+        upsert_coupled_cluster_alt_haplotype(
+            &mut assembly,
+            REF_BASES,
+            P12_CLUSTER_TTC_START,
+            &events,
+            &sw,
+        )
+        .expect("upsert");
+
+        assert_eq!(assembly.haplotypes.len(), 1);
+        let kept = &assembly.haplotypes[0];
+        assert_eq!(kept, &before);
+        assert!(kept.is_reference);
+        assert_eq!(kept.cigar, before.cigar);
+        assert_eq!(kept.alignment_start_hap_wrt_ref, 7);
+        assert_eq!(kept.kmer_size, 11);
+        assert_eq!(kept.score, 3.5);
+        assert_eq!(kept.genome_loc, before.genome_loc);
+    }
+
+    #[test]
+    fn upsert_ref_guard_existing_non_reference_alt_is_repaired() {
+        let reference = Haplotype::new(REF_BASES.to_vec(), true);
+        let mut alt = Haplotype::new(ALT_BASES.to_vec(), false);
+        let mut assembly = assembly(
+            AssemblyStatus::AssembledSomeVariation,
+            DUMP_KMER,
+            vec![reference, alt],
+        );
+        alt = assembly.haplotypes.pop().expect("alt haplotype");
+        let reference = assembly.haplotypes.pop().expect("reference haplotype");
+        let reference_before = reference.clone();
+        alt.cigar = Some(cigar(ALT_BASES.len(), CigarOperator::Insertion));
+        alt.alignment_start_hap_wrt_ref = 5;
+        alt.score = 2.25;
+        alt.kmer_size = 13;
+        assembly.haplotypes.push(reference);
+        assembly.haplotypes.push(alt);
+        let dump_kmer = assembly.kmer_size_for_dump();
+        assert_ne!(dump_kmer, 0);
+
+        upsert_coupled_cluster_alt_haplotype(
+            &mut assembly,
+            REF_BASES,
+            P12_CLUSTER_TTC_START,
+            &coupled_events(),
+            &SwParameters::gatk_haplotype_to_reference(),
+        )
+        .expect("upsert");
+
+        assert_eq!(assembly.haplotypes.len(), 2);
+        let kept_ref = assembly
+            .haplotypes
+            .iter()
+            .find(|h| h.is_reference)
+            .expect("reference");
+        assert_eq!(kept_ref, &reference_before);
+        let kept_alt = assembly
+            .haplotypes
+            .iter()
+            .find(|h| !h.is_reference)
+            .expect("alt");
+        assert_eq!(kept_alt.bases, ALT_BASES);
+        assert_eq!(kept_alt.cigar.as_ref(), Some(&forced_coupled_cigar()));
+        assert_eq!(kept_alt.alignment_start_hap_wrt_ref, 0);
+        assert_eq!(kept_alt.score, SUPPLEMENT_HAPLOTYPE_SCORE);
+        assert!(!kept_alt.is_reference);
+        assert_eq!(kept_alt.kmer_size, dump_kmer);
+        assert_eq!(assembly.kmer_size_for_dump(), dump_kmer);
+    }
+
+    #[test]
+    fn upsert_ref_guard_unmatched_reference_pushes_alt() {
+        let reference = Haplotype::new(REF_BASES.to_vec(), true);
+        let mut assembly = assembly(AssemblyStatus::JustAssembledReference, 0, vec![reference]);
+        let reference_before = assembly.haplotypes[0].clone();
+
+        upsert_coupled_cluster_alt_haplotype(
+            &mut assembly,
+            REF_BASES,
+            P12_CLUSTER_TTC_START,
+            &coupled_events(),
+            &SwParameters::gatk_haplotype_to_reference(),
+        )
+        .expect("upsert");
+
+        assert_eq!(assembly.haplotypes.len(), 2);
+        assert_eq!(&assembly.haplotypes[0], &reference_before);
+        assert!(assembly.haplotypes[0].is_reference);
+        let added = assembly
+            .haplotypes
+            .iter()
+            .filter(|h| !h.is_reference)
+            .collect::<Vec<_>>();
+        assert_eq!(added.len(), 1);
+        assert_eq!(added[0].bases, ALT_BASES);
+        assert_eq!(added[0].cigar.as_ref(), Some(&forced_coupled_cigar()));
     }
 }
