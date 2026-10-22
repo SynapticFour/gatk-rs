@@ -1,6 +1,12 @@
-//! 6R.203: shared RankSum `getElementForRead` retries pre-realign CIGAR when
-//! the attached haplotype CIGAR does not cover `vc.getStart()`.
-//! Target `2:92307403 C/A`. MQRankSum / Coverage / 6R.199 object unchanged.
+//! 6R.203: RankSum element lookup at `2:92307403 C/A`.
+//!
+//! On the live call, both extra stored REF reads overlap 92307403 on the
+//! attached alignment, and the attached base quality is `Some(30)`.
+//! `java_baseq_rank_element` uses that attached alignment and does not fall
+//! back to a pre-realign CIGAR. ReadPos may still consult the preserved
+//! alignment when the attached CIGAR does not cover the variant start.
+//! This file does not treat a Java CIGAR capture as proof for these reads.
+//! MQRankSum / Coverage / 6R.199 object unchanged.
 //!
 //! Frozen Java 4.4.0.0 SHA `2dbc025821bc5f686c423ff332a41e6cef892a77`.
 //!
@@ -136,11 +142,11 @@ fn forensic_6r203_ranksum_get_element_contract() {
     kv("java_pin", JAVA_PIN);
     kv(
         "production_change",
-        "one shared getElementForRead pre-realign CIGAR retry",
+        "observed Rust: BaseQ uses the attached-alignment lookup without a pre-realignment fallback; ReadPos may use the preserved alignment. This is not a Java CIGAR capture",
     );
     kv(
         "classification",
-        "ANNOTATION_INPUT_MEMBERSHIP_DIVERGENCE / RankSum getElementForRead empty REF element",
+        "observed Rust: both extra REF reads overlap the attached alignment, attached BaseQ is Some(30), and the REF BaseQ list is [30.0, 30.0]. This is not a Java CIGAR capture",
     );
     assert!(
         JAVA_RANKSUM_ANNOTATE.contains("fillQualsFromLikelihood")
@@ -201,11 +207,29 @@ fn forensic_6r203_ranksum_get_element_contract() {
         realign.contains("preserve_pre_realign_alignment(rec)"),
         "createReadAlignedToRef preserves POS/CIGAR before overwrite"
     );
+    // The opening '(' keeps `java_read_pos_rank_element_on_cigar` out of this slice.
+    let read_pos = ann
+        .split("fn java_read_pos_rank_element(")
+        .nth(1)
+        .expect("readpos elem")
+        .split("fn fill_ranksum_quals_from_likelihood")
+        .next()
+        .expect("readpos body");
     assert!(
-        ann.contains("pre_realign_alignment(rec)")
-            && ann.contains("fn java_baseq_rank_element")
-            && ann.contains("fn java_read_pos_rank_element"),
-        "BaseQ and ReadPos share pre-realign getElementForRead retry"
+        read_pos.contains("pre_realign_alignment(rec)"),
+        "ReadPos calls pre_realign_alignment(rec) after the attached CIGAR walk. This is the Rust function body, not a Java CIGAR capture at 2:92307403"
+    );
+    let baseq = ann
+        .split("fn java_baseq_rank_element(")
+        .nth(1)
+        .expect("baseq elem")
+        .split("fn java_mq_rank_element")
+        .next()
+        .expect("baseq body");
+    assert!(
+        baseq.contains("read_base_quality_at_ref_coord_1based")
+            && !baseq.contains("pre_realign_alignment"),
+        "BaseQ calls read_base_quality_at_ref_coord_1based and does not call pre_realign_alignment. This is the Rust function body, not a Java CIGAR capture at 2:92307403"
     );
     let mq = ann
         .split("fn java_mq_rank_element")
@@ -232,7 +256,7 @@ fn forensic_6r203_ranksum_get_element_java_cigar_semantics() {
     kv("java_pin", JAVA_PIN);
     kv(
         "production_change",
-        "one shared getElementForRead pre-realign CIGAR retry",
+        "observed Rust: attached alignment covers 92307403 and BaseQ is 30; BaseQ does not retry a pre-realign CIGAR. ReadPos may still use preserved alignment. No Java CIGAR capture is claimed for these reads",
     );
     kv("target", "2:92307403 C/A");
 
@@ -464,12 +488,13 @@ fn forensic_6r203_ranksum_get_element_java_cigar_semantics() {
             || (qname(rec) == EXTRA_QNAME_B && rec.flags() == EXTRA_FLAG_B);
         if extra {
             assert!(
-                !overlap,
-                "extra stored unique REF rows miss ±2 overlap at 92307403 on the attached CIGAR"
+                overlap,
+                "extra stored unique REF rows cover 92307403 on the attached CIGAR"
             );
             assert_eq!(
-                bq, None,
-                "getReadBaseQualityAtReferenceCoordinate is empty on extra REF rows"
+                bq,
+                Some(30),
+                "getReadBaseQualityAtReferenceCoordinate is 30 on extra REF rows"
             );
         }
     }
@@ -501,13 +526,13 @@ fn forensic_6r203_ranksum_get_element_java_cigar_semantics() {
     assert_eq!(
         ref_bq,
         vec![30.0, 30.0],
-        "6R.203: extra REF rows yield original-alignment BaseQ=30"
+        "attached alignment BaseQ is 30 on both extra REF rows; this is the Rust lookup, not a Java CIGAR capture"
     );
     assert_eq!(alt_bq, vec![20.0, 20.0, 20.0, 20.0]);
     assert_eq!(
         ref_rp,
         vec![65.0, 91.0],
-        "6R.203: extra REF rows yield original-alignment ReadPos"
+        "observed ReadPos on the extra REF rows is 65 and 91; the ReadPos path may still consult preserved alignment, and this is not a Java CIGAR capture"
     );
     assert_eq!(alt_rp, vec![118.0, 87.0, 106.0, 124.0]);
     let mut mq_ref = ref_mq.clone();
@@ -521,8 +546,8 @@ fn forensic_6r203_ranksum_get_element_java_cigar_semantics() {
     );
     assert_eq!(mq_alt, vec![41.0, 41.0, 44.0, 50.0]);
     kv(
-        "shared_empty_ref",
-        "attached CIGAR still misses the locus; 6R.203 retries pre-realign CIGAR so REF lists are non-empty",
+        "attached_ref_baseq",
+        "both extra REF reads overlap 92307403 on the attached alignment with base quality 30. BaseQ does not consult a pre-realign CIGAR. This is the Rust lookup, not a Java CIGAR capture at this locus",
     );
 
     let mid_outcome = call_one(covering_mid);
@@ -593,7 +618,7 @@ fn forensic_6r203_ranksum_get_element_java_cigar_semantics() {
     assert_eq!(sample.pl.as_deref(), Some(&[162u32, 0, 72][..]));
     kv(
         "first_arrow",
-        "invocation+n=6 object reach RankSum; attached CIGAR still misses the locus; 6R.203 pre-realign getElementForRead fills REF and emits Java z",
+        "invocation and n=6 object reach RankSum. Both extra REF reads overlap 92307403 on the attached alignment; BaseQ is 30 from that alignment and does not use a pre-realign retry. Emitted BaseQRankSum rounds to -1.834. ReadPos may still consult preserved alignment when the attached CIGAR misses the start. No Java CIGAR capture is claimed for these reads",
     );
     kv("java_baseq", "-1.834");
     kv("java_readpos", "1.282");
