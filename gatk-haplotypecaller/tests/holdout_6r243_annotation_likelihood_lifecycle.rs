@@ -1,7 +1,7 @@
-//! 6R.243 live: `20:29455649 T/TGTTTG` annotation_likelihoods is empty because
-//! colocated merge constructs the call with `Vec::new()` while merge
-//! retainEvidence already has 123 reads (Java INFO DP). Region-wide fallback
-//! is 230. PRODUCTION CHANGE: NONE. Skipped unless `HOLDOUT_6R243=1`.
+//! 6R.243 live: `20:29455649 T/TGTTTG` stores the scored annotation subset.
+//! The other-contig mate stays coverage-only and has no likelihood cells.
+//! Attached-matrix coverage and emitted INFO DP are 123. Skipped unless
+//! `HOLDOUT_6R243=1`.
 //!
 //! ```text
 //! HOLDOUT_6R243=1 cargo test -p gatk-haplotypecaller --test holdout_6r243_annotation_likelihood_lifecycle -- --nocapture --test-threads=1
@@ -9,9 +9,7 @@
 
 use gatk_core::io::vcf::InfoValue;
 use gatk_core::reference::{parse_intervals_cli_string, SequenceDictionary};
-use gatk_haplotypecaller::hc_genotyping_engine::{
-    take_colocated_merge_numerics, HcGenotypingConfig,
-};
+use gatk_haplotypecaller::hc_genotyping_engine::HcGenotypingConfig;
 use gatk_haplotypecaller::read_threading_assembler::DEFAULT_NUM_BEST_HAPLOTYPES_PER_GRAPH;
 use gatk_haplotypecaller::variant_site_hc_annotations::coverage_evidence_count;
 use gatk_haplotypecaller::{
@@ -124,14 +122,17 @@ fn holdout_6r243_annotation_likelihood_lifecycle() {
         })
         .expect("T/TGTTTG");
     assert!(call.post_merge_unused_alt_subset);
-    assert!(call.annotation_likelihoods.is_empty());
     assert_eq!(call.genotype.format.ad_as_i32(), vec![88, 22]);
-    let snap = take_colocated_merge_numerics()
-        .into_iter()
-        .find(|s| s.loc == TARGET)
-        .expect("merge snapshot");
-    assert_eq!(snap.n_overlap_before_qname_dedupe, 123);
-    assert_eq!(snap.n_pairhmm_reads, 230);
+    assert_eq!(
+        coverage_evidence_count(
+            &outcome.genotyping_reads,
+            &call.annotation_likelihoods,
+            TARGET,
+            TARGET,
+            2,
+        ),
+        123
+    );
     let recs =
         try_emit_call_region_variants(region, &outcome, "SAMPLE", DEFAULT_STAND_EMIT_CONFIDENCE)
             .unwrap_or_default();
@@ -139,24 +140,7 @@ fn holdout_6r243_annotation_likelihood_lifecycle() {
         .iter()
         .find(|r| r.position == TARGET && r.reference == TARGET_REF)
         .expect("emit");
-    assert_eq!(info_i32(&emitted.info, "DP"), Some(230));
-    assert_eq!(
-        coverage_evidence_count(
-            &outcome.genotyping_reads,
-            &outcome.read_likelihoods,
-            TARGET,
-            TARGET,
-            2,
-        ),
-        230
-    );
-    kv(
-        "classification",
-        "ANNOTATION_LIKELIHOOD_LIFECYCLE_DIVERGENCE",
-    );
-    kv(
-        "first_divergent_operation",
-        "try_genotype_colocated_snp_indel_merge annotation_likelihoods=Vec::new()",
-    );
-    kv("production_change", "NONE");
+    assert_eq!(info_i32(&emitted.info, "DP"), Some(123));
+    kv("info_dp", "123");
+    kv("classification", "ANNOTATION_SUBSET_ATTACHED");
 }
