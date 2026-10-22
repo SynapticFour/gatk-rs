@@ -50,7 +50,9 @@ def rust_qnames(path: pathlib.Path) -> list[str]:
         return out
     for ln in path.read_text(encoding="utf-8", errors="replace").splitlines():
         s = ln.strip()
-        if not s or not _QNAME.match(s):
+        # rustc diagnostic gutters (`|`, `...`) are legal QNAME characters but
+        # are compiler noise from `cargo run` stderr, not read names.
+        if not s or s in {"|", "..."} or not _QNAME.match(s):
             continue
         out.append(s)
     return out
