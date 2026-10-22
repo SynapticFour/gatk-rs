@@ -47,7 +47,6 @@ lines.append("")
 lines.append("## Notes")
 lines.append("- This summary is generated from Phase-7 fixture/report artifacts.")
 lines.append("- Java oracle refresh (Docker): `./scripts/parity/run_p7_java_genotype_refresh.sh`")
-lines.append("- For gating expectations, see `docs/phase7-equivalence-hardening-checklist.md`.")
 
 out_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
 print(f"[p7-summary] wrote {out_md}")
