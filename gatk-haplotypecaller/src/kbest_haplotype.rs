@@ -383,7 +383,9 @@ fn find_best_haplotypes_inner(
                 "kbest_rss_abort",
                 &format!("expansions={expansions} results={}", result.len()),
             );
-            break;
+            return Err(GatkError::memory(
+                crate::runtime_config::hc_rss_limit_exceeded_message(),
+            ));
         }
         let item = heap.pop().expect("non-empty");
         let path = item.path;

@@ -12,7 +12,7 @@ use crate::read_threading_assembler::{
     merge_rt_kbest_pre_remove_paths_at_kmer, AssemblyResult, AssemblyStatus,
     ReadThreadingAssemblerArgs,
 };
-use gatk_common::GatkResult;
+use gatk_common::{GatkError, GatkResult};
 
 /// Diagnostic: RT before_remove on configured k-mers (largest first).
 ///
@@ -58,7 +58,9 @@ pub(crate) fn try_rt_configured_alts_before_seq_graph(
 
     for &kmer_size in &kmers {
         if crate::runtime_config::hc_rss_abort_triggered() {
-            break;
+            return Err(GatkError::memory(
+                crate::runtime_config::hc_rss_limit_exceeded_message(),
+            ));
         }
         crate::runtime_config::rss_trace_checkpoint(
             "rt_first_configured_kmer",

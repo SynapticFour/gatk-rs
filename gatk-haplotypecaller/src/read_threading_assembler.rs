@@ -1108,7 +1108,7 @@ fn assemble_from_ref_and_reads_seq_graph(
                 "seq_ingest_rss_abort",
                 &format!("before_kmer={kmer_size} haps={}", haplotypes.len()),
             );
-            break;
+            return Err(crate::runtime_config::rss_abort_memory_error());
         }
         if let Some((seq, status, kmer)) = try_build_seq_graph_kmer(
             reference,
@@ -1173,7 +1173,7 @@ fn assemble_from_ref_and_reads_seq_graph(
                         "seq_ingest_rss_abort_expanded",
                         &format!("before_kmer={kmer_size} haps={}", haplotypes.len()),
                     );
-                    break;
+                    return Err(crate::runtime_config::rss_abort_memory_error());
                 }
                 let last = iter == 6;
                 if let Some((seq, status, kmer)) = try_build_seq_graph_kmer(
@@ -1775,7 +1775,7 @@ pub fn merge_rt_kbest_pre_remove_paths_at_kmer(
         }
         // Soft-land before another RT assemble+k-best when Peak already blew the budget.
         if crate::runtime_config::hc_rss_abort_triggered() {
-            break;
+            return Err(crate::runtime_config::rss_abort_memory_error());
         }
         let is_expanded = !configured.contains(&kmer_size);
         // RT-first already proved this configured before_remove extract empty — do not rebuild.
@@ -1886,7 +1886,7 @@ fn try_assemble_kmer(
     allow_non_unique_ref: bool,
 ) -> GatkResult<Option<AssemblyResult>> {
     if crate::runtime_config::hc_rss_abort_triggered() {
-        return Ok(None);
+        return Err(crate::runtime_config::rss_abort_memory_error());
     }
     if reference.bases.len() < kmer_size {
         return Ok(Some(AssemblyResult {
