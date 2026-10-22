@@ -1124,7 +1124,7 @@ fn try_genotype_colocated_snp_indel_merge(
     // GATK `calculateOutputAlleleSubset` + `AlleleSubsettingUtils.subsetAlleles` after
     // merged GLs. Reverse-trim only after this subset, and only when allele count
     // changed (`makeAnnotatedCall`). Do not recalculate GLs from reads.
-    let unused = crate::allele_subsetting_pl::subset_unused_alts_after_merged_genotyping(
+    let mut unused = crate::allele_subsetting_pl::subset_unused_alts_after_merged_genotyping(
         &alts,
         &assigned_gt,
         &gls,
@@ -1202,6 +1202,16 @@ fn try_genotype_colocated_snp_indel_merge(
     } else {
         (long_ref.clone(), unused.alt_alleles.clone())
     };
+    // Java annotates the post-genotype call, then reverse-trims the record.
+    // Keep the pre-trim reference and the kept output alts only when trim
+    // changes the strings the VCF emits. GLs, AD, and GT stay on the trimmed event.
+    // Length is saved first: the allele vector moves into the annotation pair.
+    let unused_alt_len = unused.alt_alleles.len();
+    let annotation_output_alleles = if long_ref != trim_ref || unused.alt_alleles != trim_alts {
+        Some((long_ref, std::mem::take(&mut unused.alt_alleles)))
+    } else {
+        None
+    };
     let mut event = primary;
     event.ref_allele = trim_ref;
     event.alt_allele = trim_alts
@@ -1228,13 +1238,14 @@ fn try_genotype_colocated_snp_indel_merge(
             format,
         },
         extra_alt_alleles: extra,
-        post_merge_unused_alt_subset: unused.alt_alleles.len() < alts.len(),
+        post_merge_unused_alt_subset: unused_alt_len < alts.len(),
         qual_log10_p_error,
         // 6R.246: Java `prepareReadAlleleLikelihoodsForAnnotation` reuses the
         // post-retainEvidence genotyping AlleleLikelihoods (contamination off).
         // `hap_rows` already copied subset cells for GLs; `into_owned` is a move
         // of the existing `Cow::Owned` retainEvidence object, not PairHMM.
         annotation_likelihoods: subset.into_owned(),
+        annotation_output_alleles,
     }))
 }
 
@@ -1487,7 +1498,7 @@ fn colocated_pls_from_likelihood_subset_floor(
 
 /// GATK 4.4 `createAlleleMapper` EventMap walk: unmatched events leave the hap in **no** pool.
 /// Dual alt membership is allowed. Leftover unmatched haps are **not** dumped into REF.
-fn java_create_allele_mapper_pools(
+pub(crate) fn java_create_allele_mapper_pools(
     n_haps: usize,
     hap_events: &crate::event_map::PerHaplotypeVariationEvents,
     loc: u64,

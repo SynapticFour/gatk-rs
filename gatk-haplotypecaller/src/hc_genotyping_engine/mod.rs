@@ -175,6 +175,10 @@ pub struct GenotypedSiteCall {
     /// cluster-coupled / sparse narrowing (`calculateGLsForThisEvent` input).
     /// Empty → annotations keep the region-wide PairHMM matrix.
     pub annotation_likelihoods: Vec<RegionReadLikelihood>,
+    /// Pre-trim reference and kept output alts, set only when reverse trim
+    /// changes the emitted representation (`TG/CG` → `T/C`). Annotation allele
+    /// selection uses this pair; VCF alleles stay on `event`.
+    pub annotation_output_alleles: Option<(String, Vec<String>)>,
 }
 
 impl GenotypedSiteCall {
@@ -186,6 +190,7 @@ impl GenotypedSiteCall {
             post_merge_unused_alt_subset: false,
             qual_log10_p_error: None,
             annotation_likelihoods: Vec::new(),
+            annotation_output_alleles: None,
         }
     }
 

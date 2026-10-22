@@ -11,17 +11,19 @@ use crate::annotator::plugins::{
     read_pos_rank_sum, strand_odds_ratio,
 };
 use crate::assembly_region_iterator::AssemblyRegion;
-use crate::event_map::{build_per_haplotype_variation_events, VariationEvent};
+use crate::event_map::{
+    build_per_haplotype_variation_events, merged_alleles_for_genotyping, overlapping_events,
+    variation_events_at_position_from_cache, VariationEvent,
+};
 use crate::fragment_overlap::{
     pre_realign_alignment, read_base_at_ref_coord_1based, read_base_quality_at_ref_coord_1based,
-    read_base_quality_at_ref_coord_on_cigar,
 };
 use crate::genotyping::GenotypeFormatFields;
 use crate::haplotype::Haplotype;
-use crate::hc_allele_mapping::create_allele_mapper_with_events;
+use crate::hc_allele_mapping::{create_allele_mapper_with_events, replace_span_del_events};
 use crate::hc_genotyping_engine::{
-    marginalize_rows_to_biallelic_alleles, region_likelihoods_to_rows, HcGenotypingConfig,
-    RegionGenotypeResult,
+    java_create_allele_mapper_pools, marginalize_rows_to_biallelic_alleles,
+    region_likelihoods_to_rows, HcGenotypingConfig, RegionGenotypeResult,
 };
 use crate::read_model::MAPPING_QUALITY_UNAVAILABLE;
 use crate::read_realignment::LOG_10_INFORMATIVE_THRESHOLD;
@@ -155,9 +157,9 @@ fn apply_strand_min_count(table: (u32, u32, u32, u32), min_count: u32) -> (u32, 
 
 /// GATK `StrandBiasTest.getContingencyTable` (REF/ALT × forward/reverse).
 ///
-/// Per-read: remarg to site REF/ALT haplotype pools, `bestAllelesBreakingTies`
-/// (REF wins likelihood ties), then `isInformative` (`confidence > 0.2`).
-/// Best alleles that are neither REF nor an ALT of this site are skipped.
+/// Per-read: best allele over the locus candidate set (`searchBestAllele`,
+/// reference priority 1.0), then `isInformative` (`confidence > 0.2`).
+/// Only an informative best allele equal to the emitted REF or ALT is counted.
 /// Sample table is copied only when total counts `> min_count`.
 pub fn strand_bias_contingency_table(
     evidence: &HcStrandBiasLikelihoods<'_>,
@@ -167,7 +169,7 @@ pub fn strand_bias_contingency_table(
     min_count: u32,
 ) -> (u32, u32, u32, u32) {
     apply_strand_min_count(
-        strand_bias_sample_counts(evidence, loc_1based, ref_allele, alt_allele),
+        strand_bias_sample_counts(evidence, loc_1based, ref_allele, alt_allele, None),
         min_count,
     )
 }
@@ -177,76 +179,43 @@ fn strand_bias_sample_counts(
     loc_1based: u64,
     ref_allele: &str,
     alt_allele: &str,
+    annotation_output: PretrimAnnotationAlleles<'_>,
 ) -> (u32, u32, u32, u32) {
-    if evidence.likelihoods.is_empty() || evidence.haplotypes.is_empty() {
-        return (0, 0, 0, 0);
-    }
-    let event = VariationEvent::from_alleles(evidence.contig, loc_1based, ref_allele, alt_allele);
-    let hap_cache = build_per_haplotype_variation_events(
-        evidence.haplotypes,
-        evidence.full_ref_bytes,
-        evidence.full_pad_1based,
-        evidence.max_mnp_distance,
-        evidence.contig,
-    );
-    let mapping = create_allele_mapper_with_events(
-        &event,
-        loc_1based,
-        evidence.haplotypes,
-        evidence.pad_start_1based,
-        evidence.ref_bytes,
-        evidence.max_mnp_distance,
-        evidence.emit_spanning_dels,
-        Some(&hap_cache),
-    );
-    let rows = region_likelihoods_to_rows(evidence.likelihoods, evidence.haplotypes.len());
-    let marg = marginalize_rows_to_biallelic_alleles(
-        &rows,
-        &mapping.ref_haplotype_indices,
-        &mapping.alt_haplotype_indices,
-    );
     let mut ref_fw = 0u32;
     let mut ref_rv = 0u32;
     let mut alt_fw = 0u32;
     let mut alt_rv = 0u32;
-    for row in &marg {
-        let Some(rec) = evidence.reads.get(row.read_index) else {
-            continue;
-        };
-        let lls = &row.haplotype_log10_likelihoods;
-        let ll_ref = lls.first().copied().unwrap_or(f64::NEG_INFINITY);
-        let ll_alt = lls.get(1).copied().unwrap_or(f64::NEG_INFINITY);
-        if !ll_ref.is_finite() && !ll_alt.is_finite() {
-            continue;
-        }
-        let (best_is_ref, best, second) = if ll_ref > ll_alt {
-            (true, ll_ref, ll_alt)
-        } else if ll_alt > ll_ref {
-            (false, ll_alt, ll_ref)
-        } else {
-            // Java `bestAllelesBreakingTies`: REF priority 1.0 vs ALT 0 on a tie.
-            (true, ll_ref, ll_alt)
-        };
-        let gap = if second.is_finite() {
-            best - second
-        } else {
-            f64::INFINITY
-        };
-        // Java `BestAllele.isInformative`: strict `confidence > 0.2`. Near-ties do not count.
-        if gap <= LOG_10_INFORMATIVE_THRESHOLD {
+    for decision in annotation_allele_decisions(
+        evidence,
+        loc_1based,
+        ref_allele,
+        alt_allele,
+        annotation_output,
+    ) {
+        if !decision.informative {
             continue;
         }
+        let Some(rec) = evidence.reads.get(decision.read_index) else {
+            continue;
+        };
         let reverse = rec.flags() & FLAG_REVERSE != 0;
-        if best_is_ref {
-            if reverse {
-                ref_rv += 1;
-            } else {
-                ref_fw += 1;
+        match decision.class {
+            AnnotationAlleleClass::EmittedRef => {
+                if reverse {
+                    ref_rv += 1;
+                } else {
+                    ref_fw += 1;
+                }
             }
-        } else if reverse {
-            alt_rv += 1;
-        } else {
-            alt_fw += 1;
+            AnnotationAlleleClass::EmittedAlt => {
+                if reverse {
+                    alt_rv += 1;
+                } else {
+                    alt_fw += 1;
+                }
+            }
+            // A best allele that is not the emitted REF or ALT is ignored, not reassigned.
+            AnnotationAlleleClass::Other => {}
         }
     }
     (ref_fw, ref_rv, alt_fw, alt_rv)
@@ -301,14 +270,49 @@ fn java_read_pos_rank_element_on_cigar(
     None
 }
 
-/// GATK `ReadPosRankSumTest.getReadPosition`: `min(left, right)` including hard clips.
+/// Inclusive end of the emitted reference allele.
 ///
-/// 6R.203: when the attached (haplotype-realigned) CIGAR does not cover
-/// `vc.getStart()`, retry on the pre-realign POS/CIGAR Java RankSum still has.
-fn java_read_pos_rank_element(rec: &Record, vc_start_1based: i32) -> Option<f64> {
+/// GATK `VariantContext.getEnd()` is `start + reference.length() - 1`.
+fn java_variant_context_end_1based(vc_start_1based: u64, ref_allele: &str) -> i32 {
+    let end = vc_start_1based.saturating_add(ref_allele.len().saturating_sub(1) as u64);
+    end as i32
+}
+
+/// `read.getStart() == vc.getEnd() + 1`.
+fn read_starts_on_base_after_variant_end(rec: &Record, vc_end_1based: i32) -> bool {
+    rec.pos() + 1 == i64::from(vc_end_1based) + 1
+}
+
+/// First attached operator that is not soft or hard clipping is `I`.
+///
+/// GATK `CigarOperator.isClipping` is `S` or `H` only.
+fn first_non_clipping_cigar_operator_is_insertion(cigar: &CigarString) -> bool {
+    cigar
+        .iter()
+        .find(|op| !matches!(op, Cigar::SoftClip(_) | Cigar::HardClip(_)))
+        .is_some_and(|op| matches!(op, Cigar::Ins(_)))
+}
+
+/// GATK `ReadPosRankSumTest.getReadPosition`.
+///
+/// A leading insertion whose read start is the reference base immediately
+/// after `vc.getEnd()` returns 0 before the coordinate walk. Otherwise
+/// `min(left, right)` on the attached CIGAR, then the pre-realign POS/CIGAR
+/// when the attached CIGAR does not cover `vc.getStart()` (6R.203).
+fn java_read_pos_rank_element(
+    rec: &Record,
+    vc_start_1based: i32,
+    vc_end_1based: i32,
+) -> Option<f64> {
+    let attached = CigarString::from(rec.cigar().iter().copied().collect::<Vec<_>>());
+    if read_starts_on_base_after_variant_end(rec, vc_end_1based)
+        && first_non_clipping_cigar_operator_is_insertion(&attached)
+    {
+        return Some(0.0);
+    }
     if let Some(v) = java_read_pos_rank_element_on_cigar(
         rec.pos(),
-        &CigarString::from(rec.cigar().iter().copied().collect::<Vec<_>>()),
+        &attached,
         rec.seq_len() as i64,
         vc_start_1based,
     ) {
@@ -335,6 +339,7 @@ fn fill_ranksum_quals_from_likelihood<F>(
     loc_1based: u64,
     ref_allele: &str,
     alt_allele: &str,
+    annotation_output: PretrimAnnotationAlleles<'_>,
     mut element_for_read: F,
 ) -> (Vec<f64>, Vec<f64>)
 where
@@ -342,9 +347,323 @@ where
 {
     let mut ref_vals = Vec::new();
     let mut alt_vals = Vec::new();
-    if evidence.likelihoods.is_empty() || evidence.haplotypes.is_empty() {
-        return (ref_vals, alt_vals);
+    for decision in annotation_allele_decisions(
+        evidence,
+        loc_1based,
+        ref_allele,
+        alt_allele,
+        annotation_output,
+    ) {
+        if !decision.informative {
+            continue;
+        }
+        if !matches!(
+            decision.class,
+            AnnotationAlleleClass::EmittedRef | AnnotationAlleleClass::EmittedAlt
+        ) {
+            continue;
+        }
+        let Some(rec) = evidence.reads.get(decision.read_index) else {
+            continue;
+        };
+        if !java_ranksum_mq_usable(rec) {
+            continue;
+        }
+        let Some(v) = element_for_read(rec, loc_1based as i32) else {
+            continue;
+        };
+        match decision.class {
+            AnnotationAlleleClass::EmittedRef => ref_vals.push(v),
+            AnnotationAlleleClass::EmittedAlt => alt_vals.push(v),
+            AnnotationAlleleClass::Other => {}
+        }
     }
+    (ref_vals, alt_vals)
+}
+
+/// Best allele for one read after annotation-boundary selection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AnnotationAlleleClass {
+    EmittedRef,
+    EmittedAlt,
+    /// Best allele is a candidate that this record does not emit.
+    Other,
+}
+
+struct AnnotationAlleleDecision {
+    read_index: usize,
+    /// Index into `[reference, *alts]` for the selected best allele.
+    best_index: usize,
+    informative: bool,
+    class: AnnotationAlleleClass,
+}
+
+fn annotation_allele_class(
+    bases: &str,
+    ref_allele: &str,
+    alt_allele: &str,
+) -> AnnotationAlleleClass {
+    if bases == ref_allele {
+        AnnotationAlleleClass::EmittedRef
+    } else if bases == alt_allele {
+        AnnotationAlleleClass::EmittedAlt
+    } else {
+        AnnotationAlleleClass::Other
+    }
+}
+
+/// Select the best allele over every candidate at `loc`, then label it against the
+/// emitted REF/ALT pair.
+///
+/// Java `AlleleLikelihoods.searchBestAllele` walks the merged allele list in order.
+/// A strictly greater likelihood replaces the best allele and demotes the previous
+/// best to second. An equal likelihood does not replace an earlier allele. When
+/// `best - second < 0.2`, alleles within `0.2` of that best likelihood are walked
+/// again. Reference priority is `1.0` and every other priority is `0`; only a
+/// strictly higher priority replaces, and an allele more than `0.2` below the
+/// best likelihood cannot take the tie. Confidence is `0` when the two
+/// likelihoods are equal, otherwise `best - second` after that reassignment.
+/// The read is informative only when confidence is strictly greater than
+/// [`LOG_10_INFORMATIVE_THRESHOLD`] (0.2).
+///
+/// A site whose events do not recover a multi-allele list containing both emitted
+/// alleles keeps the previous two-allele projection.
+/// Pre-trim reference and kept output alts. `None` keeps the emitted-allele path.
+type PretrimAnnotationAlleles<'a> = Option<(&'a str, &'a [String])>;
+
+fn annotation_allele_decisions(
+    evidence: &HcStrandBiasLikelihoods<'_>,
+    loc_1based: u64,
+    ref_allele: &str,
+    alt_allele: &str,
+    annotation_output: PretrimAnnotationAlleles<'_>,
+) -> Vec<AnnotationAlleleDecision> {
+    if evidence.likelihoods.is_empty() || evidence.haplotypes.is_empty() {
+        return Vec::new();
+    }
+    if let Some((pre_ref, kept_alts)) =
+        pretrim_output_when_different(ref_allele, alt_allele, annotation_output)
+    {
+        if let Some(decisions) =
+            pretrim_annotation_decisions(evidence, loc_1based, pre_ref, kept_alts)
+        {
+            return decisions;
+        }
+    }
+    if let Some(decisions) =
+        multi_allele_annotation_decisions(evidence, loc_1based, ref_allele, alt_allele)
+    {
+        return decisions;
+    }
+    biallelic_annotation_decisions(evidence, loc_1based, ref_allele, alt_allele)
+}
+
+/// Use the retained pre-trim pair only when it is not the emitted representation.
+fn pretrim_output_when_different<'a>(
+    emitted_ref: &str,
+    emitted_alt: &str,
+    annotation_output: PretrimAnnotationAlleles<'a>,
+) -> PretrimAnnotationAlleles<'a> {
+    let (pre_ref, kept_alts) = annotation_output?;
+    let same = pre_ref == emitted_ref && kept_alts.len() == 1 && kept_alts[0] == emitted_alt;
+    if same {
+        None
+    } else {
+        Some((pre_ref, kept_alts))
+    }
+}
+
+/// Java `createAlleleMapper` on the pre-trim call: search the full candidate set,
+/// including spanning `*`, and count REF/ALT only for the kept pre-trim alleles.
+fn pretrim_annotation_decisions(
+    evidence: &HcStrandBiasLikelihoods<'_>,
+    loc_1based: u64,
+    pre_ref: &str,
+    kept_alts: &[String],
+) -> Option<Vec<AnnotationAlleleDecision>> {
+    let cache = build_per_haplotype_variation_events(
+        evidence.haplotypes,
+        evidence.full_ref_bytes,
+        evidence.full_pad_1based,
+        evidence.max_mnp_distance,
+        evidence.contig,
+    );
+    let raw =
+        variation_events_at_position_from_cache(&cache, loc_1based, evidence.emit_spanning_dels);
+    let events = if evidence.emit_spanning_dels {
+        replace_span_del_events(
+            &raw,
+            loc_1based,
+            evidence.full_pad_1based,
+            evidence.full_ref_bytes,
+        )
+    } else {
+        raw
+    };
+    let (long_ref, mut alts) = merged_alleles_for_genotyping(&events, loc_1based)?;
+    if long_ref != pre_ref || kept_alts.is_empty() {
+        return None;
+    }
+    if kept_alts
+        .iter()
+        .any(|kept| !alts.iter().any(|alt| alt == kept))
+    {
+        return None;
+    }
+    if evidence.emit_spanning_dels && !alts.iter().any(|alt| alt == "*") {
+        let spans = (0..evidence.haplotypes.len()).any(|hap| {
+            overlapping_events(cache.events_for(hap), loc_1based)
+                .iter()
+                .any(|event| event.start_1based.get() != loc_1based)
+        });
+        if spans {
+            alts.push("*".to_string());
+        }
+    }
+    let (pools, _, _) = java_create_allele_mapper_pools(
+        evidence.haplotypes.len(),
+        &cache,
+        loc_1based,
+        &long_ref,
+        &alts,
+        evidence.emit_spanning_dels,
+    );
+    if pools.len() != 1 + alts.len() {
+        return None;
+    }
+    let mut allele_bases = Vec::with_capacity(pools.len());
+    allele_bases.push(long_ref.as_str());
+    for alt in &alts {
+        allele_bases.push(alt.as_str());
+    }
+    let rows = region_likelihoods_to_rows(evidence.likelihoods, evidence.haplotypes.len());
+    let mut priorities = vec![0.0; allele_bases.len()];
+    priorities[0] = 1.0;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let lls: Vec<f64> = pools
+            .iter()
+            .map(|pool| max_log10_over_haplotype_indices(&row.haplotype_log10_likelihoods, pool))
+            .collect();
+        let (best_i, _second_i, best_l, second_l) = search_best_allele(&lls, &priorities);
+        let confidence = if best_l == second_l {
+            0.0
+        } else {
+            best_l - second_l
+        };
+        let bases = allele_bases.get(best_i).copied().unwrap_or("");
+        out.push(AnnotationAlleleDecision {
+            read_index: row.read_index,
+            best_index: best_i,
+            informative: confidence > LOG_10_INFORMATIVE_THRESHOLD,
+            class: annotation_allele_class_kept(bases, pre_ref, kept_alts),
+        });
+    }
+    Some(out)
+}
+
+fn annotation_allele_class_kept(
+    bases: &str,
+    pre_ref: &str,
+    kept_alts: &[String],
+) -> AnnotationAlleleClass {
+    if bases == pre_ref {
+        AnnotationAlleleClass::EmittedRef
+    } else if kept_alts.iter().any(|alt| alt == bases) {
+        AnnotationAlleleClass::EmittedAlt
+    } else {
+        AnnotationAlleleClass::Other
+    }
+}
+
+/// Candidate alleles in haplotype-encounter order, reference first.
+#[cfg(test)]
+fn annotation_candidate_alleles(
+    evidence: &HcStrandBiasLikelihoods<'_>,
+    loc_1based: u64,
+) -> Option<(String, Vec<String>)> {
+    let cache = build_per_haplotype_variation_events(
+        evidence.haplotypes,
+        evidence.full_ref_bytes,
+        evidence.full_pad_1based,
+        evidence.max_mnp_distance,
+        evidence.contig,
+    );
+    let events = variation_events_at_position_from_cache(&cache, loc_1based, false);
+    let (long_ref, alts) = merged_alleles_for_genotyping(&events, loc_1based)?;
+    if alts.len() < 2 {
+        return None;
+    }
+    Some((long_ref, alts))
+}
+
+fn multi_allele_annotation_decisions(
+    evidence: &HcStrandBiasLikelihoods<'_>,
+    loc_1based: u64,
+    ref_allele: &str,
+    alt_allele: &str,
+) -> Option<Vec<AnnotationAlleleDecision>> {
+    let cache = build_per_haplotype_variation_events(
+        evidence.haplotypes,
+        evidence.full_ref_bytes,
+        evidence.full_pad_1based,
+        evidence.max_mnp_distance,
+        evidence.contig,
+    );
+    let events = variation_events_at_position_from_cache(&cache, loc_1based, false);
+    let (long_ref, alts) = merged_alleles_for_genotyping(&events, loc_1based)?;
+    if alts.len() < 2 || long_ref != ref_allele || !alts.iter().any(|alt| alt == alt_allele) {
+        return None;
+    }
+    let (pools, _, _) = java_create_allele_mapper_pools(
+        evidence.haplotypes.len(),
+        &cache,
+        loc_1based,
+        &long_ref,
+        &alts,
+        evidence.emit_spanning_dels,
+    );
+    if pools.len() != 1 + alts.len() {
+        return None;
+    }
+    let mut allele_bases = Vec::with_capacity(pools.len());
+    allele_bases.push(long_ref.as_str());
+    for alt in &alts {
+        allele_bases.push(alt.as_str());
+    }
+    let rows = region_likelihoods_to_rows(evidence.likelihoods, evidence.haplotypes.len());
+    let mut priorities = vec![0.0; allele_bases.len()];
+    priorities[0] = 1.0;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let lls: Vec<f64> = pools
+            .iter()
+            .map(|pool| max_log10_over_haplotype_indices(&row.haplotype_log10_likelihoods, pool))
+            .collect();
+        let (best_i, _second_i, best_l, second_l) = search_best_allele(&lls, &priorities);
+        let confidence = if best_l == second_l {
+            0.0
+        } else {
+            best_l - second_l
+        };
+        let bases = allele_bases.get(best_i).copied().unwrap_or("");
+        out.push(AnnotationAlleleDecision {
+            read_index: row.read_index,
+            best_index: best_i,
+            informative: confidence > LOG_10_INFORMATIVE_THRESHOLD,
+            class: annotation_allele_class(bases, ref_allele, alt_allele),
+        });
+    }
+    Some(out)
+}
+
+/// Previous emitted-pair projection, used when the locus has a single ALT.
+fn biallelic_annotation_decisions(
+    evidence: &HcStrandBiasLikelihoods<'_>,
+    loc_1based: u64,
+    ref_allele: &str,
+    alt_allele: &str,
+) -> Vec<AnnotationAlleleDecision> {
     let event = VariationEvent::from_alleles(evidence.contig, loc_1based, ref_allele, alt_allele);
     let hap_cache = build_per_haplotype_variation_events(
         evidence.haplotypes,
@@ -369,14 +688,18 @@ where
         &mapping.ref_haplotype_indices,
         &mapping.alt_haplotype_indices,
     );
+    let mut out = Vec::with_capacity(marg.len());
     for row in &marg {
-        let Some(rec) = evidence.reads.get(row.read_index) else {
-            continue;
-        };
         let lls = &row.haplotype_log10_likelihoods;
         let ll_ref = lls.first().copied().unwrap_or(f64::NEG_INFINITY);
         let ll_alt = lls.get(1).copied().unwrap_or(f64::NEG_INFINITY);
         if !ll_ref.is_finite() && !ll_alt.is_finite() {
+            out.push(AnnotationAlleleDecision {
+                read_index: row.read_index,
+                best_index: 0,
+                informative: false,
+                class: AnnotationAlleleClass::Other,
+            });
             continue;
         }
         let (best_is_ref, best, second) = if ll_ref > ll_alt {
@@ -391,22 +714,88 @@ where
         } else {
             f64::INFINITY
         };
-        if gap <= LOG_10_INFORMATIVE_THRESHOLD {
-            continue;
-        }
-        if !java_ranksum_mq_usable(rec) {
-            continue;
-        }
-        let Some(v) = element_for_read(rec, loc_1based as i32) else {
-            continue;
-        };
-        if best_is_ref {
-            ref_vals.push(v);
-        } else {
-            alt_vals.push(v);
+        out.push(AnnotationAlleleDecision {
+            read_index: row.read_index,
+            best_index: usize::from(!best_is_ref),
+            informative: gap > LOG_10_INFORMATIVE_THRESHOLD,
+            class: if best_is_ref {
+                AnnotationAlleleClass::EmittedRef
+            } else {
+                AnnotationAlleleClass::EmittedAlt
+            },
+        });
+    }
+    out
+}
+
+/// GATK `AlleleLikelihoods.searchBestAllele` plus the default tie priority.
+fn search_best_allele(lls: &[f64], priorities: &[f64]) -> (usize, usize, f64, f64) {
+    let n = lls.len();
+    if n == 0 {
+        return (0, 0, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    }
+    let mut best_i = 0usize;
+    let mut second_i = 0usize;
+    let mut best_l = lls[0];
+    let mut second_l = f64::NEG_INFINITY;
+    for i in 1..n {
+        let likelihood = lls[i];
+        if likelihood > best_l {
+            second_i = best_i;
+            second_l = best_l;
+            best_i = i;
+            best_l = likelihood;
+        } else if likelihood > second_l {
+            second_i = i;
+            second_l = likelihood;
         }
     }
-    (ref_vals, alt_vals)
+    if best_l - second_l < LOG_10_INFORMATIVE_THRESHOLD {
+        // The window stays on the pre-tie maximum. A high-priority allele farther
+        // than 0.2 below that maximum does not inherit the tie.
+        let window_best = best_l;
+        let mut tied_best = best_i;
+        let mut tied_second = second_i;
+        let mut best_p = priorities.get(best_i).copied().unwrap_or(0.0);
+        let mut second_p = priorities.get(second_i).copied().unwrap_or(0.0);
+        for i in 0..n {
+            let likelihood = lls[i];
+            if i == tied_best || window_best - likelihood > LOG_10_INFORMATIVE_THRESHOLD {
+                continue;
+            }
+            let priority = priorities.get(i).copied().unwrap_or(0.0);
+            if priority > best_p {
+                second_p = best_p;
+                tied_second = tied_best;
+                best_p = priority;
+                tied_best = i;
+            } else if priority > second_p {
+                second_p = priority;
+                tied_second = i;
+            }
+        }
+        best_i = tied_best;
+        second_i = tied_second;
+    }
+    let best_l = lls[best_i];
+    let second_l = if second_i != best_i {
+        lls[second_i]
+    } else {
+        f64::NEG_INFINITY
+    };
+    (best_i, second_i, best_l, second_l)
+}
+
+fn max_log10_over_haplotype_indices(row: &[f64], haps: &[crate::bio_ids::HaplotypeIndex]) -> f64 {
+    let mut best = f64::NEG_INFINITY;
+    for hap in haps {
+        if let Some(&value) = row.get(hap.get()) {
+            if value > best {
+                best = value;
+            }
+        }
+    }
+    best
 }
 
 /// 6R.191: ReadPosRankSum `fillQualsFromLikelihood` lists (`getReadPosition`).
@@ -416,12 +805,24 @@ pub fn read_pos_rank_sum_quals_from_likelihoods(
     ref_allele: &str,
     alt_allele: &str,
 ) -> (Vec<f64>, Vec<f64>) {
+    read_pos_rank_sum_quals(evidence, loc_1based, ref_allele, alt_allele, None)
+}
+
+fn read_pos_rank_sum_quals(
+    evidence: &HcStrandBiasLikelihoods<'_>,
+    loc_1based: u64,
+    ref_allele: &str,
+    alt_allele: &str,
+    annotation_output: PretrimAnnotationAlleles<'_>,
+) -> (Vec<f64>, Vec<f64>) {
+    let vc_end_1based = java_variant_context_end_1based(loc_1based, ref_allele);
     fill_ranksum_quals_from_likelihood(
         evidence,
         loc_1based,
         ref_allele,
         alt_allele,
-        java_read_pos_rank_element,
+        annotation_output,
+        |rec, vc_start_1based| java_read_pos_rank_element(rec, vc_start_1based, vc_end_1based),
     )
 }
 
@@ -433,11 +834,22 @@ pub fn baseq_rank_sum_quals_from_likelihoods(
     ref_allele: &str,
     alt_allele: &str,
 ) -> (Vec<f64>, Vec<f64>) {
+    baseq_rank_sum_quals(evidence, loc_1based, ref_allele, alt_allele, None)
+}
+
+fn baseq_rank_sum_quals(
+    evidence: &HcStrandBiasLikelihoods<'_>,
+    loc_1based: u64,
+    ref_allele: &str,
+    alt_allele: &str,
+    annotation_output: PretrimAnnotationAlleles<'_>,
+) -> (Vec<f64>, Vec<f64>) {
     fill_ranksum_quals_from_likelihood(
         evidence,
         loc_1based,
         ref_allele,
         alt_allele,
+        annotation_output,
         java_baseq_rank_element,
     )
 }
@@ -450,25 +862,33 @@ pub fn mq_rank_sum_quals_from_likelihoods(
     ref_allele: &str,
     alt_allele: &str,
 ) -> (Vec<f64>, Vec<f64>) {
+    mq_rank_sum_quals(evidence, loc_1based, ref_allele, alt_allele, None)
+}
+
+fn mq_rank_sum_quals(
+    evidence: &HcStrandBiasLikelihoods<'_>,
+    loc_1based: u64,
+    ref_allele: &str,
+    alt_allele: &str,
+    annotation_output: PretrimAnnotationAlleles<'_>,
+) -> (Vec<f64>, Vec<f64>) {
     fill_ranksum_quals_from_likelihood(
         evidence,
         loc_1based,
         ref_allele,
         alt_allele,
+        annotation_output,
         java_mq_rank_element,
     )
 }
 
 /// GATK `BaseQualityRankSumTest.getElementForRead`.
 ///
-/// 6R.203: attached CIGAR first (Java `getReadBaseQualityAtReferenceCoordinate`);
-/// if empty, the pre-realign covering CIGAR Java RankSum still uses.
+/// `ReadUtils.getReadBaseQualityAtReferenceCoordinate` on the attached
+/// alignment. An empty lookup contributes no observation. Java does not
+/// reread a pre-realignment alignment.
 fn java_baseq_rank_element(rec: &Record, vc_start_1based: i32) -> Option<f64> {
-    if let Some(q) = read_base_quality_at_ref_coord_1based(rec, vc_start_1based) {
-        return Some(f64::from(q));
-    }
-    let (pos0, cig) = pre_realign_alignment(rec)?;
-    read_base_quality_at_ref_coord_on_cigar(pos0, &cig, rec.qual(), vc_start_1based).map(f64::from)
+    read_base_quality_at_ref_coord_1based(rec, vc_start_1based).map(f64::from)
 }
 
 /// GATK `MappingQualityRankSumTest.getElementForRead`: `read.getMappingQuality()`.
@@ -626,6 +1046,7 @@ pub fn annotate_hc_variant_site(
     config: &HcGenotypingConfig,
     qual_log10_p_error: Option<f64>,
     strand_likelihoods: Option<&HcStrandBiasLikelihoods<'_>>,
+    annotation_output: Option<(&str, &[String])>,
 ) -> GatkResult<HcVariantSiteAnnotations> {
     let gl_for_qual = genotype_log10_likelihoods_after_java_genotype_pl_roundtrip(
         &genotype.genotype_log10_likelihoods,
@@ -676,20 +1097,47 @@ pub fn annotate_hc_variant_site(
     let (ref_positions, alt_positions, ref_baseq, alt_baseq, ref_mapq, alt_mapq) =
         match strand_likelihoods {
             Some(ev) => {
-                let (rp_ref, rp_alt) = read_pos_rank_sum_quals_from_likelihoods(
-                    ev,
-                    position_1based,
-                    ref_allele,
-                    alt_allele,
-                );
-                let (bq_ref, bq_alt) = baseq_rank_sum_quals_from_likelihoods(
-                    ev,
-                    position_1based,
-                    ref_allele,
-                    alt_allele,
-                );
-                let (mq_ref, mq_alt) =
-                    mq_rank_sum_quals_from_likelihoods(ev, position_1based, ref_allele, alt_allele);
+                let (rp_ref, rp_alt) = match annotation_output {
+                    None => read_pos_rank_sum_quals_from_likelihoods(
+                        ev,
+                        position_1based,
+                        ref_allele,
+                        alt_allele,
+                    ),
+                    Some(output) => read_pos_rank_sum_quals(
+                        ev,
+                        position_1based,
+                        ref_allele,
+                        alt_allele,
+                        Some(output),
+                    ),
+                };
+                let (bq_ref, bq_alt) = match annotation_output {
+                    None => baseq_rank_sum_quals_from_likelihoods(
+                        ev,
+                        position_1based,
+                        ref_allele,
+                        alt_allele,
+                    ),
+                    Some(output) => baseq_rank_sum_quals(
+                        ev,
+                        position_1based,
+                        ref_allele,
+                        alt_allele,
+                        Some(output),
+                    ),
+                };
+                let (mq_ref, mq_alt) = match annotation_output {
+                    None => mq_rank_sum_quals_from_likelihoods(
+                        ev,
+                        position_1based,
+                        ref_allele,
+                        alt_allele,
+                    ),
+                    Some(output) => {
+                        mq_rank_sum_quals(ev, position_1based, ref_allele, alt_allele, Some(output))
+                    }
+                };
                 (rp_ref, rp_alt, bq_ref, bq_alt, mq_ref, mq_alt)
             }
             None => (
@@ -708,7 +1156,13 @@ pub fn annotate_hc_variant_site(
     let (fs_rf, fs_rr, fs_af, fs_ar, sor_rf, sor_rr, sor_af, sor_ar, mq) = match strand_likelihoods
     {
         Some(ev) => {
-            let sample = strand_bias_sample_counts(ev, position_1based, ref_allele, alt_allele);
+            let sample = strand_bias_sample_counts(
+                ev,
+                position_1based,
+                ref_allele,
+                alt_allele,
+                annotation_output,
+            );
             let fs = apply_strand_min_count(sample, FISHER_STRAND_MIN_COUNT);
             let sor = apply_strand_min_count(sample, STRAND_ODDS_RATIO_MIN_COUNT);
             (
@@ -877,206 +1331,5 @@ fn genotype_from_index(best: usize) -> Genotype {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn p11_pl_yields_java_af_qual() {
-        let pl = [2238_i32, 151, 0];
-        let gl: Vec<f64> = pl.iter().map(|p| -((p - pl[2]) as f64) / 10.0).collect();
-        let qual = qual_from_af_calculation(&gl).expect("qual");
-        assert!((qual - 2224.06).abs() < 0.15, "qual={qual}");
-    }
-
-    #[test]
-    fn six_r64_java_emitted_pl_does_not_reproduce_java_qual() {
-        // Java VCF PL=542,0,1353 QUAL=510.06. Rust AFCalculator on those PLs is ~534.64,
-        // so Java QUAL is not AF(emitted biallelic PL). GenotypingEngine computes QUAL
-        // from AF on the pre-subset merged VC (6 GLs), then copies it through subset+trim.
-        let gl = [-54.2, 0.0, -135.3];
-        let qual = qual_from_af_calculation(&gl).expect("qual");
-        assert!(
-            (qual - 534.64).abs() < 0.15,
-            "Rust AF on Java emitted PL: got {qual}"
-        );
-        assert!(
-            (qual - 510.06).abs() > 10.0,
-            "must not confuse AF(emitted PL) with Java site QUAL 510.06, got {qual}"
-        );
-    }
-
-    #[test]
-    fn six_r64_rust_pl_298_0_1103_qual_matches_emitted() {
-        // Rust 6R.63 VCF: PL=298,0,1103 QUAL=290.64.
-        let gl = [-29.8, 0.0, -110.3];
-        let qual = qual_from_af_calculation(&gl).expect("qual");
-        assert!(
-            (qual - 290.64).abs() < 0.15,
-            "Rust PL→QUAL: got {qual}, expected ~290.64"
-        );
-    }
-
-    #[test]
-    fn six_r64_rust_merged_6gl_qual_is_not_java_510() {
-        // AF on merged 6-state GLs (Java QUAL source stage). If this were ~510, QUAL
-        // would be a post-subset AF-order issue. It is not — 6-state inputs already differ.
-        let gl6 = [-29.8, -33.7, -162.0, 0.0, -105.8, -110.3];
-        let af = crate::af_calc::calculate_multiallelic_af_em(
-            &[&gl6],
-            3,
-            &AfCalculatorConfig::default(),
-        )
-        .expect("af6");
-        let qual = (-10.0 * af.log10_posterior_no_variant) + 0.0;
-        // Measured: same as AF on the subsetted 3-GLs (290.64). Java lifecycle F
-        // (AF before unused-ALT subset) would not produce 510.06 from these 6-GLs.
-        assert!(
-            (qual - 290.64).abs() < 0.15,
-            "Rust 6-GL AF QUAL must match subsetted QUAL ~290.64, not Java 510.06; got {qual}"
-        );
-    }
-
-    #[test]
-    fn six_r40_pl_90_6_0_qual_mleac_match_java_af() {
-        let gl = [-9.0, -0.6, 0.0];
-        let af = calculate_biallelic_af_em(&[&gl], &AfCalculatorConfig::default()).expect("af");
-        let qual = (-10.0 * af.log10_posterior_no_variant) + 0.0;
-        assert_eq!(af.alt_allele_count, 1);
-        assert!((qual - 78.32).abs() < 0.02, "qual={qual}");
-        let mleaf = (af.alt_allele_count as f64 / 2.0).min(1.0);
-        assert!((mleaf - 0.5).abs() < 1e-9);
-        let _qd = crate::annotator::plugins::qual_by_depth::hold_process_qd_rng_for_test();
-        crate::annotator::plugins::qual_by_depth::reset_gatk_qual_by_depth_rng();
-        let qd = crate::annotator::plugins::qual_by_depth::qual_by_depth(qual, 2);
-        assert!(
-            (qd - 25.36).abs() < 0.005,
-            "QD first GATK-seed gaussian, qd={qd}"
-        );
-    }
-
-    fn bam_rec(
-        qname: &[u8],
-        pos0: i64,
-        mapq: u8,
-        paired: bool,
-        unmapped: bool,
-        mate_unmapped: bool,
-        mtid: i32,
-    ) -> SharedBamRecord {
-        use rust_htslib::bam::record::{Cigar, CigarString};
-        use rust_htslib::bam::HeaderView;
-        use std::sync::Arc;
-        let mut r = Record::new();
-        r.set_header(Arc::new(HeaderView::from_bytes(
-            b"@HD\tVN:1.0\n@SQ\tSN:chr1\tLN:10000\n@SQ\tSN:chr2\tLN:10000\n",
-        )));
-        r.set(
-            qname,
-            Some(&CigarString::from(vec![Cigar::Match(10)])),
-            b"AAAAAAAAAA",
-            &vec![30u8; 10],
-        );
-        r.set_tid(0);
-        r.set_pos(pos0);
-        r.set_mapq(mapq);
-        r.set_mtid(mtid);
-        if paired {
-            r.set_paired();
-        }
-        if unmapped {
-            r.set_unmapped();
-        } else {
-            r.unset_unmapped();
-        }
-        if mate_unmapped {
-            r.set_mate_unmapped();
-        } else {
-            r.unset_mate_unmapped();
-        }
-        crate::shared_bam::share_record(r)
-    }
-
-    fn ll_cell(read_index: usize) -> RegionReadLikelihood {
-        RegionReadLikelihood {
-            read_index: crate::bio_ids::ReadIndex::new(read_index),
-            haplotype_index: crate::bio_ids::HaplotypeIndex::new(0),
-            log10_likelihood: -1.0,
-        }
-    }
-
-    #[test]
-    fn mq_adds_overlapping_coverage_only_failed_mate_without_a_likelihood_row() {
-        use crate::engine::engine_observe::{
-            clear_coverage_only_failed_mates, forensic_6r306_note_pre_filter_reads,
-            production_failed_mate_key, replace_coverage_only_failed_mates,
-            with_coverage_only_failed_mates,
-        };
-        clear_coverage_only_failed_mates();
-        let same = bam_rec(b"same-contig", 99, 53, true, false, false, 0);
-        let ordinary = bam_rec(b"ordinary", 99, 43, false, false, false, 0);
-        let mate_unmapped = bam_rec(b"mate-unmapped", 99, 30, true, false, true, 1);
-        let other = bam_rec(b"other-contig", 99, 25, true, false, false, 1);
-        let other_far = bam_rec(b"other-far", 5000, 10, true, false, false, 1);
-        let unavailable = bam_rec(b"other-unavail", 99, 255, true, false, false, 1);
-        let originals = [
-            same.clone(),
-            ordinary.clone(),
-            mate_unmapped.clone(),
-            other.clone(),
-            other_far.clone(),
-            unavailable.clone(),
-        ];
-        forensic_6r306_note_pre_filter_reads(&originals);
-        let mut scored = Vec::new();
-        let mut coverage_only = Vec::new();
-        for rec in &originals {
-            if production_failed_mate_key(rec.qname(), rec.flags()) {
-                coverage_only.push(rec.clone());
-            } else {
-                scored.push(rec.clone());
-            }
-        }
-        assert!(scored.iter().any(|r| r.qname() == b"same-contig"));
-        assert!(scored.iter().any(|r| r.qname() == b"ordinary"));
-        assert!(scored.iter().any(|r| r.qname() == b"mate-unmapped"));
-        assert!(coverage_only.iter().all(|r| {
-            r.qname() == b"other-contig"
-                || r.qname() == b"other-far"
-                || r.qname() == b"other-unavail"
-        }));
-        assert!(!coverage_only
-            .iter()
-            .any(|r| scored.iter().any(|s| s.qname() == r.qname())));
-        replace_coverage_only_failed_mates(coverage_only);
-        let cells = vec![ll_cell(0), ll_cell(1), ll_cell(2)];
-        let with_coverage = mq_rms_of_sample_evidence(&scored, &cells, 100, 100, 0);
-        let likelihood_only = {
-            let mqs = rms_mapping_quality_sample_mapqs(&scored, &cells);
-            java_finalize_mq(rms_mapping_quality_raw(&mqs).expect("raw").2)
-        };
-        let expected = java_finalize_mq(rms_mapping_quality_raw(&[53, 43, 30, 25]).expect("raw").2);
-        assert!(
-            (with_coverage - expected).abs() < 1e-9,
-            "overlapping failed mate enters MQ once, got {with_coverage} expected {expected}"
-        );
-        assert!(
-            (with_coverage - likelihood_only).abs() > 1.0,
-            "coverage-only MAPQ must change the RMS"
-        );
-        assert!(
-            (likelihood_only - java_finalize_mq(rms_mapping_quality_raw(&[53, 43, 30]).unwrap().2))
-                .abs()
-                < 1e-9
-        );
-        assert_eq!(cells.len(), 3, "failed mate has no likelihood row");
-        assert!(with_coverage_only_failed_mates(|mates| {
-            mates.iter().any(|r| r.qname() == b"other-contig")
-        }));
-        clear_coverage_only_failed_mates();
-        let cleared = mq_rms_of_sample_evidence(&scored, &cells, 100, 100, 0);
-        assert!(
-            (cleared - likelihood_only).abs() < 1e-9,
-            "without the coverage-only list, MQ stays on genotyping MAPQs"
-        );
-    }
-}
+#[path = "tests/variant_site_hc_annotations_tests.rs"]
+mod tests;
