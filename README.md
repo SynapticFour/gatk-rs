@@ -11,7 +11,7 @@ Broad Institute. “GATK” is a trademark of the Broad Institute. See
 Maintained by [Synaptic Four](https://synapticfour.com)
 ([contact@synapticfour.com](mailto:contact@synapticfour.com)).
 
-## What it is
+## Why does this exist
 
 `gatk-rs` is a Rust workspace and `gatk-rs` command-line tool for germline
 short variants:

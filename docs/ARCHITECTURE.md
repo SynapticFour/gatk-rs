@@ -128,6 +128,24 @@ locus to turn a fixture green.
   layout is not a goal.
 - `parity_harness` and the `*_dump` modules exist so L2 and forensic tests
   can see intermediate state. They are not a second production caller.
+  With that feature, `P12_BASELINE_EMIT_FILTER` restricts strict emit to
+  Java baseline VCF rows for comparison. Production `strict_java` does not
+  enable it. These harness env flags are read only under `parity_harness`
+  or tests:
+
+  | Flag | Effect when set |
+  |------|-----------------|
+  | `P12_PHASE_E` | L3 gate harness. Also enables the baseline emit filter. |
+  | `P12_BASELINE_EMIT_FILTER` | Restrict strict emit to Java baseline VCF rows. |
+  | `GATK_RS_P12_EVENT_REGISTRY` | Inject the Phase-E gap-SNP registry into the graph-only EventMap. |
+  | `GATK_RS_P12_ENSURE_BRIDGES` | Enable P12 list-inject and post-HMM `ensure_*` bridges. Forced off when `GATK_RS_ASM8_ONLY` is set. |
+  | `P12_L4_JAVA_FORMAT` | Overlay FORMAT, QUAL, and AF from `parity/fixtures/p12-java-format/all_sites.tsv`. Not implied by `P12_PHASE_E`. |
+  | `GATK_RS_ENABLE_READ_SUPPLEMENT` | On `CallRegionArgs::parity_aligned`, enable read-event supplement. |
+  | `GATK_RS_ENABLE_REF_MOTIF` | Inject reference-motif indels when that path has no CIGAR events. |
+  | `GATK_RS_ENABLE_CLUSTER_INJECT` | Run `ensure_assembly_cluster_indel_events` outside `strict_java_assembly`. |
+  | `GATK_RS_ASM8_ONLY` | Explicit graph-only toggle. Forces `GATK_RS_P12_ENSURE_BRIDGES` off. Production graph-only does not require this variable. |
+  | `GATK_RS_HC_GIVEN_VCF` | VCF path of given alleles on the harness path. Production `strict_java` ignores it. |
+  | `GATK_RS_DIAGNOSTIC_SKIP_SITE_RESHAPE` | Skip Class-A / A2 / A3 AD/PL reshape. Default off. |
 - Several `GATK_RS_*` variables (`P12_PHASE_E`, cluster inject, scaffold
   output, RSS abort, experimental k-best) change or observe a run. The user
   guide lists the ones an operator can hit. Unset is the production
