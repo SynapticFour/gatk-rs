@@ -1,5 +1,11 @@
 # Equivalence dashboard (nightly trio E2E)
 
+**Not a signed product claim.** Until the table below leaves “pending”, no
+hap.py number from this page is evidence. Authority remains
+[`CLAIM_MATRIX.md`](CLAIM_MATRIX.md). The nightly publisher
+(`scripts/parity/giab/publish_nightly_equivalence.py`, invoked by
+`.github/workflows/nightly-equivalence.yml`) replaces this file when it runs.
+
 This file is **updated automatically** by `.github/workflows/nightly-equivalence.yml`.
 
 Full spine: **HaplotypeCaller (GVCF) → CombineGVCFs → GenotypeGVCFs → VariantFiltration**

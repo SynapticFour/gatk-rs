@@ -1,9 +1,11 @@
 # Parity Fixtures
 
 Small, deterministic smoke fixtures used by `scripts/parity/run_parity_smoke.sh`.
+Larger tracked HC fixtures are the subdirectories (for example
+`hc-full-parity/`), not files still waiting to be added at this level.
+Local NA12878 inputs for P12 live under gitignored `parity/realworld/assets/`.
 
-These files are intentionally tiny and human-auditable. Larger truth datasets
-will be added in later parity phases.
+These root files are intentionally tiny and human-auditable.
 
 ## Contents
 

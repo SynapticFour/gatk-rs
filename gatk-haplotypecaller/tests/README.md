@@ -1,4 +1,7 @@
-# HaplotypeCaller test harness layers (Sprint L-2)
+# HaplotypeCaller test layers
+
+Gate meanings: [`docs/PARITY.md`](../../docs/PARITY.md). Contributor commands:
+[`CONTRIBUTING.md`](../../CONTRIBUTING.md).
 
 Three layers — keep new tests in the right bucket.
 

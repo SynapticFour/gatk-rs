@@ -1,6 +1,9 @@
 # Parity scripts
 
-**HC full parity:** status and work queue → [`docs/CLAIM_MATRIX.md`](../../docs/CLAIM_MATRIX.md). Governance refs: emitter matrix, fixture manifest, numeric contract in the same directory.
+What a script establishes: [`docs/PARITY.md`](../../docs/PARITY.md).
+What the project asserts: [`docs/CLAIM_MATRIX.md`](../../docs/CLAIM_MATRIX.md).
+An L6 (or later archive) script remaining in this directory is not a **Yes**
+row; the claim matrix marks L6–L14 as historical unless a row says otherwise.
 
 | Script | Purpose |
 |--------|---------|

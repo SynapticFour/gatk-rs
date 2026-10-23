@@ -1,7 +1,12 @@
 # Contributing
 
-Thanks for helping with gatk-rs. Keep claims honest: only assert what
+Thanks for helping with gatk-rs. Only assert what
 [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md) lists as **Yes**.
+
+Read [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) to run the CLI,
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before changing a pipeline
+stage, and [`docs/PARITY.md`](docs/PARITY.md) before changing a gate or
+citing a result. [`docs/README.md`](docs/README.md) is the map.
 
 By participating, you agree to the [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
 Report security issues privately per [`SECURITY.md`](SECURITY.md) — do not open
@@ -18,12 +23,21 @@ First step after clone — enable the versioned Git hooks (`.githooks/`):
 This sets `git config core.hooksPath .githooks` so every contributor shares the same
 checks:
 
-- **pre-commit** — `cargo fmt --check`, scoped `cargo clippy` with rustc warnings
-  denied (`-D warnings -A clippy::all -A dead_code`; clippy lints and unused
-  Java-shaped helpers stay non-blocking), unwrap/clone
-  ratchets, doc links, >1 MiB guard, `cargo test --workspace --lib`
-- **pre-push** — `cargo fmt --check` + `cargo clippy --workspace` with the same
-  rustc-warning deny (clippy lint debt and `dead_code` stay non-blocking)
+- **pre-commit** (`.githooks/pre-commit`), when matching files are staged:
+  `cargo fmt --all -- --check`; clippy on the touched crates with rustc
+  warnings denied (`-D warnings -A clippy::all -A dead_code`; Clippy lints
+  stay non-blocking); unwrap/clone ratchets; `python3 scripts/dev/check_doc_links.py`
+  when Markdown or rustdoc comments are staged; excellence gates N-1…N-7 when
+  Rust or the gate scripts are staged; a >1 MiB staged-file guard;
+  `cargo test --workspace --lib` when Rust is staged; haplotypecaller
+  source-contract and always-on forensic tests when Rust files in that
+  crate are staged.
+- **pre-push** (`.githooks/pre-push`): `cargo fmt --all -- --check`,
+  `cargo clippy --workspace` with the same warning flags, excellence gates
+  N-1…N-7, and `cargo doc --workspace --no-deps` with broken intra-doc links
+  denied. If the push range touches the assembly / k-best files named in the
+  hook, it also runs `scripts/dev/check_l2_g2_subset_live.sh` unless
+  `PARITY_HOOK_SKIP_G2=1`.
 
 Always run `./scripts/dev/install-hooks.sh` after clone. Do not skip with `--no-verify`
 unless intentional; PR CI still runs the same fmt/clippy/ratchet gates.
@@ -53,7 +67,13 @@ cargo test --workspace
 cargo test -p gatk-haplotypecaller --features parity_harness
 ```
 
-Malformed-input and Rayon determinism gates run in CI (`quality.yml` / `ci.yml`).
+PR CI (`.github/workflows/pr-check.yml`) runs fmt, clippy, doc links,
+ratchets, and the Rayon determinism test
+`gatk-cli/tests/rayon_thread_determinism_test.rs`. The full foundation
+gate is `./scripts/parity/run_foundation_gate.sh` (see
+[`docs/PARITY.md`](docs/PARITY.md)); it is not the default local loop.
+Do not describe a command as having passed unless you ran it on the
+commit you are pushing.
 
 ## Equivalence tooling
 

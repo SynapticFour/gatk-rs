@@ -1,7 +1,13 @@
 # GATK-RS Parity Harness
 
+This folder is the harness: fixtures, check definitions, and generated
+reports. The explanation of what a gate proves is
+[`docs/PARITY.md`](../docs/PARITY.md). Product claims are only
+[`docs/CLAIM_MATRIX.md`](../docs/CLAIM_MATRIX.md). Investigation notes are
+[`docs/parity/README.md`](../docs/parity/README.md).
+
 This folder contains the differential-testing harness used to compare Java GATK
-behavior and Rust GATK-RS behavior in a deterministic way.
+behavior and Rust behavior under a deterministic environment.
 
 ## Implementation plan (where this fits)
 
@@ -11,7 +17,8 @@ behavior and Rust GATK-RS behavior in a deterministic way.
 | **1** | File-based Validate parity (SAM/BAM/VCF/FASTA), HTSlib-backed `PrintReads` and BAM validation, richer `diff_outputs` diagnostics, CI against real GATK in Docker | Done |
 | **2+** | HaplotypeCaller engine + **scoped** output parity vs Java (P12 / L2 / dense gates) | **Signed on gates** — see [`docs/CLAIM_MATRIX.md`](../docs/CLAIM_MATRIX.md). Not a genome-wide bitwise lock. |
 
-**Current checkpoint:** HC substrate is implemented; assert only what the claim matrix lists as Yes.
+**Current checkpoint:** assert only what the claim matrix lists as Yes.
+The smoke script below is not that matrix.
 
 ## Layout
 
@@ -94,8 +101,9 @@ When a check uses `--extract-regex`, per-check JSON from `diff_outputs.py` also 
 `@PG`/`@CO`). Alignment lines must include an `RG` tag so Java GATK does not drop reads under
 `WellformedReadFilter`.
 
-As tool implementations mature, this harness is designed to add richer
-behavioral comparisons for each tool incrementally.
+Richer HaplotypeCaller comparisons are the L2, P12, and GIAB gates in
+[`docs/PARITY.md`](../docs/PARITY.md), not an open-ended extension of this
+smoke script.
 
 ## Foundation Gate (Phase 0/1)
 

@@ -6,7 +6,8 @@ the public dashboard alone.
 
 The trust lever is: **same inputs → parallel Java + Rust → your comparison**.
 
-Authoritative claims / non-claims: [`CLAIM_MATRIX.md`](CLAIM_MATRIX.md).  
+Authoritative claims / non-claims: [`CLAIM_MATRIX.md`](CLAIM_MATRIX.md).
+Build, inputs, and CLI flags: [`USER_GUIDE.md`](USER_GUIDE.md).
 Pinned Java GATK: [`GATK_PINNED.env`](GATK_PINNED.env) (**4.4.0.0**).
 
 > gatk-rs is an independent research reimplementation, **not** affiliated with the Broad
@@ -35,19 +36,17 @@ samples on the synthetic scale gate; no GenomicsDBImport).
 
 ## 1. Build gatk-rs
 
-Requirements: Rust stable (edition as in repo root `rust-toolchain` / `Cargo.toml`),
-usual C toolchain. From a clone:
+Prerequisites, indexes, and flag defaults are [`USER_GUIDE.md`](USER_GUIDE.md).
+From a clone:
 
 ```bash
 git clone https://github.com/SynapticFour/gatk-rs.git
 cd gatk-rs
 cargo build -p gatk-cli --release --locked
-# binary:
 ./target/release/gatk-rs --version
 ```
 
-Optional (truth-based HC equivalence CLI used by our suite — not required for
-the pilot script below):
+Optional truth-scoring CLI (not required for `compare_callsets.py`):
 
 ```bash
 cargo build -p gatk-rs-equiv --release --locked
@@ -108,8 +107,11 @@ gatk --java-options "-Xmx4g" HaplotypeCaller \
 Notes:
 
 - Index BAMs (`samtools index`) before either caller.
-- Default PairHMM in gatk-rs is `LOG10_PAIRHMM`. For fair speed experiments you
-  may try `--pair-hmm AVX`, but keep both sides aligned for an equivalence pilot.
+- If `--pair-hmm` is omitted, gatk-rs uses `FASTEST_AVAILABLE` (host SIMD
+  when the build can use it, otherwise Logless scalar), not `LOG10_PAIRHMM`.
+  For an equivalence comparison that intends the log10 scalar kernel, pass
+  `--pair-hmm LOG10_PAIRHMM`. `--pair-hmm AVX` is a separate choice. Keep
+  the Rust kernel explicit when you compare with Java.
 - Multi-sample HC by passing multiple `-I` is **not** claimed as Java joint-read
   merge — call **one BAM → one gVCF** per sample, then Combine (see CLAIM_MATRIX).
 
@@ -284,5 +286,5 @@ commands, and `REPORT.md` / a few loci (redact PHI).
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Scope spine + ADRs |
 | [`scripts/pilot/compare_callsets.py`](../scripts/pilot/compare_callsets.py) | Standalone pilot compare |
 | [`gatk-rs-equiv/`](../gatk-rs-equiv/) | Optional HC+truth orchestrator |
-| [Equivalence dashboard](https://gatk-rs.github.io/gatk-rs/) | Public charts — **supplement**, not a substitute for your run |
+| [Equivalence dashboard](https://synapticfour.github.io/gatk-rs/) | Pages instrumentation. Empty history is not a result. Your own compare is the pilot. |
 | [Equivalence deviation template](https://github.com/SynapticFour/gatk-rs/issues/new?template=equivalence_deviation.md) | Report real diffs |
