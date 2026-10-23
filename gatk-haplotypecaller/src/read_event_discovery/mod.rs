@@ -3,8 +3,9 @@
 //! assembly after `trim_to` when CIGARs are all-`M` but reads carry indels (e.g. `TTC/T`, `A/ATG`).
 
 use crate::java_hc_site_semantics::{
-    is_cluster_anchor_snp, is_cluster_coupled_event, is_cluster_coupled_indel, is_cluster_ctc_del,
-    is_cluster_tg_snp, is_gap_tail_het_event, is_phase_e_registry_gap_het_event,
+    is_cluster_ac_snp, is_cluster_anchor_snp, is_cluster_coupled_event, is_cluster_coupled_indel,
+    is_cluster_ctc_del, is_cluster_tc_snp, is_cluster_tg_snp, is_gap_tail_het_event,
+    is_phase_e_registry_gap_het_event,
 };
 
 include!("sync_events.rs");

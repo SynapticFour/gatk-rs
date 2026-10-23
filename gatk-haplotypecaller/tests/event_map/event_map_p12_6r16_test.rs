@@ -21,7 +21,8 @@ mod traces {
         ensure_alt_haplotypes_for_variation_events, ensure_cluster_coupled_alt_haplotype,
         ensure_p12_cluster_variation_events_for_active_span, fix_p12_cluster_coupled_alt_haplotype,
         materialize_p12_cluster_from_assembly_cigars, prune_spillover_supplement_haplotypes,
-        P12_CLUSTER_ATG_START, P12_CLUSTER_TTC_START, SUPPLEMENT_HAPLOTYPE_SCORE,
+        P12_CLUSTER_AC_SNP_START, P12_CLUSTER_ATG_START, P12_CLUSTER_TC_SNP_START,
+        P12_CLUSTER_TTC_START, SUPPLEMENT_HAPLOTYPE_SCORE,
     };
     use crate::read_threading_assembler::AssemblyStatus;
     use gatk_core::reference::SequenceDictionary;
@@ -824,6 +825,32 @@ mod traces {
         );
         assert_eq!(n_before_alt, 2);
         assert_eq!(assembly.haplotypes.len(), 4);
+        let chained = assembly
+            .haplotypes
+            .iter()
+            .filter(|h| !h.is_reference && !h.bases.windows(ALT_WIN.len()).any(|w| w == ALT_WIN))
+            .map(|h| variation_events_for_haplotype(h, &ref_after_trim, &ref_bytes, pad, 0, "2"))
+            .find(|ev| {
+                ev.iter().any(|e| {
+                    e.start_1based.get() == P12_CLUSTER_TC_SNP_START
+                        && e.ref_allele == "T"
+                        && e.alt_allele == "C"
+                })
+            })
+            .expect("chained T→C/A→C haplotype");
+        assert_eq!(
+            chained.len(),
+            2,
+            "chained haplotype must be only T→C @92307364 and A→C @92307383"
+        );
+        assert!(
+            chained.iter().any(|e| {
+                e.start_1based.get() == P12_CLUSTER_AC_SNP_START
+                    && e.ref_allele == "A"
+                    && e.alt_allele == "C"
+            }),
+            "chained haplotype must carry A→C @92307383"
+        );
         assert!(
             assembly
                 .variation_events()
