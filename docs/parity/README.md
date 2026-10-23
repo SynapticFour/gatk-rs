@@ -37,14 +37,20 @@ When `GATK_RS_EXPERIMENTAL_KBEST_POLICY` is unset, the policy is
 value explicitly. The claim matrix was not given a new Yes row for this
 default.
 
-These notes still say, in the present tense, that an unset variable selects
-`legacy_1024`. That was the observation when they were written. It is not
-the current policy:
+7R.18 through 7R.21 recorded an unset variable as selecting `legacy_1024`.
+That was the observation when they were written. Those notes are not in
+this tree. The committed documents that supersede them are:
 
-- [`7R.18_KBEST_RESOURCE_POLICY_COMPOSITION.md`](7R.18_KBEST_RESOURCE_POLICY_COMPOSITION.md)
-- [`7R.19_KBEST_RESOURCE_ABORT_CONTRACT.md`](7R.19_KBEST_RESOURCE_ABORT_CONTRACT.md)
-- [`7R.20_RSS_ABORT_ERROR_CONTRACT.md`](7R.20_RSS_ABORT_ERROR_CONTRACT.md)
-- [`7R.21_UNBOUNDED_KBEST_PRODUCTION_COUNTERFACTUAL.md`](7R.21_UNBOUNDED_KBEST_PRODUCTION_COUNTERFACTUAL.md)
+- 7R.18, policy composition: [`KBEST_RESOURCE_POLICY.md`](KBEST_RESOURCE_POLICY.md)
+  separates completed-path K, the frontier policy, and the RSS guard.
+- 7R.19, the resource-abort contract, and 7R.20, the RSS abort error:
+  [`KBEST_RESOURCE_POLICY.md`](KBEST_RESOURCE_POLICY.md#rss-abort). Production
+  k-best returns `GatkError::memory` and does not return the partial path
+  vector as success.
+- 7R.21, the unbounded production counterfactual:
+  [`KBEST_RESOURCE_POLICY.md`](KBEST_RESOURCE_POLICY.md). Unset now selects
+  `unbounded_diagnostic`. The record of that default is
+  [`7R.22_JAVA_EQUIVALENT_KBEST_DEFAULT.md`](7R.22_JAVA_EQUIVALENT_KBEST_DEFAULT.md).
 
 Older sentences in the 6R log that call `legacy_1024` the default are
 historical in the same way. Do not edit those notes to match the later
