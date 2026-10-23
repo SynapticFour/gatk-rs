@@ -13,7 +13,18 @@ those pages do not add Yes rows.
 **Last updated:** 2026-08-30 for the Yes/No rows (canonical mid-B HC path documented in [`PARITY.md`](PARITY.md)
 as an engineering milestone; scoped Yes-row below is **not** whole-codebase HC equivalence).
 A 2026-10-23 documentation pass added the reading-order links above and did not
-change any Yes, No, or waiver row.
+change any Yes, No, or waiver row. A later note on the same date, in
+[`PARITY.md`](PARITY.md) under “Fresh production VCF comparisons”, records two
+local production VCF comparisons on detached checkout
+`fe9787f71ffd38190ff7ad51125a30369d8ebd2e`: chr20 tiny `20:29455000-29456500`
+(62/62 allele keys; genotype tokens match) and P12 `2:92300000-92350000`
+(66/66 in-window allele keys; genotype tokens match). Those VCFs are gitignored
+and the checkout is not `main`, so they are not Yes rows and they do not extend
+parity to every fixture, interval, or PairHMM backend. The 52 P12 jittered-QD
+token differences are a comparison-boundary qualification: Java was called from
+`2:92000000-92400000` and Rust only on `2:92300000-92350000`. They are not a
+signed QD claim. W47 and W10 stay historical evidence gaps because their BAMs
+are absent.
 
 ---
 
