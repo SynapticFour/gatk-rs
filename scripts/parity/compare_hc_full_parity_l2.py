@@ -230,9 +230,14 @@ def rows_equal(
     java_row: dict[str, str],
     header: list[str],
     float_eps: float,
+    ignore_row_keys: set[str] | None = None,
 ) -> tuple[bool, str | None]:
     skip = ignored_columns()
     row_key_name = row_key(rust_row, header)
+    # Opt-in per invocation. The default set is empty, so a key such as `qual`
+    # stays a normal textual comparison unless the caller names it.
+    if ignore_row_keys and row_key_name in ignore_row_keys:
+        return True, None
     for col in header:
         if col in skip:
             continue
@@ -284,6 +289,7 @@ def compare_one_section(
     j_rows: list[dict[str, str]],
     section_index: int | None,
     float_eps: float,
+    ignore_row_keys: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     mismatches: list[dict[str, Any]] = []
     header = r_header if r_header == j_header else r_header
@@ -344,7 +350,11 @@ def compare_one_section(
                 )
             else:
                 ok, reason = rows_equal(
-                    rust_by_key[key], java_by_key[key], header, float_eps
+                    rust_by_key[key],
+                    java_by_key[key],
+                    header,
+                    float_eps,
+                    ignore_row_keys,
                 )
             if not ok:
                 row_m: dict[str, Any] = {
@@ -377,7 +387,9 @@ def compare_one_section(
                 float_eps,
             )
         else:
-            ok, reason = rows_equal(r_rows[i], j_rows[i], header, float_eps)
+            ok, reason = rows_equal(
+                r_rows[i], j_rows[i], header, float_eps, ignore_row_keys
+            )
         if not ok:
             row_m: dict[str, Any] = {
                 "kind": "row",
@@ -396,6 +408,7 @@ def compare_files(
     rust_path: Path,
     java_path: Path,
     float_eps: float,
+    ignore_row_keys: set[str] | None = None,
 ) -> dict[str, Any]:
     r_sections = parse_l2_tsv(rust_path)
     j_sections = parse_l2_tsv(java_path)
@@ -419,7 +432,9 @@ def compare_files(
     for si, ((rh, rr), (jh, jr)) in enumerate(zip(r_sections, j_sections)):
         sec_idx = si if len(r_sections) > 1 else None
         all_mismatches.extend(
-            compare_one_section(rh, rr, jh, jr, sec_idx, float_eps)
+            compare_one_section(
+                rh, rr, jh, jr, sec_idx, float_eps, ignore_row_keys
+            )
         )
     result["mismatches"] = all_mismatches
     # Back-compat fields for single-section reports (first table)
@@ -445,11 +460,27 @@ def main() -> int:
         default=float(os.environ.get("PARITY_L2_FLOAT_EPS", "1e-5")),
     )
     ap.add_argument("--json-out")
+    ap.add_argument(
+        "--ignore-row-keys",
+        default="",
+        help=(
+            "Comma-separated key/value row keys to skip in this invocation. "
+            "Default is empty: every row key, including qual, is compared."
+        ),
+    )
     args = ap.parse_args()
+    ignore_row_keys = {
+        key.strip() for key in args.ignore_row_keys.split(",") if key.strip()
+    }
 
     report = compare_files(
-        Path(args.rust_tsv), Path(args.java_tsv), args.float_eps
+        Path(args.rust_tsv),
+        Path(args.java_tsv),
+        args.float_eps,
+        ignore_row_keys,
     )
+    if ignore_row_keys:
+        report["ignored_row_keys"] = sorted(ignore_row_keys)
     if args.json_out:
         Path(args.json_out).write_text(
             json.dumps(report, indent=2) + "\n", encoding="utf-8"

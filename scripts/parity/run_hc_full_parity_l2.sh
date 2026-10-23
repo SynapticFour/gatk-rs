@@ -256,9 +256,19 @@ run_l2() {
     return
   fi
   set +e
-  python3 "${compare_py}" "${rust_out}" "${java_path}" \
-    --float-eps "${PARITY_L2_FLOAT_EPS:-1e-5}" \
-    --json-out "${case_json}"
+  # p11 call-region QUAL is producer-specific: Java writes the PL sentinel
+  # `99.000000` (`HcParityCallRegionVcf`); Rust writes HaplotypeCaller site QUAL.
+  # Other row keys stay compared. No other case passes --ignore-row-keys.
+  if [[ "${phase}" == "j2-vcf" && "${case_id}" == "p11_java_positive_chrlive" ]]; then
+    python3 "${compare_py}" "${rust_out}" "${java_path}" \
+      --float-eps "${PARITY_L2_FLOAT_EPS:-1e-5}" \
+      --json-out "${case_json}" \
+      --ignore-row-keys qual
+  else
+    python3 "${compare_py}" "${rust_out}" "${java_path}" \
+      --float-eps "${PARITY_L2_FLOAT_EPS:-1e-5}" \
+      --json-out "${case_json}"
+  fi
   # PARITY_L2_FLOAT_REL_TOL defaults to 1e-2 in compare_hc_full_parity_l2.py (LIBS vs Rust GL path).
   local cmp_ec=$?
   set -e
