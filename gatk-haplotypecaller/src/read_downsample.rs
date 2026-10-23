@@ -601,4 +601,64 @@ mod tests {
             "reads with no assigned position must not be capped"
         );
     }
+
+    /// 300 reads at one start, cap 50: `nextInt(51)` … `nextInt(300)`, then the first Gaussian.
+    #[test]
+    fn reservoir_cap_50_advances_process_rng_before_qd_gaussian() {
+        let _qd = crate::annotator::plugins::qual_by_depth::hold_process_qd_rng_for_test();
+        crate::annotator::plugins::qual_by_depth::reset_gatk_qual_by_depth_rng();
+
+        let hv = test_header();
+        let mut recs: Vec<Record> = (0..300)
+            .map(|i| {
+                let name = format!("r{i}");
+                let mut rec = make_record(&hv, name.as_bytes(), 0);
+                rec.set_flags(0);
+                rec
+            })
+            .collect();
+        let kept = crate::annotator::plugins::qual_by_depth::with_process_qd_rng(|rng| {
+            apply_positional_downsampler(
+                &mut recs,
+                Some(&hv),
+                &PositionalDownsamplerConfig::gatk_haplotype_caller_defaults(),
+                rng,
+            )
+            .expect("downsample");
+            recs.len()
+        });
+        assert_eq!(kept, 50);
+
+        let mut replay = GatkJavaRng::reset_gatk_default();
+        for total in 51u32..=300 {
+            replay.next_int(total);
+        }
+        let expected = replay.next_gaussian();
+        let drawn = crate::annotator::plugins::qual_by_depth::with_process_qd_rng(|rng| {
+            rng.next_gaussian()
+        });
+        assert_eq!(drawn, expected);
+        assert_eq!(drawn, -1.1098823554210837);
+        let qd = 30.0 + 3.0 * drawn;
+        assert_eq!(qd, 26.670352933736748);
+        assert_eq!(format!("{qd:.2}"), "26.67");
+    }
+
+    #[test]
+    fn fresh_gatk_java_rng_and_well19937c_stay_independent_of_process_qd_rng() {
+        let _qd = crate::annotator::plugins::qual_by_depth::hold_process_qd_rng_for_test();
+        crate::annotator::plugins::qual_by_depth::reset_gatk_qual_by_depth_rng();
+        let _advanced = crate::annotator::plugins::qual_by_depth::with_process_qd_rng(|rng| {
+            rng.next_gaussian()
+        });
+
+        let mut fresh = GatkJavaRng::reset_gatk_default();
+        assert_eq!(fresh.next_gaussian(), -1.5453553803199442);
+        assert_eq!(format!("{:.2}", 30.0 + 3.0 * -1.5453553803199442), "25.36");
+
+        let mut well = crate::gatk_well_rng::Well19937c::reset_gatk_default();
+        let sample = well.sample_indices_without_replacement(10, 3);
+        let mut well_again = crate::gatk_well_rng::Well19937c::reset_gatk_default();
+        assert_eq!(sample, well_again.sample_indices_without_replacement(10, 3));
+    }
 }

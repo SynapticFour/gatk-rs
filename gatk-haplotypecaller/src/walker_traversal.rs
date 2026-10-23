@@ -155,18 +155,21 @@ pub fn traverse_assembly_region_walker(
     iterator_cfg.track_pileups = cfg.track_pileups;
     let mut per_shard = Vec::with_capacity(read_shards.len());
     let mut apply_stats = WalkerApplyStats::default();
-    let mut rng = GatkJavaRng::reset_gatk_default();
     for shard in &read_shards {
-        let regions = drain_assembly_regions_for_shard(
-            shard,
-            dictionary,
-            reference_fasta,
-            alignment_path,
-            read_filters,
-            &iterator_cfg,
-            &cfg.shard_pipeline,
-            &mut rng,
-        )?;
+        // Same process Random as QualByDepth. Lock only covers reservoir draws;
+        // annotation jitter runs later and must be able to lock this mutex.
+        let regions = crate::annotator::plugins::qual_by_depth::with_process_qd_rng(|rng| {
+            drain_assembly_regions_for_shard(
+                shard,
+                dictionary,
+                reference_fasta,
+                alignment_path,
+                read_filters,
+                &iterator_cfg,
+                &cfg.shard_pipeline,
+                rng,
+            )
+        })?;
         // R4-1: accumulate stats without cloning region.reads (was O(regions) BAM clones).
         let shard_stats = WalkerApplyStats::from_regions(&regions);
         apply_stats.total_apply += shard_stats.total_apply;
@@ -223,18 +226,20 @@ where
     iterator_cfg.force_active = cfg.force_active;
     iterator_cfg.feature_sources = cfg.feature_sources.clone();
     iterator_cfg.track_pileups = cfg.track_pileups;
-    let mut rng = GatkJavaRng::reset_gatk_default();
     let mut region_index = 0usize;
     for shard in &read_shards {
         let (header, mut records) =
             crate::assembly_region_iterator::load_records_for_shard_raw(alignment_path, shard)?;
-        apply_shard_read_pipeline(
-            &mut records,
-            Some(&header),
-            read_filters,
-            &cfg.shard_pipeline,
-            &mut rng,
-        )?;
+        // Release the process RNG before `on_region`: merge-time QualByDepth locks it.
+        crate::annotator::plugins::qual_by_depth::with_process_qd_rng(|rng| {
+            apply_shard_read_pipeline(
+                &mut records,
+                Some(&header),
+                read_filters,
+                &cfg.shard_pipeline,
+                rng,
+            )
+        })?;
         let mut iter = AssemblyRegionIterator::try_new(
             shard,
             dictionary,
@@ -292,7 +297,7 @@ mod tests {
         let pipeline = ShardReadPipelineConfig::parity_l1_goldens();
         let shards = make_read_shards(&dict, &specs, GATK_DEFAULT_ASSEMBLY_REGION_PADDING).unwrap();
         assert_eq!(shards.len(), 1);
-        let mut rng = GatkJavaRng::reset_gatk_default();
+        let mut rng = crate::read_downsample::GatkJavaRng::reset_gatk_default();
         let direct = drain_assembly_regions_for_shard(
             &shards[0], &dict, &ref_fa, &bam, &filters, &iter_cfg, &pipeline, &mut rng,
         )
