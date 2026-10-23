@@ -1,6 +1,7 @@
 # Equivalence proof surface
 
 Runnable evidence for claims in [`docs/CLAIM_MATRIX.md`](../../docs/CLAIM_MATRIX.md).
+How to read the levels: [`docs/PARITY.md`](../../docs/PARITY.md).
 
 | Location | Role |
 |----------|------|

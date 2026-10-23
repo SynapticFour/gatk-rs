@@ -1,11 +1,19 @@
 # Canonical parity targets (Phase 0 / Step 1)
 
+**Status:** historical Phase 0 target list. It is not the current claim set.
+The P1 row that says HaplotypeCaller VCF body parity is “future” is stale
+relative to the signed P12 and L2 rows. Use [`docs/CLAIM_MATRIX.md`](../docs/CLAIM_MATRIX.md)
+and [`docs/PARITY.md`](../docs/PARITY.md) for what is asserted now. This file
+remains the original P0 surface so the smoke harness still has a written
+target list. Do not add a tool here without updating the claim matrix.
+
 Frozen list for **strict parity-first** work. Scope is **non-Spark HaplotypeCaller** and **shared I/O** used on the HC path.
 
-Freeze policy:
-- This list is the canonical Step-1 target surface for P0/P1/P2 completion.
-- Any addition/removal requires updating [`docs/CLAIM_MATRIX.md`](../docs/CLAIM_MATRIX.md) and [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) in the same change.
-- Spark tools and non-HC workflows are explicitly out of scope until Phase 3+.
+Why this list is retained:
+- It is the original Phase 0 smoke-harness target list, so those checks still have a written surface.
+- It is not the current claim set. What the project asserts now is [`docs/CLAIM_MATRIX.md`](../docs/CLAIM_MATRIX.md).
+- Changing this historical list still requires a claim-matrix update if that change would make the project assert something new. See also [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md).
+- Spark tools and non-HC workflows were outside this Phase 0 list.
 
 | Priority | Java (GATK / Picard) | Rust (`gatk-rs`) | Notes |
 |----------|----------------------|------------------|--------|

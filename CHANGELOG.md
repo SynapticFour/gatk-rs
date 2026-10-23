@@ -8,6 +8,16 @@ once a first numbered release is cut. Until then, versions remain `0.1.x` / Alph
 
 ## [Unreleased]
 
+### Changed
+
+- Documentation reading path. [`README.md`](README.md),
+  [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md),
+  [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and
+  [`docs/PARITY.md`](docs/PARITY.md) are the canonical entry points.
+  The 6R investigation log remains in `docs/PARITY.md`. Notes under
+  `docs/parity/` stay the forensic archive. No claim-matrix Yes row was
+  added or removed by this documentation pass.
+
 ### Added
 
 - Canonical mid-B HaplotypeCaller path vs GATK 4.4 (graph through QUAL/QD):

@@ -1,12 +1,117 @@
+# Parity and validation
+
+This is the entry point for how gatk-rs is compared with GATK. It is not a
+substitute for [`CLAIM_MATRIX.md`](CLAIM_MATRIX.md). A check can be green and
+still be outside every **Yes** row. A **Yes** row is only what that matrix
+lists, with the evidence path it names.
+
+Pinned oracle: GATK **4.4.0.0**, commit
+[`2dbc025821bc5f686c423ff332a41e6cef892a77`](https://github.com/broadinstitute/gatk/commit/2dbc025821bc5f686c423ff332a41e6cef892a77),
+image `us.gcr.io/broad-gatk/gatk:4.4.0.0` (`linux/amd64`). Coordinates:
+[`GATK_PINNED.env`](GATK_PINNED.env). The pin was recorded verified on
+**2026-05-15**. Later docs that name a different image are not this pin.
+
+## What the levels are
+
+The letters and phase numbers are harness names. They are not a single
+“parity passes” bit.
+
+| Level | What it compares | How to run | What a pass establishes |
+|-------|------------------|------------|-------------------------|
+| Smoke | CLI help/version and tiny SAM/BAM/VCF/FASTA files. Acceptance classes: [`../parity/ACCEPTANCE_CLASSES.md`](../parity/ACCEPTANCE_CLASSES.md). | `./scripts/parity/run_parity_smoke.sh` | Wrapper and small-file behavior. Not HaplotypeCaller VCF equivalence. |
+| Foundation | The `required` list in [`../parity/checks.json`](../parity/checks.json). Advisory rows run only with `FOUNDATION_RUN_ADVISORY=1`. | `./scripts/parity/run_foundation_gate.sh` | Each required id’s own command, including the L2 strict script and `cargo test -p gatk-haplotypecaller --lib --locked`. Heavy. Not a license to cite every historical phase as a product claim. |
+| L2 | Fresh Rust dumps against frozen Java dumps in [`../parity/fixtures/hc-full-parity/java_dumps/`](../parity/fixtures/hc-full-parity/java_dumps/). | `./scripts/parity/run_hc_full_parity_l2.sh` | Synthetic HC-full-parity cases. The claim matrix records **223/223 strict** on **2026-07-24**. `PARITY_HC_FULL_L2_STRICT=0` is local triage, not the gate. |
+| P12 L3 / L4 / L5 | NA12878 interval `chr2:92300000-92350000` (66 Java sites). | `./scripts/parity/run_p12_l3_signoff.sh`, `run_p12_l4_signoff.sh`, `run_p12_l5_gvcf.sh` | Emit, FORMAT, and gVCF-block parity **on that interval**, as asserted in the claim matrix. The reference FASTA is a local file, default `parity/realworld/assets/hs37d5.simple.fa`, which is gitignored. |
+| Mid-B | One ActiveFull region, `2:92317000-92319000`. Recorded in [`PARITY_MILESTONE_6R.md`](PARITY_MILESTONE_6R.md) (2026-08-30). | `cargo test -p gatk-haplotypecaller --release --test p12_call_none_mid_b_test p12_call_none_mid_b` | That region’s recorded HC path. Not a fresh rerun and not whole-codebase HC parity. The test returns without asserting unless gitignored `parity/realworld/assets/hs37d5.simple.fa` (or `P12_REFERENCE`) and `parity/realworld/na12878_20k_b37/NA12878_20k.b37.bam` are both present. This documentation pass did not run it. |
+| Joint / filter minis | Synthetic CombineGVCFs, GenotypeGVCFs, VariantFiltration. | Scripts named in the claim matrix | Those fixtures only. Cohort scale claim stops at the recommended ≤ 100 samples. |
+| GIAB / hap.py | Windows you configure, scored by [`../gatk-rs-equiv/`](../gatk-rs-equiv/). | [`../scripts/parity/giab/`](../scripts/parity/giab/) and `gatk-rs-equiv` | Only the signed matrix rows (HG001 ci-subset is signed; HG002+HG005, full autosomes, and the Pages history are not). Smoke F1 is harness hygiene. |
+
+L6–L14 writeups on branch `pre-cleanup-archive` are historical. Do not cite
+them as current **Yes** rows. The L6 script can still exist in
+`scripts/parity/`; existence is not acceptance.
+
+Reports under `parity/reports/` are gitignored run output. A log path in the
+claim matrix is evidence only if that artifact is actually reachable from
+`main` or from the CI run the matrix links.
+
+## Strict result vs diagnostic result
+
+- **Strict** means the script’s default comparison (L2 strict mode, a P12
+  sign-off script, a required `checks.json` id).
+- **Exploratory** means an env-gated holdout (`HOLDOUT_6R*`), a forensic test,
+  a 6R/7R note, or `PARITY_HC_FULL_L2_STRICT=0`. These explain a divergence.
+  They do not widen a gate.
+- A note marked production-unchanged did not accept the divergent output.
+
+## Fixtures, oracles, goldens
+
+| Artifact | Role |
+|----------|------|
+| [`../parity/fixtures/`](../parity/fixtures/) | Tracked tiny inputs and the hc-full-parity Java dump tree. |
+| `parity/realworld/assets/` | Local NA12878 reference and BAMs. Not in git. Required for P12 sign-off scripts. |
+| `parity/reports/` | Generated logs. Not source. |
+| Gitignored allele TSVs such as `parity/reports/p12_diff/p12_java_only.tsv` | Local diagnostic oracles. Missing file must not be what production emit depends on. The claim matrix row “Oracle TSV does not gate production emit” is the contract. |
+| [`../parity/expected/`](../parity/expected/) | Expected outputs where a fixture has them. |
+
+## Investigating a new divergence
+
+1. State the observable Java 4.4 contract (tool, interval, field).
+2. Show Rust and Java outputs. Do not start from a stack-trace similarity.
+3. Classify: bug in Rust, waived phenotype, fixture/oracle gap, or
+   out-of-scope tool.
+4. If production code changes, add a regression that fails without the fix
+   and does not depend on a gitignored file.
+5. If the change alters what the project asserts, edit the claim matrix in
+   the same change. Do not widen P12 bands to absorb a mismatch.
+6. File the writeup under [`parity/`](parity/) using the next investigation
+   number. Label it as a finding. Do not call it a new acceptance class.
+
+Acceptance exceptions that already exist are the named waivers in the claim
+matrix (W-H1, W-H3, W-J*, W-L7-FORMAT). A new exception needs the same
+treatment: scope, reason, and a **Yes** row that still states the limit.
+An unreviewed forensic note is not an exception.
+
+## What is established, as of the claim matrix
+
+Established only inside the matrix **Yes** rows: scoped HC on P12 and mid-B,
+L2 as recorded on 2026-07-24, synthetic joint and hard-filter minis, and the
+HG001 ci-subset F1 row with the run URLs written there.
+
+Not established: genome-wide HC, full autosomes, bitwise QUAL/FORMAT
+everywhere, VQSR, clinical use, and any 6R/7R site that the matrix does not
+list. The engineering record below is how many of those sites were
+investigated. It is not a second claim list.
+
+SeqGraph k-best: production default is `unbounded_diagnostic` when
+`GATK_RS_EXPERIMENTAL_KBEST_POLICY` is unset
+([`parity/KBEST_RESOURCE_POLICY.md`](parity/KBEST_RESOURCE_POLICY.md)).
+Sentences in the record below that still say the default is `legacy_1024`
+describe the tree at the time of that 6R investigation. They are superseded.
+
+## Engineering record (6R investigation log)
+
+The rest of this file is the running log of the mid-B and later 6R work.
+Preserve it as evidence. Do not read a paragraph titled “production
+unchanged” as permission to ship the divergent behavior, and do not read
+“converged” outside the region that paragraph names.
+
 # HaplotypeCaller parity (GATK 4.4)
 
 Pinned Java: GATK **4.4.0.0**, SHA [`2dbc025821bc5f686c423ff332a41e6cef892a77`](https://github.com/broadinstitute/gatk/commit/2dbc025821bc5f686c423ff332a41e6cef892a77).  
 See also [`GATK_PINNED.env`](GATK_PINNED.env) and root `GATK_PINNED_SHA`.
 
-Product claims still live only in [`CLAIM_MATRIX.md`](CLAIM_MATRIX.md). This page is the
-**engineering** record of how HaplotypeCaller algorithm contracts are proven.
+Product claims still live only in [`CLAIM_MATRIX.md`](CLAIM_MATRIX.md). The
+sections that follow are the **engineering** record of how HaplotypeCaller
+algorithm contracts were investigated. The current reading of the gates is
+the top of this file. Where this log disagrees with
+[`parity/KBEST_RESOURCE_POLICY.md`](parity/KBEST_RESOURCE_POLICY.md) on the
+k-best default, the policy note wins.
 
-## Current achievement
+## Mid-B snapshot (2026-08-30 record, not a fresh rerun)
+
+The table and site list in this section are the recorded mid-B milestone.
+They were not rerun for the documentation pass. Later headings in this log
+are later investigations.
 
 The implementation has undergone source-backed GATK 4.4 parity investigation on the
 canonical **mid-B** ActiveFull region (`2:92317262–92317491`, interval

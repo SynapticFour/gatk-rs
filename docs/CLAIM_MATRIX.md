@@ -3,10 +3,17 @@
 **Authority for product claims.** If a claim is not **Yes** here with evidence
 reachable from **`main`**, do not assert it.
 
+How to run the tool: [`USER_GUIDE.md`](USER_GUIDE.md). What each gate measures:
+[`PARITY.md`](PARITY.md). Crate and pipeline structure:
+[`ARCHITECTURE.md`](ARCHITECTURE.md). This file stays the claim authority;
+those pages do not add Yes rows.
+
 **Pinned Java oracle:** GATK **4.4.0.0** — see [`GATK_PINNED.env`](GATK_PINNED.env) and root `GATK_PINNED_SHA`.
 
-**Last updated:** 2026-08-30 (canonical mid-B HC path documented in [`PARITY.md`](PARITY.md)
-as an engineering milestone; scoped Yes-row below is **not** whole-codebase HC equivalence)
+**Last updated:** 2026-08-30 for the Yes/No rows (canonical mid-B HC path documented in [`PARITY.md`](PARITY.md)
+as an engineering milestone; scoped Yes-row below is **not** whole-codebase HC equivalence).
+A 2026-10-23 documentation pass added the reading-order links above and did not
+change any Yes, No, or waiver row.
 
 ---
 
