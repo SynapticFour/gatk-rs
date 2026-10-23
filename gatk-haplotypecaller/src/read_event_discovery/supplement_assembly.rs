@@ -541,7 +541,11 @@ pub fn ensure_alt_haplotypes_for_variation_events(
         .filter(|e| {
             !e.is_indel() && !cigar_backed.iter().any(|g| events_match(g, e))
         })
-        .filter(|e| is_java_diff_oracle_allele(e) || is_cluster_coupled_event(e))
+        .filter(|e| {
+            // T→C and A→C are injected with the cluster anchors. Chain them here.
+            // T→G already has its own haplotype above; downstream anchors stay out.
+            is_cluster_tc_snp(e) || is_cluster_ac_snp(e) || is_cluster_coupled_event(e)
+        })
         .take(8)
         .cloned()
         .collect();
