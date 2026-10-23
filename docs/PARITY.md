@@ -88,6 +88,88 @@ SeqGraph k-best: production default is `unbounded_diagnostic` when
 Sentences in the record below that still say the default is `legacy_1024`
 describe the tree at the time of that 6R investigation. They are superseded.
 
+## Fresh production VCF comparisons (2026-10-23)
+
+Checkout `fe9787f71ffd38190ff7ad51125a30369d8ebd2e`. Both runs are production
+`gatk-rs HaplotypeCaller` with the default `FastestAvailable` PairHMM and only
+`-R`, `-I`, `-O`, and `-L`. The reference for both is
+`parity/realworld/assets/hs37d5.simple.fa`. The fresh VCFs are local build
+output and are not in git. This is not a claim-matrix Yes row, not evidence
+on `main`, and not parity for every fixture, interval, or PairHMM backend.
+
+### chr20 tiny
+
+| Item | Value |
+|------|--------|
+| BAM | `parity/giab/runs/local-pairhmm-diff/HG001.20-29455000-29456500.bam` |
+| Interval | `20:29455000-29456500` |
+| Frozen Java VCF | `parity/reports/6r43/chr20_tiny/java.vcf` |
+| Fresh Rust VCF | `parity/build/chr20-tiny-fresh-fe9787f71ffd38190ff7ad51125a30369d8ebd2e/rust.vcf` |
+| SHA-256 | `a3337fa639388d7771a2fc35f93eff726b08d3dbab2b3a075ca4d18a824ad128` |
+
+Java 62 records, Rust 62, 62 shared `(CHROM, POS, REF, ALT)` keys, zero
+Java-only and zero Rust-only. GT, PL, AD, FORMAT DP, GQ, and QUAL match as
+exact tokens on all 62 records. AF, MLEAC, MLEAF, and ExcessHet match
+numerically. Every compared INFO value matches at Java's printed precision.
+Float token precision and FORMAT/INFO key order are formatting only.
+Previously observed missing alleles and BaseQRankSum/PL discrepancies are
+absent from this fresh output. The September
+`parity/reports/6r43/chr20_tiny/rust.vcf` is an older snapshot, not this
+checkout.
+
+### P12 real-world NA12878
+
+| Item | Value |
+|------|--------|
+| BAM | `parity/realworld/na12878_20k_b37/NA12878_20k.b37.bam` |
+| Rust interval | `2:92300000-92350000` |
+| Threads | `RAYON_NUM_THREADS=2` |
+| Frozen Java VCF | `parity/reports/p12_realworld_na12878_20k.java.vcf` |
+| Fresh Rust VCF | `parity/build/p12-fresh-fe9787f71ffd38190ff7ad51125a30369d8ebd2e/rust.vcf` |
+| SHA-256 | `8afc585a9f87420f23d545f2022169d851fd80388c4d243d549e5676a5e1fd37` |
+
+The frozen Java run used `--intervals 2:92000000-92400000` and has 98 records.
+Sixty-six of those lie inside `2:92300000-92350000`. Fresh Rust emits 66
+records. Those 66 in-window Java records and the 66 Rust records have
+identical allele keys: zero Java-only and zero Rust-only inside the Rust
+interval. GT, PL, AD, FORMAT DP, GQ, and QUAL match as exact tokens on all 66
+sites. AC, AN, MLEAC, and INFO DP match exactly. AF, MLEAF, ExcessHet, MQ, FS,
+SOR, and the rank-sum annotations that are present match at Java's printed
+precision.
+
+Fifty-two in-window sites have raw QD at least 35, so both sides jitter QD.
+Their printed QD tokens differ. That is a comparison-boundary and RNG-stream
+qualification, not a demonstrated QD algorithm defect, and it is not full QD
+parity for P12 under mismatched invocation boundaries. Java's stream had
+already consumed one draw on each of 32 earlier records, all before
+`92300000`. Rust started a new process on `2:92300000-92350000`, so its jitter
+sequence is the start of the stream. Those Rust values match the earlier Java
+QD sequence, not the Java QD at the same in-window sites. The other 14
+in-window QD values stay below the jitter threshold and match at Java's
+printed precision.
+
+Historical allele gaps listed in `parity/reports/p12_diff/p12_java_only.tsv`
+are absent from this fresh Rust output.
+
+### Closed on this checkout
+
+Closed on `fe9787f7`, without extending that closure to every other site:
+
+- shared RNG stream for QD (one `Random(47382911)` for reservoir downsampling and QualByDepth);
+- cross-contig mate coverage and PairHMM membership;
+- BaseQRankSum attached-read lookup semantics;
+- 7R.93 pre-trim annotation allele selection;
+- FisherStrand parity;
+- ReadPosRankSum edge handling;
+- 7R.25–7R.26 indel left-align write-back of the `normalize_alleles` bounds ([`parity/7R.26_NORMALIZE_ALLELES_PRODUCTION_FIX.md`](parity/7R.26_NORMALIZE_ALLELES_PRODUCTION_FIX.md)).
+
+### Holdouts still blocked
+
+W47 (`chr20_w47`, `20:47000000-47050000`) and W10 (`chr21_w10`,
+`21:10000000-10035000`) remain historical evidence gaps. The panel BAMs under
+`parity/giab/runs/hang-repro/` are absent. Stale Rust VCFs under
+`parity/reports/6r43/` are not failures of this checkout.
+
 ## Engineering record (6R investigation log)
 
 The rest of this file is the running log of the mid-B and later 6R work.
@@ -200,7 +282,10 @@ Previously green holdouts remain green. Canonical mid-B remains CONVERGED.
 
 Remaining **C** regions are predominantly Stage E haplotype-content differences (Java
 internal graph topology UNKNOWN) and Stage D/G/H cases where an allele exists in EventMap
-but is not emitted.
+but is not emitted. That class **C** table is the 6R.43 snapshot. The 2026-10-23
+fresh run above replaces it for `chr20_tiny` only. `chr20_w47` and `chr21_w10`
+stay historical evidence gaps: their BAMs are missing, and their stale Rust
+VCFs are not failures of checkout `fe9787f7`.
 
 ## Independent chr20_tiny genotype-boundary holdouts (6R.130–6R.312)
 
@@ -2071,8 +2156,10 @@ These are **general** contracts, demonstrated on mid-B, not coordinate special c
 
 - Genome-wide, autosome, or multi-sample HC equivalence.
 - Sharing one process-global `Random` with reservoir downsampling on intervals that
-  overflow `max-reads-per-alignment-start` **before** the first high-QD site (mid-B
-  has two reads; streams coincide).
+  overflow `max-reads-per-alignment-start` **before** the first high-QD site remains
+  unreproduced (mid-B has two reads; streams coincide). The shared stream itself is
+  closed on `fe9787f7`. The P12 QD token difference in the 2026-10-23 comparison is
+  the wider Java interval, not this case.
 - VCF QUAL print rounding of 78.323 → 78.32.
 - Waivers still in force: **W-H1**, **W-H3**, and other claim-matrix scoped rows.
 
