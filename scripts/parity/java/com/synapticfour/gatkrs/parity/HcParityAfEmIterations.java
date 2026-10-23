@@ -43,14 +43,16 @@ final class HcParityAfEmIterations {
                 maxDiff = Math.max(maxDiff, Math.abs(newCounts[i] - alleleCounts[i]));
             }
             alleleCounts = newCounts;
-            if (maxDiff <= threshold || iterations > 100) {
-                break;
-            }
             final double[] posteriorPseudo =
                     new double[] {
                         refPseudo + alleleCounts[0], snpPseudo + alleleCounts[1]
                     };
             log10Af = log10DirichletMeanWeights(posteriorPseudo);
+            // Pinned AlleleFrequencyCalculator.calculate stores these weights, then
+            // returns to the > 0.1 test. The posterior must use this iteration's AF.
+            if (maxDiff <= threshold || iterations > 100) {
+                break;
+            }
         }
         double log10PNoVariant = 0.0;
         for (final double[] gl : List.of(log10Gl)) {

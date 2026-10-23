@@ -1,5 +1,6 @@
-//! 6R.246 live: `20:29455649 T/TGTTTG` Call carries unique annotation
-//! evidence 123 (2952 cells); INFO DP is 123, not region-wide 230.
+//! 6R.246 live: `20:29455649 T/TGTTTG` Call carries the scored annotation
+//! matrix: 122 reads (2928 cells). Coverage evidence and emitted INFO DP
+//! stay 123, not region-wide 230.
 //! FORMAT GT/AD/DP/GQ and QUAL unchanged. Skipped unless `HOLDOUT_6R246=1`.
 //!
 //! ```text
@@ -131,8 +132,8 @@ fn holdout_6r246_colocated_merge_annotation_attach() {
         .iter()
         .map(|c| c.read_index.get())
         .collect();
-    assert_eq!(unique.len(), 123);
-    assert_eq!(call.annotation_likelihoods.len(), 2952);
+    assert_eq!(unique.len(), 122);
+    assert_eq!(call.annotation_likelihoods.len(), 2928);
     assert_eq!(call.genotype.format.ad_as_i32(), vec![88, 22]);
     assert_eq!(
         coverage_evidence_count(

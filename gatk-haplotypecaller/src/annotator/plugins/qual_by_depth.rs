@@ -39,12 +39,51 @@ thread_local! {
     static QD_SERIAL_HELD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-fn lock_process_qd_rng() -> std::sync::MutexGuard<'static, ProcessQdRng> {
+/// Process-RNG lock. In tests, `_serial` is held for this guard's whole life when
+/// the caller does not already own `hold_process_qd_rng_for_test`.
+///
+/// Field order is the drop order: the RNG mutex is released before `SERIAL`.
+/// `SERIAL` is acquired only before the RNG mutex, never while it is held.
+struct ProcessQdRngGuard {
+    state: std::sync::MutexGuard<'static, ProcessQdRng>,
     #[cfg(test)]
-    ProcessQdRngTestGuard::wait_if_held_elsewhere();
-    process_qd_rng()
+    _serial: Option<std::sync::MutexGuard<'static, ()>>,
+}
+
+impl std::ops::Deref for ProcessQdRngGuard {
+    type Target = ProcessQdRng;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+impl std::ops::DerefMut for ProcessQdRngGuard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.state
+    }
+}
+
+fn lock_process_qd_rng() -> ProcessQdRngGuard {
+    // Already-owned test guards must not lock `SERIAL` again: std mutexes are not reentrant.
+    #[cfg(test)]
+    let serial = if QD_SERIAL_HELD.with(|held| held.get()) {
+        None
+    } else {
+        Some(
+            ProcessQdRngTestGuard::serial()
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner()),
+        )
+    };
+    let state = process_qd_rng()
         .lock()
-        .unwrap_or_else(|poison| poison.into_inner())
+        .unwrap_or_else(|poison| poison.into_inner());
+    ProcessQdRngGuard {
+        state,
+        #[cfg(test)]
+        _serial: serial,
+    }
 }
 
 /// Serialize tests that reset/assert the process-global QualByDepth stream.
@@ -77,17 +116,6 @@ impl ProcessQdRngTestGuard {
         };
         QD_SERIAL_HELD.with(|c| c.set(true));
         g
-    }
-
-    fn wait_if_held_elsewhere() {
-        if QD_SERIAL_HELD.with(|c| c.get()) {
-            return;
-        }
-        drop(
-            Self::serial()
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner()),
-        );
     }
 }
 

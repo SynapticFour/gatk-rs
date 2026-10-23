@@ -96,7 +96,8 @@ pub mod seq_graph;
 /// Forensic-only compact/lazy k-best (6R.136). Not used by production search.
 pub mod seq_kbest_compact_forensic;
 pub mod seq_kbest_haplotype;
-/// Experimental SeqGraph k-best resource policy (6R.140). Default remains legacy_1024.
+/// SeqGraph k-best resource policy. Unset env defaults to `unbounded_diagnostic`.
+/// `legacy_1024` remains selectable.
 pub mod seq_kbest_resource_policy;
 /// Arc-backed BAM records shared between the shard read cache and assembly regions.
 pub mod shared_bam;

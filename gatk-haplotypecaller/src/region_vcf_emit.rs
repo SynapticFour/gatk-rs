@@ -251,6 +251,12 @@ pub fn first_differing_position_1based(
     None
 }
 
+fn retained_annotation_alleles(call: &GenotypedSiteCall) -> Option<(&str, &[String])> {
+    call.annotation_output_alleles
+        .as_ref()
+        .map(|(reference, alts)| (reference.as_str(), alts.as_slice()))
+}
+
 fn genotype_from_index(best: usize) -> Genotype {
     let alleles = match best {
         0 => vec![0, 0],
@@ -378,6 +384,7 @@ pub fn build_biallelic_variant_record(
         genotyping_config,
         None,
         strand_likelihoods,
+        None,
     )?;
     build_record_inner(
         contig,
@@ -599,6 +606,7 @@ fn try_emit_call_region_variants_inner(
                     genotyping_config,
                     call.qual_log10_p_error,
                     Some(&site_ann),
+                    retained_annotation_alleles(call),
                 )?;
                 seen.insert(key);
                 let mut rec = build_record_inner(
@@ -740,6 +748,7 @@ fn try_emit_call_region_variants_inner(
                     genotyping_config,
                     call.qual_log10_p_error,
                     Some(&site_ann),
+                    retained_annotation_alleles(call),
                 )?;
                 seen.insert(key);
                 let mut rec = build_record_inner(
@@ -908,6 +917,7 @@ fn try_emit_call_region_variants_inner(
                 genotyping_config,
                 call.qual_log10_p_error,
                 Some(&site_ann),
+                retained_annotation_alleles(call),
             )?;
             let rec = build_record_inner(
                 &region.contig,

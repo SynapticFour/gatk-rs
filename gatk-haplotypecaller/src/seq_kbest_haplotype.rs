@@ -9,8 +9,7 @@ use gatk_common::{GatkError, GatkResult};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashSet};
 
-/// Same bound as the read-threading k-best finder — see `kbest_haplotype`.
-/// Resource-policy default (`legacy_1024`) uses this value; do not change it here.
+/// Heap-length refusal used only by explicit `legacy_1024`. The unset default does not.
 const MAX_KBEST_HEAP_PATHS: usize = LEGACY_MAX_HEAP_PATHS;
 const MAX_KBEST_PATH_EDGES: usize = 4_096;
 
@@ -204,8 +203,8 @@ fn finish_policy_report(mut report: SeqKbestPolicyReport) -> SeqKbestPolicyRepor
 
 /// K-best paths on a cleaned sequence graph (GATK `GraphBasedKBestHaplotypeFinder`).
 ///
-/// Default resource policy is [`SeqKbestResourcePolicy::Legacy1024`] (unset env).
-/// Experimental env: `GATK_RS_EXPERIMENTAL_KBEST_POLICY` — not a product contract.
+/// Default resource policy is [`SeqKbestResourcePolicy::UnboundedDiagnostic`] (unset env).
+/// Explicit `legacy_1024` remains available through `GATK_RS_EXPERIMENTAL_KBEST_POLICY`.
 pub fn find_best_haplotypes_seq_graph(
     graph: &SeqGraph,
     max_number_of_haplotypes: usize,
@@ -220,7 +219,7 @@ pub fn find_best_haplotypes_seq_graph(
 }
 
 /// SeqGraph k-best with an explicit resource policy (6R.140). Production callers
-/// should use [`find_best_haplotypes_seq_graph`] so the default stays `legacy_1024`.
+/// should use [`find_best_haplotypes_seq_graph`] so the unset default stays unbounded.
 pub fn find_best_haplotypes_seq_graph_with_policy(
     graph: &SeqGraph,
     max_number_of_haplotypes: usize,
@@ -303,7 +302,11 @@ pub fn find_best_haplotypes_seq_graph_with_policy(
                 "seq_kbest_rss_abort",
                 &format!("expansions={expansions} results={}", result.len()),
             );
-            break;
+            // Do not return `result`. A partial or empty path list is not a
+            // completed K-best search.
+            return Err(GatkError::memory(
+                crate::runtime_config::hc_rss_limit_exceeded_message(),
+            ));
         }
         let item = heap.pop().expect("non-empty");
         let path = item.path;
@@ -1192,19 +1195,33 @@ mod tests {
     }
 
     #[test]
-    fn resource_policy_default_matches_explicit_legacy_on_diamond() {
+    fn resource_policy_default_is_unbounded_on_diamond() {
         let seq = diamond_40_vs_5();
+        let policy = SeqKbestResourcePolicy::from_runtime().expect("policy");
+        assert_eq!(policy, SeqKbestResourcePolicy::UnboundedDiagnostic);
         let def = find_best_haplotypes_seq_graph(&seq, 2).expect("default");
+        let unbounded = find_best_haplotypes_seq_graph_with_policy(
+            &seq,
+            2,
+            SeqKbestResourcePolicy::UnboundedDiagnostic,
+        )
+        .expect("unbounded");
+        assert_eq!(unbounded.diagnostics.policy, "unbounded_diagnostic");
+        assert_eq!(unbounded.diagnostics.resource_limit, "none");
+        assert!(!unbounded.diagnostics.resource_limit_hit);
+        assert_eq!(def.len(), unbounded.paths.len());
+        for i in 0..def.len() {
+            assert_eq!(def[i].edges, unbounded.paths[i].edges);
+            assert_eq!(def[i].score.to_bits(), unbounded.paths[i].score.to_bits());
+        }
+        // This diamond never reaches 1024, so explicit legacy agrees and does not refuse.
         let legacy =
             find_best_haplotypes_seq_graph_with_policy(&seq, 2, SeqKbestResourcePolicy::Legacy1024)
                 .expect("legacy");
         assert_eq!(legacy.diagnostics.policy, "legacy_1024");
         assert!(!legacy.diagnostics.resource_limit_hit);
+        assert_eq!(legacy.diagnostics.paths_refused, 0);
         assert_eq!(def.len(), legacy.paths.len());
-        for i in 0..def.len() {
-            assert_eq!(def[i].edges, legacy.paths[i].edges);
-            assert!((def[i].score - legacy.paths[i].score).abs() < 1e-15);
-        }
     }
 
     #[test]
@@ -1266,5 +1283,351 @@ mod tests {
         .expect("tiny");
         assert!(tiny.diagnostics.resource_limit_hit);
         assert!(tiny.diagnostics.paths_refused > 0);
+    }
+
+    #[test]
+    fn rss_limit_not_triggered_seq_kbest_returns_ok() {
+        assert!(
+            !crate::runtime_config::hc_rss_abort_triggered(),
+            "process RSS already crossed GATK_RS_HC_RSS_ABORT_MIB"
+        );
+        let seq = diamond_40_vs_5();
+        let paths = find_best_haplotypes_seq_graph(&seq, 2).expect("completed search");
+        assert_eq!(paths.len(), 2);
+        let policy = SeqKbestResourcePolicy::from_runtime().expect("policy");
+        assert_eq!(policy, SeqKbestResourcePolicy::UnboundedDiagnostic);
+        assert_eq!(SEQ_KBEST_PRODUCTION_MAX_EXPANSIONS, 12_000);
+        assert_eq!(SEQ_KBEST_PRODUCTION_MAX_PATH_EDGES, 4_096);
+        assert_eq!(LEGACY_MAX_HEAP_PATHS, 1_024);
+    }
+
+    /// RSS abort must be `Err`, not `Ok` with a partial path vector.
+    ///
+    /// `hc_rss_abort_mib` caches the env in a process `OnceLock`, so the assertion
+    /// runs in a child of this test binary with `GATK_RS_HC_RSS_ABORT_MIB=1`.
+    /// The child is identified by a test-only argument, not another env read.
+    #[test]
+    fn rss_abort_is_memory_error_not_partial_ok() {
+        // Positional so libtest treats it as a filter. `--exact` still selects
+        // this test by its full name; the token only marks the respawned child.
+        const CHILD: &str = "rss-abort-contract-child";
+        if !std::env::args().any(|arg| arg == CHILD) {
+            let exe = std::env::current_exe().expect("test exe");
+            let output = std::process::Command::new(&exe)
+                .args([
+                    "seq_kbest_haplotype::tests::rss_abort_is_memory_error_not_partial_ok",
+                    "--exact",
+                    "--test-threads=1",
+                    "--nocapture",
+                    CHILD,
+                ])
+                .env("GATK_RS_HC_RSS_ABORT_MIB", "1")
+                .output()
+                .expect("spawn abort child");
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                output.status.success(),
+                "abort child failed: {}\n{stdout}\n{stderr}",
+                output.status
+            );
+            assert!(
+                stdout.contains("1 passed"),
+                "abort child did not run the assertion:\n{stdout}\n{stderr}"
+            );
+            return;
+        }
+
+        let seq = diamond_40_vs_5();
+        let err = find_best_haplotypes_seq_graph(&seq, 2).expect_err("abort must be Err");
+        let text = err.to_string();
+        assert!(text.starts_with("Memory error:"), "{text}");
+        assert!(text.contains("HaplotypeCaller K-best"), "{text}");
+        assert!(text.contains("GATK_RS_HC_RSS_ABORT_MIB"), "{text}");
+        assert!(text.contains("1 MiB"), "{text}");
+        assert_eq!(err.classification(), gatk_common::GatkErrorClass::Internal);
+        assert_eq!(gatk_common::gatk_cli_exit_code(&err), 1);
+        assert!(
+            find_best_haplotypes_seq_graph_with_policy(
+                &seq,
+                2,
+                SeqKbestResourcePolicy::Legacy1024,
+            )
+            .is_err(),
+            "with_policy must not return a partial path vector"
+        );
+        assert_canonical_graph_kbest_abort();
+
+        // chr1:1-32 warmup has no active assembly, so it never reaches this check.
+        // The GIAB window does. Skip only when that local fixture is absent.
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+        let ref_fa = root.join("parity/realworld/assets/hs37d5.simple.fa");
+        let bam = root.join("parity/giab/runs/local-pairhmm-diff/HG001.20-29455000-29456500.bam");
+        if ref_fa.is_file() && bam.is_file() {
+            let out = std::env::temp_dir().join("gatk_rs_7r20_rss_abort.vcf");
+            let _ = std::fs::remove_file(&out);
+            let mut config = gatk_common::GatkConfig::new("HaplotypeCaller".to_string());
+            config.set_reference(ref_fa.to_string_lossy().to_string());
+            config.add_input_file(bam.to_string_lossy().to_string());
+            config.set_output_vcf(out.to_string_lossy().to_string());
+            config.set_parameter("intervals".to_string(), "20:29455000-29456500".to_string());
+            config.validate().expect("valid config");
+            let err = crate::run_haplotype_caller(&config).expect_err("aborted HC must not be Ok");
+            let shown = err.to_string();
+            assert!(shown.contains("Memory error"), "{shown}");
+            assert_eq!(gatk_common::gatk_cli_exit_code(&err), 1);
+            if out.is_file() {
+                let body = std::fs::read_to_string(&out).unwrap_or_default();
+                let data: Vec<_> = body
+                    .lines()
+                    .filter(|line| !line.is_empty() && !line.starts_with('#'))
+                    .collect();
+                assert!(
+                    data.is_empty(),
+                    "variant records emitted after RSS abort: {data:?}\n{body}"
+                );
+            }
+        }
+    }
+
+    /// Production default on the canonical 20:29455745-29455993 graph (end not rewritten).
+    /// Explicit `legacy_1024` keeps the historical 1024 refusal on the same graph.
+    #[test]
+    fn default_policy_canonical_frontier_exceeds_1024_legacy_still_bounds() {
+        let Some(seq) = canonical_production_k25_seq() else {
+            eprintln!("skip: canonical BAM/reference absent");
+            return;
+        };
+        assert!(
+            crate::runtime_config::hc_rss_abort_mib().is_none(),
+            "GATK_RS_HC_RSS_ABORT_MIB must be unset for this success-path proof"
+        );
+        assert_eq!(seq.node_count(), 57);
+        assert_eq!(seq.edge_count(), 82);
+        let target = -3.0279336364708747_f64;
+
+        let def = find_best_haplotypes_seq_graph(&seq, 128).expect("default k-best");
+        let unbounded = find_best_haplotypes_seq_graph_with_policy(
+            &seq,
+            128,
+            SeqKbestResourcePolicy::UnboundedDiagnostic,
+        )
+        .expect("explicit unbounded");
+        assert_eq!(
+            SeqKbestResourcePolicy::from_runtime().expect("policy"),
+            SeqKbestResourcePolicy::UnboundedDiagnostic
+        );
+        for report in [&unbounded] {
+            let d = &report.diagnostics;
+            assert_eq!(d.policy, "unbounded_diagnostic");
+            assert_eq!(d.requested_k, 128);
+            assert_eq!(d.completed_paths, 128);
+            assert_eq!(d.peak_logical_frontier, 1455);
+            assert!(d.peak_logical_frontier > 1024);
+            assert_eq!(d.paths_refused, 0);
+            assert!(!d.resource_limit_hit);
+            assert_eq!(d.expansions, 2580);
+            assert!(d.expansions < SEQ_KBEST_PRODUCTION_MAX_EXPANSIONS);
+            assert!(report
+                .paths
+                .iter()
+                .all(|p| p.edges.len() < SEQ_KBEST_PRODUCTION_MAX_PATH_EDGES));
+            assert!(
+                report
+                    .paths
+                    .iter()
+                    .any(|p| p.score.to_bits() == target.to_bits()),
+                "target score missing under unbounded"
+            );
+        }
+        assert_eq!(def.len(), 128);
+        assert!(def.iter().any(|p| p.score.to_bits() == target.to_bits()));
+        let d = &unbounded.diagnostics;
+        eprintln!(
+            "7R22\tkbest\tpolicy={} k={} visit_limit={} peak={} refused={} expansions={} completed={} peak_bytes={} rss_before={} rss_peak={} rss_after={} limit_hit={}",
+            d.policy,
+            d.requested_k,
+            d.requested_k,
+            d.peak_logical_frontier,
+            d.paths_refused,
+            d.expansions,
+            d.completed_paths,
+            d.peak_frontier_bytes,
+            d.rss_before_mib.map(|v| format!("{v:.3}")).unwrap_or_else(|| "NA".into()),
+            d.rss_peak_mib.map(|v| format!("{v:.3}")).unwrap_or_else(|| "NA".into()),
+            d.rss_after_mib.map(|v| format!("{v:.3}")).unwrap_or_else(|| "NA".into()),
+            d.resource_limit_hit
+        );
+
+        let legacy = find_best_haplotypes_seq_graph_with_policy(
+            &seq,
+            128,
+            SeqKbestResourcePolicy::Legacy1024,
+        )
+        .expect("legacy");
+        let d = &legacy.diagnostics;
+        assert_eq!(d.policy, "legacy_1024");
+        assert_eq!(d.requested_k, 128);
+        assert_eq!(d.completed_paths, 128);
+        assert_eq!(d.peak_logical_frontier, 1024);
+        assert_eq!(d.paths_refused, 424);
+        assert!(d.resource_limit_hit);
+        assert_eq!(d.expansions, 2754);
+        assert!(d.expansions < SEQ_KBEST_PRODUCTION_MAX_EXPANSIONS);
+        assert!(legacy
+            .paths
+            .iter()
+            .all(|p| p.score.to_bits() != target.to_bits()));
+    }
+
+    #[cfg(test)]
+    fn canonical_production_k25_seq() -> Option<crate::seq_graph::SeqGraph> {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+        let ref_fasta = root.join("parity/realworld/assets/hs37d5.simple.fa");
+        let bam = root.join("parity/giab/runs/local-pairhmm-diff/HG001.20-29455000-29456500.bam");
+        if !ref_fasta.is_file() || !bam.is_file() {
+            return None;
+        }
+        let dict = gatk_core::reference::SequenceDictionary::from_fasta_path(&ref_fasta).unwrap();
+        let specs = gatk_core::reference::parse_intervals_cli_string(&dict, "20:29455000-29456500")
+            .unwrap();
+        let walk = crate::traverse_assembly_region_walker(
+            &dict,
+            &specs,
+            &ref_fasta,
+            &bam,
+            &crate::ReadFilterParams::gatk_standard_hc(),
+            &crate::WalkerTraversalConfig::gatk_haplotype_caller_production(100),
+        )
+        .unwrap();
+        let region = crate::flatten_assembly_regions(&walk)
+            .into_iter()
+            .find(|r| {
+                matches!(
+                    crate::call_disposition(r),
+                    crate::AssemblyRegionCallDisposition::ActiveFull
+                ) && r.start.get() <= 29_455_902
+                    && r.end.get() >= 29_455_902
+            })
+            .unwrap();
+        let mut cf = region;
+        let args = crate::CallRegionArgs::strict_java();
+        let mut cache = gatk_core::reference::ReferenceWindowCache::new(ref_fasta, 4);
+        let reference =
+            crate::assembly_region_finalize::assembly_reference_read(&dict, &mut cache, &cf)
+                .unwrap();
+        let arcs = std::mem::take(&mut cf.reads);
+        let (_kept, owned) = crate::shared_bam::split_shared_for_finalize(arcs);
+        let finalized = crate::assembly_region_finalize::finalize_owned_bam_records(
+            owned,
+            &cf,
+            args.assemble.correct_overlapping_base_qualities,
+            crate::assembly_region_finalize::gatk_min_tail_quality_for_assembly(
+                args.assemble.assembler.min_base_quality,
+            ),
+            false,
+        );
+        let reads = crate::assembly_based_caller::apply_read_error_correction(
+            &finalized,
+            &args.assemble.read_error_correction,
+            reference.bases.as_slice(),
+        )
+        .unwrap();
+        let graph_ref =
+            crate::assembly_region_finalize::create_graph_reference_read(&reference, &cf, &dict);
+        let mut assembler = args.assemble.assembler.clone();
+        assembler.dangling_java_exact = true;
+        let allow_lc =
+            assembler.dont_increase_kmer_sizes_for_cycles || assembler.allow_low_complexity_graphs;
+        let allow_nu = assembler.allow_non_unique_kmers_in_ref;
+        let graph = crate::read_threading_assembler::build_threading_graph_for_seq_assembly(
+            &graph_ref, &reads, 25, &assembler, allow_lc, allow_nu,
+        )
+        .unwrap()
+        .unwrap();
+        let mut seq = crate::seq_graph::SeqGraph::from_assembly_graph(&graph);
+        seq.clean_non_ref_paths();
+        let _ = seq.cleanup_seq_graph();
+        Some(seq)
+    }
+
+    #[cfg(test)]
+    fn assert_canonical_graph_kbest_abort() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+        let ref_fasta = root.join("parity/realworld/assets/hs37d5.simple.fa");
+        let bam = root.join("parity/giab/runs/local-pairhmm-diff/HG001.20-29455000-29456500.bam");
+        if !ref_fasta.is_file() || !bam.is_file() {
+            return;
+        }
+        let dict = gatk_core::reference::SequenceDictionary::from_fasta_path(&ref_fasta).unwrap();
+        let specs = gatk_core::reference::parse_intervals_cli_string(&dict, "20:29455000-29456500")
+            .unwrap();
+        let walk = crate::traverse_assembly_region_walker(
+            &dict,
+            &specs,
+            &ref_fasta,
+            &bam,
+            &crate::ReadFilterParams::gatk_standard_hc(),
+            &crate::WalkerTraversalConfig::gatk_haplotype_caller_production(100),
+        )
+        .unwrap();
+        let region = crate::flatten_assembly_regions(&walk)
+            .into_iter()
+            .find(|r| {
+                matches!(
+                    crate::call_disposition(r),
+                    crate::AssemblyRegionCallDisposition::ActiveFull
+                ) && r.start.get() <= 29_455_902
+                    && r.end.get() >= 29_455_902
+            })
+            .unwrap();
+        let mut cf = region;
+        cf.end = crate::GenomePosition::new_1based(29_455_994);
+        cf.extended_end = crate::GenomePosition::new_1based(29_456_094);
+        let args = crate::CallRegionArgs::strict_java();
+        let mut cache = gatk_core::reference::ReferenceWindowCache::new(ref_fasta, 4);
+        let reference =
+            crate::assembly_region_finalize::assembly_reference_read(&dict, &mut cache, &cf)
+                .unwrap();
+        let arcs = std::mem::take(&mut cf.reads);
+        let (_kept, owned) = crate::shared_bam::split_shared_for_finalize(arcs);
+        let finalized = crate::assembly_region_finalize::finalize_owned_bam_records(
+            owned,
+            &cf,
+            args.assemble.correct_overlapping_base_qualities,
+            crate::assembly_region_finalize::gatk_min_tail_quality_for_assembly(
+                args.assemble.assembler.min_base_quality,
+            ),
+            false,
+        );
+        let reads = crate::assembly_based_caller::apply_read_error_correction(
+            &finalized,
+            &args.assemble.read_error_correction,
+            reference.bases.as_slice(),
+        )
+        .unwrap();
+        let graph_ref =
+            crate::assembly_region_finalize::create_graph_reference_read(&reference, &cf, &dict);
+        let mut assembler = args.assemble.assembler.clone();
+        assembler.dangling_java_exact = true;
+        let graph = crate::read_threading_assembler::build_threading_graph_for_seq_assembly(
+            &graph_ref, &reads, 25, &assembler, false, false,
+        )
+        .unwrap()
+        .unwrap();
+        let mut seq = crate::seq_graph::SeqGraph::from_assembly_graph(&graph);
+        seq.clean_non_ref_paths();
+        let _ = seq.cleanup_seq_graph();
+        let err = find_best_haplotypes_seq_graph_with_policy(
+            &seq,
+            128,
+            SeqKbestResourcePolicy::UnboundedDiagnostic,
+        )
+        .expect_err("canonical k-best rss abort");
+        let text = err.to_string();
+        assert!(text.starts_with("Memory error:"), "{text}");
+        assert!(text.contains("HaplotypeCaller K-best"), "{text}");
+        assert!(text.contains("GATK_RS_HC_RSS_ABORT_MIB"), "{text}");
+        assert!(find_best_haplotypes_seq_graph(&seq, 128).is_err());
     }
 }

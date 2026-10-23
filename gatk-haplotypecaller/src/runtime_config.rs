@@ -157,7 +157,8 @@ pub fn hc_rss_trace_enabled() -> bool {
 }
 
 /// Experimental SeqGraph k-best resource policy name (`GATK_RS_EXPERIMENTAL_KBEST_POLICY`).
-/// `None` = unset → production default `legacy_1024`. Not a product contract.
+/// `None` = unset → production default `unbounded_diagnostic` (no 1024 frontier refusal).
+/// Explicit `legacy_1024` remains selectable. Not a product byte-budget contract.
 pub fn experimental_kbest_policy_raw() -> Option<String> {
     env_nonempty("GATK_RS_EXPERIMENTAL_KBEST_POLICY")
 }
@@ -195,11 +196,11 @@ pub fn pairhmm_input_dump_path() -> Option<String> {
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, Once, OnceLock};
 
-/// Optional soft Peak abort during k-best: `GATK_RS_HC_RSS_ABORT_MIB=<MiB>`.
+/// Optional process RSS limit during k-best: `GATK_RS_HC_RSS_ABORT_MIB=<MiB>`.
 ///
-/// When set and current RSS ≥ threshold, k-best returns partial paths instead of
-/// expanding into a hard runner OOM. Unset = off (algorithm default). GIAB CI sets
-/// this below hosted-runner RAM so dense shards soft-land.
+/// Unset = off. When set and current RSS is at or above the threshold, production
+/// k-best returns [`gatk_common::GatkError::memory`]
+/// ([`hc_rss_limit_exceeded_message`]) instead of a completed or partial path list.
 pub fn hc_rss_abort_mib() -> Option<f64> {
     static CACHED: OnceLock<Option<f64>> = OnceLock::new();
     let parsed = *CACHED.get_or_init(|| {
@@ -263,6 +264,23 @@ pub fn hc_rss_abort_triggered() -> bool {
     } else {
         false
     }
+}
+
+/// Detail string for [`gatk_common::GatkError::memory`] when process RSS has
+/// crossed `GATK_RS_HC_RSS_ABORT_MIB` during HaplotypeCaller K-best search.
+pub fn hc_rss_limit_exceeded_message() -> String {
+    let limit = match hc_rss_abort_mib() {
+        Some(m) => format!("{m:.0}"),
+        None => "unset".to_string(),
+    };
+    format!(
+        "HaplotypeCaller K-best search stopped: process RSS reached the GATK_RS_HC_RSS_ABORT_MIB resource limit ({limit} MiB)"
+    )
+}
+
+/// Memory error for an RSS abort. The detail string is [`hc_rss_limit_exceeded_message`].
+pub(crate) fn rss_abort_memory_error() -> gatk_common::GatkError {
+    gatk_common::GatkError::memory(hc_rss_limit_exceeded_message())
 }
 
 static RSS_TRACE_LOCUS: OnceLock<Mutex<String>> = OnceLock::new();

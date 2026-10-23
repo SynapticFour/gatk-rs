@@ -1,7 +1,13 @@
-//! 6R.160 reconnaissance: inventory the next genuine Java-vs-Rust VCF divergence.
+//! 6R.160 reconnaissance of the then-current Java-vs-Rust VCF divergence.
 //!
-//! Does **not** pin a future production FORMAT contract. It records the current
-//! emitted-callset difference against frozen Java 4.4.0.0 VCFs.
+//! 7R.4: `2:92316347 G/A` was the first common-different site in the 6R.160
+//! corpus (Rust AD `0,1` DP `1` PL `45,3,0`). 6R.164 closed that FORMAT to
+//! the Java record (AD `0,3` DP `3` PL `135,9,0`). This test keeps that
+//! observation and, when a local `parity/reports/6r43` corpus is present,
+//! requires the closed FORMAT. It does not pin whatever site sorts first
+//! after that closure. A gitignored snapshot can still show the intermediate
+//! witness `20:29455649` PL `570,0,3518`; the closed production witness is
+//! `570,0,3517` (6R.312). Clean CI has no corpus and returns early.
 //!
 //! ```text
 //! cargo test -p gatk-haplotypecaller --test forensic_6r160_next_vcf_divergence_inventory -- --nocapture --test-threads=1
@@ -28,20 +34,22 @@ const CURRENT_REGIONS: &[&str] = &[
 /// BAMs missing; rust.vcf is stale and must not enter first-divergence selection.
 const STALE_MISSING_BAM: &[&str] = &["chr20_w47", "chr21_w10"];
 
-const FIRST_CONTIG: &str = "2";
-const FIRST_POS: u64 = 92_316_347;
-const FIRST_REF: &str = "G";
-const FIRST_ALT: &str = "A";
+/// Historical 6R.160 first common-different site. Closed by 6R.164.
+const HISTORICAL_CONTIG: &str = "2";
+const HISTORICAL_POS: u64 = 92_316_347;
+const HISTORICAL_REF: &str = "G";
+const HISTORICAL_ALT: &str = "A";
 const JAVA_AD: &str = "0,3";
 const JAVA_DP: &str = "3";
 const JAVA_GQ: &str = "9";
 const JAVA_PL: &str = "135,9,0";
 const JAVA_GT: &str = "1/1";
-const RUST_AD: &str = "0,1";
-const RUST_DP: &str = "1";
-const RUST_GQ: &str = "3";
-const RUST_PL: &str = "45,3,0";
-const RUST_GT: &str = "1/1";
+/// Pre-6R.164 Rust FORMAT at the historical site. Not the current contract.
+const HISTORICAL_RUST_AD: &str = "0,1";
+const HISTORICAL_RUST_DP: &str = "1";
+const HISTORICAL_RUST_GQ: &str = "3";
+const HISTORICAL_RUST_PL: &str = "45,3,0";
+const HISTORICAL_RUST_GT: &str = "1/1";
 
 const CANONICAL_POS: u64 = 29_456_196;
 
@@ -242,15 +250,21 @@ fn forensic_6r160_next_vcf_divergence_inventory() {
         eprintln!("6R160\tclassification\tTRUE_CALLSET_DIFFERENCE");
     }
 
-    let first = common_different
-        .first()
-        .expect("need a common-different site");
-    assert_eq!(first.0, FIRST_CONTIG);
-    assert_eq!(first.1, FIRST_POS);
-    assert_eq!(first.2, FIRST_REF);
-    assert_eq!(first.3, FIRST_ALT);
-    let j = &java_map[first];
-    let r = &rust_map[first];
+    eprintln!(
+        "6R160\thistorical_6r160_observation\t{HISTORICAL_CONTIG}:{HISTORICAL_POS} {HISTORICAL_REF}/{HISTORICAL_ALT}\tpre_6r164_rust_GT={HISTORICAL_RUST_GT} AD={HISTORICAL_RUST_AD} DP={HISTORICAL_RUST_DP} GQ={HISTORICAL_RUST_GQ} PL={HISTORICAL_RUST_PL}\tclosed_by\t6R.164"
+    );
+    let historical = (
+        HISTORICAL_CONTIG.to_string(),
+        HISTORICAL_POS,
+        HISTORICAL_REF.to_string(),
+        HISTORICAL_ALT.to_string(),
+    );
+    let j = java_map
+        .get(&historical)
+        .expect("frozen Java 6R.43 must still contain 2:92316347 G/A");
+    let r = rust_map
+        .get(&historical)
+        .expect("local rust.vcf must still contain 2:92316347 G/A");
     assert!(
         !is_representation_only(j, r),
         "same alleles; not reverse-trim"
@@ -260,23 +274,15 @@ fn forensic_6r160_next_vcf_divergence_inventory() {
     assert_eq!(j.dp, JAVA_DP);
     assert_eq!(j.gq, JAVA_GQ);
     assert_eq!(j.pl, JAVA_PL);
-    assert_eq!(r.gt, RUST_GT);
-    assert_eq!(r.ad, RUST_AD);
-    assert_eq!(r.dp, RUST_DP);
-    assert_eq!(r.gq, RUST_GQ);
-    assert_eq!(r.pl, RUST_PL);
-
-    let first_exclusive = java_only
-        .iter()
-        .map(|k| (k.0.as_str(), k.1))
-        .chain(rust_only.iter().map(|k| (k.0.as_str(), k.1)))
-        .min();
-    if let Some((c, p)) = first_exclusive {
-        assert!(
-            (c, p) > (FIRST_CONTIG, FIRST_POS),
-            "exclusive record {c}:{p} is earlier than the selected common-different site"
-        );
-    }
+    assert_eq!(r.gt, JAVA_GT, "6R.164 closed Rust GT at 2:92316347");
+    assert_eq!(r.ad, JAVA_AD, "6R.164 closed Rust AD at 2:92316347");
+    assert_eq!(r.dp, JAVA_DP, "6R.164 closed Rust DP at 2:92316347");
+    assert_eq!(r.gq, JAVA_GQ, "6R.164 closed Rust GQ at 2:92316347");
+    assert_eq!(r.pl, JAVA_PL, "6R.164 closed Rust PL at 2:92316347");
+    assert!(
+        !common_different.iter().any(|k| k == &historical),
+        "2:92316347 FORMAT must stay out of the common-different inventory"
+    );
 
     let java_canon = java_map
         .keys()

@@ -26,7 +26,7 @@ Refresh golden after intentional VCF emission changes:
 
 L3 strict mode checks CHROM/POS/REF/ALT plus QUAL/FILTER/INFO vs Docker Java (`--require-java-l3`).
 Site QUAL uses GATK `GenotypeLikelihoodCalculator` log10 GLs + `AlleleFrequencyCalculator` (not legacy `2×lr` parity sums).
-J-D06: `j2-vcf` row `p11_java_positive_chrlive` asserts `call-region-vcf` emits the same site.
+J-D06: `j2-vcf` row `p11_java_positive_chrlive` checks that `call-region-vcf` emits the same site (`variant_emitted`, chrom, pos, id, ref, alt, filter). Java QUAL in `java_dumps/j2-vcf/p11_java_positive_chrlive_2dbc0258.tsv` is `99.000000` because `HcParityCallRegionVcf` writes that literal when the normalized best PL is 0. Rust QUAL in `j2/expected/p11_java_positive_chrlive_vcf.tsv` is the HaplotypeCaller site QUAL. Those two QUAL values are not numerically equivalent, so this case passes `--ignore-row-keys qual` and compares every other field. Direct HaplotypeCaller site QUAL stays on the chrLive golden checked by L3.
 
 ## Legacy p5_live smoke (vacuous on call-region path)
 

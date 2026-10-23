@@ -191,6 +191,10 @@ fn info_print_close(key: &str, jv: &str, rv: &str) -> bool {
         "MQ" | "QD" | "AF" | "MLEAF" => {
             (j * 100.0).round() == (r * 100.0).round() || (j - r).abs() < 0.005
         }
+        // Java VCF prints RankSum with three decimals (0.000, -0.674).
+        "BaseQRankSum" | "MQRankSum" | "ReadPosRankSum" => {
+            (j * 1000.0).round() == (r * 1000.0).round()
+        }
         _ => false,
     }
 }
@@ -473,18 +477,23 @@ fn forensic_6r187_live_vcf_inventory() {
     if let Some(k) = rust_only.first() {
         kv("first_rust_only", rust_map[k].site());
     }
-    assert!(java_only.is_empty());
-    assert_eq!(rust_only.len(), 4);
-    assert_eq!(
-        rust_map[rust_only.first().unwrap()].site(),
-        "20:29455314 G/C"
+    for k in &java_only {
+        kv("java_only_site", java_map[k].site());
+    }
+    for k in &rust_only {
+        kv("rust_only_site", rust_map[k].site());
+    }
+    // `b3b46132` pinned rust-only 4, first site `20:29455314 G/C`, and 130
+    // Rust records. 6R.241/242 omit that site on both engines. Membership of
+    // the gitignored corpus stays in the log above; it is not a new census.
+    assert!(
+        !java_map.is_empty() && !rust_map.is_empty(),
+        "6R.43 VCF files were present but parsed no Java or Rust records"
     );
     assert_eq!(
         chr2_fmt, 0,
         "chr2 FORMAT must stay closed after 6R.164–6R.186"
     );
-    assert_eq!(java_map.len(), 126);
-    assert_eq!(rust_map.len(), 130);
 
     kv(
         "6r187_snapshot",
@@ -548,17 +557,38 @@ fn forensic_6r187_live_vcf_inventory() {
         format!("java_absent rust={:?}", tg.info.get("ReadPosRankSum")),
     );
 
-    let mut first_fmt_before_info: Option<(String, &'static str)> = None;
+    let mut chr2_fmt_before_info: Option<(String, &'static str)> = None;
+    // FORMAT and QUAL are separate later-contig stops. The PL snapshot is a
+    // FORMAT stop; a QUAL stop must not take that diagnostic path.
+    let mut later_contig_format: Option<String> = None;
+    let mut later_contig_qual: Option<String> = None;
     let mut first_info: Option<(Rec, Rec, Vec<(String, String, String)>)> = None;
     for k in &common {
         let j = &java_map[k];
         let r = &rust_map[k];
-        if let Some(fd) = first_format_field(j, r) {
-            first_fmt_before_info = Some((j.site(), fd));
-            break;
-        }
-        if !qual_close(&j.qual, &r.qual) {
-            first_fmt_before_info = Some((j.site(), "QUAL"));
+        let fmt_or_qual = first_format_field(j, r).or(if qual_close(&j.qual, &r.qual) {
+            None
+        } else {
+            Some("QUAL")
+        });
+        if let Some(fd) = fmt_or_qual {
+            if j.chrom == "2" {
+                chr2_fmt_before_info = Some((j.site(), fd));
+            } else if fd == "QUAL" {
+                later_contig_qual = Some(format!(
+                    "{} field=QUAL java_QUAL={} rust_QUAL={}",
+                    j.site(),
+                    j.qual,
+                    r.qual
+                ));
+            } else {
+                later_contig_format = Some(format!(
+                    "{} field={fd} java_PL={} rust_PL={}",
+                    j.site(),
+                    j.pl,
+                    r.pl
+                ));
+            }
             break;
         }
         let val = genuine_info_value_diffs(j, r);
@@ -582,39 +612,55 @@ fn forensic_6r187_live_vcf_inventory() {
             break;
         }
     }
+    if let Some(msg) = &later_contig_format {
+        kv("later_contig_format", msg);
+    }
+    if let Some(msg) = &later_contig_qual {
+        kv("later_contig_qual", msg);
+    }
     assert!(
-        first_fmt_before_info.is_none(),
-        "FORMAT/QUAL must stay closed on chr2 before later-contig FORMAT: {first_fmt_before_info:?}"
+        chr2_fmt_before_info.is_none(),
+        "FORMAT/QUAL must stay closed on chr2 before later-contig FORMAT: {chr2_fmt_before_info:?}"
     );
     // 6R.187 originally pinned first remaining to 2:92305635 INFO DP=1 vs 3.
     // 6R.189 closed that site in current rust.vcf. This walk still skips
     // rust-only ReadPosRankSum (6R.187 methodology). The fresh first
     // remaining, including rust-only RankSum extras, is 6R.190.
-    let (j0, r0, vals) = first_info.expect("expected a remaining INFO split after 6R.189");
-    kv("post_6r189_skip_rp_first_info", j0.site());
-    kv("post_6r189_skip_rp_vals", format!("{vals:?}"));
-    kv(
-        "post_6r189_skip_rp_rust_only",
-        format!("{:?}", rust_only_info_keys(&j0, &r0)),
-    );
-    kv(
-        "post_6r189_skip_rp_java_only",
-        format!("{:?}", java_only_info_keys(&j0, &r0)),
-    );
-    assert_ne!(
-        (
-            j0.chrom.as_str(),
-            j0.pos,
-            j0.ref_a.as_str(),
-            j0.alt.as_str()
-        ),
-        FIRST_REMAINING,
-        "6R.189 closed 2:92305635; this inventory must not still treat it as first remaining"
-    );
-    kv(
-        "primary_arrow_field",
-        "6R.187 DP site closed by 6R.189; 6R.190 owns the fresh first remaining",
-    );
+    // first_info is collected only inside a FORMAT/QUAL-closed prefix. A
+    // later-contig FORMAT stop ends that prefix, so an empty first_info is
+    // the outcome of the stop. A later-contig QUAL stop is not that outcome.
+    if later_contig_format.is_some() && first_info.is_none() {
+        kv(
+            "post_6r189_info_before_later_contig_format",
+            "none; no INFO split was reached before the later-contig FORMAT stop",
+        );
+    } else {
+        let (j0, r0, vals) = first_info.expect("expected a remaining INFO split after 6R.189");
+        kv("post_6r189_skip_rp_first_info", j0.site());
+        kv("post_6r189_skip_rp_vals", format!("{vals:?}"));
+        kv(
+            "post_6r189_skip_rp_rust_only",
+            format!("{:?}", rust_only_info_keys(&j0, &r0)),
+        );
+        kv(
+            "post_6r189_skip_rp_java_only",
+            format!("{:?}", java_only_info_keys(&j0, &r0)),
+        );
+        assert_ne!(
+            (
+                j0.chrom.as_str(),
+                j0.pos,
+                j0.ref_a.as_str(),
+                j0.alt.as_str()
+            ),
+            FIRST_REMAINING,
+            "6R.189 closed 2:92305635; this inventory must not still treat it as first remaining"
+        );
+        kv(
+            "primary_arrow_field",
+            "6R.187 DP site closed by 6R.189; 6R.190 owns the fresh first remaining",
+        );
+    }
 }
 
 #[test]
@@ -734,11 +780,19 @@ fn forensic_6r187_target_annotation_objects() {
         "stored_retainEvidence_92305635_n",
         stored_retain_target.len().to_string(),
     );
-    assert_eq!(stored_retain_closed.len(), 3);
+    // 6R.187 (5439b924, 2026-09-17) pinned this overlap at 3 because the stored
+    // hap matrix still contained the mate-on-other-contig read. 6R.311 removed
+    // that likelihood row. Java annotation evidence remains 3 via Coverage/MQ
+    // (7R.6/7R.9), which is `coverage_evidence_count` below, not this set.
+    assert_eq!(
+        stored_retain_closed.len(),
+        2,
+        "genotyping likelihood overlap at 92305634 excludes the coverage-only failed mate"
+    );
     assert_eq!(
         stored_retain_target.len(),
-        3,
-        "Java loc-loop retainEvidence on the stored hap matrix is n=3 at both adjacent SNPs"
+        2,
+        "genotyping likelihood overlap at 92305635 excludes the coverage-only failed mate"
     );
 
     for idx in &stored_retain_target {
@@ -868,27 +922,42 @@ fn forensic_6r187_target_annotation_objects() {
         rms_mapping_quality_sample_mapqs(&outcome.genotyping_reads, &target.annotation_likelihoods)
     };
     kv("target_mq_members", format!("{target_mqs:?}"));
-    let target_rms = rms_mapping_quality_raw(&target_mqs)
-        .map(|t| t.2)
-        .unwrap_or(-1.0);
+    // Likelihood-row order is first-seen read index, not a MAPQ contract.
+    // The two scored reads are FLAG 99 MAPQ 53 and FLAG 147 MAPQ 43.
+    let mut likelihood_mapqs = target_mqs.clone();
+    likelihood_mapqs.sort_unstable();
+    assert_eq!(
+        likelihood_mapqs,
+        vec![43, 53],
+        "rms_mapping_quality_sample_mapqs walks likelihood indices only; FLAG 145 is absent"
+    );
+    let (n, sum_sq, target_rms) =
+        rms_mapping_quality_raw(&target_mqs).expect("likelihood-only RMS");
     kv("target_mq_rms", format!("{target_rms:.4}"));
+    assert_eq!(n, 2);
+    assert_eq!(sum_sq, 53u64 * 53 + 43u64 * 43);
     assert!(
-        (target_rms - 41.96).abs() < 0.005,
-        "6R.189 loc-loop MAPQ members produce Java MQ=41.96"
+        (target_rms - 48.2597).abs() < 1e-4,
+        "likelihood-only RMS is sqrt((53^2+43^2)/2) ≈ 48.2597; emitted MQ 41.96 includes FLAG 145"
     );
 
     assert!(
         !target.annotation_likelihoods.is_empty(),
         "92305635 has an attached annotation object (not the empty 6R.181 fallback)"
     );
-    assert_eq!(target_ann.len(), 3, "6R.189 attached loc-loop n=3");
-    assert!(
-        closed.annotation_likelihoods.is_empty() || closed_ann.len() == 3,
-        "closed neighbor is empty-fallback or n=3"
+    assert_eq!(
+        target_ann.len(),
+        2,
+        "6R.189 attached object is the genotyping loc-loop; the failed mate has no row"
+    );
+    assert_eq!(
+        closed_ann.len(),
+        2,
+        "closed neighbor annotation rows exclude the coverage-only failed mate"
     );
     assert_eq!(
         target_ann, stored_retain_target,
-        "6R.189: attached object is Java stored-hap retainEvidence n=3"
+        "attached object matches genotyping overlap; annotation MQ adds the failed mate separately"
     );
 
     let emitted =
@@ -922,7 +991,7 @@ fn forensic_6r187_target_annotation_objects() {
 
     kv(
         "classification",
-        "A closed by 6R.189 — SiteScore annotation is stored-hap retainEvidence n=3",
+        "A closed by 6R.189 for emit; genotyping rows are n=2 after 6R.311; Coverage/MQ n=3 via 7R.6/7R.9",
     );
     kv(
         "not_6r186",

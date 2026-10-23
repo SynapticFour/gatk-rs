@@ -31,7 +31,6 @@ for cls, data in ledger["classes"].items():
 lines.append("")
 lines.append("## Notes")
 lines.append("- This summary is generated from report artifacts in `parity/reports/`.")
-lines.append("- For full equivalence wording requirements, see `docs/phase5-equivalence-hardening-checklist.md`.")
 
 out_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
 print(f"[p5-summary] wrote {out_md}")

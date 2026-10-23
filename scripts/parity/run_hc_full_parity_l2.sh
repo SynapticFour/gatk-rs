@@ -256,9 +256,19 @@ run_l2() {
     return
   fi
   set +e
-  python3 "${compare_py}" "${rust_out}" "${java_path}" \
-    --float-eps "${PARITY_L2_FLOAT_EPS:-1e-5}" \
-    --json-out "${case_json}"
+  # p11 call-region QUAL is producer-specific: Java writes the PL sentinel
+  # `99.000000` (`HcParityCallRegionVcf`); Rust writes HaplotypeCaller site QUAL.
+  # Other row keys stay compared. No other case passes --ignore-row-keys.
+  if [[ "${phase}" == "j2-vcf" && "${case_id}" == "p11_java_positive_chrlive" ]]; then
+    python3 "${compare_py}" "${rust_out}" "${java_path}" \
+      --float-eps "${PARITY_L2_FLOAT_EPS:-1e-5}" \
+      --json-out "${case_json}" \
+      --ignore-row-keys qual
+  else
+    python3 "${compare_py}" "${rust_out}" "${java_path}" \
+      --float-eps "${PARITY_L2_FLOAT_EPS:-1e-5}" \
+      --json-out "${case_json}"
+  fi
   # PARITY_L2_FLOAT_REL_TOL defaults to 1e-2 in compare_hc_full_parity_l2.py (LIBS vs Rust GL path).
   local cmp_ec=$?
   set -e
@@ -525,17 +535,140 @@ if [[ -f "${cases}" ]]; then
   done <"${cases}"
 fi
 
+# h1-inactive real-world inputs are gitignored. Stage only those paths, and
+# only when the whole asset is absent. A failed attempt must not abort L2:
+# the caller falls through to the missing-input skip.
+# Reference fetcher: scripts/parity/giab/fetch_hs37d5_release.sh (giab-ref-v1).
+# It rewrites FASTA+.fai+.dict together, so it is invoked only when all three
+# are absent. BAM URL matches the P12/GIAB NA12878_20k corpus. There is no
+# published BAM checksum; a non-empty download plus its .bai is the check.
+# This path does not run HaplotypeCaller or write P12 status reports.
+l2_download_new_file() {
+  local url="$1"
+  local dest="$2"
+  local partial="${dest}.partial"
+  if [[ -e "${dest}" ]]; then
+    return 1
+  fi
+  rm -f "${partial}"
+  if ! curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 900 \
+      -o "${partial}" "${url}"; then
+    rm -f "${partial}"
+    return 1
+  fi
+  if [[ ! -s "${partial}" || -e "${dest}" ]]; then
+    rm -f "${partial}"
+    return 1
+  fi
+  if ! mv "${partial}" "${dest}"; then
+    rm -f "${partial}"
+    return 1
+  fi
+}
+
+h1_inactive_ref_ready() {
+  local ref_rel="$1"
+  local ref_abs="${repo_root}/${ref_rel}"
+  if [[ "${ref_rel}" == "parity/realworld/assets/hs37d5.simple.fa" ]]; then
+    local dir="${repo_root}/parity/realworld/assets"
+    [[ -s "${dir}/hs37d5.simple.fa" && -s "${dir}/hs37d5.simple.fa.fai" && -s "${dir}/hs37d5.simple.dict" ]]
+  else
+    [[ -f "${ref_abs}" ]]
+  fi
+}
+
+h1_inactive_bam_ready() {
+  local bam_rel="$1"
+  local bam_abs="$2"
+  if [[ "${bam_rel}" == parity/realworld/na12878_20k_b37/*.bam ]]; then
+    [[ -s "${bam_abs}" && -s "${bam_abs%.bam}.bai" ]]
+  else
+    [[ -f "${bam_abs}" ]]
+  fi
+}
+
+l2_stage_na12878_20k_pair() {
+  local bam_abs="$1"
+  local bai_abs="${bam_abs%.bam}.bai"
+  local base="${P12_S3_BASE_URL:-https://gatk-test-data.s3.amazonaws.com/wgs_bam/NA12878_20k_b37}"
+  local bam_partial="${bam_abs}.partial"
+  local bai_partial="${bai_abs}.partial"
+  local fetch_bam=0
+  if [[ -e "${bam_abs}" && ! -s "${bam_abs}" ]]; then
+    return 0
+  fi
+  if [[ -e "${bai_abs}" && ! -s "${bai_abs}" ]]; then
+    return 0
+  fi
+  if [[ -s "${bam_abs}" && -s "${bai_abs}" ]]; then
+    return 0
+  fi
+  echo "[hc-full-parity-l2] staging $(basename "${bam_abs}") from the NA12878_20k corpus"
+  if ! mkdir -p "$(dirname "${bam_abs}")"; then
+    return 1
+  fi
+  if [[ ! -e "${bam_abs}" ]]; then
+    fetch_bam=1
+    if ! l2_download_new_file "${base}/$(basename "${bam_abs}")" "${bam_abs}"; then
+      rm -f "${bam_partial}"
+      return 1
+    fi
+  fi
+  if [[ ! -e "${bai_abs}" ]]; then
+    if ! l2_download_new_file "${base}/$(basename "${bai_abs}")" "${bai_abs}"; then
+      rm -f "${bai_partial}"
+      if [[ "${fetch_bam}" -eq 1 ]]; then
+        rm -f "${bam_abs}" "${bam_partial}"
+      fi
+      return 1
+    fi
+  fi
+  [[ -s "${bam_abs}" && -s "${bai_abs}" ]]
+}
+
+stage_h1_inactive_realworld_assets() {
+  local ref_rel="$1"
+  local bam_rel="$2"
+  local ref_abs="${repo_root}/${ref_rel}"
+  local bam_abs="${repo_root}/${bam_rel}"
+  local ref_dir ref_fai ref_dict
+  if [[ "${ref_rel}" == "parity/realworld/assets/hs37d5.simple.fa" ]]; then
+    ref_dir="${repo_root}/parity/realworld/assets"
+    ref_fai="${ref_dir}/hs37d5.simple.fa.fai"
+    ref_dict="${ref_dir}/hs37d5.simple.dict"
+    if [[ ! -s "${ref_abs}" || ! -s "${ref_fai}" || ! -s "${ref_dict}" ]]; then
+      if [[ ! -e "${ref_abs}" && ! -e "${ref_fai}" && ! -e "${ref_dict}" ]]; then
+        echo "[hc-full-parity-l2] staging missing ${ref_rel} via fetch_hs37d5_release.sh"
+        if ! "${repo_root}/scripts/parity/giab/fetch_hs37d5_release.sh"; then
+          return 1
+        fi
+      fi
+    fi
+  fi
+  if [[ "${bam_rel}" == parity/realworld/na12878_20k_b37/*.bam ]]; then
+    if ! h1_inactive_bam_ready "${bam_rel}" "${bam_abs}"; then
+      if ! l2_stage_na12878_20k_pair "${bam_abs}"; then
+        return 1
+      fi
+    fi
+  fi
+  return 0
+}
+
 cases="${repo_root}/parity/fixtures/hc-full-parity/h1-inactive/cases.tsv"
 if [[ -f "${cases}" ]]; then
   while IFS=$'\t' read -r case_id ref bam interval padding _expected; do
     [[ -z "${case_id}" || "${case_id}" == \#* ]] && continue
-    if [[ ! -f "${repo_root}/${ref}" ]]; then
+    if ! stage_h1_inactive_realworld_assets "${ref}" "${bam}"; then
+      echo "[hc-full-parity-l2] h1-inactive/${case_id}: real-world asset staging failed"
+    fi
+    if ! h1_inactive_ref_ready "${ref}"; then
       echo "[hc-full-parity-l2] skip h1-inactive/${case_id}: missing ref ${ref}"
       skipped=$((skipped + 1))
       continue
     fi
     bam_resolved="$(resolve_alignment_path_l2 "${repo_root}/${bam}")"
-    if [[ ! -f "${bam_resolved}" ]]; then
+    if ! h1_inactive_bam_ready "${bam}" "${bam_resolved}"; then
       echo "[hc-full-parity-l2] skip h1-inactive/${case_id}: missing bam ${bam}"
       skipped=$((skipped + 1))
       continue
