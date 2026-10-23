@@ -116,6 +116,31 @@ one VCF. It does not prove GATK equivalence for that interval. Defaults,
 gVCF, Combine, genotype, and hard filters:
 [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md).
 
+## Validated Scope
+
+Signed product claims are only the **Yes** rows in
+[`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Those rows cover the canonical
+mid-B HaplotypeCaller path on `2:92317000-92319000`, P12 L3/L4/L5 on
+`chr2:92300000-92350000`, the L2 synthetic record of 223/223 strict on
+2026-07-24, the synthetic joint-genotype ladder at the recommended cap of
+100 samples on a 10 kb interval, hard-filter FILTER parity on the synthetic
+SNP boundary set, and the HG001 GIAB ci-subset F1 comparison. Waivers named
+on those rows stay part of the claim.
+
+That record is not genome-wide or full-autosome HaplotypeCaller equivalence,
+and it does not include BQSR, VQSR, Mutect2, gCNV/SV, or Funcotator. The
+boundary is [`docs/adr/0001-scope-boundary.md`](docs/adr/0001-scope-boundary.md).
+
+## License
+
+This repository is licensed under the Apache License, Version 2.0
+([`LICENSE`](LICENSE)). The workspace package metadata records the same
+identifier, `Apache-2.0`. [`NOTICE.md`](NOTICE.md) states that this is an
+independent research reimplementation, that “GATK” is a trademark of the
+Broad Institute, and that GIAB truth sets, the pinned GATK jar, hap.py, and
+the HTSlib crates keep their own terms. Apache-2.0 on this tree does not
+relicense those assets.
+
 ## Inputs
 
 | File | Requirement |
