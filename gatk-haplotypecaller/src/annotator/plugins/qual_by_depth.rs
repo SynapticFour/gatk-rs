@@ -126,6 +126,15 @@ impl Drop for ProcessQdRngTestGuard {
     }
 }
 
+/// Borrow the process `Utils.randomGenerator` for one section.
+///
+/// Reservoir `nextInt` and QualByDepth `nextGaussian` share this object.
+/// The mutex is not reentrant: do not call [`fix_too_high_qd`] from `body`.
+pub(crate) fn with_process_qd_rng<R>(body: impl FnOnce(&mut GatkJavaRng) -> R) -> R {
+    let mut guard = lock_process_qd_rng();
+    body(&mut guard.rng)
+}
+
 /// Restore the QD RNG to `Utils.GATK_RANDOM_SEED` (fresh JVM / `Utils.resetRandomGenerator`).
 pub fn reset_gatk_qual_by_depth_rng() {
     let mut g = lock_process_qd_rng();
