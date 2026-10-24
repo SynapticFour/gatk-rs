@@ -5,8 +5,10 @@ reachable from **`main`**, do not assert it.
 
 How to run the tool: [`USER_GUIDE.md`](USER_GUIDE.md). What each gate measures:
 [`PARITY.md`](PARITY.md). Crate and pipeline structure:
-[`ARCHITECTURE.md`](ARCHITECTURE.md). This file stays the claim authority;
-those pages do not add Yes rows.
+[`ARCHITECTURE.md`](ARCHITECTURE.md). What each HaplotypeCaller flag
+implements, rejects, or leaves partial:
+[`SUPPORTED_FEATURE_MATRIX.md`](SUPPORTED_FEATURE_MATRIX.md). This file stays
+the claim authority; those pages do not add Yes rows.
 
 **Pinned Java oracle:** GATK **4.4.0.0** — see [`GATK_PINNED.env`](GATK_PINNED.env) and root `GATK_PINNED_SHA`.
 
