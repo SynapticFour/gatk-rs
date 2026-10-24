@@ -70,7 +70,7 @@ Smoke checks validate wrapper behavior and argument-level parity for:
 
 The suite also includes initial content and mapped-command parity checks:
 
-- `--version` banners (Java GATK string vs Rust independent-project string; presence check, not identical text)
+- `--version` banners (Java GATK version string vs Rust `gatk-rs <version> (git <40- or 64-hex SHA, or unknown>)`; presence check, not identical text)
 - `HaplotypeCaller --help` summary text
 - `PrintReads --help` tool-name presence
 - mapped help parity: Java `ValidateSamFile --help` vs Rust `Validate --help`
