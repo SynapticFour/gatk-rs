@@ -97,6 +97,21 @@ extra Yes rows.
 - Java GATK 4.4.0.0 only when you diff against the oracle. The `gatk-rs`
   binary does not embed it.
 
+## Downloadable builds
+
+No product release is published from this repository yet. The tag workflow
+that publishes one is limited to a single native binary, Linux x86_64 GNU
+(`x86_64-unknown-linux-gnu`), plus a `SHA256SUMS` file for that executable.
+The tag must be `v` plus the workspace version. The uploaded binary's
+`gatk-rs --version` line must report that version and the tagged commit.
+macOS and Windows binaries are not offered.
+
+This project is an alpha research reimplementation. It is not a drop-in
+replacement for Broad Institute GATK and it is not clinically validated.
+
+A version tag can still start the existing Docker publish job. That job is
+unchanged. Its multi-architecture image is not a tested product release.
+
 ## Build and run
 
 ```bash
