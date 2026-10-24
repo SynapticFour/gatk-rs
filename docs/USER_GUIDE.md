@@ -2,7 +2,9 @@
 
 How to build `gatk-rs` and run the germline short-variant spine. Claims about
 agreement with GATK are in [`CLAIM_MATRIX.md`](CLAIM_MATRIX.md), not in this
-page. Comparing a Java GATK 4.4 run with a Rust run on your own BAMs is
+page. What each HaplotypeCaller flag implements, rejects, or leaves partial
+is [`SUPPORTED_FEATURE_MATRIX.md`](SUPPORTED_FEATURE_MATRIX.md). Comparing a
+Java GATK 4.4 run with a Rust run on your own BAMs is
 [`PILOT_GUIDE.md`](PILOT_GUIDE.md).
 
 The supported interface is the `gatk-rs` binary (`gatk-cli`). The
@@ -59,8 +61,8 @@ samtools index sample.bam
 | `-I`, `--input` | Indexed BAM. HaplotypeCaller opens it with HTSlib’s indexed reader. Repeatable. A SAM path is not this input. | required |
 | `-O`, `--output` | Plain-text VCF path. `.vcf`, `.g.vcf`, and other names are written as text. Names ending in `.vcf.gz`, `.bgz`, `.bgzip`, or `.bcf` are rejected. | required |
 | `-L`, `--intervals` | Interval; repeatable | whole reference if omitted |
-| `--output-mode` (`VCF`, `GVCF`, `BP_RESOLUTION`) | Variant records vs reference confidence | `VCF` |
-| `--emit-ref-confidence` (`NONE`, `GVCF`, `BP_RESOLUTION`) | GATK `-ERC` equivalent. There is no single-letter `-ERC` flag. `GVCF` and `BP_RESOLUTION` replace `--output-mode`. | unset |
+| `--output-mode` (`VCF`, `GVCF`, `BP_RESOLUTION`) | Variant records, gVCF blocks, or base-resolution reference confidence. Any other token is a configuration error and does not write the VCF. | `VCF` |
+| `--emit-ref-confidence` (`NONE`, `GVCF`, `BP_RESOLUTION`) | GATK `-ERC` equivalent. There is no single-letter `-ERC` flag. `GVCF` and `BP_RESOLUTION` replace `--output-mode`. `NONE` and any other token leave `--output-mode` unchanged. | unset |
 | `--stand-call-conf` | Omitted keeps 30.0. Any other explicit value is rejected; the production path does not apply this setting. | omitted (`30.0`) |
 | `--stand-emit-conf` | Min confidence to emit | `10.0` |
 | `--min-mapping-quality` | Mapping-quality floor | `20` |

@@ -9,6 +9,7 @@ Read these first. Everything else is evidence, history, or a specialist note.
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Crates, pipeline stages, determinism, extension points |
 | [`PARITY.md`](PARITY.md) | How validation is structured and what current results mean |
 | [`CLAIM_MATRIX.md`](CLAIM_MATRIX.md) | The only product-claim authority |
+| [`SUPPORTED_FEATURE_MATRIX.md`](SUPPORTED_FEATURE_MATRIX.md) | What each HaplotypeCaller flag implements, rejects, or leaves partial |
 | [`PILOT_GUIDE.md`](PILOT_GUIDE.md) | Run Java GATK 4.4 and gatk-rs on your own BAMs and compare |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Hooks, tests, pull requests |
 | [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) | Gate before any version tag |
