@@ -21,7 +21,11 @@ cargo build -p gatk-cli --release --locked
 ./target/release/gatk-rs --help
 ```
 
-Workspace version is **0.1.0**. On a memory-tight machine,
+Workspace version is **0.1.0**. `gatk-rs --version` and `gatk-rs -V` print the
+same line, `gatk-rs 0.1.0 (git <commit>)`. `<commit>` is the full HEAD recorded
+at build time. A source archive, a crate build, or any other build without
+Git metadata prints `gatk-rs 0.1.0 (git unknown)`. The commit id does not say
+whether the worktree was clean. On a memory-tight machine,
 `CARGO_BUILD_JOBS=1` matches what CI sets.
 
 Optional allocator, off unless you pass the feature:
@@ -171,9 +175,11 @@ test uses. It is not a promise about every BAM.
 
 ## Reproducibility
 
-Record the git SHA (`gatk-rs --version` prints the crate version, not the
-commit), the exact command, the reference build, and the BAM. For a Java
-comparison, use GATK **4.4.0.0** as pinned in [`GATK_PINNED.env`](GATK_PINNED.env).
+Record the git SHA from `gatk-rs --version` when the line contains a commit
+id. A build without Git metadata prints `git unknown`. That id is the HEAD
+present at compile time and does not show a dirty worktree. Also record the
+exact command, the reference build, and the BAM. For a Java comparison, use
+GATK **4.4.0.0** as pinned in [`GATK_PINNED.env`](GATK_PINNED.env).
 Other 4.x releases are a different baseline.
 
 Omitting `--pair-hmm` selects `FASTEST_AVAILABLE`, not the log10 scalar

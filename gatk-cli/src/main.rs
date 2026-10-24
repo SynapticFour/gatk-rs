@@ -44,7 +44,7 @@ See NOTICE.md and docs/CLAIM_MATRIX.md.";
 #[derive(Parser)]
 #[command(
     name = "gatk-rs",
-    version = env!("CARGO_PKG_VERSION"),
+    version = concat!(env!("CARGO_PKG_VERSION"), " (git ", env!("GATK_RS_GIT_SHA"), ")"),
     author = "GATK-RS Contributors",
     about = "gatk-rs: Rust-native GATK4 HaplotypeCaller + germline joint/filter spine (Alpha experiment — not Broad GATK)",
     long_about = "gatk-rs is an independent research reimplementation (single-steward) and is not \
@@ -304,10 +304,6 @@ enum Tool {
     /// List all available tools
     #[command(name = "--list")]
     ListTools,
-
-    /// Print tool version information
-    #[command(name = "--version")]
-    Version,
 
     /// Count A/C/G/T/N bases in the reference over intervals (experimental util; prefer samtools faidx).
     #[command(hide = true, visible_alias = "CountBasesInReference")]
@@ -792,21 +788,6 @@ gatk-rs is a native Rust binary and does not start a JVM \
                 println!("  ListReadsInRegion, Validate");
                 println!();
                 println!("Claims authority: docs/CLAIM_MATRIX.md");
-
-                Ok(())
-            }
-
-            Tool::Version => {
-                // Do not impersonate Broad GATK. Expose our version and the pinned
-                // Java oracle version used for differential parity testing only.
-                println!(
-                    "gatk-rs {} (independent research reimplementation — not Broad Institute GATK)",
-                    env!("CARGO_PKG_VERSION")
-                );
-                println!(
-                    "Pinned Java GATK oracle for parity tests: 4.4.0.0 (see GATK_PINNED_SHA / NOTICE.md)"
-                );
-                println!("{DISCLAIMER_HELP}");
 
                 Ok(())
             }
