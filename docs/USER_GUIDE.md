@@ -61,10 +61,12 @@ samtools index sample.bam
 | `-L`, `--intervals` | Interval; repeatable | whole reference if omitted |
 | `--output-mode` (`VCF`, `GVCF`, `BP_RESOLUTION`) | Variant records vs reference confidence | `VCF` |
 | `--emit-ref-confidence` (`NONE`, `GVCF`, `BP_RESOLUTION`) | GATK `-ERC` equivalent. There is no single-letter `-ERC` flag. `GVCF` and `BP_RESOLUTION` replace `--output-mode`. | unset |
-| `--stand-call-conf` | Min confidence to call | `30.0` |
+| `--stand-call-conf` | Omitted keeps 30.0. Any other explicit value is rejected; the production path does not apply this setting. | omitted (`30.0`) |
 | `--stand-emit-conf` | Min confidence to emit | `10.0` |
 | `--min-mapping-quality` | Mapping-quality floor | `20` |
-| `--min-base-quality-score` | Base-quality floor | `10` |
+| `--min-base-quality-score` | Omitted keeps 10. Any other explicit value is rejected; the production path does not apply this setting. | omitted (`10`) |
+| `--original-base-qualities` | Unsupported. Enabling the flag is rejected. | off |
+| `--dont-use-soft-clipped-bases` | Unsupported. Enabling the flag is rejected. | off |
 | `--pair-hmm` | Omitted selects `FASTEST_AVAILABLE`: a supported host SIMD kernel (AVX2, NEON, or packed f64) when one is available, otherwise Logless scalar. Also accepts `LOG10_PAIRHMM`, `LOGLESS_HMM`, `AVX` / `SIMD`, `SIMD_F32`, and `WAVEFRONT`. `WAVEFRONT` is accepted by the parser. It is not the omitted-flag value. | omitted (`FASTEST_AVAILABLE`) |
 | `--alleles` / `-A` | VCF of alleles to force (claim-matrix T3-5; not a full GATK `-alleles` sign-off) | unset |
 | `--threads` / `-t` / `--nt` | Rayon worker count. When the flag is set, including `--threads 0`, it overrides `RAYON_NUM_THREADS`. `--threads 0` uses the logical CPU count. | omitted: `RAYON_NUM_THREADS` if that value is a positive integer, otherwise the logical CPU count |

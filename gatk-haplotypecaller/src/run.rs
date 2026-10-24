@@ -389,6 +389,8 @@ fn validate_haplotype_caller_input_policy(config: &GatkConfig) -> GatkResult<()>
 }
 
 const HC_DEFAULT_MAX_ALTERNATE_ALLELES: u32 = 6;
+const HC_DEFAULT_STAND_CALL_CONFIDENCE: f64 = 30.0;
+const HC_DEFAULT_MIN_BASE_QUALITY_SCORE: u8 = 10;
 
 /// H2-3: fail fast on CLI flags parsed but not wired on the strict production path.
 fn reject_unsupported_haplotype_caller_cli(
@@ -409,15 +411,27 @@ fn reject_unsupported_haplotype_caller_cli(
             hc.max_alternate_alleles
         )));
     }
+    if hc.stand_call_confidence != HC_DEFAULT_STAND_CALL_CONFIDENCE {
+        return Err(GatkError::configuration(format!(
+            "--stand-call-conf ({}) is not implemented by the production calling path; omit the flag to keep {HC_DEFAULT_STAND_CALL_CONFIDENCE}",
+            hc.stand_call_confidence
+        )));
+    }
+    if hc.min_base_quality_score != HC_DEFAULT_MIN_BASE_QUALITY_SCORE {
+        return Err(GatkError::configuration(format!(
+            "--min-base-quality-score ({}) is not implemented by the production calling path; omit the flag to keep {HC_DEFAULT_MIN_BASE_QUALITY_SCORE}",
+            hc.min_base_quality_score
+        )));
+    }
     if hc.original_base_qualities {
-        tracing::warn!(
-            "--original-base-qualities is accepted but not yet wired to PairHMM / activity inputs"
-        );
+        return Err(GatkError::configuration(
+            "--original-base-qualities is not implemented by the production calling path",
+        ));
     }
     if hc.dont_use_soft_clipped_bases {
-        tracing::warn!(
-            "--dont-use-soft-clipped-bases is accepted but not yet wired on the strict callRegion path"
-        );
+        return Err(GatkError::configuration(
+            "--dont-use-soft-clipped-bases is not implemented by the production calling path",
+        ));
     }
     Ok(())
 }
@@ -1064,6 +1078,37 @@ mod tests {
         hc.max_alternate_alleles = 3;
         let err = reject_unsupported_haplotype_caller_cli(&hc, &config).unwrap_err();
         assert!(err.to_string().contains("max-alternate-alleles"));
+    }
+
+    #[test]
+    fn reject_unimplemented_call_confidence_and_base_quality_controls() {
+        let config = GatkConfig::new("HaplotypeCaller".to_string());
+        reject_unsupported_haplotype_caller_cli(&HaplotypeCallerConfig::default(), &config)
+            .expect("omitted defaults stay on the production path");
+
+        let mut hc = HaplotypeCallerConfig::default();
+        hc.stand_call_confidence = 20.0;
+        let err = reject_unsupported_haplotype_caller_cli(&hc, &config).unwrap_err();
+        assert!(err.to_string().contains("--stand-call-conf"));
+        assert!(err.to_string().contains("not implemented"));
+
+        hc = HaplotypeCallerConfig::default();
+        hc.min_base_quality_score = 20;
+        let err = reject_unsupported_haplotype_caller_cli(&hc, &config).unwrap_err();
+        assert!(err.to_string().contains("--min-base-quality-score"));
+        assert!(err.to_string().contains("not implemented"));
+
+        hc = HaplotypeCallerConfig::default();
+        hc.original_base_qualities = true;
+        let err = reject_unsupported_haplotype_caller_cli(&hc, &config).unwrap_err();
+        assert!(err.to_string().contains("--original-base-qualities"));
+        assert!(err.to_string().contains("not implemented"));
+
+        hc = HaplotypeCallerConfig::default();
+        hc.dont_use_soft_clipped_bases = true;
+        let err = reject_unsupported_haplotype_caller_cli(&hc, &config).unwrap_err();
+        assert!(err.to_string().contains("--dont-use-soft-clipped-bases"));
+        assert!(err.to_string().contains("not implemented"));
     }
 
     #[test]
