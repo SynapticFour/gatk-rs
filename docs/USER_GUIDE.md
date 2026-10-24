@@ -53,7 +53,7 @@ samtools index sample.bam
 |------|---------|---------|
 | `-R`, `--reference` | Reference FASTA | required |
 | `-I`, `--input` | Indexed BAM. HaplotypeCaller opens it with HTSlib’s indexed reader. Repeatable. A SAM path is not this input. | required |
-| `-O`, `--output` | Output VCF path | required |
+| `-O`, `--output` | Plain-text VCF path. `.vcf`, `.g.vcf`, and other names are written as text. Names ending in `.vcf.gz`, `.bgz`, `.bgzip`, or `.bcf` are rejected. | required |
 | `-L`, `--intervals` | Interval; repeatable | whole reference if omitted |
 | `--output-mode` (`VCF`, `GVCF`, `BP_RESOLUTION`) | Variant records vs reference confidence | `VCF` |
 | `--emit-ref-confidence` (`NONE`, `GVCF`, `BP_RESOLUTION`) | GATK `-ERC` equivalent. There is no single-letter `-ERC` flag. `GVCF` and `BP_RESOLUTION` replace `--output-mode`. | unset |
@@ -149,6 +149,11 @@ accepted and unused for these hard filters.
 | `--emit-ref-confidence GVCF` or `--output-mode GVCF` | gVCF, including reference-confidence blocks, for CombineGVCFs |
 | `BP_RESOLUTION` | Reference confidence at base resolution |
 | VariantFiltration | VCF with FILTER annotations. Records are not deleted by a failing expression. |
+
+HaplotypeCaller, CombineGVCFs, GenotypeGVCFs, and VariantFiltration write that
+VCF as plain text. BGZF, BCF, and an index are not implemented. A path whose
+file name ends in `.vcf.gz`, `.bgz`, `.bgzip`, or `.bcf` is rejected before
+the file is created or truncated.
 
 Do not assume every INFO or FORMAT field matches GATK 4.4 outside the scopes
 in the claim matrix. On the signed mid-B region the recorded Java-equivalent

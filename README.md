@@ -112,7 +112,8 @@ samtools index reads.bam
 checkout. The interval `chr20:10000000-10050000` is an illustration, not the
 tracked 32 bp smoke fixture under `parity/fixtures/`. This command has not
 been run as part of the documentation. With those files indexed, it writes
-one VCF. It does not prove GATK equivalence for that interval. Defaults,
+one plain-text VCF. Paths ending in `.vcf.gz`, `.bgz`, `.bgzip`, or `.bcf`
+are rejected. It does not prove GATK equivalence for that interval. Defaults,
 gVCF, Combine, genotype, and hard filters:
 [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md).
 

@@ -38,6 +38,82 @@ fn haplotype_caller_help_pair_hmm_omitted_default_is_fastest_available() {
 }
 
 #[test]
+fn haplotype_caller_plain_vcf_is_text_and_compressed_suffixes_are_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let plain = dir.path().join("sample.vcf");
+    Command::cargo_bin("gatk-rs")
+        .unwrap()
+        .current_dir(repo_root())
+        .env("GATK_RS_HC_SCAFFOLD_OUTPUT", "1")
+        .args([
+            "HaplotypeCaller",
+            "-R",
+            "parity/fixtures/reference.fa",
+            "-I",
+            "parity/fixtures/sample.bam",
+            "-O",
+            plain.to_str().unwrap(),
+            "-L",
+            "chr1:1-32",
+        ])
+        .assert()
+        .success();
+    let bytes = fs::read(&plain).unwrap();
+    assert!(bytes.starts_with(b"##fileformat=VCF"));
+    assert!(!bytes.starts_with(&[0x1f, 0x8b]));
+
+    for name in ["sample.vcf.gz", "sample.bgz", "sample.bgzip", "sample.bcf"] {
+        let seeded = dir.path().join(name);
+        fs::write(&seeded, b"KEEP").unwrap();
+        let asserted = Command::cargo_bin("gatk-rs")
+            .unwrap()
+            .current_dir(repo_root())
+            .env("GATK_RS_HC_SCAFFOLD_OUTPUT", "1")
+            .args([
+                "HaplotypeCaller",
+                "-R",
+                "parity/fixtures/reference.fa",
+                "-I",
+                "parity/fixtures/sample.bam",
+                "-O",
+                seeded.to_str().unwrap(),
+                "-L",
+                "chr1:1-32",
+            ])
+            .assert()
+            .code(2);
+        let stderr = String::from_utf8(asserted.get_output().stderr.clone()).unwrap();
+        assert!(
+            stderr.contains("unsupported output format"),
+            "{name}: {stderr}"
+        );
+        assert!(stderr.contains("plain-text VCF"), "{name}: {stderr}");
+        assert!(stderr.contains("not implemented"), "{name}: {stderr}");
+        assert_eq!(fs::read(&seeded).unwrap(), b"KEEP", "{name} was modified");
+
+        let absent = dir.path().join(format!("absent-{name}"));
+        Command::cargo_bin("gatk-rs")
+            .unwrap()
+            .current_dir(repo_root())
+            .env("GATK_RS_HC_SCAFFOLD_OUTPUT", "1")
+            .args([
+                "HaplotypeCaller",
+                "-R",
+                "parity/fixtures/reference.fa",
+                "-I",
+                "parity/fixtures/sample.bam",
+                "-O",
+                absent.to_str().unwrap(),
+                "-L",
+                "chr1:1-32",
+            ])
+            .assert()
+            .code(2);
+        assert!(!absent.exists(), "{name} was created");
+    }
+}
+
+#[test]
 fn haplotype_caller_help_exits_zero() {
     Command::cargo_bin("gatk-rs")
         .unwrap()

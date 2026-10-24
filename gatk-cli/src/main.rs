@@ -93,7 +93,9 @@ enum Tool {
         #[arg(short = 'I', long, num_args = 1..)]
         input: Vec<String>,
 
-        /// Output VCF (GATK: `-O`)
+        /// Plain-text VCF path (GATK: `-O`).
+        /// Names ending in `.vcf.gz`, `.bgz`, `.bgzip`, or `.bcf` are rejected.
+        /// BGZF, BCF, and indexed output are not implemented.
         #[arg(short = 'O', long)]
         output: String,
 
