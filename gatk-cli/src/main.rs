@@ -107,9 +107,10 @@ enum Tool {
         #[arg(long = "output-mode", alias = "mode", default_value = "VCF")]
         output_mode: String,
 
-        /// Minimum base quality (GATK: `--min-base-quality-score`)
-        #[arg(long = "min-base-quality-score", default_value = "10")]
-        min_base_quality_score: u8,
+        /// Minimum base quality. Omitted keeps 10.
+        /// Any other explicit value is rejected: the production calling path does not apply this setting.
+        #[arg(long = "min-base-quality-score")]
+        min_base_quality_score: Option<u8>,
 
         /// Emit reference confidence: NONE | GVCF | BP_RESOLUTION (GATK: `--emit-ref-confidence`; native GATK also documents `-ERC`, which is not expressible as a single clap short flag — use the long form here).
         #[arg(long = "emit-ref-confidence")]
@@ -127,11 +128,11 @@ enum Tool {
         )]
         pair_hmm: Option<String>,
 
-        /// Use original base qualities
+        /// Not implemented. Enabling this flag is rejected.
         #[arg(long)]
         original_base_qualities: bool,
 
-        /// Don't use soft clipped bases
+        /// Not implemented. Enabling this flag is rejected.
         #[arg(long)]
         dont_use_soft_clipped_bases: bool,
 
@@ -143,13 +144,14 @@ enum Tool {
         #[arg(long = "min-mapping-quality", default_value = "20")]
         min_mapping_quality: u32,
 
-        /// Minimum phred-scaled confidence to call variants (GATK: `--standard-min-confidence-threshold-for-calling`)
+        /// Minimum phred-scaled confidence to call variants.
+        /// Omitted keeps 30.0. Any other explicit value is rejected: the production
+        /// calling path does not apply this setting.
         #[arg(
             long = "standard-min-confidence-threshold-for-calling",
-            visible_alias = "stand-call-conf",
-            default_value = "30.0"
+            visible_alias = "stand-call-conf"
         )]
-        stand_call_confidence: f64,
+        stand_call_confidence: Option<f64>,
 
         /// Minimum phred-scaled confidence to emit variants (GATK: `--standard-min-confidence-threshold-for-emitting`)
         #[arg(
@@ -448,7 +450,7 @@ gatk-rs is a native Rust binary and does not start a JVM \
                     config.set_parameter("output_mode".to_string(), output_mode);
                     config.set_parameter(
                         "min_base_quality_score".to_string(),
-                        min_base_quality_score.to_string(),
+                        min_base_quality_score.unwrap_or(10).to_string(),
                     );
                     config.set_parameter(
                         "min_mapping_quality".to_string(),
@@ -460,7 +462,7 @@ gatk-rs is a native Rust binary and does not start a JVM \
                     );
                     config.set_parameter(
                         "stand_call_confidence".to_string(),
-                        stand_call_confidence.to_string(),
+                        stand_call_confidence.unwrap_or(30.0).to_string(),
                     );
                     config.set_parameter(
                         "stand_emit_confidence".to_string(),
