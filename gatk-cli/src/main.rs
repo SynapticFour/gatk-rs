@@ -113,9 +113,12 @@ enum Tool {
         #[arg(long = "emit-ref-confidence")]
         emit_ref_confidence: Option<String>,
 
-        /// PairHMM implementation (GATK: `--pair-hmm-implementation`):
-        /// `LOG10_PAIRHMM` (default) | `LOGLESS_HMM` | `AVX`/`SIMD` | `SIMD_F32` | `FASTEST_AVAILABLE`.
-        /// Alias: `--pairhmm-impl scalar|logless|simd|fastest`.
+        /// PairHMM implementation (GATK flag `--pair-hmm-implementation`).
+        /// Omitting this option selects `FASTEST_AVAILABLE` (the fastest kernel
+        /// this build can run). That is not Java GATK's log10 PairHMM.
+        /// Pass `LOG10_PAIRHMM` to select the log10 scalar kernel explicitly.
+        /// Also accepts `LOGLESS_HMM`, `AVX`/`SIMD`, `SIMD_F32`, and `WAVEFRONT`.
+        /// `--pairhmm-impl` accepts the same values (`scalar`, `logless`, `simd`, `fastest`).
         #[arg(
             long = "pair-hmm",
             visible_aliases = ["pair-hmm-implementation", "pairhmm-impl"]

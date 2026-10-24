@@ -9,6 +9,35 @@ fn repo_root() -> std::path::PathBuf {
 }
 
 #[test]
+fn haplotype_caller_help_pair_hmm_omitted_default_is_fastest_available() {
+    let asserted = Command::cargo_bin("gatk-rs")
+        .unwrap()
+        .args(["HaplotypeCaller", "--help"])
+        .assert()
+        .success();
+    let help = String::from_utf8(asserted.get_output().stdout.clone()).unwrap();
+    let pair_hmm = help
+        .lines()
+        .skip_while(|line| !line.contains("--pair-hmm"))
+        .take(14)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        pair_hmm.contains("FASTEST_AVAILABLE"),
+        "omitted --pair-hmm must be described as FASTEST_AVAILABLE:\n{pair_hmm}"
+    );
+    assert!(
+        pair_hmm.contains("LOG10_PAIRHMM"),
+        "LOG10_PAIRHMM must remain an explicit option:\n{pair_hmm}"
+    );
+    assert!(
+        !pair_hmm.contains("LOG10_PAIRHMM` (default)")
+            && !pair_hmm.contains("LOG10_PAIRHMM (default)"),
+        "LOG10_PAIRHMM must not be described as the default:\n{pair_hmm}"
+    );
+}
+
+#[test]
 fn haplotype_caller_help_exits_zero() {
     Command::cargo_bin("gatk-rs")
         .unwrap()

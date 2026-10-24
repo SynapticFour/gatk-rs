@@ -1029,6 +1029,16 @@ mod tests {
     use gatk_common::HaplotypeCallerConfig;
 
     #[test]
+    fn omitted_pair_hmm_selects_fastest_available() {
+        let config = GatkConfig::new("HaplotypeCaller".to_string());
+        let hc = HaplotypeCallerConfig::default();
+        assert!(hc.pair_hmm.is_none());
+        assert!(config.get_parameter("pair_hmm").is_none());
+        let imp = pair_hmm_impl_from_config(&hc, &config).unwrap();
+        assert_eq!(imp, crate::pairhmm_simd::PairHmmImpl::FastestAvailable);
+    }
+
+    #[test]
     fn accept_pair_hmm_cli_flag() {
         let config = GatkConfig::new("HaplotypeCaller".to_string());
         let mut hc = HaplotypeCallerConfig::default();
