@@ -8,65 +8,65 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: write
+
 jobs:
-  create-release:
-    name: Create Release
+  validate:
+    name: Validate tag version
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.VERSION }}
+      version: ${{ steps.version.outputs.version }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
 
-    - name: Extract version
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Require tag to match the workspace version
       id: version
-      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-    - name: Ensure GitHub CLI is available
-      run: gh --version
-
-    - name: Create release if missing
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      shell: bash
       run: |
-        if ! gh release view "${GITHUB_REF#refs/tags/}" >/dev/null 2>&1; then
-          gh release create "${GITHUB_REF#refs/tags/}" \
-            --title "GATK-RS ${{ steps.version.outputs.VERSION }}" \
-            --notes "Release ${{ steps.version.outputs.VERSION }}"
+        set -euo pipefail
+        tag="${GITHUB_REF#refs/tags/}"
+        if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::malformed release tag '${tag}'. Expected vX.Y.Z, with X.Y.Z equal to the workspace version."
+          exit 1
         fi
+        suffix="${tag#v}"
+        manifest="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c '
+        import json, sys
+        meta = json.load(sys.stdin)
+        versions = sorted({pkg["version"] for pkg in meta["packages"]})
+        if len(versions) != 1:
+            sys.stderr.write("workspace packages do not share one version: %s\n" % versions)
+            sys.exit(1)
+        print(versions[0])
+        ')"
+        if [[ ! "$manifest" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::workspace version '${manifest}' is not X.Y.Z."
+          exit 1
+        fi
+        if [[ "$suffix" != "$manifest" ]]; then
+          echo "::error::tag version ${suffix} does not match workspace version ${manifest}."
+          exit 1
+        fi
+        echo "version=${suffix}" >> "$GITHUB_OUTPUT"
+        echo "Tag ${tag} matches workspace version ${manifest}."
 
-  build-and-upload:
-    name: Build and Upload
-    needs: create-release
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            artifact_name: gatk-rs
-            asset_name: gatk-rs-${{ needs.create-release.outputs.version }}-x86_64-unknown-linux-gnu
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            artifact_name: gatk-rs
-            asset_name: gatk-rs-${{ needs.create-release.outputs.version }}-x86_64-apple-darwin
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact_name: gatk-rs.exe
-            asset_name: gatk-rs-${{ needs.create-release.outputs.version }}-x86_64-pc-windows-msvc.exe
-
+  package:
+    name: Build Linux x86_64 binary
+    needs: validate
+    runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
 
-    - name: Extract version
-      id: version
-      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
       with:
-        targets: ${{ matrix.target }}
+        targets: x86_64-unknown-linux-gnu
 
     - name: Cache dependencies
       uses: actions/cache@v6
@@ -75,173 +75,96 @@ jobs:
           ~/.cargo/registry
           ~/.cargo/git
           target
-        key: ${{ runner.os }}-cargo-release-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-cargo-release-x86_64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
-          ${{ runner.os }}-cargo-release-${{ matrix.target }}-
-          ${{ runner.os }}-cargo-release-
+          ${{ runner.os }}-cargo-release-x86_64-unknown-linux-gnu-
 
-    - name: Build release
-      run: cargo build --workspace --release --target ${{ matrix.target }}
+    - name: Build release binary
+      run: cargo build -p gatk-cli --bin gatk-rs --release --locked --target x86_64-unknown-linux-gnu
 
-    - name: Strip binary (Unix)
-      if: matrix.os != 'windows-latest'
-      run: strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
-
-    - name: Upload release asset
+    - name: Strip, smoke-test, and checksum the upload candidate
+      shell: bash
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        RELEASE_VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        gh release upload "${GITHUB_REF#refs/tags/}" \
-          "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}#${{ matrix.asset_name }}" \
-          --clobber
+        set -euo pipefail
+        version="$RELEASE_VERSION"
+        asset="gatk-rs-${version}-x86_64-unknown-linux-gnu"
+        mkdir -p dist
+        cp "target/x86_64-unknown-linux-gnu/release/gatk-rs" "dist/${asset}"
+        chmod +x "dist/${asset}"
+        strip "dist/${asset}"
+        version_line="$("dist/${asset}" --version | tr -d '\r')"
+        version_line="${version_line%$'\n'}"
+        expected="gatk-rs ${version} (git ${GITHUB_SHA})"
+        if [[ "$version_line" != "$expected" ]]; then
+          echo "::error::upload candidate printed [${version_line}], expected [${expected}]."
+          exit 1
+        fi
+        help_out="$("dist/${asset}" --help)"
+        if [[ -z "$help_out" ]]; then
+          echo "::error::upload candidate --help produced no output."
+          exit 1
+        fi
+        (
+          cd dist
+          sha256sum "$asset" > SHA256SUMS
+          sha256sum -c SHA256SUMS
+        )
 
-  publish-crate:
-    name: Publish to crates.io
-    runs-on: ubuntu-latest
-    needs: create-release
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-
-    - name: Cache dependencies
-      uses: actions/cache@v6
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-publish-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-publish-
-
-    - name: Publish gatk-common
-      run: cargo publish -p gatk-common
-      env:
-        CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
-    - name: Publish gatk-core
-      run: cargo publish -p gatk-core
-      env:
-        CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
-    - name: Publish gatk-cli
-      run: cargo publish -p gatk-cli
-      env:
-        CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
-    - name: Publish gatk-haplotypecaller
-      run: cargo publish -p gatk-haplotypecaller
-      env:
-        CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
-  docker:
-    name: Build Docker Image
-    runs-on: ubuntu-latest
-    needs: create-release
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-
-    - name: Extract version
-      id: version
-      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v4
-
-    - name: Login to Docker Hub
-      uses: docker/login-action@v4
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
-
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v7
-      with:
-        context: .
-        platforms: linux/amd64,linux/arm64
-        push: true
-        tags: |
-          gatkr/gatk-rs:latest
-          gatkr/gatk-rs:${{ needs.create-release.outputs.version }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-  docs:
-    name: Deploy Documentation
-    runs-on: ubuntu-latest
-    needs: create-release
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-
-    - name: Extract version
-      id: version
-      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-
-    - name: Generate documentation
-      run: cargo doc --workspace --all-features --no-deps
-
-    - name: Deploy to GitHub Pages
-      uses: peaceiris/actions-gh-pages@v4
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: target/doc
-        destination_dir: ${{ needs.create-release.outputs.version }}
-
-  performance-report:
-    name: Performance Report
-    runs-on: ubuntu-latest
-    needs: create-release
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-
-    - name: Cache dependencies
-      uses: actions/cache@v6
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-perf-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-perf-
-
-    - name: Build release
-      run: cargo build --workspace --release
-
-    - name: Run performance benchmarks
-      run: cargo bench -p gatk-core -p gatk-haplotypecaller --benches -- --output-format bencher | tee benchmark-results.json
-
-    - name: Upload benchmark results
+    - name: Upload packaged binary
       uses: actions/upload-artifact@v7
       with:
-        name: benchmark-results-${{ needs.create-release.outputs.version }}
-        path: benchmark-results.json
+        name: linux-x86_64-binary
+        path: dist/
+        if-no-files-found: error
 
-    - name: Generate performance report
-      run: |
-        echo "# Performance Report for GATK-RS ${{ needs.create-release.outputs.version }}" > performance-report.md
-        echo "" >> performance-report.md
-        echo "## Benchmark Results" >> performance-report.md
-        echo '```json' >> performance-report.md
-        cat benchmark-results.json >> performance-report.md
-        echo '```' >> performance-report.md
+  publish:
+    name: Publish GitHub release
+    needs: [validate, package]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download packaged binary
+      uses: actions/download-artifact@v7
+      with:
+        name: linux-x86_64-binary
+        path: dist
 
-    - name: Upload performance report to release
+    - name: Re-check identity and checksum, then create the release
+      shell: bash
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        gh release upload "${GITHUB_REF#refs/tags/}" \
-          "performance-report.md#performance-report-${{ needs.create-release.outputs.version }}.md" \
-          --clobber
+        set -euo pipefail
+        version="$RELEASE_VERSION"
+        tag="${GITHUB_REF#refs/tags/}"
+        asset="gatk-rs-${version}-x86_64-unknown-linux-gnu"
+        test -f "dist/${asset}"
+        test -f dist/SHA256SUMS
+        (
+          cd dist
+          sha256sum -c SHA256SUMS
+        )
+        chmod +x "dist/${asset}"
+        version_line="$("dist/${asset}" --version | tr -d '\r')"
+        version_line="${version_line%$'\n'}"
+        expected="gatk-rs ${version} (git ${GITHUB_SHA})"
+        if [[ "$version_line" != "$expected" ]]; then
+          echo "::error::release asset printed [${version_line}], expected [${expected}]."
+          exit 1
+        fi
+        help_out="$("dist/${asset}" --help)"
+        if [[ -z "$help_out" ]]; then
+          echo "::error::release asset --help produced no output."
+          exit 1
+        fi
+        if gh release view "$tag" >/dev/null 2>&1; then
+          echo "::error::GitHub release ${tag} already exists. Refusing to replace it."
+          exit 1
+        fi
+        gh release create "$tag" \
+          --title "GATK-RS ${version}" \
+          --notes "Release ${version}" \
+          "dist/${asset}" \
+          dist/SHA256SUMS

@@ -21,7 +21,11 @@ cargo build -p gatk-cli --release --locked
 ./target/release/gatk-rs --help
 ```
 
-Workspace version is **0.1.0**. On a memory-tight machine,
+Workspace version is **0.1.0**. `gatk-rs --version` and `gatk-rs -V` print the
+same line, `gatk-rs 0.1.0 (git <commit>)`. `<commit>` is the full HEAD recorded
+at build time. A source archive, a crate build, or any other build without
+Git metadata prints `gatk-rs 0.1.0 (git unknown)`. The commit id does not say
+whether the worktree was clean. On a memory-tight machine,
 `CARGO_BUILD_JOBS=1` matches what CI sets.
 
 Optional allocator, off unless you pass the feature:
@@ -53,7 +57,7 @@ samtools index sample.bam
 |------|---------|---------|
 | `-R`, `--reference` | Reference FASTA | required |
 | `-I`, `--input` | Indexed BAM. HaplotypeCaller opens it with HTSlib’s indexed reader. Repeatable. A SAM path is not this input. | required |
-| `-O`, `--output` | Output VCF path | required |
+| `-O`, `--output` | Plain-text VCF path. `.vcf`, `.g.vcf`, and other names are written as text. Names ending in `.vcf.gz`, `.bgz`, `.bgzip`, or `.bcf` are rejected. | required |
 | `-L`, `--intervals` | Interval; repeatable | whole reference if omitted |
 | `--output-mode` (`VCF`, `GVCF`, `BP_RESOLUTION`) | Variant records vs reference confidence | `VCF` |
 | `--emit-ref-confidence` (`NONE`, `GVCF`, `BP_RESOLUTION`) | GATK `-ERC` equivalent. There is no single-letter `-ERC` flag. `GVCF` and `BP_RESOLUTION` replace `--output-mode`. | unset |
@@ -150,6 +154,11 @@ accepted and unused for these hard filters.
 | `BP_RESOLUTION` | Reference confidence at base resolution |
 | VariantFiltration | VCF with FILTER annotations. Records are not deleted by a failing expression. |
 
+HaplotypeCaller, CombineGVCFs, GenotypeGVCFs, and VariantFiltration write that
+VCF as plain text. BGZF, BCF, and an index are not implemented. A path whose
+file name ends in `.vcf.gz`, `.bgz`, `.bgzip`, or `.bcf` is rejected before
+the file is created or truncated.
+
 Do not assume every INFO or FORMAT field matches GATK 4.4 outside the scopes
 in the claim matrix. On the signed mid-B region the recorded Java-equivalent
 fields are described in [`PARITY_MILESTONE_6R.md`](PARITY_MILESTONE_6R.md).
@@ -166,9 +175,11 @@ test uses. It is not a promise about every BAM.
 
 ## Reproducibility
 
-Record the git SHA (`gatk-rs --version` prints the crate version, not the
-commit), the exact command, the reference build, and the BAM. For a Java
-comparison, use GATK **4.4.0.0** as pinned in [`GATK_PINNED.env`](GATK_PINNED.env).
+Record the git SHA from `gatk-rs --version` when the line contains a commit
+id. A build without Git metadata prints `git unknown`. That id is the HEAD
+present at compile time and does not show a dirty worktree. Also record the
+exact command, the reference build, and the BAM. For a Java comparison, use
+GATK **4.4.0.0** as pinned in [`GATK_PINNED.env`](GATK_PINNED.env).
 Other 4.x releases are a different baseline.
 
 Omitting `--pair-hmm` selects `FASTEST_AVAILABLE`, not the log10 scalar

@@ -25,7 +25,9 @@ pub struct VcfReader {
 
 /// VCF file writer with efficient output.
 /// # Invariants
-/// Header written before variant records.
+/// Header written before variant records. Body bytes are plain-text VCF.
+/// A file name ending in `.vcf.gz`, `.bgz`, `.bgzip`, or `.bcf` is refused
+/// before the path is created or truncated.
 /// # Ownership
 /// Owns writer trait object and header snapshot.
 /// # Mutation
@@ -300,12 +302,47 @@ impl<'a> Iterator for VcfIterator<'a> {
     }
 }
 
+/// Suffix this plain-text writer cannot honor, matched on the file name only.
+fn unsupported_plain_vcf_suffix(file_name: &str) -> Option<&'static str> {
+    let lower = file_name.to_ascii_lowercase();
+    if lower.ends_with(".vcf.gz") {
+        Some(".vcf.gz")
+    } else if lower.ends_with(".bgzip") {
+        Some(".bgzip")
+    } else if lower.ends_with(".bgz") {
+        Some(".bgz")
+    } else if lower.ends_with(".bcf") {
+        Some(".bcf")
+    } else {
+        None
+    }
+}
+
+fn reject_unsupported_plain_vcf_output(path: &std::path::Path) -> gatk_common::GatkResult<()> {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return Ok(());
+    };
+    let Some(suffix) = unsupported_plain_vcf_suffix(name) else {
+        return Ok(());
+    };
+    Err(gatk_common::GatkError::argument(format!(
+        "unsupported output format '{name}' (suffix {suffix}): this implementation writes plain-text VCF only. BGZF (names ending in .vcf.gz, .bgz, or .bgzip), BCF (.bcf), and indexed output are not implemented. The output file was not created or modified. Choose a plain-text path such as sample.vcf"
+    )))
+}
+
 impl VcfWriter {
-    /// Create new VCF writer
+    /// Create a plain-text VCF writer.
+    ///
+    /// File names ending in `.vcf.gz`, `.bgz`, `.bgzip`, or `.bcf`
+    /// (ASCII case-insensitive) are rejected before the path is created or
+    /// truncated. Every other path, including names that do not end in `.vcf`,
+    /// is written as uncompressed VCF text.
     pub fn new<P: AsRef<std::path::Path>>(
         path: P,
         header: VcfHeader,
     ) -> gatk_common::GatkResult<Self> {
+        let path = path.as_ref();
+        reject_unsupported_plain_vcf_output(path)?;
         let file = std::fs::File::create(path)
             .map_err(|e| gatk_common::GatkError::io("Failed to create VCF file", e))?;
 
@@ -1158,5 +1195,78 @@ mod reader_tests {
         assert_eq!(recs.len(), 1);
         assert_eq!(recs[0].chromosome, "chr1");
         assert_eq!(recs[0].position, 9);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod writer_output_contract_tests {
+    use super::*;
+
+    fn header() -> VcfHeader {
+        VcfHeader::default()
+    }
+
+    fn assert_plain_text(path: &std::path::Path) {
+        let mut writer = VcfWriter::new(path, header()).unwrap();
+        writer.write_header().unwrap();
+        drop(writer);
+        let bytes = std::fs::read(path).unwrap();
+        assert!(
+            bytes.starts_with(b"##fileformat=VCFv4.2\n"),
+            "plain VCF must stay uncompressed text"
+        );
+        assert!(!bytes.starts_with(&[0x1f, 0x8b]));
+    }
+
+    #[test]
+    fn plain_paths_are_written_as_text() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_plain_text(&dir.path().join("sample.vcf"));
+        assert_plain_text(&dir.path().join("sample.g.vcf"));
+        assert_plain_text(&dir.path().join("calls.txt"));
+        assert_plain_text(&dir.path().join("no_extension"));
+    }
+
+    #[test]
+    fn compressed_and_bcf_suffixes_are_rejected_without_touching_the_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let names = [
+            "sample.vcf.gz",
+            "sample.g.vcf.gz",
+            "sample.VCF.GZ",
+            "sample.bgz",
+            "sample.vcf.bgz",
+            "sample.bgzip",
+            "sample.bcf",
+            "sample.BCF",
+        ];
+        for name in names {
+            let path = dir.path().join(name);
+            std::fs::write(&path, b"KEEP").unwrap();
+            let message = match VcfWriter::new(&path, header()) {
+                Err(err) => err.to_string(),
+                Ok(_) => panic!("{name}: compressed output was accepted"),
+            };
+            assert!(
+                message.contains("unsupported output format"),
+                "{name}: {message}"
+            );
+            assert!(message.contains("plain-text VCF"), "{name}: {message}");
+            assert!(message.contains("not implemented"), "{name}: {message}");
+            assert_eq!(
+                std::fs::read(&path).unwrap(),
+                b"KEEP",
+                "{name} was modified"
+            );
+
+            let absent = dir.path().join(format!("absent-{name}"));
+            let absent_message = match VcfWriter::new(&absent, header()) {
+                Err(err) => err.to_string(),
+                Ok(_) => panic!("{name}: absent compressed output was accepted"),
+            };
+            assert!(absent_message.contains("not implemented"));
+            assert!(!absent.exists(), "{name} was created");
+        }
     }
 }

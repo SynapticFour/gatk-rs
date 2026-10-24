@@ -97,6 +97,21 @@ extra Yes rows.
 - Java GATK 4.4.0.0 only when you diff against the oracle. The `gatk-rs`
   binary does not embed it.
 
+## Downloadable builds
+
+No product release is published from this repository yet. A version tag
+triggers a validated Linux x86_64 GNU binary release
+(`x86_64-unknown-linux-gnu`). The release assets are that executable and
+`SHA256SUMS`. The tag must be `v` plus the workspace version. The uploaded
+binary's `gatk-rs --version` line must report that version and the tagged
+commit. macOS and Windows binaries are not offered.
+
+This project is an alpha research reimplementation. It is not a drop-in
+replacement for Broad Institute GATK and it is not clinically validated.
+
+Docker image publication and GitHub Pages deployment are not part of this
+tag workflow.
+
 ## Build and run
 
 ```bash
@@ -112,7 +127,8 @@ samtools index reads.bam
 checkout. The interval `chr20:10000000-10050000` is an illustration, not the
 tracked 32 bp smoke fixture under `parity/fixtures/`. This command has not
 been run as part of the documentation. With those files indexed, it writes
-one VCF. It does not prove GATK equivalence for that interval. Defaults,
+one plain-text VCF. Paths ending in `.vcf.gz`, `.bgz`, `.bgzip`, or `.bcf`
+are rejected. It does not prove GATK equivalence for that interval. Defaults,
 gVCF, Combine, genotype, and hard filters:
 [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md).
 

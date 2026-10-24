@@ -44,7 +44,7 @@ See NOTICE.md and docs/CLAIM_MATRIX.md.";
 #[derive(Parser)]
 #[command(
     name = "gatk-rs",
-    version = env!("CARGO_PKG_VERSION"),
+    version = concat!(env!("CARGO_PKG_VERSION"), " (git ", env!("GATK_RS_GIT_SHA"), ")"),
     author = "GATK-RS Contributors",
     about = "gatk-rs: Rust-native GATK4 HaplotypeCaller + germline joint/filter spine (Alpha experiment — not Broad GATK)",
     long_about = "gatk-rs is an independent research reimplementation (single-steward) and is not \
@@ -93,7 +93,9 @@ enum Tool {
         #[arg(short = 'I', long, num_args = 1..)]
         input: Vec<String>,
 
-        /// Output VCF (GATK: `-O`)
+        /// Plain-text VCF path (GATK: `-O`).
+        /// Names ending in `.vcf.gz`, `.bgz`, `.bgzip`, or `.bcf` are rejected.
+        /// BGZF, BCF, and indexed output are not implemented.
         #[arg(short = 'O', long)]
         output: String,
 
@@ -113,9 +115,12 @@ enum Tool {
         #[arg(long = "emit-ref-confidence")]
         emit_ref_confidence: Option<String>,
 
-        /// PairHMM implementation (GATK: `--pair-hmm-implementation`):
-        /// `LOG10_PAIRHMM` (default) | `LOGLESS_HMM` | `AVX`/`SIMD` | `SIMD_F32` | `FASTEST_AVAILABLE`.
-        /// Alias: `--pairhmm-impl scalar|logless|simd|fastest`.
+        /// PairHMM implementation (GATK flag `--pair-hmm-implementation`).
+        /// Omitting this option selects `FASTEST_AVAILABLE` (the fastest kernel
+        /// this build can run). That is not Java GATK's log10 PairHMM.
+        /// Pass `LOG10_PAIRHMM` to select the log10 scalar kernel explicitly.
+        /// Also accepts `LOGLESS_HMM`, `AVX`/`SIMD`, `SIMD_F32`, and `WAVEFRONT`.
+        /// `--pairhmm-impl` accepts the same values (`scalar`, `logless`, `simd`, `fastest`).
         #[arg(
             long = "pair-hmm",
             visible_aliases = ["pair-hmm-implementation", "pairhmm-impl"]
@@ -299,10 +304,6 @@ enum Tool {
     /// List all available tools
     #[command(name = "--list")]
     ListTools,
-
-    /// Print tool version information
-    #[command(name = "--version")]
-    Version,
 
     /// Count A/C/G/T/N bases in the reference over intervals (experimental util; prefer samtools faidx).
     #[command(hide = true, visible_alias = "CountBasesInReference")]
@@ -787,21 +788,6 @@ gatk-rs is a native Rust binary and does not start a JVM \
                 println!("  ListReadsInRegion, Validate");
                 println!();
                 println!("Claims authority: docs/CLAIM_MATRIX.md");
-
-                Ok(())
-            }
-
-            Tool::Version => {
-                // Do not impersonate Broad GATK. Expose our version and the pinned
-                // Java oracle version used for differential parity testing only.
-                println!(
-                    "gatk-rs {} (independent research reimplementation — not Broad Institute GATK)",
-                    env!("CARGO_PKG_VERSION")
-                );
-                println!(
-                    "Pinned Java GATK oracle for parity tests: 4.4.0.0 (see GATK_PINNED_SHA / NOTICE.md)"
-                );
-                println!("{DISCLAIMER_HELP}");
 
                 Ok(())
             }
