@@ -55,6 +55,60 @@ fn motif_ins_discovers_atg_after_anchor_a() {
 }
 
 #[test]
+fn cigar_del_before_padded_reference_does_not_panic() {
+    use rust_htslib::bam::record::CigarString;
+    let pad = 100u64;
+    let ref_bases = vec![b'A'; 275];
+    // 0-based alignment 98 is one base before pad_start0 (99): the GIAB
+    // release panic indexed usize::MAX-1 after this negative offset wrapped.
+    let mut before = bam::Record::new();
+    let cigar = CigarString(vec![Cigar::SoftClip(1), Cigar::Del(1)]);
+    before.set(b"r1", Some(&cigar), b"A", b"?");
+    before.set_flags(0);
+    before.set_tid(0);
+    before.set_pos(98);
+    let before = crate::shared_bam::share_record(before);
+    let events = discover_indel_events_from_reads(
+        std::slice::from_ref(&before),
+        &ref_bases,
+        pad,
+        pad,
+        pad + 20,
+        "20",
+    );
+    assert!(events.is_empty());
+}
+
+#[test]
+fn cigar_del_inside_padded_reference_is_kept() {
+    use rust_htslib::bam::record::CigarString;
+    let pad = 100u64;
+    let mut ref_bases = vec![b'N'; 12];
+    ref_bases[1] = b'A';
+    ref_bases[2] = b'C';
+    let mut rec = bam::Record::new();
+    let cigar = CigarString(vec![Cigar::Match(1), Cigar::Del(1)]);
+    rec.set(b"r1", Some(&cigar), b"A", b"?");
+    rec.set_flags(0);
+    rec.set_tid(0);
+    rec.set_pos(pad as i64);
+    let rec = crate::shared_bam::share_record(rec);
+    let events = discover_indel_events_from_reads(
+        std::slice::from_ref(&rec),
+        &ref_bases,
+        pad,
+        pad,
+        pad + 20,
+        "20",
+    );
+    assert!(events.iter().any(|(_, e)| {
+        e.start_1based == GenomePosition::new_1based(pad + 1)
+            && e.ref_allele == "AC"
+            && e.alt_allele == "A"
+    }));
+}
+
+#[test]
 fn cigar_ins_discovers_atg_after_anchor_a() {
     use rust_htslib::bam::record::CigarString;
     let pad = 100u64;
