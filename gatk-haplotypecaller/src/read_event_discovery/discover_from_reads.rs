@@ -268,12 +268,18 @@ fn discover_indel_events_from_reads(
             match op {
                 Cigar::Del(n) => {
                     let len = *n as usize;
-                    let off = (ref_pos0 - pad_start0) as usize;
+                    // Stay in i64. A deletion that begins before this padded
+                    // reference has a negative offset; casting it to usize wraps,
+                    // and in release `off + len` wraps into a small value that
+                    // passes a slice-length check and then panics on index.
+                    let off_i = ref_pos0 - pad_start0;
+                    let span_end = i64::try_from(len).ok().and_then(|n| off_i.checked_add(n));
                     if len > 0
                         && len <= MAX_VARIATION_EVENT_ALLELE_LENGTH
-                        && off > 0
-                        && off + len <= ref_bases.len()
+                        && off_i > 0
+                        && span_end.is_some_and(|end| end <= i64::try_from(ref_bases.len()).unwrap_or(i64::MAX))
                     {
+                        let off = off_i as usize;
                         let anchor = ref_bases[off - 1];
                         if is_regular_base(anchor) {
                             let mut ref_allele = vec![anchor];
