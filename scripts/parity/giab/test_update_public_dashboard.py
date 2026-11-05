@@ -348,6 +348,38 @@ class PublishParitySiteTest(unittest.TestCase):
         self.assertEqual(both["runs"][2]["workflow"], "genomewide-validation")
         self.assertEqual(git_bytes(self.bare, "show", "gh-pages:index.html"), "<p>site</p>\n")
 
+    def test_existing_branch_without_history_file_fails_closed(self) -> None:
+        seed = self.root / "seed-no-history"
+        subprocess.run(["git", "init", "-b", "gh-pages", str(seed)], check=True, capture_output=True)
+        git(seed, "config", "user.email", "test@example.com")
+        git(seed, "config", "user.name", "test")
+        (seed / "index.html").write_text("<p>site</p>\n", encoding="utf-8")
+        git(seed, "add", "index.html")
+        git(seed, "commit", "-m", "site without history")
+        git(seed, "remote", "add", "origin", str(self.bare))
+        git(seed, "push", "origin", "HEAD:gh-pages")
+        before = git_bytes(self.bare, "rev-parse", "gh-pages").strip()
+        fallback = {
+            "meta": {"title": "seed"},
+            "runs": [{"id": "seed-row", "workflow": "joint-cohort-scale"}],
+        }
+        path = self.checkout / "docs" / "parity-site" / "data" / "history.json"
+        path.write_text(json.dumps(fallback), encoding="utf-8")
+        result = self._publish("giab-genomewide", "abc123")
+        self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("data/history.json is missing", result.stderr)
+        self.assertIn("Manual investigation is required", result.stderr)
+        self.assertEqual(git_bytes(self.bare, "rev-parse", "gh-pages").strip(), before)
+        self.assertNotEqual(
+            subprocess.run(
+                ["git", "-C", str(self.bare), "cat-file", "-e", "gh-pages:data/history.json"],
+                capture_output=True,
+            ).returncode,
+            0,
+        )
+        self.assertNotIn("seed-row", result.stdout)
+        self.assertEqual(git_bytes(self.bare, "show", "gh-pages:index.html"), "<p>site</p>\n")
+
     def test_absent_branch_uses_checkout_fallback(self) -> None:
         checkout_history = {
             "meta": {"title": "seed"},

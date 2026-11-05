@@ -18,9 +18,10 @@
 # peaceiris exclude_assets: that option deletes the destination files.
 #
 # Fallback, and only this fallback: when the gh-pages branch does not exist,
-# or it exists without data/history.json, the checkout copy is the base.
-# A missing checkout copy starts an empty history. A failed fetch or a
-# malformed history file aborts and does not write.
+# the checkout copy is the base. A missing checkout copy starts an empty
+# history. If the branch exists but data/history.json does not, the script
+# stops without reading checkout history and without creating a commit.
+# A failed fetch or a malformed history file also aborts and does not write.
 #
 # Env:
 #   PARITY_SITE_SOURCE=nightly|genomewide
@@ -113,8 +114,8 @@ resolve_pages_status() {
     printf '%s\n' "present"
     return 0
   fi
-  echo "[parity-site] gh-pages has no data/history.json; checkout history is the base" >&2
-  printf '%s\n' "absent"
+  echo "[parity-site] gh-pages exists but data/history.json is missing; refusing to publish checkout history. Manual investigation is required." >&2
+  printf '%s\n' "unavailable"
 }
 
 omit_from_site_deploy() {
