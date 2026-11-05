@@ -488,6 +488,8 @@ PY
 if [[ -f "${report_root}/dashboard_run.json" ]]; then
   python3 "${repo_root}/scripts/parity/giab/update_public_dashboard.py" \
     --source cohort_scale \
+    --workflow joint-cohort-scale \
+    --pages-history-status absent \
     --json "${report_root}/dashboard_run.json" \
     --site-dir "${repo_root}/docs/parity-site" \
     --commit-sha "$(git rev-parse HEAD 2>/dev/null || echo local)" \

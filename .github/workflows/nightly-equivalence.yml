@@ -225,9 +225,12 @@ jobs:
         if: always() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
         env:
           PARITY_SITE_SOURCE: nightly
+          PARITY_SITE_WORKFLOW: nightly-equivalence
           PARITY_SITE_JSON: ${{ env.NIGHTLY_OUT_ROOT }}/happy_summary.json
           PARITY_SITE_COMMIT: "0"
           PARITY_SITE_PUSH: "0"
+          PARITY_SITE_PUSH_PAGES: "1"
+          PARITY_SITE_OMIT_FROM_SITE_DEPLOY: "1"
         run: |
           set -euo pipefail
           if [[ ! -f "${PARITY_SITE_JSON}" ]]; then
@@ -248,15 +251,15 @@ jobs:
           if [[ -f "${NIGHTLY_OUT_ROOT}/flags/new_baseline.json" ]]; then
             cp -f "${NIGHTLY_OUT_ROOT}/flags/new_baseline.json" docs/equivalence/baseline.json
           fi
-          git add docs/EQUIVALENCE_DASHBOARD.md docs/equivalence/baseline.json \
-            docs/parity-site/data/history.json docs/parity-site/data/latest.json || true
+          git add docs/EQUIVALENCE_DASHBOARD.md docs/equivalence/baseline.json || true
           if git diff --cached --quiet; then
-            echo "No dashboard/baseline/parity-site changes to commit"
+            echo "No dashboard/baseline changes to commit"
             exit 0
           fi
-          git commit -m "docs: update equivalence dashboard + parity-site (${GITHUB_SHA::12})" || true
-          # Protected main rejects GITHUB_TOKEN push (GH006); Pages deploy uses workspace files.
-          echo "[parity-site] dashboard/history updated for Pages deploy (no push to main)"
+          git commit -m "docs: update equivalence dashboard (${GITHUB_SHA::12})" || true
+          # Protected main rejects GITHUB_TOKEN push (GH006). This commit is local
+          # to the runner. Equivalence history is pushed only to gh-pages.
+          echo "[parity-site] dashboard updated in the runner checkout (no push to main)"
 
       # Customer-facing site at Pages root (Chart.js dashboard).
       - name: Deploy public parity-site to GitHub Pages (root)

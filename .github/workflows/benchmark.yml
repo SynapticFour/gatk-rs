@@ -294,6 +294,14 @@ jobs:
             echo "No perf doc changes to commit"
           fi
 
+      - name: Leave equivalence history on gh-pages
+        run: |
+          set -euo pipefail
+          # This deploy publishes performance JSON. Removing the checkout copies
+          # of the equivalence files keeps peaceiris from replacing gh-pages
+          # data/history.json. keep_files retains the live Pages history.
+          rm -f docs/parity-site/data/history.json docs/parity-site/data/latest.json
+
       - name: Deploy parity-site (incl. Performance tab) to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:

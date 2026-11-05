@@ -4,20 +4,27 @@
 Also writes data/latest.json for convenience. The static HTML (index.html +
 app.js) reads history.json at runtime — no bundler required.
 
-Usage:
-  # From nightly happy_summary.json
-  python3 scripts/parity/giab/update_public_dashboard.py \\
-    --source nightly \\
-    --json parity/reports/.../happy_summary.json \\
-    --site-dir docs/parity-site \\
-    --commit-sha \"$GITHUB_SHA\" \\
-    --workflow-run-url \"$RUN_URL\"
+The live history base is gh-pages:data/history.json, passed in by the publisher.
+This script does not fetch GitHub itself.
 
-  # From genomewide run directory (samples.jsonl + SCOPE)
+  present     — use --pages-history. Malformed JSON fails without writing.
+  unavailable — the publisher could not read gh-pages. Fail without writing.
+  absent      — gh-pages has no branch or no data/history.json. Use
+                --fallback-history (the checkout copy) when it exists, otherwise
+                start from an empty history. This is the only fallback.
+
+A record id that is already present is left unchanged, including its workflow
+label. New records get --workflow from the caller. There is no built-in
+genomewide workflow name.
+
+Usage:
   python3 scripts/parity/giab/update_public_dashboard.py \\
     --source genomewide \\
-    --run-dir parity/giab/runs/genomewide \\
-    --site-dir docs/parity-site \\
+    --workflow giab-genomewide \\
+    --pages-history-status present \\
+    --pages-history /tmp/gh-pages-history.json \\
+    --run-dir parity/giab/runs/ci \\
+    --site-dir /tmp/parity-site-out \\
     --commit-sha \"$GITHUB_SHA\"
 """
 from __future__ import annotations
@@ -51,10 +58,91 @@ def load_pinned() -> dict[str, str]:
     return out
 
 
-def load_history(path: pathlib.Path) -> dict[str, Any]:
-    if path.is_file():
-        return json.loads(path.read_text(encoding="utf-8"))
+class HistoryError(Exception):
+    """Publishing would risk replacing the live Pages history."""
+
+
+def parse_history_text(text: str) -> dict[str, Any]:
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise HistoryError(f"malformed history JSON: {exc}") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("runs"), list):
+        raise HistoryError("history JSON must be an object with a runs array")
+    return data
+
+
+def empty_history() -> dict[str, Any]:
     return {"meta": {}, "runs": []}
+
+
+def resolve_base_history(
+    status: str,
+    pages_text: str | None,
+    fallback_text: str | None,
+) -> tuple[dict[str, Any], str]:
+    """Return ``(history, basis)``.
+
+    ``basis`` is ``gh-pages`` or ``checkout-fallback``.
+    ``unavailable``, an unknown status, or malformed JSON raises HistoryError.
+    ``absent`` uses ``fallback_text`` when the checkout file exists. A missing
+    checkout file starts an empty history. That is the first-publish case.
+    """
+    if status == "unavailable":
+        raise HistoryError(
+            "gh-pages history could not be fetched; refusing to replace it "
+            "with checkout history"
+        )
+    if status == "present":
+        if pages_text is None:
+            raise HistoryError("pages history status is present but no payload was provided")
+        return parse_history_text(pages_text), "gh-pages"
+    if status == "absent":
+        if fallback_text is None:
+            return empty_history(), "checkout-fallback"
+        return parse_history_text(fallback_text), "checkout-fallback"
+    raise HistoryError(f"unknown pages history status: {status}")
+
+
+def apply_run(
+    history: dict[str, Any],
+    run: dict[str, Any],
+    pinned: dict[str, str],
+    now: str,
+) -> bool:
+    """Append ``run`` when its id is new. Return True when history changed.
+
+    Existing records stay as stored. Existing meta values stay as stored.
+    ``updated_utc`` changes only when a new record is appended.
+    Records are not trimmed.
+    """
+    runs = history.setdefault("runs", [])
+    if not isinstance(runs, list):
+        raise HistoryError("history runs must be a list")
+    new_id = run.get("id")
+    for existing in runs:
+        if isinstance(existing, dict) and existing.get("id") == new_id:
+            return False
+    runs.append(run)
+    meta = history.get("meta")
+    if not isinstance(meta, dict):
+        meta = {}
+        history["meta"] = meta
+    defaults = {
+        "title": "gatk-rs equivalence dashboard",
+        "java_gatk_version": pinned.get("GATK_PINNED_REF", "4.4.0.0"),
+        "java_gatk_sha": pinned.get("GATK_PINNED_SHA", "unknown"),
+        "java_gatk_docker": pinned.get("GATK_DOCKER_IMAGE", ""),
+        "notes": (
+            "Live equivalence history is data/history.json on the gh-pages branch. "
+            "Publishers append rows from nightly-equivalence, giab-genomewide, "
+            "genomewide-validation, and joint-cohort-scale."
+        ),
+    }
+    for key, value in defaults.items():
+        meta.setdefault(key, value)
+    meta["updated_utc"] = now
+    return True
 
 
 def prf_from_block(block: dict[str, Any] | None) -> dict[str, float | None]:
@@ -115,7 +203,7 @@ def ingest_nightly(summary: dict[str, Any], pinned: dict[str, str], args: argpar
 
     return {
         "id": f"nightly-{summary.get('generated_utc') or args.commit_sha}",
-        "workflow": "nightly-equivalence",
+        "workflow": args.workflow,
         "generated_utc": summary.get("generated_utc")
         or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "commit_sha": args.commit_sha or summary.get("commit_sha") or "unknown",
@@ -188,7 +276,7 @@ def ingest_genomewide(run_dir: pathlib.Path, pinned: dict[str, str], args: argpa
 
     return {
         "id": f"genomewide-{args.commit_sha}-{mode}",
-        "workflow": "genomewide-validation",
+        "workflow": args.workflow,
         "generated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "commit_sha": args.commit_sha or "unknown",
         "workflow_run_url": args.workflow_run_url or None,
@@ -220,7 +308,10 @@ def ingest_cohort_scale(payload: dict[str, Any], args: argparse.Namespace) -> di
     run["commit_sha"] = args.commit_sha or run.get("commit_sha") or "unknown"
     if args.workflow_run_url:
         run["workflow_run_url"] = args.workflow_run_url
-    run.setdefault("workflow", "joint-cohort-scale")
+    if args.workflow:
+        run["workflow"] = args.workflow
+    else:
+        run.setdefault("workflow", "joint-cohort-scale")
     run.setdefault("generated_utc", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
     return run
 
@@ -244,9 +335,28 @@ def main() -> int:
         default=ROOT / "docs" / "parity-site",
     )
     ap.add_argument("--commit-sha", default="unknown")
+    ap.add_argument("--workflow", default="", help="Generating workflow id, set by the caller")
     ap.add_argument("--workflow-run-url", default="")
-    ap.add_argument("--max-runs", type=int, default=60, help="Retain last N runs")
+    ap.add_argument(
+        "--pages-history-status",
+        choices=("present", "absent", "unavailable"),
+        required=True,
+        help="Whether gh-pages data/history.json was fetched",
+    )
+    ap.add_argument("--pages-history", type=pathlib.Path, help="Fetched gh-pages history.json")
+    ap.add_argument(
+        "--fallback-history",
+        type=pathlib.Path,
+        help="Checkout history.json, used only when Pages history is absent",
+    )
+    ap.add_argument(
+        "--max-runs",
+        type=int,
+        default=0,
+        help="Ignored. Publishing does not drop existing records.",
+    )
     args = ap.parse_args()
+    del args.max_runs  # retention trimming would delete Pages-only rows
 
     pinned = load_pinned()
     site = args.site_dir
@@ -255,43 +365,61 @@ def main() -> int:
     history_path = data_dir / "history.json"
     latest_path = data_dir / "latest.json"
 
-    if args.source == "nightly":
-        if not args.json or not args.json.is_file():
-            print("[parity-site] missing --json happy_summary.json", file=sys.stderr)
-            return 2
-        summary = json.loads(args.json.read_text(encoding="utf-8"))
-        run = ingest_nightly(summary, pinned, args)
-    elif args.source == "cohort_scale":
-        if not args.json or not args.json.is_file():
-            print("[parity-site] missing --json dashboard_run.json", file=sys.stderr)
-            return 2
-        payload = json.loads(args.json.read_text(encoding="utf-8"))
-        run = ingest_cohort_scale(payload, args)
-    else:
-        if not args.run_dir or not args.run_dir.is_dir():
-            print("[parity-site] missing --run-dir", file=sys.stderr)
-            return 2
-        run = ingest_genomewide(args.run_dir, pinned, args)
+    try:
+        args.workflow = args.workflow.strip()
+        if args.source in ("nightly", "genomewide") and not args.workflow:
+            raise HistoryError(
+                "missing --workflow; nightly and genomewide callers must name the generating workflow"
+            )
+        if args.source == "nightly":
+            if not args.json or not args.json.is_file():
+                print("[parity-site] missing --json happy_summary.json", file=sys.stderr)
+                return 2
+            summary = json.loads(args.json.read_text(encoding="utf-8"))
+            run = ingest_nightly(summary, pinned, args)
+        elif args.source == "cohort_scale":
+            if not args.json or not args.json.is_file():
+                print("[parity-site] missing --json dashboard_run.json", file=sys.stderr)
+                return 2
+            payload = json.loads(args.json.read_text(encoding="utf-8"))
+            run = ingest_cohort_scale(payload, args)
+        else:
+            if not args.run_dir or not args.run_dir.is_dir():
+                print("[parity-site] missing --run-dir", file=sys.stderr)
+                return 2
+            run = ingest_genomewide(args.run_dir, pinned, args)
 
-    history = load_history(history_path)
-    history.setdefault("runs", [])
-    # De-dupe by id
-    history["runs"] = [r for r in history["runs"] if r.get("id") != run["id"]]
-    history["runs"].append(run)
-    history["runs"] = history["runs"][-args.max_runs :]
+        pages_text = None
+        if args.pages_history_status == "present":
+            if not args.pages_history or not args.pages_history.is_file():
+                raise HistoryError("pages history status is present but --pages-history is missing")
+            pages_text = args.pages_history.read_text(encoding="utf-8")
+        fallback_text = None
+        if args.fallback_history and args.fallback_history.is_file():
+            fallback_text = args.fallback_history.read_text(encoding="utf-8")
+        elif args.pages_history_status == "absent" and history_path.is_file():
+            # Local tools omit --fallback-history and append to the checkout file.
+            fallback_text = history_path.read_text(encoding="utf-8")
+        history, basis = resolve_base_history(
+            args.pages_history_status, pages_text, fallback_text
+        )
+        if basis == "checkout-fallback":
+            print(
+                "[parity-site] no gh-pages history; using checkout history as the base",
+                file=sys.stderr,
+            )
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        changed = apply_run(history, run, pinned, now)
+    except HistoryError as exc:
+        print(f"[parity-site] {exc}", file=sys.stderr)
+        return 2
+    except json.JSONDecodeError as exc:
+        print(f"[parity-site] malformed source JSON: {exc}", file=sys.stderr)
+        return 2
 
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    history["meta"] = {
-        "title": "gatk-rs equivalence dashboard",
-        "java_gatk_version": pinned.get("GATK_PINNED_REF", "4.4.0.0"),
-        "java_gatk_sha": pinned.get("GATK_PINNED_SHA", "unknown"),
-        "java_gatk_docker": pinned.get("GATK_DOCKER_IMAGE", ""),
-        "updated_utc": now,
-        "notes": (
-            "Updated by nightly-equivalence / genomewide-validation / "
-            "joint-cohort-scale gates."
-        ),
-    }
+    if not changed:
+        print(f"[parity-site] unchanged {run.get('id')} (existing record kept)")
+        return 0
 
     history_path.write_text(json.dumps(history, indent=2) + "\n", encoding="utf-8")
     latest_path.write_text(json.dumps(run, indent=2) + "\n", encoding="utf-8")
