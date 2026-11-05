@@ -24,7 +24,7 @@ Read these first. Everything else is evidence, history, or a specialist note.
 | [`../parity/`](../parity/) | Harness, fixtures, acceptance-class vocabulary. |
 | [`perf/`](perf/) | Performance notes. A public speed or memory claim still requires the dedicated host in [`ci/PERF_BENCHMARK_HOST.md`](ci/PERF_BENCHMARK_HOST.md). |
 | [`EQUIVALENCE_DASHBOARD.md`](EQUIVALENCE_DASHBOARD.md) | Nightly markdown page. Its F1 table is unpopulated, so this file is not a measured result. |
-| [`parity-site/`](parity-site/) | GitHub Pages source. [`parity-site/data/history.json`](parity-site/data/history.json) contains historical runs. Those rows are not the claim matrix’s signed HG001 ΔF1 record. Product claims stay in [`CLAIM_MATRIX.md`](CLAIM_MATRIX.md). |
+| [`parity-site/`](parity-site/) | GitHub Pages source. [`parity-site/data/history.json`](parity-site/data/history.json) contains historical runs. Those rows are not a current-main **Yes**. The HG001 ci-subset F1 numbers are a historical record pending revalidation in [`CLAIM_MATRIX.md`](CLAIM_MATRIX.md). |
 
 Historical L6–L14 narratives that are **not** reproducible as Yes rows from
 `main` are called out in [`CLAIM_MATRIX.md`](CLAIM_MATRIX.md). Some of that

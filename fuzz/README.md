@@ -58,3 +58,6 @@ LibFuzzer generative-only:
 ```
 
 This crate is intentionally **not** a workspace member (cargo-fuzz convention).
+`fuzz/Cargo.toml` is its own `[workspace]`, with its own `fuzz/Cargo.lock`.
+
+CI audits that lockfile separately from the root workspace. On push to `main` or `develop`, and on workflow dispatch, `.github/workflows/ci.yml` runs `cargo audit --file fuzz/Cargo.lock`. Pull requests run the same audit, then `cargo check --locked --manifest-path fuzz/Cargo.toml` and the lean `hc_differential` check, only when `fuzz/**` changes. Those steps compile the crate. They do not launch libFuzzer or `./fuzz/run_hc_differential.sh`. The commands above stay manual.

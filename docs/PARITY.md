@@ -24,7 +24,7 @@ The letters and phase numbers are harness names. They are not a single
 | P12 L3 / L4 / L5 | NA12878 interval `chr2:92300000-92350000` (66 Java sites). | `./scripts/parity/run_p12_l3_signoff.sh`, `run_p12_l4_signoff.sh`, `run_p12_l5_gvcf.sh` | Emit, FORMAT, and gVCF-block parity **on that interval**, as asserted in the claim matrix. The reference FASTA is a local file, default `parity/realworld/assets/hs37d5.simple.fa`, which is gitignored. |
 | Mid-B | One ActiveFull region, `2:92317000-92319000`. Recorded in [`PARITY_MILESTONE_6R.md`](PARITY_MILESTONE_6R.md) (2026-08-30). | `cargo test -p gatk-haplotypecaller --release --test p12_call_none_mid_b_test p12_call_none_mid_b` | That region’s recorded HC path. Not a fresh rerun and not whole-codebase HC parity. The test returns without asserting unless gitignored `parity/realworld/assets/hs37d5.simple.fa` (or `P12_REFERENCE`) and `parity/realworld/na12878_20k_b37/NA12878_20k.b37.bam` are both present. This documentation pass did not run it. |
 | Joint / filter minis | Synthetic CombineGVCFs, GenotypeGVCFs, VariantFiltration. | Scripts named in the claim matrix | Those fixtures only. Cohort scale claim stops at the recommended ≤ 100 samples. |
-| GIAB / hap.py | Windows you configure, scored by [`../gatk-rs-equiv/`](../gatk-rs-equiv/). | [`../scripts/parity/giab/`](../scripts/parity/giab/) and `gatk-rs-equiv` | Only the signed matrix rows (HG001 ci-subset is signed; HG002+HG005, full autosomes, and the Pages history are not). Smoke F1 is harness hygiene. |
+| GIAB / hap.py | Windows you configure, scored by [`../gatk-rs-equiv/`](../gatk-rs-equiv/). | [`../scripts/parity/giab/`](../scripts/parity/giab/) and `gatk-rs-equiv` | Only the matrix **Yes** rows. HG001 ci-subset is a historical record at `f70abf86` (#155), pending revalidation on current `main`. HG002+HG005, full autosomes, and the Pages history are not **Yes** rows. Smoke F1 is harness hygiene. |
 
 L6–L14 writeups on branch `pre-cleanup-archive` are historical. Do not cite
 them as current **Yes** rows. The L6 script can still exist in
@@ -74,8 +74,9 @@ An unreviewed forensic note is not an exception.
 ## What is established, as of the claim matrix
 
 Established only inside the matrix **Yes** rows: scoped HC on P12 and mid-B,
-L2 as recorded on 2026-07-24, synthetic joint and hard-filter minis, and the
-HG001 ci-subset F1 row with the run URLs written there.
+L2 as recorded on 2026-07-24, and synthetic joint and hard-filter minis.
+HG001 ci-subset F1 at `f70abf86` (#155) is in the matrix Pending section.
+It is not a current-main **Yes** and not full-autosome GIAB.
 
 Not established: genome-wide HC, full autosomes, bitwise QUAL/FORMAT
 everywhere, VQSR, clinical use, and any 6R/7R site that the matrix does not

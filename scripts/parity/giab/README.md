@@ -82,7 +82,8 @@ Workflow: `.github/workflows/nightly-equivalence.yml` (daily + `workflow_dispatc
 ### Public equivalence dashboard (GitHub Pages)
 
 Static Chart.js site: [`docs/parity-site/`](../../../docs/parity-site/) →
-**https://gatk-rs.github.io/gatk-rs/**  
+**[https://synapticfour.github.io/gatk-rs/](https://synapticfour.github.io/gatk-rs/)**
+
 Updated from `nightly-equivalence` + `genomewide-validation` via
 `scripts/parity/giab/update_public_dashboard.py`. Scope (regions, samples,
 Java GATK pin) is shown explicitly on the page.
