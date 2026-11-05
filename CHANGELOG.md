@@ -8,6 +8,11 @@ once a first numbered release is cut. Until then, versions remain `0.1.x` / Alph
 
 ## [Unreleased]
 
+### Security
+
+- Root `Cargo.lock`: libz-sys 1.1.29 → 1.1.31 (PR #156, RUSTSEC-2026-0418 / GHSA-8p3x-q3q3-q3v5).
+- Standalone `fuzz/Cargo.lock` regenerated (PR #157): dependency advisory remediation, `parse_cigar_str` import corrected to `gatk_core::io::bam::parse_cigar_str`, and CI audits that lockfile and runs locked compilation checks for the separate fuzz workspace. Those checks do not run libFuzzer campaigns or Java-vs-Rust differential fuzzing.
+
 ### Changed
 
 - Documentation reading path. [`README.md`](README.md),

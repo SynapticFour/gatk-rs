@@ -35,4 +35,4 @@ cd docs/parity-site && python3 -m http.server 8080
 
 Repo setting: **Settings → Pages → Deploy from branch `gh-pages` / root**.
 
-Live URL (org `gatk-rs`): https://gatk-rs.github.io/gatk-rs/
+Live URL: https://synapticfour.github.io/gatk-rs/

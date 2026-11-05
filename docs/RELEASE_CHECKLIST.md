@@ -59,6 +59,14 @@ Tick only with reproducible evidence. Scripts live under `scripts/parity/`.
 | 6 | GitHub Pages serves `docs/parity-site` with scope-first layout (no orphaned F1-only tables) | ☐ | |
 | 7 | Announcement / pins / external links deferred until this checklist is fully green (marketing is optional and separate) | ☐ | |
 
+Older runs do not tick this table for a later tag SHA:
+
+- Full autosomes (`GIAB_MODE=autosomes`) remain open.
+- Gate 3: [run 41820766708](https://github.com/SynapticFour/gatk-rs/actions/runs/41820766708) is HG001 ci-subset at `f70abf86` (#155) — full chr20, full chr21, and one 50 kb probe on each other autosome (22 regions). It is not a pass on current `main` (`15459518`).
+- Gate 5: CombineGVCFs, GenotypeGVCFs, and VariantFiltration reports cited in [`CLAIM_MATRIX.md`](CLAIM_MATRIX.md) are from 2026-07-24. They are not a pass on current `main`.
+- Gate 6: the live Pages site and [`EQUIVALENCE_DASHBOARD.md`](EQUIVALENCE_DASHBOARD.md) still disagree. Leave open until that discrepancy is resolved and checked again.
+- §5 stays unanswered. This note is not a release approval.
+
 ---
 
 ## 4. Engineering hygiene

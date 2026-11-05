@@ -49,8 +49,9 @@ Product claims are only the **Yes** rows in
   is the matrix evidence; this README does not re-certify a later commit);
 - a synthetic joint-genotype ladder, recommended **≤ 100** samples on a 10 kb
   interval;
-- hard-filter FILTER parity on a synthetic SNP boundary set;
-- an HG001 GIAB **ci-subset** F1 comparison (not full autosomes).
+- hard-filter FILTER parity on a synthetic SNP boundary set.
+
+HG001 GIAB **ci-subset** F1 is a historical record at `f70abf86` (#155), pending revalidation. It is not a current-main **Yes** row. Full-autosome GIAB is not complete.
 
 A CI badge is a workflow link, not those claims.
 
@@ -139,9 +140,11 @@ Signed product claims are only the **Yes** rows in
 mid-B HaplotypeCaller path on `2:92317000-92319000`, P12 L3/L4/L5 on
 `chr2:92300000-92350000`, the L2 synthetic record of 223/223 strict on
 2026-07-24, the synthetic joint-genotype ladder at the recommended cap of
-100 samples on a 10 kb interval, hard-filter FILTER parity on the synthetic
-SNP boundary set, and the HG001 GIAB ci-subset F1 comparison. Waivers named
-on those rows stay part of the claim.
+100 samples on a 10 kb interval, and hard-filter FILTER parity on the synthetic
+SNP boundary set. Waivers named
+on those rows stay part of the claim. HG001 GIAB ci-subset F1 at `f70abf86`
+(#155) is historical and pending revalidation, not a current-main **Yes**.
+Full-autosome GIAB is not complete.
 
 That record is not genome-wide or full-autosome HaplotypeCaller equivalence,
 and it does not include BQSR, VQSR, Mutect2, gCNV/SV, or Funcotator. The
@@ -177,7 +180,7 @@ relicense those assets.
 | Doc map | [`docs/README.md`](docs/README.md) |
 | Change the code | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | Performance numbers | Not published. Dedicated-host contract: [`docs/perf/FAIR_HC_COMPARISON.md`](docs/perf/FAIR_HC_COMPARISON.md). Do not quote laptop Criterion or the 32 bp smoke RSS profile. |
-| Dashboards | [`docs/EQUIVALENCE_DASHBOARD.md`](docs/EQUIVALENCE_DASHBOARD.md) is pending: its F1 table is empty, so that file is not a result. [`docs/parity-site/data/history.json`](docs/parity-site/data/history.json) does contain historical runs. Those rows are not the claim matrix’s signed HG001 ΔF1 record. Claims: [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). |
+| Dashboards | [`docs/EQUIVALENCE_DASHBOARD.md`](docs/EQUIVALENCE_DASHBOARD.md) is pending: its F1 table is empty, so that file is not a result. [`docs/parity-site/data/history.json`](docs/parity-site/data/history.json) does contain historical runs. Those rows are not a current-main **Yes**. The HG001 ci-subset F1 numbers are a historical record pending revalidation in [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). |
 | Security, license | [`SECURITY.md`](SECURITY.md), [`LICENSE`](LICENSE), [`NOTICE.md`](NOTICE.md) |
 
 Changelog: [`CHANGELOG.md`](CHANGELOG.md).
