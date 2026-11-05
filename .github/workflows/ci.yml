@@ -229,6 +229,9 @@ jobs:
     - name: Run security audit
       run: cargo audit
 
+    - name: Run fuzz lockfile audit
+      run: cargo audit --file fuzz/Cargo.lock
+
     - name: Install cargo-deny
       run: cargo install cargo-deny
 
