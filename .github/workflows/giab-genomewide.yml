@@ -519,27 +519,20 @@ jobs:
           name: giab-genomewide-${{ github.run_id }}
           path: parity/giab/runs/ci
 
-      - name: Update parity-site history (local; Pages deploy below)
+      - name: Publish equivalence history to gh-pages
         env:
           PARITY_SITE_SOURCE: genomewide
+          PARITY_SITE_WORKFLOW: giab-genomewide
           PARITY_SITE_RUN_DIR: parity/giab/runs/ci
           PARITY_SITE_COMMIT: "0"
           PARITY_SITE_PUSH: "0"
+          PARITY_SITE_PUSH_PAGES: "1"
+          PARITY_SITE_OMIT_FROM_SITE_DEPLOY: "1"
         run: |
           set -euo pipefail
           chmod +x scripts/ci/publish_parity_site.sh
+          # History is fast-forwarded onto gh-pages. This step does not push main.
           ./scripts/ci/publish_parity_site.sh
-          # Do not `git push` to main — branch protection rejects GITHUB_TOKEN
-          # (GH006). Updated history.json is published by peaceiris below.
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/parity-site/data/history.json docs/parity-site/data/latest.json
-          if ! git diff --cached --quiet; then
-            git commit -m "docs(parity-site): GIAB ${{ env.GIAB_MODE }} history (${GITHUB_SHA::12})" || true
-            echo "[parity-site] history updated in workspace for Pages deploy (no push to main)"
-          else
-            echo "[parity-site] no history.json changes"
-          fi
 
       - name: Deploy public parity-site to GitHub Pages (root)
         uses: peaceiris/actions-gh-pages@v4

@@ -272,24 +272,20 @@ jobs:
           name: genomewide-validation-${{ github.run_id }}
           path: parity/giab/runs/genomewide
 
-      - name: Update parity-site history + commit
+      - name: Publish equivalence history to gh-pages
         env:
           PARITY_SITE_SOURCE: genomewide
+          PARITY_SITE_WORKFLOW: genomewide-validation
           PARITY_SITE_RUN_DIR: parity/giab/runs/genomewide
           PARITY_SITE_COMMIT: "0"
           PARITY_SITE_PUSH: "0"
+          PARITY_SITE_PUSH_PAGES: "1"
+          PARITY_SITE_OMIT_FROM_SITE_DEPLOY: "1"
         run: |
           set -euo pipefail
           chmod +x scripts/ci/publish_parity_site.sh
+          # History is fast-forwarded onto gh-pages. This step does not push main.
           ./scripts/ci/publish_parity_site.sh
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/parity-site/data/history.json docs/parity-site/data/latest.json
-          if ! git diff --cached --quiet; then
-            git commit -m "docs(parity-site): genomewide history (${GITHUB_SHA::12})" || true
-            # Protected main rejects GITHUB_TOKEN push (GH006); Pages deploy uses workspace files.
-            echo "[parity-site] history updated for Pages deploy (no push to main)"
-          fi
 
       - name: Deploy public parity-site to GitHub Pages (root)
         uses: peaceiris/actions-gh-pages@v4
