@@ -49,10 +49,11 @@ Three steps, kept separate on purpose:
    the script fetches again and merges again. Workflow concurrency groups do
    not cover this branch, because those groups are per workflow file.
    The script does **not** push `docs/parity-site/data/history.json` to `main`.
-   If the `gh-pages` branch is missing, or the branch has no
-   `data/history.json`, the checkout file is the base. A missing checkout
-   file starts an empty history. If the fetch fails or the file is not valid
-   history JSON, the script stops and does not write.
+   If the `gh-pages` branch does not exist, the checkout file is the base, and
+   a missing checkout file starts an empty history. If that branch exists but
+   `data/history.json` is absent, the publisher stops and does not create a
+   replacement history. If the fetch fails or the file is not valid history
+   JSON, the script stops and does not write.
 
 3. **Site deployment.** `peaceiris/actions-gh-pages` publishes this directory
    to the `gh-pages` branch root with `keep_files: true`. Before that copy,
