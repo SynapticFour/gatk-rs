@@ -34,6 +34,11 @@ on:
         description: "Max |Rust−Java| F1 delta"
         required: true
         default: "0.02"
+      publish:
+        description: "Opt in to gh-pages history and Pages deploys. Omitted or false publishes nothing."
+        type: boolean
+        required: false
+        default: false
 
 # contents:write — peaceiris pushes gh-pages; matches nightly-equivalence.yml.
 permissions:
@@ -65,10 +70,12 @@ jobs:
     timeout-minutes: 180
     outputs:
       shards: ${{ steps.prepare.outputs.shards }}
+      gatk_image: ${{ steps.image.outputs.ref }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Free disk
@@ -76,6 +83,12 @@ jobs:
           df -h
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
           df -h
+
+      - name: Require free disk before prepare
+        run: |
+          set -euo pipefail
+          source scripts/parity/m4_disk_guard.sh
+          m4_require_free_gb "${GATK_RS_BUILD_MIN_FREE_GB:-8}"
 
       - name: Install system deps
         run: |
@@ -98,16 +111,164 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-giab-
 
+      - name: Record pre-build provenance
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          if [[ "${head}" != "${GITHUB_SHA}" ]]; then
+            echo "::error::checkout HEAD ${head} != GITHUB_SHA ${GITHUB_SHA}"
+            exit 1
+          fi
+          git status --porcelain > /tmp/git-status-pre-build.txt
+          {
+            echo "github_sha=${GITHUB_SHA}"
+            echo "git_head=${head}"
+            echo "rustc=$(rustc --version)"
+            echo "cargo=$(cargo --version)"
+            echo "cargo_lock_sha256=$(sha256sum Cargo.lock | awk '{print $1}')"
+            echo "fuzz_cargo_lock_sha256=$(sha256sum fuzz/Cargo.lock | awk '{print $1}')"
+            echo "workflow_run_id=${GITHUB_RUN_ID}"
+            echo "workflow_run_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "giab_mode=${GIAB_MODE}"
+            echo "giab_samples=${GIAB_SAMPLES}"
+            echo "giab_f1_delta_threshold=${GIAB_F1_DELTA_THRESHOLD}"
+            echo "gatk_image_tag=${GATK_DOCKER_IMAGE}"
+            echo "gatk_image_platform=${GATK_DOCKER_PLATFORM}"
+          } > /tmp/provenance.env
+          if [[ -s /tmp/git-status-pre-build.txt ]]; then
+            echo "::error::worktree was dirty before the locked build"
+            cat /tmp/git-status-pre-build.txt
+            exit 1
+          fi
+
       - name: Build gatk-rs + gatk-rs-equiv
         env:
           CARGO_PROFILE_RELEASE_LTO: "false"
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         run: |
+          set -euo pipefail
           source scripts/parity/m4_disk_guard.sh
-          ./scripts/parity/build_gatk_rs_release.sh
-          cargo build -p gatk-rs-equiv --release -j "${CARGO_BUILD_JOBS}"
+          cargo build -p gatk-cli --release --bin gatk-rs --locked -j "${CARGO_BUILD_JOBS}"
+          cargo build -p gatk-rs-equiv --release --locked -j "${CARGO_BUILD_JOBS}"
           mkdir -p giab-bins
           cp -f target/release/gatk-rs target/release/gatk-rs-equiv giab-bins/
+          git status --porcelain > /tmp/git-status-post-build.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import sys
+          bad = []
+          for line in Path("/tmp/git-status-post-build.txt").read_text().splitlines():
+              path = line[3:] if len(line) >= 3 else line
+              if " -> " in path:
+                  path = path.split(" -> ", 1)[1]
+              if path == "giab-bins" or path.startswith("giab-bins/"):
+                  continue
+              bad.append(line)
+          if bad:
+              print("::error::post-build git status changed tracked inputs", file=sys.stderr)
+              print("\n".join(bad), file=sys.stderr)
+              sys.exit(1)
+          PY
+          {
+            echo "gatk_rs_sha256=$(sha256sum giab-bins/gatk-rs | awk '{print $1}')"
+            echo "gatk_rs_equiv_sha256=$(sha256sum giab-bins/gatk-rs-equiv | awk '{print $1}')"
+          } >> /tmp/provenance.env
+
+      - name: Resolve pinned GATK image digest
+        id: image
+        run: |
+          set -euo pipefail
+          tag="${GATK_DOCKER_IMAGE}"
+          platform="${GATK_DOCKER_PLATFORM}"
+          [[ "${tag}" != *@sha256:* ]]
+          [[ "${platform}" == "linux/amd64" ]]
+          repo="${tag%:*}"
+          [[ "${repo}" == "us.gcr.io/broad-gatk/gatk" ]]
+          DOCKER_CLI_EXPERIMENTAL=enabled docker manifest inspect --verbose "${tag}" > /tmp/gatk-manifest.json
+          python3 - <<'PY'
+          import json
+          import sys
+          from json import JSONDecoder
+          from pathlib import Path
+
+          text = Path("/tmp/gatk-manifest.json").read_text()
+          decoder = JSONDecoder()
+          docs = []
+          index = 0
+          length = len(text)
+          while index < length:
+              while index < length and text[index].isspace():
+                  index += 1
+              if index >= length:
+                  break
+              try:
+                  obj, end = decoder.raw_decode(text, index)
+              except json.JSONDecodeError as exc:
+                  print(f"::error::GATK manifest inspect was not JSON: {exc}", file=sys.stderr)
+                  sys.exit(1)
+              docs.append(obj)
+              index = end
+
+          def walk(node):
+              if isinstance(node, dict):
+                  yield node
+                  for value in node.values():
+                      yield from walk(value)
+              elif isinstance(node, list):
+                  for value in node:
+                      yield from walk(value)
+
+          amd64 = []
+          indexes = []
+          for doc in docs:
+              for obj in walk(doc):
+                  media = obj.get("mediaType") or ""
+                  digest = obj.get("digest") or ""
+                  platform = obj.get("platform") if isinstance(obj.get("platform"), dict) else {}
+                  if not isinstance(media, str) or not isinstance(digest, str) or not digest.startswith("sha256:"):
+                      continue
+                  if "manifest.list" in media or media.endswith("image.index.v1+json"):
+                      indexes.append(digest)
+                      continue
+                  if "manifest" not in media:
+                      continue
+                  if platform.get("os") == "linux" and platform.get("architecture") == "amd64":
+                      amd64.append(digest)
+          amd64 = list(dict.fromkeys(amd64))
+          indexes = list(dict.fromkeys(indexes))
+          if len(amd64) != 1:
+              print(f"::error::expected one linux/amd64 manifest digest, found {amd64!r}", file=sys.stderr)
+              sys.exit(1)
+          if len(indexes) > 1:
+              print(f"::error::ambiguous GATK index digest {indexes!r}", file=sys.stderr)
+              sys.exit(1)
+          Path("/tmp/gatk-image-id.txt").write_text(amd64[0] + "\n" + (indexes[0] if indexes else "") + "\n")
+          PY
+          digest="$(sed -n '1p' /tmp/gatk-image-id.txt)"
+          index="$(sed -n '2p' /tmp/gatk-image-id.txt)"
+          [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          if [[ -n "${index}" && ! "${index}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::GATK index digest is not sha256"
+            exit 1
+          fi
+          ref="${repo}@${digest}"
+          docker pull --platform "${platform}" "${ref}"
+          os="$(docker image inspect --format '{{.Os}}' "${ref}")"
+          arch="$(docker image inspect --format '{{.Architecture}}' "${ref}")"
+          [[ "${os}" == "linux" && "${arch}" == "amd64" ]]
+          docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${ref}" > /tmp/gatk-repodigests.txt
+          grep -Fx "${ref}" /tmp/gatk-repodigests.txt >/dev/null
+          image_id="$(docker image inspect --format '{{.Id}}' "${ref}")"
+          [[ "${image_id}" == sha256:* ]]
+          {
+            echo "gatk_image_digest=${digest}"
+            echo "gatk_image_index_digest=${index}"
+            echo "gatk_image_ref=${ref}"
+            echo "gatk_image_id=${image_id}"
+            echo "gatk_image_os=${os}"
+            echo "gatk_image_architecture=${arch}"
+          } >> /tmp/provenance.env
+          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
 
       - name: Reject autosomes on GitHub-hosted
         run: |
@@ -150,6 +311,50 @@ jobs:
           ls -lh parity/realworld/assets/hs37d5.simple.fa*
           echo "shards=$(cat "${GIAB_OUT_ROOT}/shards.json")" >> "$GITHUB_OUTPUT"
 
+      - name: Record post-prepare git status
+        run: |
+          set -euo pipefail
+          git status --porcelain > /tmp/git-status-post-prepare.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import sys
+          allowed = {"parity/realworld/assets/SHA256SUMS.giab-ref"}
+          bad = []
+          for line in Path("/tmp/git-status-post-prepare.txt").read_text().splitlines():
+              path = line[3:] if len(line) >= 3 else line
+              if " -> " in path:
+                  path = path.split(" -> ", 1)[1]
+              if path == "giab-bins" or path.startswith("giab-bins/"):
+                  continue
+              if path in allowed:
+                  continue
+              bad.append(line)
+          if bad:
+              print("::error::prepare changed a tracked input other than the reference checksum", file=sys.stderr)
+              print("\n".join(bad), file=sys.stderr)
+              sys.exit(1)
+          PY
+
+      - name: Stage provenance
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p provenance
+          copied=0
+          for f in /tmp/provenance.env /tmp/git-status-pre-build.txt /tmp/git-status-post-build.txt /tmp/git-status-post-prepare.txt; do
+            if [[ -f "${f}" ]]; then
+              cp -f "${f}" provenance/
+              copied=1
+            fi
+          done
+          if [[ "${copied}" -eq 0 ]]; then
+            echo "No provenance files were produced"
+          fi
+          if [[ "${{ job.status }}" == "success" && ! -f provenance/provenance.env ]]; then
+            echo "::error::prepare succeeded without provenance.env"
+            exit 1
+          fi
+
       - name: Upload prepare artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -166,13 +371,25 @@ jobs:
             parity/giab/runs/ci/intervals.txt
             parity/giab/runs/ci/shards.json
             parity/giab/runs/ci/shards/**
+            provenance/**
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload provenance
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: equivalence-provenance-${{ github.run_id }}
+          path: provenance/**
+          if-no-files-found: warn
+          retention-days: 90
 
   hc-shard:
     name: HC ${{ matrix.shard }} / ${{ matrix.engine }}
     needs: prepare
     runs-on: ubuntu-latest
+    env:
+      GATK_DOCKER_IMAGE: ${{ needs.prepare.outputs.gatk_image }}
     # GitHub-hosted hard cap is 6h; do not set higher — it is silently clamped.
     timeout-minutes: 360
     strategy:
@@ -184,6 +401,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Free disk
@@ -242,15 +460,59 @@ jobs:
       - name: Restore bins + assert shipped reference
         run: |
           set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "${GITHUB_SHA}" ]]
           mkdir -p target/release
           cp -f giab-bins/gatk-rs giab-bins/gatk-rs-equiv target/release/
           chmod +x target/release/gatk-rs target/release/gatk-rs-equiv
+          prov=provenance/provenance.env
+          [[ -f "${prov}" ]]
+          want_rs="$(awk -F= '$1=="gatk_rs_sha256"{print $2}' "${prov}")"
+          want_eq="$(awk -F= '$1=="gatk_rs_equiv_sha256"{print $2}' "${prov}")"
+          want_image="$(awk -F= '$1=="gatk_image_ref"{print $2}' "${prov}")"
+          want_platform="$(awk -F= '$1=="gatk_image_platform"{print $2}' "${prov}")"
+          got_rs="$(sha256sum giab-bins/gatk-rs | awk '{print $1}')"
+          got_eq="$(sha256sum giab-bins/gatk-rs-equiv | awk '{print $1}')"
+          got_rs_used="$(sha256sum target/release/gatk-rs | awk '{print $1}')"
+          got_eq_used="$(sha256sum target/release/gatk-rs-equiv | awk '{print $1}')"
+          if [[ -z "${want_rs}" || "${want_rs}" != "${got_rs}" || "${want_rs}" != "${got_rs_used}" ]]; then
+            echo "::error::gatk-rs hash does not match provenance"
+            exit 1
+          fi
+          if [[ -z "${want_eq}" || "${want_eq}" != "${got_eq}" || "${want_eq}" != "${got_eq_used}" ]]; then
+            echo "::error::gatk-rs-equiv hash does not match provenance"
+            exit 1
+          fi
+          if [[ -z "${want_image}" || "${GATK_DOCKER_IMAGE}" != "${want_image}" ]]; then
+            echo "::error::GATK image ref does not match provenance"
+            exit 1
+          fi
+          if [[ "${want_platform}" != "linux/amd64" || "${GATK_DOCKER_PLATFORM}" != "${want_platform}" ]]; then
+            echo "::error::GATK platform does not match provenance"
+            exit 1
+          fi
+          if [[ ! "${GATK_DOCKER_IMAGE}" =~ ^us\.gcr\.io/broad-gatk/gatk@sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::GATK image ref is not the pinned amd64 manifest"
+            exit 1
+          fi
           # Must come from prepare artifact — never curl EBI from matrix jobs.
           test -f parity/realworld/assets/hs37d5.simple.fa
           test -f parity/realworld/assets/hs37d5.simple.fa.fai
           test -f parity/realworld/assets/hs37d5.simple.dict
           ls -lh parity/realworld/assets/hs37d5.simple.fa*
           free -h
+
+      - name: Pull pinned GATK image
+        if: ${{ matrix.engine == 'java' }}
+        run: |
+          set -euo pipefail
+          [[ "${GATK_DOCKER_PLATFORM}" == "linux/amd64" ]]
+          [[ "${GATK_DOCKER_IMAGE}" =~ ^us\.gcr\.io/broad-gatk/gatk@sha256:[0-9a-f]{64}$ ]]
+          docker pull --platform "${GATK_DOCKER_PLATFORM}" "${GATK_DOCKER_IMAGE}"
+          os="$(docker image inspect --format '{{.Os}}' "${GATK_DOCKER_IMAGE}")"
+          arch="$(docker image inspect --format '{{.Architecture}}' "${GATK_DOCKER_IMAGE}")"
+          [[ "${os}" == "linux" && "${arch}" == "amd64" ]]
+          docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${GATK_DOCKER_IMAGE}" \
+            | grep -Fx "${GATK_DOCKER_IMAGE}" >/dev/null
 
       - name: Run HC shard
         env:
@@ -262,6 +524,8 @@ jobs:
           GIAB_STAGE_REF: "0"
           GIAB_RUST_BIN: ${{ github.workspace }}/target/release/gatk-rs
           GIAB_EQUIV_BIN: ${{ github.workspace }}/target/release/gatk-rs-equiv
+          GIAB_JAVA_GATK_JAR: ""
+          GIAB_JAVA_GATK_BIN: ""
           GIAB_SKIP_EQUIV_ENGINE: "1"
           # Cap glibc arenas — reduces Linux RSS inflation under Rayon.
           MALLOC_ARENA_MAX: "2"
@@ -281,6 +545,11 @@ jobs:
           probe_pid=$!
           cleanup() { kill "${probe_pid}" 2>/dev/null || true; wait "${probe_pid}" 2>/dev/null || true; }
           trap cleanup EXIT
+          if [[ "${GIAB_HC_ENGINES}" == "java" ]] && command -v gatk >/dev/null 2>&1; then
+            echo "::error::gatk on PATH would be selected instead of the pinned Docker image ${GATK_DOCKER_IMAGE}"
+            command -v gatk
+            exit 1
+          fi
           ./scripts/parity/giab/run_genomewide_equivalence.sh
 
       - name: OOM diagnostics on failure
@@ -327,10 +596,15 @@ jobs:
     needs: [prepare, hc-shard]
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    outputs:
+      validation_passed: ${{ steps.validation.outputs.validation_passed }}
+    env:
+      GATK_DOCKER_IMAGE: ${{ needs.prepare.outputs.gatk_image }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Free disk
@@ -392,9 +666,40 @@ jobs:
       - name: Restore bins + assert shipped reference
         run: |
           set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "${GITHUB_SHA}" ]]
           mkdir -p target/release
           cp -f giab-bins/gatk-rs giab-bins/gatk-rs-equiv target/release/
           chmod +x target/release/gatk-rs target/release/gatk-rs-equiv
+          prov=provenance/provenance.env
+          [[ -f "${prov}" ]]
+          want_rs="$(awk -F= '$1=="gatk_rs_sha256"{print $2}' "${prov}")"
+          want_eq="$(awk -F= '$1=="gatk_rs_equiv_sha256"{print $2}' "${prov}")"
+          want_image="$(awk -F= '$1=="gatk_image_ref"{print $2}' "${prov}")"
+          want_platform="$(awk -F= '$1=="gatk_image_platform"{print $2}' "${prov}")"
+          got_rs="$(sha256sum giab-bins/gatk-rs | awk '{print $1}')"
+          got_eq="$(sha256sum giab-bins/gatk-rs-equiv | awk '{print $1}')"
+          got_rs_used="$(sha256sum target/release/gatk-rs | awk '{print $1}')"
+          got_eq_used="$(sha256sum target/release/gatk-rs-equiv | awk '{print $1}')"
+          if [[ -z "${want_rs}" || "${want_rs}" != "${got_rs}" || "${want_rs}" != "${got_rs_used}" ]]; then
+            echo "::error::finalize gatk-rs hash does not match provenance"
+            exit 1
+          fi
+          if [[ -z "${want_eq}" || "${want_eq}" != "${got_eq}" || "${want_eq}" != "${got_eq_used}" ]]; then
+            echo "::error::finalize gatk-rs-equiv hash does not match provenance"
+            exit 1
+          fi
+          if [[ -z "${want_image}" || "${GATK_DOCKER_IMAGE}" != "${want_image}" ]]; then
+            echo "::error::finalize GATK image ref does not match provenance"
+            exit 1
+          fi
+          if [[ "${want_platform}" != "linux/amd64" || "${GATK_DOCKER_PLATFORM}" != "${want_platform}" ]]; then
+            echo "::error::finalize GATK platform does not match provenance"
+            exit 1
+          fi
+          if [[ ! "${GATK_DOCKER_IMAGE}" =~ ^us\.gcr\.io/broad-gatk/gatk@sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::finalize GATK image ref is not the pinned amd64 manifest"
+            exit 1
+          fi
           test -f parity/realworld/assets/hs37d5.simple.fa
           test -f parity/realworld/assets/hs37d5.simple.fa.fai
           test -f parity/realworld/assets/hs37d5.simple.dict
@@ -441,6 +746,212 @@ jobs:
           echo "[giab] HAPPY_BIN=${HAPPY_BIN:-<unset>} RTG_BIN=${RTG_BIN:-<unset>}"
           ./scripts/parity/giab/run_genomewide_equivalence.sh
 
+      - name: Record validation result
+        id: validation
+        if: always()
+        env:
+          GATE_STEP_OUTCOME: ${{ steps.giab_run.outcome }}
+        run: |
+          set +e
+          python3 - <<'PY'
+          import json
+          import math
+          import os
+          import sys
+          from pathlib import Path
+
+          # Absolute tolerance for the JSON f64 round-trip of F1 values in [0, 1].
+          # The threshold comparison allows the same 1e-9 above the configured value.
+          TOL = 1e-9
+
+          def fail(msg):
+              print(f"::error::{msg}", file=sys.stderr)
+              sys.exit(1)
+
+          def finite_number(value, label):
+              if isinstance(value, bool) or not isinstance(value, (int, float)):
+                  fail(f"{label} is not a number")
+              number = float(value)
+              if not math.isfinite(number):
+                  fail(f"{label} is not finite")
+              return number
+
+          outcome = os.environ.get("GATE_STEP_OUTCOME", "")
+          if outcome != "success":
+              fail(f"equivalence step outcome is {outcome or 'missing'}")
+          skip_engine = os.environ.get("GIAB_SKIP_EQUIV_ENGINE")
+          if skip_engine in (None, "", "0"):
+              pass
+          elif skip_engine == "1":
+              fail("GIAB_SKIP_EQUIV_ENGINE=1 disables the equivalence engine")
+          else:
+              fail(f"invalid GIAB_SKIP_EQUIV_ENGINE={skip_engine!r}")
+
+          requested = []
+          for part in os.environ.get("GIAB_SAMPLES", "").split(","):
+              item = part.strip()
+              if not item:
+                  fail("empty sample in GIAB_SAMPLES")
+              if item in requested:
+                  fail(f"duplicate requested sample {item}")
+              requested.append(item)
+          if not requested:
+              fail("empty requested sample list")
+
+          try:
+              threshold = float(os.environ["GIAB_F1_DELTA_THRESHOLD"])
+          except Exception:
+              fail("configured F1 threshold is not a number")
+          if not math.isfinite(threshold) or threshold < 0:
+              fail("configured F1 threshold is not a finite non-negative number")
+
+          mode = os.environ["GIAB_MODE"]
+          root = Path(os.environ["GIAB_OUT_ROOT"])
+          jsonl_path = root / "samples.jsonl"
+          if not jsonl_path.is_file():
+              fail(f"missing {jsonl_path}")
+          try:
+              lines = [line for line in jsonl_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+              rows = [json.loads(line) for line in lines]
+          except Exception as exc:
+              fail(f"malformed samples.jsonl: {exc}")
+          if len(rows) != len(requested):
+              fail(f"samples.jsonl has {len(rows)} rows, expected {len(requested)}")
+
+          seen = {}
+          for row in rows:
+              if not isinstance(row, dict):
+                  fail("samples.jsonl row is not an object")
+              sample = row.get("sample")
+              if not isinstance(sample, str) or not sample:
+                  fail("samples.jsonl row missing sample")
+              if sample in seen:
+                  fail(f"duplicate samples.jsonl row for {sample}")
+              seen[sample] = row
+          if set(seen) != set(requested):
+              fail("samples.jsonl samples do not match the requested sample list")
+
+          for sample in requested:
+              row = seen[sample]
+              if row.get("mode") != mode:
+                  fail(f"{sample} mode does not match GIAB_MODE")
+              exit_code = row.get("equiv_exit")
+              if isinstance(exit_code, bool) or not isinstance(exit_code, int) or exit_code != 0:
+                  fail(f"{sample} equiv_exit is not 0")
+              if row.get("gate_passed") is not True:
+                  fail(f"{sample} samples.jsonl gate_passed is not true")
+              results_path = root / sample / "equiv" / "results.json"
+              if not results_path.is_file():
+                  fail(f"missing {results_path}")
+              try:
+                  results = json.loads(results_path.read_text(encoding="utf-8"))
+              except Exception as exc:
+                  fail(f"malformed {results_path}: {exc}")
+              if not isinstance(results, dict):
+                  fail(f"{sample} results.json is not an object")
+              if row.get("equiv_results") != results:
+                  fail(f"{sample} samples.jsonl equiv_results does not match results.json")
+              if results.get("gate_passed") is not True:
+                  fail(f"{sample} results.json gate_passed is not true")
+              manifest = results.get("manifest")
+              if not isinstance(manifest, dict):
+                  fail(f"{sample} manifest missing")
+              manifest_threshold = finite_number(
+                  manifest.get("f1_delta_threshold"),
+                  f"{sample} manifest.f1_delta_threshold",
+              )
+              if abs(manifest_threshold - threshold) > TOL:
+                  fail(f"{sample} manifest threshold does not match the configured threshold")
+              def metrics_by_stratum(metrics, label):
+                  if not isinstance(metrics, list) or len(metrics) == 0:
+                      fail(f"{label} is empty")
+                  found = {}
+                  for index, item in enumerate(metrics):
+                      if not isinstance(item, dict):
+                          fail(f"{label}[{index}] is not an object")
+                      stratum = item.get("stratum")
+                      if not isinstance(stratum, str) or not stratum:
+                          fail(f"{label}[{index}] stratum missing")
+                      if stratum in found:
+                          fail(f"{label} duplicate stratum {stratum}")
+                      found[stratum] = item
+                  return found
+
+              java_by_stratum = metrics_by_stratum(results.get("java_vs_truth"), f"{sample} java_vs_truth")
+              rust_by_stratum = metrics_by_stratum(results.get("rust_vs_truth"), f"{sample} rust_vs_truth")
+              if set(java_by_stratum) != set(rust_by_stratum):
+                  fail(f"{sample} Java and Rust stratum sets differ")
+              expected_pairs = {
+                  (stratum, variant_class)
+                  for stratum in java_by_stratum
+                  for variant_class in ("SNP", "INDEL")
+              }
+              deltas = results.get("f1_deltas")
+              if not isinstance(deltas, list):
+                  fail(f"{sample} f1_deltas missing")
+              calculated = []
+              seen_pairs = []
+              for i, delta in enumerate(deltas):
+                  if not isinstance(delta, dict):
+                      fail(f"{sample} f1_deltas[{i}] is not an object")
+                  stratum = delta.get("stratum")
+                  variant_class = delta.get("class")
+                  label = f"{sample} f1_deltas[{i}] ({stratum}/{variant_class})"
+                  if not isinstance(stratum, str) or not stratum:
+                      fail(f"{label} stratum missing")
+                  if variant_class not in ("SNP", "INDEL"):
+                      fail(f"{label} unexpected class")
+                  pair = (stratum, variant_class)
+                  if stratum not in java_by_stratum or pair not in expected_pairs:
+                      fail(f"{label} unexpected stratum")
+                  if pair in seen_pairs:
+                      fail(f"{label} duplicate pair")
+                  seen_pairs.append(pair)
+                  java_f1 = finite_number(delta.get("java_f1"), f"{label} java_f1")
+                  rust_f1 = finite_number(delta.get("rust_f1"), f"{label} rust_f1")
+                  if java_f1 < -TOL or java_f1 > 1.0 + TOL or rust_f1 < -TOL or rust_f1 > 1.0 + TOL:
+                      fail(f"{label} F1 is outside [0, 1]")
+                  source_field = "snp" if variant_class == "SNP" else "indel"
+                  for side_name, side_metrics, side_f1 in (
+                      ("java_vs_truth", java_by_stratum, java_f1),
+                      ("rust_vs_truth", rust_by_stratum, rust_f1),
+                  ):
+                      block = side_metrics[stratum].get(source_field)
+                      if not isinstance(block, dict):
+                          fail(f"{label} {side_name} {source_field} missing")
+                      source_f1 = finite_number(block.get("f1"), f"{label} {side_name}.{source_field}.f1")
+                      if abs(side_f1 - source_f1) > TOL:
+                          fail(f"{label} {side_name}.{source_field}.f1 does not match f1_deltas")
+                  recorded_delta = finite_number(delta.get("delta"), f"{label} delta")
+                  recorded_abs = finite_number(delta.get("abs_delta"), f"{label} abs_delta")
+                  independent = abs(java_f1 - rust_f1)
+                  if abs(independent - recorded_abs) > TOL:
+                      fail(f"{label} abs_delta does not match abs(java_f1 - rust_f1)")
+                  if abs(recorded_delta - (rust_f1 - java_f1)) > TOL:
+                      fail(f"{label} delta does not match rust_f1 - java_f1")
+                  if abs(abs(recorded_delta) - recorded_abs) > TOL:
+                      fail(f"{label} abs_delta does not match abs(delta)")
+                  if independent > threshold + TOL:
+                      fail(f"{label} absolute F1 delta exceeds the configured threshold")
+                  if delta.get("within_threshold") is not True:
+                      fail(f"{label} within_threshold is not true")
+                  calculated.append(recorded_abs)
+              if set(seen_pairs) != expected_pairs or len(seen_pairs) != len(expected_pairs):
+                  fail(f"{sample} f1_deltas do not contain exactly one SNP and one INDEL per shared stratum")
+              max_abs = finite_number(results.get("max_abs_delta"), f"{sample} max_abs_delta")
+              if abs(max_abs - max(calculated)) > TOL:
+                  fail(f"{sample} max_abs_delta does not match the recorded F1 rows")
+              if max_abs > threshold + TOL:
+                  fail(f"{sample} max_abs_delta exceeds the configured threshold")
+          PY
+          rc=$?
+          if [[ "${rc}" -eq 0 ]]; then
+            echo "validation_passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "validation_passed=false" >> "$GITHUB_OUTPUT"
+          fi
+          exit 0
+
       - name: Upload run artifacts
         if: always()
         uses: actions/upload-artifact@v7
@@ -452,7 +963,7 @@ jobs:
           retention-days: 30
 
       - name: Fail job if equivalence gate failed
-        if: steps.giab_run.outcome != 'success'
+        if: ${{ !cancelled() && (steps.giab_run.outcome != 'success' || steps.validation.outputs.validation_passed != 'true') }}
         run: |
           echo "GIAB equivalence gate failed (see artifacts)"
           exit 1
@@ -461,14 +972,15 @@ jobs:
   deploy-giab-ci-pages:
     name: Deploy CI dashboard to /giab-ci/
     needs: finalize
-    if: always() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+    if: ${{ inputs.publish == true && needs.finalize.result == 'success' && needs.finalize.outputs.validation_passed == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
 
       - name: Download run artifact
-        continue-on-error: true
         uses: actions/download-artifact@v8
         with:
           name: giab-genomewide-${{ github.run_id }}
@@ -477,12 +989,17 @@ jobs:
       - name: Stage dashboard dir
         run: |
           set -euo pipefail
-          mkdir -p _giab_ci
-          if [[ -d parity/giab/runs/ci/dashboard ]]; then
-            cp -a parity/giab/runs/ci/dashboard/. _giab_ci/
-          else
-            echo '<!DOCTYPE html><html><body><h1>GIAB CI run produced no dashboard</h1></body></html>' > _giab_ci/index.html
+          if [[ ! -d parity/giab/runs/ci/dashboard ]]; then
+            echo "::error::refusing to deploy without a dashboard"
+            exit 1
           fi
+          mapfile -t dashboard_files < <(find parity/giab/runs/ci/dashboard -type f)
+          if [[ "${#dashboard_files[@]}" -eq 0 ]]; then
+            echo "::error::refusing to deploy an empty dashboard"
+            exit 1
+          fi
+          mkdir -p _giab_ci
+          cp -a parity/giab/runs/ci/dashboard/. _giab_ci/
           [[ -f parity/giab/runs/ci/SCOPE.txt ]] && cp parity/giab/runs/ci/SCOPE.txt _giab_ci/SCOPE.txt || true
 
       - name: Deploy to GitHub Pages (/giab-ci/)
@@ -500,16 +1017,13 @@ jobs:
   publish-parity-site:
     name: Publish public equivalence site
     needs: finalize
-    if: >
-      always()
-      && needs.finalize.result == 'success'
-      && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
-      && (github.event.inputs.mode || 'ci-subset') != 'smoke'
+    if: ${{ inputs.publish == true && needs.finalize.result == 'success' && needs.finalize.outputs.validation_passed == 'true' && (github.event.inputs.mode || 'ci-subset') != 'smoke' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.sha }}
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
