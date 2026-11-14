@@ -101,7 +101,7 @@ Use [CITATION.cff](CITATION.cff). Prefer that file over a hand-copied line.
 
 The same pages exist in German (`/de/offene-werkzeuge/`, `/de/technik/code/`) and in French (`/fr/offene-werkzeuge/`, `/fr/technique/code/`).
 
-The map of repositories: [profile/README.md](https://github.com/SynapticFour/.github/blob/main/profile/README.md).
+The map of repositories: [organisation profile](https://github.com/SynapticFour/.github/blob/main/profile/README.md).
 
 Contact: [contact@synapticfour.com](mailto:contact@synapticfour.com)
 
