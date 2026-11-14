@@ -1,119 +1,45 @@
 # gatk-rs
 
+gatk-rs is a Rust caller for germline short variants on an interval you already sequence: HaplotypeCaller, then CombineGVCFs, GenotypeGVCFs, and hard filters.
+
+For someone who already runs GATK HaplotypeCaller on a defined interval and wants a Rust build they can diff against Java GATK 4.4.
+
+**Status: No public status is recorded.** The claims registry has no gatk-rs stage. The workspace version in `Cargo.toml` is 0.1.0. That number is not a status.
+
 [![CI](https://github.com/SynapticFour/gatk-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/SynapticFour/gatk-rs/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-**Version 0.1.0 (Alpha).** Independent research reimplementation of a narrow
-GATK 4 germline path. Not affiliated with, endorsed by, or supported by the
-Broad Institute. “GATK” is a trademark of the Broad Institute. See
-[`NOTICE.md`](NOTICE.md).
+Not affiliated with, endorsed by, or supported by the Broad Institute. "GATK" is a trademark of the Broad Institute. See [NOTICE.md](NOTICE.md).
 
-Maintained by [Synaptic Four](https://synapticfour.com)
-([contact@synapticfour.com](mailto:contact@synapticfour.com)).
+Maintained by [Synaptic Four](https://synapticfour.com) ([contact@synapticfour.com](mailto:contact@synapticfour.com)).
 
 ## Why does this exist
 
-`gatk-rs` is a Rust workspace and `gatk-rs` command-line tool for germline
-short variants:
+The comparison baseline is pinned GATK 4.4.0.0 ([docs/GATK_PINNED.env](docs/GATK_PINNED.env)). The goal is algorithm parity on agreed gates, not a second copy of the GATK source tree and not a clinical drop-in.
 
-**HaplotypeCaller → CombineGVCFs → GenotypeGVCFs → VariantFiltration** (hard filters).
+It is not a replacement for BQSR, VQSR, Mutect2, or a whole-genome joint-calling service. Scope: [docs/adr/0001-scope-boundary.md](docs/adr/0001-scope-boundary.md).
 
-The comparison baseline is pinned GATK **4.4.0.0**
-([`docs/GATK_PINNED.env`](docs/GATK_PINNED.env)). The goal is algorithm parity
-on agreed gates, not a second copy of the GATK source tree and not a clinical
-drop-in.
+## What it does
 
-## Who it is for
+- The default HaplotypeCaller command runs the `assembly-region-v1` path (`CallRegionArgs::strict_java()`).
+- `CombineGVCFs`, `GenotypeGVCFs`, and `VariantFiltration` are real subcommands.
+- Product claims are only the **Yes** rows in [docs/CLAIM_MATRIX.md](docs/CLAIM_MATRIX.md).
 
-Someone who already runs GATK HaplotypeCaller on a defined interval and wants
-a native Rust caller they can build, diff against Java GATK 4.4, and extend
-without treating an unscoped “equivalent to GATK” claim as true.
+## Limits
 
-It is not a replacement for BQSR, VQSR, Mutect2, or a WGS joint-calling
-service. Scope: [`docs/adr/0001-scope-boundary.md`](docs/adr/0001-scope-boundary.md).
+- The source names that default path a production default (`gatk-haplotypecaller/src/run.rs`). The name is the code path. This repository is not clinically validated and it is not a drop-in replacement for Broad Institute GATK.
+- Whole-codebase HaplotypeCaller parity is not established. BQSR, VQSR, Mutect2, gCNV, SV, and Funcotator are not in this tree.
+- HG001 GIAB ci-subset F1 at `f70abf86` is a historical record pending revalidation. It is not a current-main **Yes** row. Full-autosome GIAB is not complete.
+- A CI badge is a workflow link, not those claims.
+- Performance numbers are not published here. Do not quote a laptop Criterion run or the 32 bp smoke memory profile. The dedicated-host contract is [docs/perf/FAIR_HC_COMPARISON.md](docs/perf/FAIR_HC_COMPARISON.md).
 
-## What works today
+The full gate table is in [docs/FOR-EVALUATORS.md](docs/FOR-EVALUATORS.md).
 
-The default `HaplotypeCaller` command runs the production
-`assembly-region-v1` path (`CallRegionArgs::strict_java()`): activity
-regions, local reassembly, PairHMM, genotyping, and VCF or gVCF emission.
-`CombineGVCFs`, `GenotypeGVCFs`, and `VariantFiltration` are real subcommands.
+## Quick start
 
-Product claims are only the **Yes** rows in
-[`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). In short, those rows cover:
+Prerequisites: Rust, a C toolchain, and samtools. The workspace `rust-version` is 1.75. Details are in [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md).
 
-- the canonical mid-B HaplotypeCaller path on one ActiveFull region,
-  `2:92317000-92319000` (three oracle SNPs);
-- P12 L3/L4/L5 on `chr2:92300000-92350000` (66 Java sites);
-- L2 synthetic gates, recorded **223/223 strict** on **2026-07-24** (that date
-  is the matrix evidence; this README does not re-certify a later commit);
-- a synthetic joint-genotype ladder, recommended **≤ 100** samples on a 10 kb
-  interval;
-- hard-filter FILTER parity on a synthetic SNP boundary set.
-
-HG001 GIAB **ci-subset** F1 is a historical record at `f70abf86` (#155), pending revalidation. It is not a current-main **Yes** row. Full-autosome GIAB is not complete.
-
-A CI badge is a workflow link, not those claims.
-
-## What is not GATK equivalence
-
-| In this tree | Not in this tree |
-|--------------|------------------|
-| Germline HC → CombineGVCFs → GenotypeGVCFs → hard `VariantFiltration` | BQSR, VQSR, Mutect2, gCNV/SV, Funcotator |
-| Scoped gates above | Genome-wide or full-autosome HaplotypeCaller equivalence |
-| One-sample HC, then Combine | Java-style joint HC that merges multiple `-I` BAMs into one read set |
-| Hard filters (`--preset snp` / `indel`) | VQSR |
-| Omitted `--pair-hmm` selects `FASTEST_AVAILABLE` (host SIMD when the build can use it, otherwise Logless scalar). Log10 scalar is an explicit `--pair-hmm LOG10_PAIRHMM` | A signed claim that the omitted flag matches GATK’s log10 PairHMM, or a signed SIMD speed claim |
-
-Also not claimed: bitwise-identical QUAL/FORMAT on every site, bamout,
-DRAGSTR, DRAGEN mode, allele-specific `AS_*` annotations, or
-`--assembly-region-out`. Multi-sample Combine loads gVCFs in memory and has
-no GenomicsDB path.
-
-Waivers that limit an otherwise **Yes** row (W-H1, W-H3, W-L7-FORMAT, and the
-W-J* tables) are named in the claim matrix. Do not drop them when citing a
-gate.
-
-## Compared with GATK HaplotypeCaller
-
-On the signed scopes, the caller is exercised against GATK 4.4.0.0
-(source SHA `2dbc025821bc5f686c423ff332a41e6cef892a77`, image
-`us.gcr.io/broad-gatk/gatk:4.4.0.0`). Outside those scopes, agreement is
-unproven. The CLI accepts familiar `-R` / `-I` / `-O` / `-L` flags.
-`--java-options` is accepted and does not start a JVM.
-
-Whole-codebase HaplotypeCaller parity is **not** established. The 6R/7R
-notes under [`docs/parity/`](docs/parity/) are investigation records, not
-extra Yes rows.
-
-## Prerequisites
-
-- Rust **stable** with rustfmt and clippy (`rust-toolchain.toml`). The
-  workspace `rust-version` is 1.75.
-- A C toolchain. BAM/VCF/FASTA I/O uses `rust-htslib` / HTSlib, compiled as
-  a crate dependency. CI builds on `ubuntu-latest` and `macos-latest`.
-  Windows is not a CI target (`hts-sys` OpenSSL headers).
-- [samtools](https://www.htslib.org/) to index the BAM and FASTA you pass
-  in, and for parity scripts that stage fixtures. It is not the caller.
-- Java GATK 4.4.0.0 only when you diff against the oracle. The `gatk-rs`
-  binary does not embed it.
-
-## Downloadable builds
-
-No product release is published from this repository yet. A version tag
-triggers a validated Linux x86_64 GNU binary release
-(`x86_64-unknown-linux-gnu`). The release assets are that executable and
-`SHA256SUMS`. The tag must be `v` plus the workspace version. The uploaded
-binary's `gatk-rs --version` line must report that version and the tagged
-commit. macOS and Windows binaries are not offered.
-
-This project is an alpha research reimplementation. It is not a drop-in
-replacement for Broad Institute GATK and it is not clinically validated.
-
-Docker image publication and GitHub Pages deployment are not part of this
-tag workflow.
-
-## Build and run
+`ref.fa` and `reads.bam` are yours. They are not in a clean checkout.
 
 ```bash
 cargo build -p gatk-cli --release --locked
@@ -124,63 +50,59 @@ samtools index reads.bam
   -L chr20:10000000-10050000
 ```
 
-`ref.fa` and `reads.bam` are paths you supply. They are not in a clean
-checkout. The interval `chr20:10000000-10050000` is an illustration, not the
-tracked 32 bp smoke fixture under `parity/fixtures/`. This command has not
-been run as part of the documentation. With those files indexed, it writes
-one plain-text VCF. Paths ending in `.vcf.gz`, `.bgz`, `.bgzip`, or `.bcf`
-are rejected. It does not prove GATK equivalence for that interval. Defaults,
-gVCF, Combine, genotype, and hard filters:
-[`docs/USER_GUIDE.md`](docs/USER_GUIDE.md).
+With those files indexed, this writes one plain-text VCF. It does not prove GATK equivalence for that interval.
+
+## Build and run
+
+The commands and the input table are in [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md). The same build is the block under Quick start. Windows is not a CI target.
 
 ## Validated Scope
 
-Signed product claims are only the **Yes** rows in
-[`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). Those rows cover the canonical
-mid-B HaplotypeCaller path on `2:92317000-92319000`, P12 L3/L4/L5 on
-`chr2:92300000-92350000`, the L2 synthetic record of 223/223 strict on
-2026-07-24, the synthetic joint-genotype ladder at the recommended cap of
-100 samples on a 10 kb interval, and hard-filter FILTER parity on the synthetic
-SNP boundary set. Waivers named
-on those rows stay part of the claim. HG001 GIAB ci-subset F1 at `f70abf86`
-(#155) is historical and pending revalidation, not a current-main **Yes**.
-Full-autosome GIAB is not complete.
+Signed product claims are only the **Yes** rows in [docs/CLAIM_MATRIX.md](docs/CLAIM_MATRIX.md). Those rows cover the canonical mid-B HaplotypeCaller path on `2:92317000-92319000`, P12 L3/L4/L5 on `chr2:92300000-92350000`, the L2 synthetic record of 223/223 strict on 2026-07-24, the synthetic joint-genotype ladder at the recommended cap of 100 samples on a 10 kb interval, and hard-filter FILTER parity on the synthetic SNP boundary set. Waivers named on those rows stay part of the claim. The boundary is [docs/adr/0001-scope-boundary.md](docs/adr/0001-scope-boundary.md).
 
-That record is not genome-wide or full-autosome HaplotypeCaller equivalence,
-and it does not include BQSR, VQSR, Mutect2, gCNV/SV, or Funcotator. The
-boundary is [`docs/adr/0001-scope-boundary.md`](docs/adr/0001-scope-boundary.md).
+## Documentation
+
+Every file under `docs/` is listed in [docs/README.md](docs/README.md). The groups are a tutorial, how-to guides, reference, and explanation. Notes under `docs/parity/` and `docs/perf/` are investigation records. They are not extra **Yes** rows.
+
+### Tutorial
+
+- [Getting started](docs/GETTING-STARTED.md)
+- [User guide](docs/USER_GUIDE.md)
+
+### How-to guides
+
+- [Pilot guide](docs/PILOT_GUIDE.md) — diff your own Java and Rust VCFs
+- [Release checklist](docs/RELEASE_CHECKLIST.md)
+
+### Reference
+
+- [Claim matrix](docs/CLAIM_MATRIX.md)
+- [For evaluators](docs/FOR-EVALUATORS.md)
+- [Parity](docs/PARITY.md)
+- [Supported flags](docs/SUPPORTED_FEATURE_MATRIX.md)
+
+### Explanation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Scope boundary](docs/adr/0001-scope-boundary.md)
 
 ## License
 
-This repository is licensed under the Apache License, Version 2.0
-([`LICENSE`](LICENSE)). The workspace package metadata records the same
-identifier, `Apache-2.0`. [`NOTICE.md`](NOTICE.md) states that this is an
-independent research reimplementation, that “GATK” is a trademark of the
-Broad Institute, and that GIAB truth sets, the pinned GATK jar, hap.py, and
-the HTSlib crates keep their own terms. Apache-2.0 on this tree does not
-relicense those assets.
+This repository is licensed under the Apache License, Version 2.0 ([LICENSE](LICENSE)). The workspace package metadata records the same identifier, `Apache-2.0`. [NOTICE.md](NOTICE.md) states that this is an independent research reimplementation, that "GATK" is a trademark of the Broad Institute, and that GIAB truth sets, the pinned GATK jar, hap.py, and the HTSlib crates keep their own terms. Apache-2.0 on this tree does not relicense those assets. There is no gatk-rs licence claim in the registry.
 
-## Inputs
+## Cite
 
-| File | Requirement |
-|------|-------------|
-| Reference FASTA (`-R`) | Contig names must match the BAM. A sibling `.fai` is how contig lengths are loaded without scanning a whole genome. This loader does not read a Picard `.dict`. |
-| Reads (`-I`) | BAM opened with an index (`.bai`). Repeating `-I` does **not** implement Java joint-read HaplotypeCaller. |
-| Intervals (`-L`) | Repeatable `contig:start-end`. Omit `-L` only when you intend the whole reference. |
+Use [CITATION.cff](CITATION.cff). Prefer that file over a hand-copied line.
 
-## Where to go next
+## Website
 
-| Question | Document |
-|----------|----------|
-| Install, flags, outputs, failures | [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) |
-| Diff your own Java and Rust VCFs | [`docs/PILOT_GUIDE.md`](docs/PILOT_GUIDE.md) |
-| Pipeline stages and crates | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
-| What a gate does and does not prove | [`docs/PARITY.md`](docs/PARITY.md) |
-| Yes / No claims | [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md) |
-| Doc map | [`docs/README.md`](docs/README.md) |
-| Change the code | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
-| Performance numbers | Not published. Dedicated-host contract: [`docs/perf/FAIR_HC_COMPARISON.md`](docs/perf/FAIR_HC_COMPARISON.md). Do not quote laptop Criterion or the 32 bp smoke RSS profile. |
-| Dashboards | [`docs/EQUIVALENCE_DASHBOARD.md`](docs/EQUIVALENCE_DASHBOARD.md) is pending: its F1 table is empty, so that file is not a result. [`docs/parity-site/data/history.json`](docs/parity-site/data/history.json) does contain historical runs. Those rows are not a current-main **Yes**. The HG001 ci-subset F1 numbers are a historical record pending revalidation in [`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md). |
-| Security, license | [`SECURITY.md`](SECURITY.md), [`LICENSE`](LICENSE), [`NOTICE.md`](NOTICE.md) |
+- Open tools: [https://synapticfour.com/en/offene-werkzeuge/](https://synapticfour.com/en/offene-werkzeuge/)
+- Technical profile: [https://synapticfour.com/en/technical/code/](https://synapticfour.com/en/technical/code/)
 
-Changelog: [`CHANGELOG.md`](CHANGELOG.md).
+The same pages exist in German (`/de/offene-werkzeuge/`, `/de/technik/code/`) and in French (`/fr/offene-werkzeuge/`, `/fr/technique/code/`).
+
+The map of repositories: [profile/README.md](https://github.com/SynapticFour/.github/blob/main/profile/README.md).
+
+Contact: [contact@synapticfour.com](mailto:contact@synapticfour.com)
+
+Changelog: [CHANGELOG.md](CHANGELOG.md).
