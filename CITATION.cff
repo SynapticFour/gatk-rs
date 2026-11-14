@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: Please cite this repository using these fields. Prefer this file over a hand-copied line.
+title: gatk-rs
+authors:
+  - name: Synaptic Four
+repository-code: https://github.com/SynapticFour/gatk-rs
+url: https://synapticfour.com/en/offene-werkzeuge/
+license: Apache-2.0
+type: software
